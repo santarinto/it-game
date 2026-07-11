@@ -23,6 +23,8 @@ export class HUDScene extends Phaser.Scene {
   private hireBtn!: Button
   private routerBtn!: Button
   private serverBtn!: Button
+  private room: 'office' | 'serverRoom' = 'office'
+  private switchBtn!: Button
 
   constructor() {
     super('hud')
@@ -46,6 +48,9 @@ export class HUDScene extends Phaser.Scene {
     this.routerBtn = this.makeButton(520, 10, () => client.send('buy_router'))
     this.serverBtn = this.makeButton(520, 52, () => client.send('buy_server'))
 
+    this.switchBtn = this.makeButton(740, 31, () => this.switchRoom())
+    this.switchBtn.setLabel('В серверную →')
+
     const unsub = client.subscribe({
       onState: (s) => this.refresh(s),
       onError: (code) => this.toast(ERROR_TEXTS[code] ?? code),
@@ -62,6 +67,14 @@ export class HUDScene extends Phaser.Scene {
     this.hireBtn.setLabel(`Нанять  $${s.prices.hire}`)
     this.routerBtn.setLabel(s.prices.nextRouter > 0 ? `Роутер  $${s.prices.nextRouter}` : 'Роутер MAX')
     this.serverBtn.setLabel(`Сервер  $${s.prices.server}`)
+  }
+
+  private switchRoom() {
+    const next = this.room === 'office' ? 'serverRoom' : 'office'
+    this.scene.stop(this.room)
+    this.scene.launch(next)
+    this.room = next
+    this.switchBtn.setLabel(this.room === 'office' ? 'В серверную →' : '← В офис')
   }
 
   private makeButton(x: number, y: number, onClick: () => void): Button {
