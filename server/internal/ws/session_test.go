@@ -135,15 +135,20 @@ func TestSessionDayCycle(t *testing.T) {
 
 func TestSessionBankruptcyAndRestart(t *testing.T) {
 	cfg := game.DefaultConfig()
-	// День подлиннее (250мс), чтобы hire гарантированно успел до конца дня.
-	cfg.DayTicks = 50
+	// День = 1 секунда (100 тиков по 10мс): огромный запас, чтобы hire гарантированно успел до конца дня.
+	cfg.DayTicks = 100
 	cfg.SalaryPerDay = 100000 // гарантированное банкротство с одним сотрудником
-	c, ctx := dialTestServer(t, cfg, 5*time.Millisecond)
+	c, ctx := dialTestServer(t, cfg, 10*time.Millisecond)
 
 	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire"}); err != nil {
 		t.Fatal(err)
 	}
-	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" && m.Employees == 1 })
+	first := readUntil(t, ctx, c, func(m testMessage) bool {
+		return (m.Type == "state" && m.Employees == 1) || m.Type == "error"
+	})
+	if first.Type == "error" {
+		t.Fatalf("hire не успел до конца дня: %+v", first)
+	}
 	over := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "game_over" })
 	if over.DaysSurvived != 1 || over.Balance >= 0 {
 		t.Fatalf("итоги банкротства: %+v", over)
