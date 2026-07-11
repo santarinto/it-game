@@ -13,6 +13,8 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   create() {
+    // сцены перезапускаются при переключении комнат — сбрасываем ссылки прошлого цикла
+    this.objects = []
     this.add.rectangle(0, 96, 960, 544, 0x2b2f4a).setOrigin(0) // пол офиса
     this.add.text(480, 116, 'ОФИС', {
       fontFamily: 'monospace', fontSize: '16px', color: '#5d7275',

@@ -12,6 +12,8 @@ export class ServerRoomScene extends Phaser.Scene {
   }
 
   create() {
+    // сцены перезапускаются при переключении комнат — сбрасываем ссылки прошлого цикла
+    this.objects = []
     this.add.rectangle(0, 96, 960, 544, 0x1f2233).setOrigin(0) // сумрак серверной
     this.add.text(480, 116, 'СЕРВЕРНАЯ', {
       fontFamily: 'monospace', fontSize: '16px', color: '#5d7275',

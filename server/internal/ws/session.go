@@ -34,7 +34,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	go readLoop(ctx, cancel, c, commands)
 
 	h.run(ctx, c, commands)
-	c.Close(websocket.StatusNormalClosure, "игра окончена")
+	c.Close(websocket.StatusNormalClosure, "сессия завершена")
 }
 
 // readLoop — единственный читатель соединения: превращает входящие
