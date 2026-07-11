@@ -10,6 +10,8 @@ const (
 	ErrNotEnoughMoney   = Err("not_enough_money")
 	ErrNoFreeOfficeSlot = Err("no_free_office_slot")
 	ErrNoFreePC         = Err("no_free_pc")
+	ErrNoFreeRackSlot   = Err("no_free_rack_slot")
+	ErrRouterMaxed      = Err("router_maxed")
 )
 
 // BuyPC ставит новый ПК в свободный слот офиса.
@@ -36,4 +38,40 @@ func (g *Game) Hire() error {
 	g.Money -= g.cfg.HirePrice
 	g.Employees++
 	return nil
+}
+
+// BuyRouter покупает следующий тир роутера (тир заменяет предыдущий).
+// Слот роутера специальный: он один, отдельный от рабочих мест.
+func (g *Game) BuyRouter() error {
+	if g.RouterTier >= len(g.cfg.RouterTiers) {
+		return ErrRouterMaxed
+	}
+	price := g.cfg.RouterTiers[g.RouterTier].Price
+	if g.Money < price {
+		return ErrNotEnoughMoney
+	}
+	g.Money -= price
+	g.RouterTier++
+	return nil
+}
+
+// BuyServer ставит сервер в свободную стойку серверной.
+func (g *Game) BuyServer() error {
+	if g.Servers >= g.cfg.RackSlots {
+		return ErrNoFreeRackSlot
+	}
+	if g.Money < g.cfg.ServerPrice {
+		return ErrNotEnoughMoney
+	}
+	g.Money -= g.cfg.ServerPrice
+	g.Servers++
+	return nil
+}
+
+// NextRouterPrice — цена следующего тира роутера; 0, если тир максимальный.
+func (g *Game) NextRouterPrice() int {
+	if g.RouterTier >= len(g.cfg.RouterTiers) {
+		return 0
+	}
+	return g.cfg.RouterTiers[g.RouterTier].Price
 }
