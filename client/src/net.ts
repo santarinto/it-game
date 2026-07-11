@@ -17,7 +17,13 @@ export class GameClient {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
     this.ws = new WebSocket(`${proto}://${location.host}/ws`)
     this.ws.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data as string) as ServerMessage
+      let msg: ServerMessage
+      try {
+        msg = JSON.parse(ev.data as string) as ServerMessage
+      } catch {
+        console.error('битое сообщение от сервера', ev.data)
+        return
+      }
       if (msg.type === 'state') {
         this.latest = msg
         this.listeners.forEach((l) => l.onState(msg))
@@ -29,6 +35,9 @@ export class GameClient {
   }
 
   send(cmd: CommandType): void {
+    // Соединение ещё не открыто или уже потеряно — команду безопасно игнорируем,
+    // сервер всё равно источник истины.
+    if (this.ws.readyState !== WebSocket.OPEN) return
     this.ws.send(JSON.stringify({ type: cmd }))
   }
 
