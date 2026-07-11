@@ -110,6 +110,52 @@ func TestBuyServer(t *testing.T) {
 	}
 }
 
+func TestIncome(t *testing.T) {
+	tests := []struct {
+		name                           string
+		employees, routerTier, servers int
+		wantConnected                  int
+		wantMultiplier                 float64
+		wantIncome                     int
+	}{
+		{"без роутера: базовая выработка", 2, 0, 0, 0, 1.0, 20},
+		{"серверы без роутера не дают ничего", 2, 0, 3, 0, 1.0, 20},
+		{"роутер тир 1: подключённые ×1.5", 2, 1, 0, 2, 1.5, 30},
+		{"портов меньше, чем сотрудников", 6, 1, 0, 4, 1.5, 80}, // 4×15 + 2×10
+		{"роутер + 2 сервера: ×2.5", 6, 1, 2, 4, 2.5, 120},      // 4×25 + 2×10
+		{"потолок MVP: 9 сотрудников на ×3.0", 9, 2, 3, 9, 3.0, 270},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := New(DefaultConfig())
+			g.PCs = tt.employees
+			g.Employees = tt.employees
+			g.RouterTier = tt.routerTier
+			g.Servers = tt.servers
+			if c := g.Connected(); c != tt.wantConnected {
+				t.Errorf("Connected() = %d, хотим %d", c, tt.wantConnected)
+			}
+			if m := g.Multiplier(); m != tt.wantMultiplier {
+				t.Errorf("Multiplier() = %v, хотим %v", m, tt.wantMultiplier)
+			}
+			if inc := g.IncomePerTick(); inc != tt.wantIncome {
+				t.Errorf("IncomePerTick() = %d, хотим %d", inc, tt.wantIncome)
+			}
+		})
+	}
+}
+
+func TestTickAddsIncome(t *testing.T) {
+	g := New(DefaultConfig())
+	g.Money = 0
+	g.Employees = 1
+	g.Tick()
+	g.Tick()
+	if g.Money != 20 {
+		t.Errorf("после двух тиков Money = %d, хотим 20", g.Money)
+	}
+}
+
 func TestHire(t *testing.T) {
 	tests := []struct {
 		name          string
