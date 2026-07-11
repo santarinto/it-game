@@ -21,4 +21,7 @@ func TestSnapshot(t *testing.T) {
 	if s.Multiplier != 1.0 || s.IncomePerTick != 0 {
 		t.Errorf("производные поля неверны: %+v", s)
 	}
+	if s.Day != 1 || s.DayTicks != 60 || s.DayProgress != 0 || s.PayrollPerDay != 0 || s.Phase != "running" {
+		t.Errorf("поля дня в снапшоте неверны: %+v", s)
+	}
 }

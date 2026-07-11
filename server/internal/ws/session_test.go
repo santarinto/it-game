@@ -13,17 +13,23 @@ import (
 	"itdirector/internal/game"
 )
 
-// testMessage покрывает и state, и error — удобно читать любой ответ.
+// testMessage покрывает state, error, day_report и game_over —
+// удобно читать любой ответ сервера одним типом.
 type testMessage struct {
-	Type      string `json:"type"`
-	Code      string `json:"code"`
-	Money     int    `json:"money"`
-	Employees int    `json:"employees"`
+	Type         string `json:"type"`
+	Code         string `json:"code"`
+	Money        int    `json:"money"`
+	Employees    int    `json:"employees"`
+	Day          int    `json:"day"`
+	Phase        string `json:"phase"`
+	Payroll      int    `json:"payroll"`
+	Balance      int    `json:"balance"`
+	DaysSurvived int    `json:"daysSurvived"`
 }
 
-func dialTestServer(t *testing.T, tick time.Duration) (*websocket.Conn, context.Context) {
+func dialTestServer(t *testing.T, cfg game.Config, tick time.Duration) (*websocket.Conn, context.Context) {
 	t.Helper()
-	srv := httptest.NewServer(&Handler{Config: game.DefaultConfig(), TickInterval: tick})
+	srv := httptest.NewServer(&Handler{Config: cfg, TickInterval: tick})
 	t.Cleanup(srv.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
@@ -35,9 +41,23 @@ func dialTestServer(t *testing.T, tick time.Duration) (*websocket.Conn, context.
 	return c, ctx
 }
 
+// readUntil читает сообщения, пока не встретит подходящее (или упадёт по таймауту ctx).
+func readUntil(t *testing.T, ctx context.Context, c *websocket.Conn, ok func(testMessage) bool) testMessage {
+	t.Helper()
+	for {
+		var msg testMessage
+		if err := wsjson.Read(ctx, c, &msg); err != nil {
+			t.Fatalf("readUntil: %v", err)
+		}
+		if ok(msg) {
+			return msg
+		}
+	}
+}
+
 func TestSessionCommands(t *testing.T) {
 	// Тикер на час: тики не мешают проверке команд.
-	c, ctx := dialTestServer(t, time.Hour)
+	c, ctx := dialTestServer(t, game.DefaultConfig(), time.Hour)
 
 	var msg testMessage
 	if err := wsjson.Read(ctx, c, &msg); err != nil {
@@ -71,7 +91,7 @@ func TestSessionCommands(t *testing.T) {
 }
 
 func TestSessionTicks(t *testing.T) {
-	c, ctx := dialTestServer(t, 10*time.Millisecond)
+	c, ctx := dialTestServer(t, game.DefaultConfig(), 10*time.Millisecond)
 
 	var msg testMessage
 	if err := wsjson.Read(ctx, c, &msg); err != nil {
@@ -86,4 +106,53 @@ func TestSessionTicks(t *testing.T) {
 			t.Fatalf("ждали рост денег от тиков: %v (последнее: %+v)", err, msg)
 		}
 	}
+}
+
+func TestSessionDayCycle(t *testing.T) {
+	cfg := game.DefaultConfig()
+	cfg.DayTicks = 2
+	c, ctx := dialTestServer(t, cfg, 5*time.Millisecond)
+
+	// Без сотрудников ФОТ 0 — день кончается отчётом, не банкротством.
+	rep := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "day_report" })
+	if rep.Day != 1 || rep.Payroll != 0 || rep.Balance != 600 {
+		t.Fatalf("отчёт дня 1: %+v", rep)
+	}
+	// Покупка в фазе отчёта отклоняется.
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire"}); err != nil {
+		t.Fatal(err)
+	}
+	errMsg := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "error" })
+	if errMsg.Code != "wrong_phase" {
+		t.Fatalf("хотим wrong_phase, получили %+v", errMsg)
+	}
+	// next_day запускает день 2.
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "next_day"}); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" && m.Day == 2 && m.Phase == "running" })
+}
+
+func TestSessionBankruptcyAndRestart(t *testing.T) {
+	cfg := game.DefaultConfig()
+	// День подлиннее (250мс), чтобы hire гарантированно успел до конца дня.
+	cfg.DayTicks = 50
+	cfg.SalaryPerDay = 100000 // гарантированное банкротство с одним сотрудником
+	c, ctx := dialTestServer(t, cfg, 5*time.Millisecond)
+
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire"}); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" && m.Employees == 1 })
+	over := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "game_over" })
+	if over.DaysSurvived != 1 || over.Balance >= 0 {
+		t.Fatalf("итоги банкротства: %+v", over)
+	}
+	// restart возвращает стартовое состояние.
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "restart"}); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, ctx, c, func(m testMessage) bool {
+		return m.Type == "state" && m.Money == 600 && m.Employees == 0 && m.Day == 1 && m.Phase == "running"
+	})
 }

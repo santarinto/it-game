@@ -21,6 +21,11 @@ type stateMessage struct {
 	Servers       int     `json:"servers"`
 	Multiplier    float64 `json:"multiplier"`
 	IncomePerTick int     `json:"incomePerTick"`
+	Day           int     `json:"day"`
+	DayTicks      int     `json:"dayTicks"`
+	DayProgress   int     `json:"dayProgress"` // тиков прошло в текущем дне
+	PayrollPerDay int     `json:"payrollPerDay"`
+	Phase         string  `json:"phase"` // running | day_report | game_over
 	OfficeSlots   int     `json:"officeSlots"`
 	RackSlots     int     `json:"rackSlots"`
 	Prices        prices  `json:"prices"`
@@ -38,6 +43,24 @@ type errorMessage struct {
 	Code string `json:"code"`
 }
 
+// dayReportMessage — итоги дня; шлётся сразу после снапшота с phase=day_report.
+type dayReportMessage struct {
+	Type    string `json:"type"` // всегда "day_report"
+	Day     int    `json:"day"`
+	Income  int    `json:"income"`
+	Payroll int    `json:"payroll"`
+	Profit  int    `json:"profit"`
+	Balance int    `json:"balance"`
+}
+
+// gameOverMessage — итоги банкротства; шлётся сразу после снапшота с phase=game_over.
+type gameOverMessage struct {
+	Type              string `json:"type"` // всегда "game_over"
+	DaysSurvived      int    `json:"daysSurvived"`
+	PeakIncomePerTick int    `json:"peakIncomePerTick"`
+	Balance           int    `json:"balance"` // отрицательный: сколько не хватило
+}
+
 func snapshot(g *game.Game) stateMessage {
 	cfg := g.Config()
 	return stateMessage{
@@ -51,6 +74,11 @@ func snapshot(g *game.Game) stateMessage {
 		Servers:       g.Servers,
 		Multiplier:    g.Multiplier(),
 		IncomePerTick: g.IncomePerTick(),
+		Day:           g.Day,
+		DayTicks:      cfg.DayTicks,
+		DayProgress:   g.TickInDay,
+		PayrollPerDay: g.PayrollPerDay(),
+		Phase:         string(g.Phase),
 		OfficeSlots:   cfg.OfficeSlots,
 		RackSlots:     cfg.RackSlots,
 		Prices: prices{

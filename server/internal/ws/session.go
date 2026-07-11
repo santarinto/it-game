@@ -78,9 +78,20 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan ga
 				return
 			}
 		case <-ticker.C:
-			g.Tick()
+			report := g.Tick()
 			if wsjson.Write(ctx, c, snapshot(g)) != nil {
 				return
+			}
+			if report != nil {
+				var out any
+				if g.Phase == game.PhaseGameOver {
+					out = gameOverMessage{Type: "game_over", DaysSurvived: g.Day, PeakIncomePerTick: g.PeakIncomePerTick, Balance: g.Money}
+				} else {
+					out = dayReportMessage{Type: "day_report", Day: report.Day, Income: report.Income, Payroll: report.Payroll, Profit: report.Profit, Balance: report.Balance}
+				}
+				if wsjson.Write(ctx, c, out) != nil {
+					return
+				}
 			}
 		case <-ctx.Done():
 			return
