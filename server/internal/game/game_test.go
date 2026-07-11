@@ -124,6 +124,7 @@ func TestIncome(t *testing.T) {
 		{"портов меньше, чем сотрудников", 6, 1, 0, 4, 1.5, 80}, // 4×15 + 2×10
 		{"роутер + 2 сервера: ×2.5", 6, 1, 2, 4, 2.5, 120},      // 4×25 + 2×10
 		{"потолок MVP: 9 сотрудников на ×3.0", 9, 2, 3, 9, 3.0, 270},
+		{"без сотрудников дохода нет", 0, 0, 0, 0, 1.0, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -167,6 +168,21 @@ func TestApply(t *testing.T) {
 	if err := g.Apply(Command("dance")); err != ErrUnknownCommand {
 		t.Errorf("неизвестная команда: err = %v, хотим %v", err, ErrUnknownCommand)
 	}
+
+	g2 := New(DefaultConfig())
+	g2.Money = 10000
+	for _, tc := range []struct {
+		cmd   Command
+		check func() bool
+	}{
+		{CmdBuyPC, func() bool { return g2.PCs == 2 }},
+		{CmdBuyRouter, func() bool { return g2.RouterTier == 1 }},
+		{CmdBuyServer, func() bool { return g2.Servers == 1 }},
+	} {
+		if err := g2.Apply(tc.cmd); err != nil || !tc.check() {
+			t.Errorf("Apply(%s): err=%v, состояние не изменилось", tc.cmd, err)
+		}
+	}
 }
 
 func TestHire(t *testing.T) {
@@ -180,6 +196,7 @@ func TestHire(t *testing.T) {
 		{"успех: есть свободный стартовый ПК", func(g *Game) { g.Money = 300 }, nil, 1, 0},
 		{"нет свободного ПК", func(g *Game) { g.Money = 1000; g.Employees = 1 }, ErrNoFreePC, 1, 1000},
 		{"не хватает денег", func(g *Game) { g.Money = 299 }, ErrNotEnoughMoney, 0, 299},
+		{"нет ПК и денег одновременно: ПК проверяется первым", func(g *Game) { g.Money = 0; g.Employees = 1 }, ErrNoFreePC, 1, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

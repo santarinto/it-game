@@ -17,7 +17,7 @@ func main() {
 	flag.Parse()
 
 	mux := http.NewServeMux()
-	mux.Handle("/ws", &ws.Handler{Config: game.DefaultConfig(), TickInterval: time.Second})
+	mux.Handle("GET /ws", &ws.Handler{Config: game.DefaultConfig(), TickInterval: time.Second})
 	if *static != "" {
 		if _, err := os.Stat(*static); err != nil {
 			log.Fatalf("каталог статики: %v", err)
