@@ -54,9 +54,25 @@ export class HUDScene extends Phaser.Scene {
     const unsub = client.subscribe({
       onState: (s) => this.refresh(s),
       onError: (code) => this.toast(ERROR_TEXTS[code] ?? code),
-      onDisconnect: () => {}, // экран дисконнекта — задача 12
+      onDisconnect: () => this.showDisconnect(),
     })
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, unsub)
+  }
+
+  private showDisconnect() {
+    this.add.rectangle(0, 0, 960, 640, 0x1a1c2c, 0.85).setOrigin(0).setDepth(100)
+    this.add
+      .text(480, 300, 'Соединение потеряно', {
+        fontFamily: 'monospace', fontSize: '28px', color: '#b13e53',
+      })
+      .setOrigin(0.5)
+      .setDepth(101)
+    this.add
+      .text(480, 344, 'Игра не сохраняется — обновите страницу, чтобы начать заново', {
+        fontFamily: 'monospace', fontSize: '15px', color: '#f4f4f4',
+      })
+      .setOrigin(0.5)
+      .setDepth(101)
   }
 
   private refresh(s: StateMessage) {
