@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { registerTextures } from '../pixelart'
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -6,7 +7,8 @@ export class BootScene extends Phaser.Scene {
   }
 
   create() {
-    // Комнаты появятся в задачах 10–11; пока стартуем только HUD.
-    this.scene.start('hud')
+    registerTextures(this)
+    this.scene.start('office')
+    this.scene.launch('hud') // HUD живёт поверх комнат
   }
 }
