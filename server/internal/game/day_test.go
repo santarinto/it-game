@@ -107,3 +107,67 @@ func TestPeakIncomeTracked(t *testing.T) {
 		t.Errorf("PeakIncomePerTick = %d, хотим 20", g.PeakIncomePerTick)
 	}
 }
+
+func TestNextDay(t *testing.T) {
+	g := New(dayTestConfig())
+	g.Money = 1000
+	g.Employees = 1
+	for i := 0; i < 3; i++ {
+		g.Tick()
+	}
+	if err := g.NextDay(); err != nil {
+		t.Fatalf("NextDay из отчёта: %v", err)
+	}
+	if g.Phase != PhaseRunning || g.Day != 2 || g.TickInDay != 0 || g.DayIncome != 0 {
+		t.Errorf("после NextDay: Phase=%q Day=%d TickInDay=%d DayIncome=%d", g.Phase, g.Day, g.TickInDay, g.DayIncome)
+	}
+}
+
+func TestNextDayWrongPhase(t *testing.T) {
+	g := New(dayTestConfig())
+	if err := g.NextDay(); err != ErrWrongPhase {
+		t.Errorf("NextDay из running: err = %v, хотим %v", err, ErrWrongPhase)
+	}
+}
+
+func TestRestart(t *testing.T) {
+	g := New(dayTestConfig())
+	g.Money = 0
+	g.PCs = 3
+	g.Employees = 3
+	for i := 0; i < 3; i++ {
+		g.Tick()
+	}
+	if g.Phase != PhaseGameOver {
+		t.Fatalf("подготовка: ждали game_over, Phase=%q", g.Phase)
+	}
+	if err := g.Restart(); err != nil {
+		t.Fatalf("Restart: %v", err)
+	}
+	if g.Phase != PhaseRunning || g.Day != 1 || g.Money != 600 || g.PCs != 1 ||
+		g.Employees != 0 || g.RouterTier != 0 || g.Servers != 0 ||
+		g.TickInDay != 0 || g.DayIncome != 0 || g.PeakIncomePerTick != 0 {
+		t.Errorf("после Restart не стартовое состояние: %+v", g)
+	}
+}
+
+func TestRestartWrongPhase(t *testing.T) {
+	g := New(dayTestConfig())
+	if err := g.Restart(); err != ErrWrongPhase {
+		t.Errorf("Restart из running: err = %v, хотим %v", err, ErrWrongPhase)
+	}
+}
+
+func TestApplyPhaseGating(t *testing.T) {
+	g := New(dayTestConfig())
+	g.Money = 10000
+	g.Phase = PhaseDayReport
+	for _, cmd := range []Command{CmdBuyPC, CmdHire, CmdBuyRouter, CmdBuyServer} {
+		if err := g.Apply(cmd); err != ErrWrongPhase {
+			t.Errorf("Apply(%s) в day_report: err = %v, хотим %v", cmd, err, ErrWrongPhase)
+		}
+	}
+	if err := g.Apply(CmdNextDay); err != nil {
+		t.Errorf("Apply(next_day) в day_report: %v", err)
+	}
+}

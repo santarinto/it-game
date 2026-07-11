@@ -12,6 +12,7 @@ const (
 	ErrNoFreePC         = Err("no_free_pc")
 	ErrNoFreeRackSlot   = Err("no_free_rack_slot")
 	ErrRouterMaxed      = Err("router_maxed")
+	ErrWrongPhase       = Err("wrong_phase")
 )
 
 // BuyPC ставит новый ПК в свободный слот офиса.
@@ -68,6 +69,27 @@ func (g *Game) BuyServer() error {
 	return nil
 }
 
+// NextDay начинает следующий день. Работает только из фазы отчёта.
+func (g *Game) NextDay() error {
+	if g.Phase != PhaseDayReport {
+		return ErrWrongPhase
+	}
+	g.Day++
+	g.TickInDay = 0
+	g.DayIncome = 0
+	g.Phase = PhaseRunning
+	return nil
+}
+
+// Restart начинает новую игру с нуля. Работает только после банкротства.
+func (g *Game) Restart() error {
+	if g.Phase != PhaseGameOver {
+		return ErrWrongPhase
+	}
+	*g = *New(g.cfg)
+	return nil
+}
+
 // NextRouterPrice — цена следующего тира роутера; 0, если тир максимальный.
 func (g *Game) NextRouterPrice() int {
 	if g.RouterTier >= len(g.cfg.RouterTiers) {
@@ -87,10 +109,22 @@ const (
 	CmdHire      = Command("hire")
 	CmdBuyRouter = Command("buy_router")
 	CmdBuyServer = Command("buy_server")
+	CmdNextDay   = Command("next_day")
+	CmdRestart   = Command("restart")
 )
 
-// Apply выполняет команду игрока.
+// Apply выполняет команду игрока. Команды покупки/найма работают только
+// в фазе running; next_day/restart сами проверяют свою фазу.
 func (g *Game) Apply(cmd Command) error {
+	switch cmd {
+	case CmdNextDay:
+		return g.NextDay()
+	case CmdRestart:
+		return g.Restart()
+	}
+	if g.Phase != PhaseRunning {
+		return ErrWrongPhase
+	}
 	switch cmd {
 	case CmdBuyPC:
 		return g.BuyPC()
