@@ -1,9 +1,12 @@
-import type { CommandType, ServerMessage, StateMessage } from './protocol'
+import type { CommandType, DayReportMessage, GameOverMessage, ServerMessage, StateMessage } from './protocol'
 
 export interface Listener {
   onState(s: StateMessage): void
   onError(code: string): void
   onDisconnect(): void
+  // Только HUD показывает отчёты и банкротство — для остальных сцен опциональны.
+  onDayReport?(r: DayReportMessage): void
+  onGameOver?(o: GameOverMessage): void
 }
 
 // GameClient — единственная точка общения с сервером.
@@ -27,11 +30,23 @@ export class GameClient {
       if (msg.type === 'state') {
         this.latest = msg
         this.listeners.forEach((l) => l.onState(msg))
-      } else {
+      } else if (msg.type === 'error') {
         this.listeners.forEach((l) => l.onError(msg.code))
+      } else if (msg.type === 'day_report') {
+        this.listeners.forEach((l) => l.onDayReport?.(msg))
+      } else {
+        this.listeners.forEach((l) => l.onGameOver?.(msg))
       }
     }
-    this.ws.onclose = () => this.listeners.forEach((l) => l.onDisconnect())
+    // onerror и onclose могут прийти оба — дисконнект сообщаем один раз.
+    let disconnected = false
+    const fireDisconnect = () => {
+      if (disconnected) return
+      disconnected = true
+      this.listeners.forEach((l) => l.onDisconnect())
+    }
+    this.ws.onclose = fireDisconnect
+    this.ws.onerror = fireDisconnect
   }
 
   send(cmd: CommandType): void {
