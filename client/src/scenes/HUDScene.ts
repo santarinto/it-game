@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { client } from '../net'
 import type { StateMessage } from '../protocol'
+import { fmtMoney } from '../format'
 
 const ERROR_TEXTS: Record<string, string> = {
   not_enough_money: 'Не хватает денег',
@@ -9,6 +10,7 @@ const ERROR_TEXTS: Record<string, string> = {
   no_free_rack_slot: 'В серверной нет свободных стоек',
   router_maxed: 'Роутер уже максимального тира',
   unknown_command: 'Неизвестная команда',
+  wrong_phase: 'Сейчас нельзя — дождитесь начала дня',
 }
 
 interface Button {
@@ -19,6 +21,8 @@ export class HUDScene extends Phaser.Scene {
   private moneyText!: Phaser.GameObjects.Text
   private incomeText!: Phaser.GameObjects.Text
   private netText!: Phaser.GameObjects.Text
+  private payrollText!: Phaser.GameObjects.Text
+  private dayText!: Phaser.GameObjects.Text
   private pcBtn!: Button
   private hireBtn!: Button
   private routerBtn!: Button
@@ -42,6 +46,12 @@ export class HUDScene extends Phaser.Scene {
     this.netText = this.add.text(16, 66, '', {
       fontFamily: 'monospace', fontSize: '15px', color: '#41a6f6',
     })
+    this.payrollText = this.add.text(180, 44, '', {
+      fontFamily: 'monospace', fontSize: '15px', color: '#5d7275',
+    })
+    this.dayText = this.add
+      .text(944, 70, '', { fontFamily: 'monospace', fontSize: '13px', color: '#5d7275' })
+      .setOrigin(1, 0)
 
     this.pcBtn = this.makeButton(300, 10, () => client.send('buy_pc'))
     this.hireBtn = this.makeButton(300, 52, () => client.send('hire'))
@@ -76,13 +86,18 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private refresh(s: StateMessage) {
-    this.moneyText.setText(`$${s.money}`)
-    this.incomeText.setText(`+$${s.incomePerTick}/сек`)
+    this.moneyText.setText(fmtMoney(s.money))
+    this.incomeText.setText(`+${fmtMoney(s.incomePerTick)}/сек`)
+    // Прогноз баланса на конец дня: если уйдём в минус — подсветить ФОТ.
+    const forecast = s.money + s.incomePerTick * (s.dayTicks - s.dayProgress) - s.payrollPerDay
+    this.payrollText.setText(`ФОТ ${fmtMoney(s.payrollPerDay)}/день`)
+    this.payrollText.setColor(forecast < 0 ? '#b13e53' : '#5d7275')
+    this.dayText.setText(`День ${s.day} · ${s.dayProgress}/${s.dayTicks}`)
     this.netText.setText(`Сотрудники: ${s.employees} · в сети ${s.connected} · ×${s.multiplier.toFixed(1)}`)
-    this.pcBtn.setLabel(`Купить ПК  $${s.prices.pc}`)
-    this.hireBtn.setLabel(`Нанять  $${s.prices.hire}`)
-    this.routerBtn.setLabel(s.prices.nextRouter > 0 ? `Роутер  $${s.prices.nextRouter}` : 'Роутер MAX')
-    this.serverBtn.setLabel(`Сервер  $${s.prices.server}`)
+    this.pcBtn.setLabel(`Купить ПК  ${fmtMoney(s.prices.pc)}`)
+    this.hireBtn.setLabel(`Нанять  ${fmtMoney(s.prices.hire)}`)
+    this.routerBtn.setLabel(s.prices.nextRouter > 0 ? `Роутер  ${fmtMoney(s.prices.nextRouter)}` : 'Роутер MAX')
+    this.serverBtn.setLabel(`Сервер  ${fmtMoney(s.prices.server)}`)
   }
 
   private switchRoom() {
