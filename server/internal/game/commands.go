@@ -75,3 +75,32 @@ func (g *Game) NextRouterPrice() int {
 	}
 	return g.cfg.RouterTiers[g.RouterTier].Price
 }
+
+const ErrUnknownCommand = Err("unknown_command")
+
+// Command — команда игрока. Значение совпадает с полем type
+// клиентского сообщения протокола.
+type Command string
+
+const (
+	CmdBuyPC     = Command("buy_pc")
+	CmdHire      = Command("hire")
+	CmdBuyRouter = Command("buy_router")
+	CmdBuyServer = Command("buy_server")
+)
+
+// Apply выполняет команду игрока.
+func (g *Game) Apply(cmd Command) error {
+	switch cmd {
+	case CmdBuyPC:
+		return g.BuyPC()
+	case CmdHire:
+		return g.Hire()
+	case CmdBuyRouter:
+		return g.BuyRouter()
+	case CmdBuyServer:
+		return g.BuyServer()
+	default:
+		return ErrUnknownCommand
+	}
+}

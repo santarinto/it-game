@@ -156,6 +156,19 @@ func TestTickAddsIncome(t *testing.T) {
 	}
 }
 
+func TestApply(t *testing.T) {
+	g := New(DefaultConfig())
+	if err := g.Apply(CmdHire); err != nil {
+		t.Fatalf("Apply(hire): %v", err)
+	}
+	if g.Employees != 1 {
+		t.Errorf("Apply(hire) не нанял: Employees = %d", g.Employees)
+	}
+	if err := g.Apply(Command("dance")); err != ErrUnknownCommand {
+		t.Errorf("неизвестная команда: err = %v, хотим %v", err, ErrUnknownCommand)
+	}
+}
+
 func TestHire(t *testing.T) {
 	tests := []struct {
 		name          string
