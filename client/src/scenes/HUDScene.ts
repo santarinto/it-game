@@ -32,6 +32,7 @@ export class HUDScene extends Phaser.Scene {
   private reportUI: Phaser.GameObjects.GameObject[] = []
   private gameOverUI: Phaser.GameObjects.GameObject[] = []
   private skipReports = localStorage.getItem('skipReports') === '1'
+  private switching = false
 
   constructor() {
     super('hud')
@@ -110,6 +111,10 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private switchRoom() {
+    // Двойной клик до завершения stop/launch дублирует сцену — гасим дребезг.
+    if (this.switching) return
+    this.switching = true
+    this.time.delayedCall(250, () => (this.switching = false))
     const next = this.room === 'office' ? 'serverRoom' : 'office'
     this.scene.stop(this.room)
     this.scene.launch(next)

@@ -128,6 +128,7 @@ const SPRITES: Record<string, string[]> = {
 // registerTextures рисует все спрайты в canvas-текстуры Phaser.
 // Вызывать один раз в BootScene до старта комнат.
 export function registerTextures(scene: Phaser.Scene): void {
+  if (scene.textures.exists('worker')) return // повторный Boot — текстуры уже есть
   for (const [key, rows] of Object.entries(SPRITES)) {
     const canvas = scene.textures.createCanvas(key, 16, 16)
     if (!canvas) continue // текстура уже зарегистрирована
