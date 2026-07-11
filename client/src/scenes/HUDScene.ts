@@ -30,6 +30,7 @@ export class HUDScene extends Phaser.Scene {
   private room: 'office' | 'serverRoom' = 'office'
   private switchBtn!: Button
   private reportUI: Phaser.GameObjects.GameObject[] = []
+  private gameOverUI: Phaser.GameObjects.GameObject[] = []
   private skipReports = localStorage.getItem('skipReports') === '1'
 
   constructor() {
@@ -68,6 +69,7 @@ export class HUDScene extends Phaser.Scene {
       onError: (code) => this.toast(ERROR_TEXTS[code] ?? code),
       onDisconnect: () => this.showDisconnect(),
       onDayReport: (r) => this.onDayReport(r),
+      onGameOver: (o) => this.showGameOver(o),
     })
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, unsub)
   }
@@ -89,7 +91,10 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private refresh(s: StateMessage) {
-    if (s.phase === 'running') this.closeReport()
+    if (s.phase === 'running') {
+      this.closeReport()
+      this.closeGameOver()
+    }
     this.moneyText.setText(fmtMoney(s.money))
     this.incomeText.setText(`+${fmtMoney(s.incomePerTick)}/сек`)
     // Прогноз баланса на конец дня: если уйдём в минус — подсветить ФОТ.
@@ -192,5 +197,36 @@ export class HUDScene extends Phaser.Scene {
   private closeReport() {
     this.reportUI.forEach((o) => o.destroy())
     this.reportUI = []
+  }
+
+  private showGameOver(o: GameOverMessage) {
+    this.closeReport()
+    this.closeGameOver()
+    const overlay = this.add.rectangle(0, 0, 960, 640, 0x1a1c2c, 0.9).setOrigin(0).setDepth(60).setInteractive()
+    const title = this.add
+      .text(480, 220, 'БАНКРОТСТВО', { fontFamily: 'monospace', fontSize: '32px', color: '#b13e53' })
+      .setOrigin(0.5).setDepth(61)
+    const body = this.add
+      .text(480, 300, [
+        `Прожито дней: ${o.daysSurvived}`,
+        `Пик дохода: ${fmtMoney(o.peakIncomePerTick)}/сек`,
+        `На зарплаты не хватило: ${fmtMoney(-o.balance)}`,
+      ].join('\n'), { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8, align: 'center' })
+      .setOrigin(0.5).setDepth(61)
+    const btnBg = this.add
+      .rectangle(380, 380, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(61)
+      .setInteractive({ useHandCursor: true })
+    const btnText = this.add
+      .text(480, 397, 'Начать заново', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
+      .setOrigin(0.5).setDepth(62)
+    btnBg.on('pointerdown', () => client.send('restart'))
+    btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
+    btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
+    this.gameOverUI = [overlay, title, body, btnBg, btnText]
+  }
+
+  private closeGameOver() {
+    this.gameOverUI.forEach((o) => o.destroy())
+    this.gameOverUI = []
   }
 }
