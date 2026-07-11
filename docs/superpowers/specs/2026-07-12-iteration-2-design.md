@@ -65,7 +65,8 @@
 
 Snapshot — новые поля:
 
-- `day` (int, с 1), `dayProgress` (int, тиков прошло из 60),
+- `day` (int, с 1), `dayTicks` (int, длина дня — клиенту для прогресса
+  и прогноза), `dayProgress` (int, тиков прошло из `dayTicks`),
 - `payrollPerDay` (int, $ текущих обязательств),
 - `phase` (`"running" | "day_report" | "game_over"`).
 
