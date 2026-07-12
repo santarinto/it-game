@@ -34,8 +34,10 @@ export class GameClient {
         this.listeners.forEach((l) => l.onError(msg.code))
       } else if (msg.type === 'day_report') {
         this.listeners.forEach((l) => l.onDayReport?.(msg))
-      } else {
+      } else if (msg.type === 'game_over') {
         this.listeners.forEach((l) => l.onGameOver?.(msg))
+      } else {
+        console.error('неизвестный тип сообщения от сервера', msg)
       }
     }
     // onerror и onclose могут прийти оба — дисконнект сообщаем один раз.

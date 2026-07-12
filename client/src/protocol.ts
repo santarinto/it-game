@@ -1,20 +1,31 @@
 // Зеркало server/internal/ws/protocol.go — менять синхронно.
 
+export interface EmployeeInfo {
+  name: string
+  incomePerTick: number
+  connected: boolean
+}
+
 export interface StateMessage {
   type: 'state'
   money: number
   pcs: number
-  employees: number
   routerTier: number
   ports: number
-  connected: number
   servers: number
   multiplier: number
   incomePerTick: number
+  employees: EmployeeInfo[]
   day: number
   dayTicks: number
   dayProgress: number
+  clock: string
+  isLunch: boolean
+  ticksPerHour: number
   payrollPerDay: number
+  salaryPerDay: number
+  forecastEndOfDay: number
+  staffLimit: number
   phase: 'running' | 'day_report' | 'game_over'
   officeSlots: number
   rackSlots: number
