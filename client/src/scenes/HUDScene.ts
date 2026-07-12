@@ -100,7 +100,7 @@ export class HUDScene extends Phaser.Scene {
     this.incomeText.setText(`+${fmtMoney(s.incomePerTick)}/сек`)
     // Прогноз баланса на конец дня: если уйдём в минус — подсветить ФОТ.
     const forecast = s.money + s.incomePerTick * (s.dayTicks - s.dayProgress) - s.payrollPerDay
-    this.payrollText.setText(`ФОТ ${fmtMoney(s.payrollPerDay)}/день`)
+    this.payrollText.setText(`Зарплата ${fmtMoney(s.payrollPerDay)}/день`)
     this.payrollText.setColor(forecast < 0 ? '#b13e53' : '#5d7275')
     this.dayText.setText(`День ${s.day} · ${s.dayProgress}/${s.dayTicks}`)
     this.netText.setText(`Сотрудники: ${s.employees} · в сети ${s.connected} · ×${s.multiplier.toFixed(1)}`)
@@ -158,10 +158,10 @@ export class HUDScene extends Phaser.Scene {
   private showReport(r: DayReportMessage) {
     this.closeReport()
     const body = [
-      `Доход:    ${fmtMoney(r.income)}`,
-      `ФОТ:     -${fmtMoney(r.payroll)}`,
-      `Прибыль:  ${fmtMoney(r.profit)}`,
-      `Баланс:   ${fmtMoney(r.balance)}`,
+      `Доход:     ${fmtMoney(r.income)}`,
+      `Зарплата: -${fmtMoney(r.payroll)}`,
+      `Прибыль:   ${fmtMoney(r.profit)}`,
+      `Баланс:    ${fmtMoney(r.balance)}`,
     ].join('\n')
     // Подложка interactive: глушит клики по кнопкам HUD под модалкой.
     const overlay = this.add.rectangle(0, 0, 960, 640, 0x1a1c2c, 0.75).setOrigin(0).setDepth(50).setInteractive()
