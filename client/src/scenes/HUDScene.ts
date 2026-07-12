@@ -1,7 +1,10 @@
 import Phaser from 'phaser'
+import { GAME_H, GAME_W, HUD_H } from '../layout'
 import { client } from '../net'
 import type { DayReportMessage, GameOverMessage, StateMessage } from '../protocol'
 import { fmtMoney } from '../format'
+
+const CX = GAME_W / 2 // центр поля — якорь модалок и тостов
 
 const ERROR_TEXTS: Record<string, string> = {
   not_enough_money: 'Не хватает денег',
@@ -40,7 +43,7 @@ export class HUDScene extends Phaser.Scene {
 
   create() {
     // Верхняя панель.
-    this.add.rectangle(0, 0, 960, 96, 0x14162b).setOrigin(0)
+    this.add.rectangle(0, 0, GAME_W, HUD_H, 0x14162b).setOrigin(0)
     this.moneyText = this.add.text(16, 10, '$…', {
       fontFamily: 'monospace', fontSize: '26px', color: '#ffcd75',
     })
@@ -50,19 +53,19 @@ export class HUDScene extends Phaser.Scene {
     this.netText = this.add.text(16, 66, '', {
       fontFamily: 'monospace', fontSize: '15px', color: '#41a6f6',
     })
-    this.payrollText = this.add.text(180, 44, '', {
+    this.payrollText = this.add.text(200, 44, '', {
       fontFamily: 'monospace', fontSize: '15px', color: '#5d7275',
     })
     this.dayText = this.add
-      .text(944, 70, '', { fontFamily: 'monospace', fontSize: '13px', color: '#5d7275' })
+      .text(GAME_W - 16, 70, '', { fontFamily: 'monospace', fontSize: '13px', color: '#5d7275' })
       .setOrigin(1, 0)
 
-    this.pcBtn = this.makeButton(300, 10, () => client.send('buy_pc'))
-    this.hireBtn = this.makeButton(300, 52, () => client.send('hire'))
-    this.routerBtn = this.makeButton(520, 10, () => client.send('buy_router'))
-    this.serverBtn = this.makeButton(520, 52, () => client.send('buy_server'))
+    this.pcBtn = this.makeButton(420, 10, () => client.send('buy_pc'))
+    this.hireBtn = this.makeButton(420, 52, () => client.send('hire'))
+    this.routerBtn = this.makeButton(640, 10, () => client.send('buy_router'))
+    this.serverBtn = this.makeButton(640, 52, () => client.send('buy_server'))
 
-    this.switchBtn = this.makeButton(740, 31, () => this.switchRoom())
+    this.switchBtn = this.makeButton(GAME_W - 216, 31, () => this.switchRoom())
     this.switchBtn.setLabel('В серверную →')
 
     const unsub = client.subscribe({
@@ -76,15 +79,15 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private showDisconnect() {
-    this.add.rectangle(0, 0, 960, 640, 0x1a1c2c, 0.85).setOrigin(0).setDepth(100)
+    this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.85).setOrigin(0).setDepth(100)
     this.add
-      .text(480, 300, 'Соединение потеряно', {
+      .text(CX, 300, 'Соединение потеряно', {
         fontFamily: 'monospace', fontSize: '28px', color: '#b13e53',
       })
       .setOrigin(0.5)
       .setDepth(101)
     this.add
-      .text(480, 344, 'Игра не сохраняется — обновите страницу, чтобы начать заново', {
+      .text(CX, 344, 'Игра не сохраняется — обновите страницу, чтобы начать заново', {
         fontFamily: 'monospace', fontSize: '15px', color: '#f4f4f4',
       })
       .setOrigin(0.5)
@@ -138,12 +141,12 @@ export class HUDScene extends Phaser.Scene {
 
   private toast(text: string) {
     const t = this.add
-      .text(480, 600, text, {
+      .text(CX, GAME_H - 40, text, {
         fontFamily: 'monospace', fontSize: '18px', color: '#f4f4f4',
         backgroundColor: '#b13e53', padding: { x: 12, y: 6 },
       })
       .setOrigin(0.5)
-    this.tweens.add({ targets: t, alpha: 0, y: 560, duration: 1500, onComplete: () => t.destroy() })
+    this.tweens.add({ targets: t, alpha: 0, y: GAME_H - 80, duration: 1500, onComplete: () => t.destroy() })
   }
 
   private onDayReport(r: DayReportMessage) {
@@ -164,16 +167,16 @@ export class HUDScene extends Phaser.Scene {
       `Баланс:    ${fmtMoney(r.balance)}`,
     ].join('\n')
     // Подложка interactive: глушит клики по кнопкам HUD под модалкой.
-    const overlay = this.add.rectangle(0, 0, 960, 640, 0x1a1c2c, 0.75).setOrigin(0).setDepth(50).setInteractive()
-    const panel = this.add.rectangle(480, 300, 440, 320, 0x14162b).setStrokeStyle(2, 0x41a6f6).setDepth(51)
+    const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(50).setInteractive()
+    const panel = this.add.rectangle(CX, 300, 440, 320, 0x14162b).setStrokeStyle(2, 0x41a6f6).setDepth(51)
     const title = this.add
-      .text(480, 180, `День ${r.day} завершён`, { fontFamily: 'monospace', fontSize: '22px', color: '#ffcd75' })
+      .text(CX, 180, `День ${r.day} завершён`, { fontFamily: 'monospace', fontSize: '22px', color: '#ffcd75' })
       .setOrigin(0.5).setDepth(51)
     const bodyText = this.add
-      .text(480, 280, body, { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8 })
+      .text(CX, 280, body, { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8 })
       .setOrigin(0.5).setDepth(51)
     const checkbox = this.add
-      .text(480, 366, this.checkboxLabel(), { fontFamily: 'monospace', fontSize: '14px', color: '#5d7275' })
+      .text(CX, 366, this.checkboxLabel(), { fontFamily: 'monospace', fontSize: '14px', color: '#5d7275' })
       .setOrigin(0.5).setDepth(51).setInteractive({ useHandCursor: true })
     checkbox.on('pointerdown', () => {
       this.skipReports = !this.skipReports
@@ -181,10 +184,10 @@ export class HUDScene extends Phaser.Scene {
       checkbox.setText(this.checkboxLabel())
     })
     const btnBg = this.add
-      .rectangle(380, 400, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(51)
+      .rectangle(CX - 100, 400, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(51)
       .setInteractive({ useHandCursor: true })
     const btnText = this.add
-      .text(480, 417, 'Следующий день →', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
+      .text(CX, 417, 'Следующий день →', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
       .setOrigin(0.5).setDepth(52)
     btnBg.on('pointerdown', () => {
       client.send('next_day')
@@ -207,22 +210,22 @@ export class HUDScene extends Phaser.Scene {
   private showGameOver(o: GameOverMessage) {
     this.closeReport()
     this.closeGameOver()
-    const overlay = this.add.rectangle(0, 0, 960, 640, 0x1a1c2c, 0.9).setOrigin(0).setDepth(60).setInteractive()
+    const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.9).setOrigin(0).setDepth(60).setInteractive()
     const title = this.add
-      .text(480, 220, 'БАНКРОТСТВО', { fontFamily: 'monospace', fontSize: '32px', color: '#b13e53' })
+      .text(CX, 220, 'БАНКРОТСТВО', { fontFamily: 'monospace', fontSize: '32px', color: '#b13e53' })
       .setOrigin(0.5).setDepth(61)
     const body = this.add
-      .text(480, 300, [
+      .text(CX, 300, [
         `Прожито дней: ${o.daysSurvived}`,
         `Пик дохода: ${fmtMoney(o.peakIncomePerTick)}/сек`,
         `На зарплаты не хватило: ${fmtMoney(-o.balance)}`,
       ].join('\n'), { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8, align: 'center' })
       .setOrigin(0.5).setDepth(61)
     const btnBg = this.add
-      .rectangle(380, 380, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(61)
+      .rectangle(CX - 100, 380, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(61)
       .setInteractive({ useHandCursor: true })
     const btnText = this.add
-      .text(480, 397, 'Начать заново', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
+      .text(CX, 397, 'Начать заново', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
       .setOrigin(0.5).setDepth(62)
     btnBg.on('pointerdown', () => client.send('restart'))
     btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))

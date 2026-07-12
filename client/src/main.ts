@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { GAME_H, GAME_W } from './layout'
 import { client } from './net'
 import { BootScene } from './scenes/BootScene'
 import { HUDScene } from './scenes/HUDScene'
@@ -9,8 +10,8 @@ client.connect()
 
 new Phaser.Game({
   type: Phaser.AUTO,
-  width: 960,
-  height: 640,
+  width: GAME_W,
+  height: GAME_H,
   parent: 'app',
   pixelArt: true, // чёткие пиксели без сглаживания
   backgroundColor: '#1a1c2c',

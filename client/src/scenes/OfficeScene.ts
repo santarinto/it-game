@@ -1,9 +1,10 @@
 import Phaser from 'phaser'
+import { GAME_H, GAME_W, HUD_H } from '../layout'
 import { client } from '../net'
 import type { StateMessage } from '../protocol'
 
 const SCALE = 4 // 16px спрайт → 64px на экране
-const GRID = { cols: 3, startX: 220, startY: 200, stepX: 220, stepY: 160 }
+const GRID = { cols: 3, startX: 280, startY: 220, stepX: 330, stepY: 170 }
 
 export class OfficeScene extends Phaser.Scene {
   private objects: Phaser.GameObjects.GameObject[] = []
@@ -15,8 +16,8 @@ export class OfficeScene extends Phaser.Scene {
   create() {
     // сцены перезапускаются при переключении комнат — сбрасываем ссылки прошлого цикла
     this.objects = []
-    this.add.rectangle(0, 96, 960, 544, 0x2b2f4a).setOrigin(0) // пол офиса
-    this.add.text(480, 116, 'ОФИС', {
+    this.add.rectangle(0, HUD_H, GAME_W, GAME_H - HUD_H, 0x2b2f4a).setOrigin(0) // пол офиса
+    this.add.text(GAME_W / 2, HUD_H + 20, 'ОФИС', {
       fontFamily: 'monospace', fontSize: '16px', color: '#5d7275',
     }).setOrigin(0.5)
 
@@ -35,7 +36,7 @@ export class OfficeScene extends Phaser.Scene {
     this.objects = []
 
     // Специальный слот роутера: рабочее место сюда не поставить.
-    const rx = 856
+    const rx = GAME_W - 130
     const ry = 170
     this.objects.push(
       this.add.rectangle(rx, ry, 84, 84, 0x232640).setStrokeStyle(2, 0x5d7275),
