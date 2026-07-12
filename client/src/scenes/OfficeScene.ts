@@ -3,7 +3,7 @@ import { fmtMoney } from '../format'
 import { GAME_H, GAME_W, HUD_H, NAV_W } from '../layout'
 import { client } from '../net'
 import { nav } from '../rooms'
-import type { EmployeeInfo, OfficeInfo, StateMessage } from '../protocol'
+import type { CommandType, EmployeeInfo, OfficeInfo, StateMessage } from '../protocol'
 
 const SCALE = 4 // 16px спрайт → 64px на экране
 const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
@@ -160,18 +160,62 @@ export class OfficeScene extends Phaser.Scene {
         }
       }
     }
+
+    // Полка быт-устройств: без них сотрудники ловят дебаффы.
+    const amenities: { key: 'cooler' | 'fridge' | 'coffee_machine'; owned: boolean; price: number; cmd: CommandType; label: string; hint: string }[] = [
+      { key: 'cooler', owned: office.cooler, price: s.prices.cooler, cmd: 'buy_cooler', label: 'кулер',
+        hint: 'Без кулера: жажда −10% с 12:00' },
+      { key: 'fridge', owned: office.fridge, price: s.prices.fridge, cmd: 'buy_fridge', label: 'холодильник',
+        hint: 'Без холодильника: голод −10% после обеда' },
+      { key: 'coffee_machine', owned: office.coffeeMachine, price: s.prices.coffeeMachine, cmd: 'buy_coffee', label: 'кофеварка',
+        hint: 'Дважды в день 40% офиса: кофе +15% на час' },
+    ]
+    amenities.forEach((a, i) => {
+      const ax = 220 + i * 130
+      const ay = 660
+      const box = this.add.rectangle(ax, ay, 72, 72, 0x232640, a.owned ? 1 : 0.5)
+        .setStrokeStyle(2, a.owned ? 0x38b764 : 0x3a3f5c)
+        .setInteractive({ useHandCursor: !a.owned })
+      this.objects.push(box)
+      if (a.owned) {
+        const img = this.add.image(ax, ay, a.key).setScale(3).setInteractive({ useHandCursor: true })
+        img.on('pointerover', () => this.showTextTooltip(`${a.label}\n${a.hint}`, ax, ay - 40))
+        img.on('pointerout', () => this.hideTooltip())
+        this.objects.push(img)
+      } else {
+        this.objects.push(this.add.text(ax, ay, `${a.label}\n${fmtMoney(a.price)}`, {
+          fontFamily: 'monospace', fontSize: '10px', color: '#5d7275', align: 'center',
+        }).setOrigin(0.5))
+        box.on('pointerdown', () => client.send(a.cmd, nav.activeOffice))
+      }
+    })
   }
 
   private showTooltip(e: EmployeeInfo, s: StateMessage, x: number, y: number) {
-    this.tooltipText.setText([
+    const lines = [
       e.name,
       `Выработка: ${fmtMoney(e.incomePerTick * s.ticksPerHour)}/час`,
       `Зарплата:  ${fmtMoney(s.salaryPerDay)}/день${e.unpaidToday ? ' (сегодня без оплаты)' : ''}`,
-    ].join('\n'))
+    ]
+    const EFFECT_NAMES: Record<string, string> = { thirst: 'жажда', hunger: 'голоден', coffee: 'выпил кофе' }
+    for (const ef of e.effects) {
+      const sign = ef.percent > 0 ? '+' : ''
+      lines.push(`${EFFECT_NAMES[ef.token] ?? ef.token} ${sign}${ef.percent}%${ef.until ? ` (до ${ef.until})` : ''}`)
+    }
+    this.tooltipText.setText(lines.join('\n'))
     this.tooltipBg.setSize(this.tooltipText.width + 20, this.tooltipText.height + 16)
     // Не выпускаем тултип за правый край поля.
     const tx = Math.min(x + 40, GAME_W - this.tooltipBg.width - 8)
     this.tooltip.setPosition(tx, y - 20).setVisible(true)
+  }
+
+  // Универсальный текстовый тултип — для полки устройств и прочих
+  // подсказок без структуры сотрудника/офиса.
+  private showTextTooltip(text: string, x: number, y: number) {
+    this.tooltipText.setText(text)
+    this.tooltipBg.setSize(this.tooltipText.width + 20, this.tooltipText.height + 16)
+    const tx = Math.min(x, GAME_W - this.tooltipBg.width - 8)
+    this.tooltip.setPosition(tx, y).setVisible(true)
   }
 
   private showBossTooltip(o: OfficeInfo, s: StateMessage, x: number, y: number) {
