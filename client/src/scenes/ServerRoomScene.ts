@@ -15,7 +15,8 @@ export class ServerRoomScene extends Phaser.Scene {
   create() {
     // сцены перезапускаются при переключении комнат — сбрасываем ссылки прошлого цикла
     this.objects = []
-    this.add.rectangle(0, HUD_H, GAME_W, GAME_H - HUD_H, 0x1f2233).setOrigin(0) // сумрак серверной
+    // пол серверной справа от панели навигации — статичен, рисуем один раз
+    this.add.rectangle(NAV_W, HUD_H, GAME_W - NAV_W, GAME_H - HUD_H, 0x1f2233).setOrigin(0)
     this.add.text(GAME_W / 2, HUD_H + 20, 'СЕРВЕРНАЯ', {
       fontFamily: 'monospace', fontSize: '16px', color: '#5d7275',
     }).setOrigin(0.5)
@@ -31,9 +32,6 @@ export class ServerRoomScene extends Phaser.Scene {
   private render(s: StateMessage) {
     this.objects.forEach((o) => o.destroy())
     this.objects = []
-
-    // пол серверной справа от навигации
-    this.add.rectangle(NAV_W, HUD_H, GAME_W - NAV_W, GAME_H - HUD_H, 0x1f2233).setOrigin(0)
 
     for (let i = 0; i < s.rackSlots; i++) {
       const x = GAME_W / 2 - 180 + i * 180
