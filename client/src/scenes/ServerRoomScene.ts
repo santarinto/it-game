@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { GAME_H, GAME_W, HUD_H, NAV_W } from '../layout'
 import { client } from '../net'
 import type { StateMessage } from '../protocol'
+import { drawDebugFrames } from '../debug'
 
 const SCALE = 6 // стойки крупнее столов
 
@@ -61,5 +62,6 @@ export class ServerRoomScene extends Phaser.Scene {
         fontFamily: 'monospace', fontSize: '15px', color: '#41a6f6',
       }).setOrigin(0.5),
     )
+    this.objects.push(...drawDebugFrames(this, this.objects))
   }
 }

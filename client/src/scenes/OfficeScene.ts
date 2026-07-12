@@ -4,6 +4,7 @@ import { GAME_H, GAME_W, HUD_H, NAV_W } from '../layout'
 import { client } from '../net'
 import { nav } from '../rooms'
 import type { CommandType, EmployeeInfo, OfficeInfo, StateMessage } from '../protocol'
+import { drawDebugFrames } from '../debug'
 
 const SCALE = 4 // 16px спрайт → 64px на экране
 const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
@@ -189,6 +190,7 @@ export class OfficeScene extends Phaser.Scene {
         box.on('pointerdown', () => client.send(a.cmd, nav.activeOffice))
       }
     })
+    this.objects.push(...drawDebugFrames(this, this.objects))
   }
 
   private showTooltip(e: EmployeeInfo, s: StateMessage, x: number, y: number) {

@@ -51,11 +51,17 @@ export class GameClient {
     this.ws.onerror = fireDisconnect
   }
 
-  send(cmd: CommandType, office = 0): void {
+  send(cmd: CommandType, office = 0, extra: Record<string, number> = {}): void {
     // Соединение ещё не открыто или уже потеряно — команду безопасно игнорируем,
     // сервер всё равно источник истины.
     if (this.ws.readyState !== WebSocket.OPEN) return
-    this.ws.send(JSON.stringify({ type: cmd, office }))
+    this.ws.send(JSON.stringify({ type: cmd, office, ...extra }))
+  }
+
+  // Повторно раздаёт последний снапшот — перерисовка сцен без сервера
+  // (debug-тумблер меняет только клиентское состояние).
+  reemit(): void {
+    if (this.latest) this.listeners.forEach((l) => l.onState(this.latest!))
   }
 
   // Возвращает функцию отписки — сцены зовут её на shutdown.

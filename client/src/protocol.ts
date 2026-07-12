@@ -50,6 +50,7 @@ export interface StateMessage {
   staffLimit: number
   officeSlots: number
   phase: 'running' | 'day_report' | 'game_over'
+  speed: number // темп сессии: 0 — пауза, 1..3
   rackSlots: number
   prices: { pc: number; hire: number; server: number; boss: number; gateway: number; cooler: number; fridge: number; coffeeMachine: number }
 }
@@ -81,4 +82,4 @@ export type ServerMessage = StateMessage | ErrorMessage | DayReportMessage | Gam
 export type CommandType =
   | 'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office'
   | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart'
-  | 'buy_cooler' | 'buy_fridge' | 'buy_coffee'
+  | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed'
