@@ -10,8 +10,8 @@ import (
 
 func TestSnapshot(t *testing.T) {
 	g := game.New(game.DefaultConfig())
-	s := snapshot(g)
-	if s.Type != "state" || s.Money != 600 || s.OfficeSlots != 12 || s.RackSlots != 3 {
+	s := snapshot(g, 1)
+	if s.Type != "state" || s.Money != 600 || s.OfficeSlots != 12 || s.RackSlots != 3 || s.Speed != 1 {
 		t.Errorf("базовые поля: %+v", s)
 	}
 	if len(s.Offices) != 3 {
@@ -48,7 +48,7 @@ func TestSnapshotOfficeDetails(t *testing.T) {
 	}
 	staff[5].UnpaidToday = true
 	g.Offices[0].Employees = staff
-	s := snapshot(g)
+	s := snapshot(g, 1)
 	o := s.Offices[0]
 	if o.Boss != "Босс Боссов" || o.Ports != 4 || o.NextRouter != 2500 {
 		t.Errorf("офис 0: %+v", o)
@@ -69,7 +69,7 @@ func TestSnapshotAmenitiesAndEffects(t *testing.T) {
 	g.Offices[0].Employees = []game.Employee{{Name: "Тест Тестов", IncomePerTick: 10, CoffeeUntil: 34}}
 	g.Offices[0].Cooler = true
 	g.TickInDay = 30 // после обеда: голод есть (холодильника нет), жажды нет (кулер)
-	s := snapshot(g)
+	s := snapshot(g, 1)
 	o := s.Offices[0]
 	if !o.Cooler || o.Fridge || o.CoffeeMachine {
 		t.Errorf("флаги устройств: %+v", o)
@@ -99,7 +99,7 @@ func TestSnapshotEffectsNeverNull(t *testing.T) {
 	g.Offices[0].PCs = 1
 	g.Offices[0].Employees = []game.Employee{{Name: "Тест Тестов", IncomePerTick: 10}}
 	// Тик 0: ни одного эффекта — самый опасный случай.
-	raw, err := json.Marshal(snapshot(g))
+	raw, err := json.Marshal(snapshot(g, 1))
 	if err != nil {
 		t.Fatal(err)
 	}

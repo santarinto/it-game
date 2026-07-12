@@ -27,6 +27,7 @@ type testMessage struct {
 	} `json:"offices"`
 	Day          int    `json:"day"`
 	Phase        string `json:"phase"`
+	Speed        int    `json:"speed"`
 	Payroll      int    `json:"payroll"`
 	Balance      int    `json:"balance"`
 	DaysSurvived int    `json:"daysSurvived"`
@@ -187,4 +188,58 @@ func TestSessionOfficeCommand(t *testing.T) {
 	if e.Code != "office_locked" {
 		t.Fatalf("хотим office_locked, получили %+v", e)
 	}
+}
+
+func TestSessionSetSpeed(t *testing.T) {
+	c, ctx := dialTestServer(t, game.DefaultConfig(), time.Hour)
+	first := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" })
+	if first.Speed != 1 {
+		t.Fatalf("стартовая скорость %d, хотим 1", first.Speed)
+	}
+	// Смена скорости подтверждается снапшотом с новым speed.
+	if err := wsjson.Write(ctx, c, map[string]any{"type": "set_speed", "speed": 2}); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" && m.Speed == 2 })
+	// Скорость вне 0..3 — ошибка bad_speed.
+	if err := wsjson.Write(ctx, c, map[string]any{"type": "set_speed", "speed": 4}); err != nil {
+		t.Fatal(err)
+	}
+	e := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "error" })
+	if e.Code != "bad_speed" {
+		t.Fatalf("хотим bad_speed, получили %+v", e)
+	}
+}
+
+func TestSessionPause(t *testing.T) {
+	c, ctx := dialTestServer(t, game.DefaultConfig(), 10*time.Millisecond)
+	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" })
+	// Сотрудник, чтобы на тиках капал доход.
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 0}); err != nil {
+		t.Fatal(err)
+	}
+	// Пауза: подтверждение — снапшот со speed=0; запоминаем деньги.
+	if err := wsjson.Write(ctx, c, map[string]any{"type": "set_speed", "speed": 0}); err != nil {
+		t.Fatal(err)
+	}
+	paused := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" && m.Speed == 0 })
+	// Даём реальному времени пройти: без паузы тут накапало бы ~30 тиков.
+	time.Sleep(300 * time.Millisecond)
+	// Команды на паузе работают (buy_pc), а деньги от тиков не менялись:
+	// ответ на покупку отличается ровно на цену ПК.
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "buy_pc", Office: 0}); err != nil {
+		t.Fatal(err)
+	}
+	after := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" || m.Type == "error" })
+	if after.Type == "error" {
+		t.Fatalf("покупка на паузе должна работать: %+v", after)
+	}
+	if want := paused.Money - 500; after.Money != want {
+		t.Fatalf("на паузе тикали деньги: было %d, после покупки %d, хотим %d", paused.Money, after.Money, want)
+	}
+	// Снятие паузы: тики снова идут, деньги растут.
+	if err := wsjson.Write(ctx, c, map[string]any{"type": "set_speed", "speed": 3}); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" && m.Money > after.Money })
 }

@@ -16,6 +16,7 @@ type effectInfo struct {
 type clientMessage struct {
 	Type   string `json:"type"`
 	Office int    `json:"office"`
+	Speed  int    `json:"speed"` // параметр set_speed: 0 — пауза, 1..3 — множитель темпа
 }
 
 // stateMessage — полный снапшот состояния. Включает производные поля
@@ -39,6 +40,7 @@ type stateMessage struct {
 	StaffLimit       int          `json:"staffLimit"`
 	OfficeSlots      int          `json:"officeSlots"`
 	Phase            string       `json:"phase"` // running | day_report | game_over
+	Speed            int          `json:"speed"` // темп сессии: 0 — пауза, 1..3
 	RackSlots        int          `json:"rackSlots"`
 	Prices           prices       `json:"prices"`
 }
@@ -105,7 +107,7 @@ type gameOverMessage struct {
 	Balance           int    `json:"balance"` // отрицательный: сколько не хватило
 }
 
-func snapshot(g *game.Game) stateMessage {
+func snapshot(g *game.Game, speed int) stateMessage {
 	cfg := g.Config()
 	offices := make([]officeInfo, len(g.Offices))
 	for oi := range g.Offices {
@@ -146,7 +148,7 @@ func snapshot(g *game.Game) stateMessage {
 		TicksPerHour: cfg.TicksPerHour, PayrollPerDay: g.PayrollPerDay(),
 		SalaryPerDay: cfg.SalaryPerDay, BossSalaryPerDay: cfg.BossSalaryPerDay,
 		ForecastEndOfDay: g.ForecastEndOfDay(), StaffLimit: cfg.StaffLimit,
-		OfficeSlots: cfg.OfficeSlots, Phase: string(g.Phase), RackSlots: cfg.RackSlots,
+		OfficeSlots: cfg.OfficeSlots, Phase: string(g.Phase), Speed: speed, RackSlots: cfg.RackSlots,
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice, Server: cfg.ServerPrice,
 			Boss: cfg.BossPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,
 			Fridge: cfg.FridgePrice, CoffeeMachine: cfg.CoffeeMachinePrice},
