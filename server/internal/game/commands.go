@@ -207,13 +207,23 @@ func (g *Game) NextDay() error {
 	if g.Phase != PhaseDayReport {
 		return ErrWrongPhase
 	}
-	// Сбрасываем флаги неполного дня для нанятых после обеда
+	// Сбрасываем флаги неполного дня для нанятых после обеда и бафф кофе
 	for i := range g.Offices {
 		o := &g.Offices[i]
 		for j := range o.Employees {
 			o.Employees[j].UnpaidToday = false
+			o.Employees[j].CoffeeUntil = 0
 		}
 		o.BossUnpaidToday = false
+		// Роллим кофе-события следующего дня: одно до обеда, одно после.
+		if o.CoffeeMachine {
+			o.CoffeeEventTicks = []int{
+				g.rng.IntN(24),
+				g.cfg.lunchEndTick() + g.rng.IntN(g.cfg.DayTicks()-g.cfg.lunchEndTick()),
+			}
+		} else {
+			o.CoffeeEventTicks = nil
+		}
 	}
 	g.Day++
 	g.TickInDay = 0
@@ -242,7 +252,7 @@ func (g *Game) NextRouterPrice(office int) int {
 
 // hiredAfterLunch — найм после обеда: без зарплаты в день найма (Task 3).
 func (g *Game) hiredAfterLunch() bool {
-	return g.TickInDay >= (g.cfg.LunchEnd-g.cfg.WorkdayStart)*g.cfg.TicksPerHour
+	return g.TickInDay >= g.cfg.lunchEndTick()
 }
 
 const ErrUnknownCommand = Err("unknown_command")

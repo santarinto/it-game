@@ -3,15 +3,16 @@ package game
 // Office — один офис компании: свои рабочие места, роутер и начальник.
 // Серверная и шлюз — общие на компанию (в Game).
 type Office struct {
-	Unlocked        bool
-	PCs             int // первые len(Employees) заняты сотрудниками
-	Employees       []Employee
-	RouterTier      int    // 0 — роутера нет; 1..len(cfg.RouterTiers)
-	Boss            string // имя начальника; "" — не нанят
-	BossUnpaidToday bool   // босс нанят после обеда: сегодня без оплаты
-	Cooler          bool
-	Fridge          bool
-	CoffeeMachine   bool
+	Unlocked         bool
+	PCs              int // первые len(Employees) заняты сотрудниками
+	Employees        []Employee
+	RouterTier       int    // 0 — роутера нет; 1..len(cfg.RouterTiers)
+	Boss             string // имя начальника; "" — не нанят
+	BossUnpaidToday  bool   // босс нанят после обеда: сегодня без оплаты
+	Cooler           bool
+	Fridge           bool
+	CoffeeMachine    bool
+	CoffeeEventTicks []int // тики кофе-событий текущего дня; роллятся в NextDay
 }
 
 // Ports — сколько рабочих мест офиса роутер подключает к сети.

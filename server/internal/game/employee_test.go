@@ -94,19 +94,17 @@ func TestForecastEndOfDay(t *testing.T) {
 	g.Offices[0].PCs = 1
 	g.Offices[0].Employees = []Employee{{Name: "А Б", IncomePerTick: 10}}
 	g.TickInDay = 0
-	// 48 продуктивных тиков × $10 − ФОТ $250 = +$230 к балансу.
-	if f := g.ForecastEndOfDay(); f != 1230 {
-		t.Errorf("прогноз с утра = %d, хотим 1230", f)
+	// 12×10 + 12×9 + 24×8 = 420 за день без устройств.
+	if f := g.ForecastEndOfDay(); f != 1000+420-250 {
+		t.Errorf("прогноз с утра = %d, хотим 1170", f)
 	}
-	// С тика 30 (после обеда) осталось 24 продуктивных тика.
 	g.TickInDay = 30
-	if f := g.ForecastEndOfDay(); f != 1000+240-250 {
-		t.Errorf("прогноз после обеда = %d, хотим 990", f)
+	if f := g.ForecastEndOfDay(); f != 1000+24*8-250 {
+		t.Errorf("прогноз после обеда = %d, хотим 942", f)
 	}
-	// Во время обеда прогноз не считает обеденные тики доходными.
 	g.TickInDay = 24
-	if f := g.ForecastEndOfDay(); f != 1000+240-250 {
-		t.Errorf("прогноз в обед = %d, хотим 990", f)
+	if f := g.ForecastEndOfDay(); f != 1000+24*8-250 {
+		t.Errorf("прогноз в обед = %d, хотим 942", f)
 	}
 }
 
