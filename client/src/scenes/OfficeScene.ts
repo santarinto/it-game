@@ -73,6 +73,7 @@ export class OfficeScene extends Phaser.Scene {
       }).setOrigin(0.5)
       if (canBuy) btn.on('pointerdown', () => client.send('buy_office', nav.activeOffice))
       this.objects.push(btn, txt)
+      this.objects.push(...drawDebugFrames(this, this.objects))
       return
     }
 

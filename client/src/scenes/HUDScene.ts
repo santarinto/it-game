@@ -287,6 +287,7 @@ export class HUDScene extends Phaser.Scene {
     btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
     btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
     this.reportUI = [overlay, panel, title, bodyText, checkbox, btnBg, btnText]
+    this.reportUI.push(...drawDebugFrames(this, this.reportUI))
   }
 
   private checkboxLabel(): string {
@@ -326,6 +327,7 @@ export class HUDScene extends Phaser.Scene {
     btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
     btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
     this.gameOverUI = [overlay, title, body, btnBg, btnText]
+    this.gameOverUI.push(...drawDebugFrames(this, this.gameOverUI))
   }
 
   private closeGameOver() {
