@@ -79,6 +79,11 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan ga
 			}
 		case <-ticker.C:
 			report := g.Tick()
+			// На паузе (отчёт/банкротство) тик — no-op: не шлём одинаковые
+			// снапшоты каждую секунду, клиент ждёт команду игрока.
+			if report == nil && g.Phase != game.PhaseRunning {
+				continue
+			}
 			if wsjson.Write(ctx, c, snapshot(g)) != nil {
 				return
 			}
