@@ -1,8 +1,9 @@
 import Phaser from 'phaser'
-import { GAME_H, GAME_W, HUD_H } from '../layout'
+import { GAME_H, GAME_W, HUD_H, NAV_W } from '../layout'
 import { client } from '../net'
 import type { DayReportMessage, GameOverMessage, StateMessage } from '../protocol'
 import { fmtMoney } from '../format'
+import { nav } from '../rooms'
 
 const CX = GAME_W / 2 // центр поля — якорь модалок и тостов
 
@@ -12,9 +13,14 @@ const ERROR_TEXTS: Record<string, string> = {
   no_free_pc: 'Нет свободного ПК — купите ПК',
   no_free_rack_slot: 'В серверной нет свободных стоек',
   router_maxed: 'Роутер уже максимального тира',
-  staff_limit: 'Нужен начальник — офис уже занят',
   unknown_command: 'Неизвестная команда',
   wrong_phase: 'Сейчас нельзя — дождитесь начала дня',
+  staff_limit: 'Наймите начальника — он откроет ещё 3 места',
+  office_locked: 'Этот офис ещё не куплен',
+  boss_already: 'Начальник уже нанят',
+  offices_maxed: 'Все офисы уже куплены',
+  gateway_already: 'Шлюз уже установлен',
+  bad_office: 'Нет такого офиса',
 }
 
 interface Button {
@@ -31,8 +37,10 @@ export class HUDScene extends Phaser.Scene {
   private hireBtn!: Button
   private routerBtn!: Button
   private serverBtn!: Button
-  private room: 'office' | 'serverRoom' = 'office'
-  private switchBtn!: Button
+  private bossBtn!: Button
+  private gatewayBtn!: Button
+  private navItems: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; sub: Phaser.GameObjects.Text }[] = []
+  private currentRoom: 'office' | 'serverRoom' = 'office'
   private reportUI: Phaser.GameObjects.GameObject[] = []
   private gameOverUI: Phaser.GameObjects.GameObject[] = []
   private skipReports = localStorage.getItem('skipReports') === '1'
@@ -61,13 +69,13 @@ export class HUDScene extends Phaser.Scene {
       .text(GAME_W - 16, 70, '', { fontFamily: 'monospace', fontSize: '13px', color: '#5d7275' })
       .setOrigin(1, 0)
 
-    this.pcBtn = this.makeButton(420, 10, () => client.send('buy_pc'))
-    this.hireBtn = this.makeButton(420, 52, () => client.send('hire'))
-    this.routerBtn = this.makeButton(640, 10, () => client.send('buy_router'))
-    this.serverBtn = this.makeButton(640, 52, () => client.send('buy_server'))
-
-    this.switchBtn = this.makeButton(GAME_W - 216, 31, () => this.switchRoom())
-    this.switchBtn.setLabel('В серверную →')
+    this.pcBtn = this.makeButton(420, 10, () => client.send('buy_pc', nav.activeOffice))
+    this.hireBtn = this.makeButton(420, 52, () => client.send('hire', nav.activeOffice))
+    this.routerBtn = this.makeButton(640, 10, () => client.send('buy_router', nav.activeOffice))
+    this.bossBtn = this.makeButton(640, 52, () => client.send('hire_boss', nav.activeOffice))
+    this.serverBtn = this.makeButton(860, 10, () => client.send('buy_server'))
+    this.gatewayBtn = this.makeButton(860, 52, () => client.send('buy_gateway'))
+    this.createNavPanel()
 
     const unsub = client.subscribe({
       onState: (s) => this.refresh(s),
@@ -95,35 +103,80 @@ export class HUDScene extends Phaser.Scene {
       .setDepth(101)
   }
 
+  // Панель навигации: значки офисов и серверной в колонке слева.
+  private createNavPanel() {
+    this.add.rectangle(0, HUD_H, NAV_W, GAME_H - HUD_H, 0x14162b).setOrigin(0)
+    const rooms: { key: 'office' | 'serverRoom'; office: number; label: string }[] = [
+      { key: 'office', office: 0, label: 'О1' },
+      { key: 'office', office: 1, label: 'О2' },
+      { key: 'office', office: 2, label: 'О3' },
+      { key: 'serverRoom', office: -1, label: 'СРВ' },
+    ]
+    rooms.forEach((r, idx) => {
+      const y = HUD_H + 24 + idx * 76
+      const bg = this.add.rectangle(8, y, NAV_W - 16, 48, 0x232640)
+        .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true })
+      const label = this.add
+        .text(NAV_W / 2, y + 18, r.label, { fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4' })
+        .setOrigin(0.5)
+      const sub = this.add
+        .text(NAV_W / 2, y + 36, '', { fontFamily: 'monospace', fontSize: '8px', color: '#5d7275' })
+        .setOrigin(0.5)
+      bg.on('pointerdown', () => this.switchRoom(r.key, r.office))
+      this.navItems.push({ bg, label, sub })
+    })
+  }
+
+  private switchRoom(key: 'office' | 'serverRoom', office: number) {
+    // Дребезг: два быстрых клика до завершения stop/launch дублируют сцену.
+    if (this.switching) return
+    this.switching = true
+    this.time.delayedCall(250, () => (this.switching = false))
+    if (office >= 0) nav.activeOffice = office
+    this.scene.stop(this.currentRoom)
+    if (key === this.currentRoom && key === 'office') {
+      this.scene.launch('office') // рестарт сцены офиса на новый activeOffice
+    } else {
+      this.scene.launch(key)
+    }
+    this.currentRoom = key
+    this.highlightNav()
+  }
+
+  private highlightNav() {
+    this.navItems.forEach((item, idx) => {
+      const active = this.currentRoom === 'serverRoom' ? idx === 3 : idx === nav.activeOffice
+      item.bg.setStrokeStyle(2, active ? 0x41a6f6 : 0x3a3f5c)
+    })
+  }
+
   private refresh(s: StateMessage) {
     if (s.phase === 'running') {
       this.closeReport()
       this.closeGameOver()
     }
-    const connected = s.employees.filter((e) => e.connected).length
+    const employees = s.offices.flatMap((o) => o.employees)
+    const connected = employees.filter((e) => e.connected).length
+    const active = s.offices[nav.activeOffice]
     this.moneyText.setText(fmtMoney(s.money))
     this.incomeText.setText(`+${fmtMoney(s.incomePerTick)}/сек`)
-    this.payrollText.setText(`Зарплата ${fmtMoney(s.payrollPerDay)}/день`)
+    this.payrollText.setText(`Расходы ${fmtMoney(s.payrollPerDay)}/день`)
     // Прогноз считает сервер: клиент не знает про обеденные тики.
     this.payrollText.setColor(s.forecastEndOfDay < 0 ? '#b13e53' : '#5d7275')
     this.dayText.setText(`День ${s.day} · ${s.clock}${s.isLunch ? ' · обед' : ''}`)
-    this.netText.setText(`Сотрудники: ${s.employees.length} · в сети ${connected} · ×${s.multiplier.toFixed(1)}`)
+    this.netText.setText(`Сотрудники: ${employees.length} · в сети ${connected} · ×${s.multiplier.toFixed(1)}`)
     this.pcBtn.setLabel(`Купить ПК  ${fmtMoney(s.prices.pc)}`)
     this.hireBtn.setLabel(`Нанять  ${fmtMoney(s.prices.hire)}`)
-    this.routerBtn.setLabel(s.prices.nextRouter > 0 ? `Роутер  ${fmtMoney(s.prices.nextRouter)}` : 'Роутер MAX')
+    this.routerBtn.setLabel(active.nextRouter > 0 ? `Роутер  ${fmtMoney(active.nextRouter)}` : 'Роутер MAX')
+    this.bossBtn.setLabel(active.boss === '' ? `Начальник  ${fmtMoney(s.prices.boss)}` : 'Начальник ✓')
     this.serverBtn.setLabel(`Сервер  ${fmtMoney(s.prices.server)}`)
-  }
-
-  private switchRoom() {
-    // Двойной клик до завершения stop/launch дублирует сцену — гасим дребезг.
-    if (this.switching) return
-    this.switching = true
-    this.time.delayedCall(250, () => (this.switching = false))
-    const next = this.room === 'office' ? 'serverRoom' : 'office'
-    this.scene.stop(this.room)
-    this.scene.launch(next)
-    this.room = next
-    this.switchBtn.setLabel(this.room === 'office' ? 'В серверную →' : '← В офис')
+    this.gatewayBtn.setLabel(s.gateway ? 'Шлюз ✓' : `Шлюз  ${fmtMoney(s.prices.gateway)}`)
+    this.navItems.forEach((item, idx) => {
+      if (idx === 3) return
+      const o = s.offices[idx]
+      item.sub.setText(o.unlocked ? `${o.employees.length}/${s.officeSlots}` : fmtMoney(o.price))
+    })
+    this.highlightNav()
   }
 
   private makeButton(x: number, y: number, onClick: () => void): Button {
@@ -164,6 +217,7 @@ export class HUDScene extends Phaser.Scene {
     const body = [
       `Доход:     ${fmtMoney(r.income)}`,
       `Зарплата: -${fmtMoney(r.payroll)}`,
+      ...(r.gatewayOpex > 0 ? [`Интернет: -${fmtMoney(r.gatewayOpex)}`] : []),
       `Прибыль:   ${fmtMoney(r.profit)}`,
       `Баланс:    ${fmtMoney(r.balance)}`,
     ].join('\n')

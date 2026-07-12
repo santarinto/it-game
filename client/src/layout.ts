@@ -3,3 +3,4 @@
 export const GAME_W = 1280
 export const GAME_H = 720
 export const HUD_H = 96
+export const NAV_W = 64 // левая панель навигации: офисы и серверная
