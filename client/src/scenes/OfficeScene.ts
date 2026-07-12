@@ -1,11 +1,12 @@
 import Phaser from 'phaser'
 import { fmtMoney } from '../format'
-import { GAME_H, GAME_W, HUD_H } from '../layout'
+import { GAME_H, GAME_W, HUD_H, NAV_W } from '../layout'
 import { client } from '../net'
-import type { EmployeeInfo, StateMessage } from '../protocol'
+import { nav } from '../rooms'
+import type { EmployeeInfo, OfficeInfo, StateMessage } from '../protocol'
 
 const SCALE = 4 // 16px спрайт → 64px на экране
-const GRID = { cols: 4, startX: 200, startY: 220, stepX: 270, stepY: 170 }
+const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
 const LUNCH_SHIFT = 24 // на обеде сотрудник отходит от стола
 
 export class OfficeScene extends Phaser.Scene {
@@ -24,10 +25,7 @@ export class OfficeScene extends Phaser.Scene {
   create() {
     // сцены перезапускаются при переключении комнат — сбрасываем ссылки прошлого цикла
     this.objects = []
-    this.add.rectangle(0, HUD_H, GAME_W, GAME_H - HUD_H, 0x2b2f4a).setOrigin(0) // пол офиса
-    this.add.text(GAME_W / 2, HUD_H + 20, 'ОФИС', {
-      fontFamily: 'monospace', fontSize: '16px', color: '#5d7275',
-    }).setOrigin(0.5)
+    this.add.rectangle(NAV_W, HUD_H, GAME_W - NAV_W, GAME_H - HUD_H, 0x2b2f4a).setOrigin(0) // пол офиса
 
     // Один переиспользуемый тултип поверх всего; наполняется при наведении.
     this.tooltipText = this.add.text(10, 8, '', {
@@ -47,9 +45,35 @@ export class OfficeScene extends Phaser.Scene {
   // Полная перерисовка на каждый снапшот: объектов мало, зато нет
   // рассинхрона между стейтом и картинкой.
   private render(s: StateMessage) {
+    const office = s.offices[nav.activeOffice]
     this.hideTooltip() // спрайты пересоздаются — старая цель тултипа мертва
     this.objects.forEach((o) => o.destroy())
     this.objects = []
+
+    this.objects.push(
+      this.add.text(GAME_W / 2, HUD_H + 20, `ОФИС ${nav.activeOffice + 1}`, {
+        fontFamily: 'monospace', fontSize: '16px', color: '#5d7275',
+      }).setOrigin(0.5),
+    )
+
+    if (!office.unlocked) {
+      this.objects.push(
+        this.add.text(GAME_W / 2, 300, `Офис ${nav.activeOffice + 1} закрыт`, {
+          fontFamily: 'monospace', fontSize: '24px', color: '#5d7275',
+        }).setOrigin(0.5),
+      )
+      // Открывать офисы можно только по порядку — если предыдущий ещё
+      // не куплен, кнопка неактивна и подсказывает, что делать сначала.
+      const canBuy = !(nav.activeOffice > 0 && !s.offices[nav.activeOffice - 1].unlocked)
+      const btn = this.add.rectangle(GAME_W / 2 - 130, 360, 260, 40, 0x3b5dc9).setOrigin(0, 0)
+      if (canBuy) btn.setInteractive({ useHandCursor: true })
+      const txt = this.add.text(GAME_W / 2, 380, canBuy ? `Купить офис — ${fmtMoney(office.price)}` : 'Сначала купите предыдущий', {
+        fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4',
+      }).setOrigin(0.5)
+      if (canBuy) btn.on('pointerdown', () => client.send('buy_office', nav.activeOffice))
+      this.objects.push(btn, txt)
+      return
+    }
 
     // Специальный слот роутера: рабочее место сюда не поставить.
     const rx = GAME_W - 130
@@ -58,10 +82,10 @@ export class OfficeScene extends Phaser.Scene {
       this.add.rectangle(rx, ry, 84, 84, 0x232640).setStrokeStyle(2, 0x5d7275),
       this.add.text(rx, ry - 56, 'сеть', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
     )
-    if (s.routerTier > 0) {
+    if (office.routerTier > 0) {
       this.objects.push(
         this.add.image(rx, ry, 'router').setScale(SCALE),
-        this.add.text(rx, ry + 52, `роутер т${s.routerTier} · ${s.ports} порт.`, {
+        this.add.text(rx, ry + 52, `роутер т${office.routerTier} · ${office.ports} порт.`, {
           fontFamily: 'monospace', fontSize: '11px', color: '#41a6f6',
         }).setOrigin(0.5),
       )
@@ -73,22 +97,39 @@ export class OfficeScene extends Phaser.Scene {
       )
     }
 
+    // Слот начальника — рядом со слотом роутера, но ниже.
+    const bx = GAME_W - 130
+    const by = 320
+    this.objects.push(
+      this.add.rectangle(bx, by, 84, 84, 0x232640).setStrokeStyle(2, 0x5d7275),
+      this.add.text(bx, by - 56, 'начальник', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
+    )
+    if (office.boss !== '') {
+      const bossImg = this.add.image(bx, by, 'worker').setScale(5).setInteractive({ useHandCursor: true })
+      bossImg.on('pointerover', () => this.showBossTooltip(office, s, bx, by))
+      bossImg.on('pointerout', () => this.hideTooltip())
+      this.objects.push(bossImg)
+    } else {
+      this.objects.push(this.add.text(bx, by, 'нет', { fontFamily: 'monospace', fontSize: '11px', color: '#5d7275' }).setOrigin(0.5))
+    }
+
     // Рабочие места: первые pcs слотов — с ПК, дальше сотрудники из массива;
-    // слоты за потолком штата закрыты до начальника.
+    // слоты за потолком штата закрыты, а слоты за 9 — до найма начальника.
+    const cap = office.boss !== '' ? s.officeSlots : s.staffLimit
     for (let i = 0; i < s.officeSlots; i++) {
       const x = GRID.startX + (i % GRID.cols) * GRID.stepX
       const y = GRID.startY + Math.floor(i / GRID.cols) * GRID.stepY
-      if (i >= s.staffLimit) {
+      if (i >= cap) {
         this.objects.push(
           this.add.rectangle(x, y, 80, 64, 0x232640, 0.5).setStrokeStyle(2, 0x3a3f5c),
-          this.add.text(x, y, 'нужен\nначальник', {
+          this.add.text(x, y, 'наймите\nначальника', {
             fontFamily: 'monospace', fontSize: '10px', color: '#5d7275', align: 'center',
           }).setOrigin(0.5),
         )
         continue
       }
-      this.objects.push(this.add.image(x, y, i < s.pcs ? 'desk_pc' : 'desk_empty').setScale(SCALE))
-      const e = s.employees[i]
+      this.objects.push(this.add.image(x, y, i < office.pcs ? 'desk_pc' : 'desk_empty').setScale(SCALE))
+      const e = office.employees[i]
       if (e) {
         // На обеде сотрудник отходит от стола.
         const wx = s.isLunch ? x - 52 + LUNCH_SHIFT : x - 52
@@ -125,12 +166,22 @@ export class OfficeScene extends Phaser.Scene {
     this.tooltipText.setText([
       e.name,
       `Выработка: ${fmtMoney(e.incomePerTick * s.ticksPerHour)}/час`,
-      `Зарплата:  ${fmtMoney(s.salaryPerDay)}/день`,
+      `Зарплата:  ${fmtMoney(s.salaryPerDay)}/день${e.unpaidToday ? ' (сегодня без оплаты)' : ''}`,
     ].join('\n'))
     this.tooltipBg.setSize(this.tooltipText.width + 20, this.tooltipText.height + 16)
     // Не выпускаем тултип за правый край поля.
     const tx = Math.min(x + 40, GAME_W - this.tooltipBg.width - 8)
     this.tooltip.setPosition(tx, y - 20).setVisible(true)
+  }
+
+  private showBossTooltip(o: OfficeInfo, s: StateMessage, x: number, y: number) {
+    this.tooltipText.setText([
+      o.boss,
+      'Начальник — открывает места 10–12',
+      `Зарплата:  ${fmtMoney(s.bossSalaryPerDay)}/день${o.bossUnpaidToday ? ' (сегодня без оплаты)' : ''}`,
+    ].join('\n'))
+    this.tooltipBg.setSize(this.tooltipText.width + 20, this.tooltipText.height + 16)
+    this.tooltip.setPosition(Math.min(x + 40, GAME_W - this.tooltipBg.width - 8), y - 20).setVisible(true)
   }
 
   private hideTooltip() {
