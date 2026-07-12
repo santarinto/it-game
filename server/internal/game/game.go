@@ -73,6 +73,9 @@ func (g *Game) Multiplier() float64 {
 // Clock — текущее игровое время «HH:MM»: WorkdayStart плюс 10 минут за тик.
 func (g *Game) Clock() string { return g.cfg.clockAt(g.TickInDay) }
 
+// ClockAt — игровое время произвольного тика (для протокола).
+func (g *Game) ClockAt(tick int) string { return g.cfg.clockAt(tick) }
+
 // IsLunch — идёт ли сейчас обед (в обед доход за тик равен нулю).
 func (g *Game) IsLunch() bool { return g.cfg.isLunchTick(g.TickInDay) }
 
