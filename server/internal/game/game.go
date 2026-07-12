@@ -115,6 +115,9 @@ func (g *Game) PayrollPerDay() int {
 	total := 0
 	for i := range g.Offices {
 		o := &g.Offices[i]
+		if !o.Unlocked {
+			continue // защита от рассинхрона, симметрично доходу
+		}
 		for _, e := range o.Employees {
 			if !e.UnpaidToday {
 				total += g.cfg.SalaryPerDay

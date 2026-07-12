@@ -104,3 +104,12 @@ func TestDayReportGatewayOpex(t *testing.T) {
 		t.Errorf("Balance=%d не сходится", rep.Balance)
 	}
 }
+
+func TestLockedOfficeNoPayroll(t *testing.T) {
+	g := New(DefaultConfig())
+	g.Offices[1].Employees = testStaff(3) // закрытый офис — защита от рассинхрона
+	g.Offices[1].Boss = "Т Б"
+	if p := g.PayrollPerDay(); p != 0 {
+		t.Errorf("закрытый офис не должен попадать в расходы: %d", p)
+	}
+}
