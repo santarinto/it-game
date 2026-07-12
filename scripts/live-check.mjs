@@ -1,11 +1,10 @@
-// Живая проверка протокола итерации 3 против реального сервера.
+// Живая проверка протокола итерации 4 против реального сервера.
 // Запуск: go run ./cmd/server -addr :8091 (из server/), затем node scripts/live-check.mjs
-// Ждёт настоящий конец дня (~54 сек) — осознанно: проверяем прод-тайминги.
 const FIELDS = [
-  'money', 'pcs', 'routerTier', 'ports', 'servers', 'multiplier', 'incomePerTick',
-  'employees', 'day', 'dayTicks', 'dayProgress', 'clock', 'isLunch', 'ticksPerHour',
-  'payrollPerDay', 'salaryPerDay', 'forecastEndOfDay', 'staffLimit',
-  'phase', 'officeSlots', 'rackSlots', 'prices',
+  'money', 'offices', 'servers', 'gateway', 'multiplier', 'incomePerTick',
+  'day', 'clock', 'isLunch', 'ticksPerHour', 'payrollPerDay', 'salaryPerDay',
+  'bossSalaryPerDay', 'forecastEndOfDay', 'staffLimit', 'officeSlots',
+  'phase', 'rackSlots', 'prices',
 ]
 let step = 0
 const ok = (name) => console.log(`ok ${++step} — ${name}`)
@@ -15,9 +14,9 @@ const fail = (name, got) => {
 }
 
 const ws = new WebSocket('ws://localhost:8091/ws')
+let phase = 'start'
 const timeout = setTimeout(() => fail('таймаут 90с', { phase }), 90_000)
 ws.onclose = () => fail('соединение закрылось до конца проверки', { phase })
-let phase = 'start'
 
 ws.onmessage = (ev) => {
   const m = JSON.parse(ev.data)
@@ -25,36 +24,38 @@ ws.onmessage = (ev) => {
     const missing = FIELDS.filter((f) => !(f in m))
     if (missing.length) fail('нет полей снапшота', missing)
     ok(`снапшот: все ${FIELDS.length} полей на месте`)
-    if (m.phase !== 'running' || m.day !== 1 || m.clock !== '10:00' || m.dayTicks !== 54) {
-      fail('старт: фаза/день/часы', m)
+    if (m.offices.length !== 3 || !m.offices[0].unlocked || m.offices[1].unlocked ||
+        m.offices[1].price !== 15000 || m.offices[2].price !== 40000) {
+      fail('офисы на старте', m.offices)
     }
-    ok('старт: running, день 1, 10:00, день 54 тика')
-    ws.send(JSON.stringify({ type: 'hire' }))
+    ok('офисы: 1 открыт, 2-3 закрыты с ценами')
+    ws.send(JSON.stringify({ type: 'hire', office: 0 }))
     phase = 'hired'
-  } else if (phase === 'hired' && m.type === 'state' && m.employees.length === 1) {
-    const e = m.employees[0]
-    if (m.payrollPerDay !== 250 || !e.name || e.incomePerTick < 9 || e.incomePerTick > 14) {
-      fail('нанятый сотрудник', { payroll: m.payrollPerDay, e })
+  } else if (phase === 'hired' && m.type === 'state' && m.offices[0].employees.length === 1) {
+    const e = m.offices[0].employees[0]
+    if (!e.name || e.incomePerTick < 9 || e.incomePerTick > 14 || e.unpaidToday) {
+      fail('нанятый сотрудник (утро — должен быть оплачиваемым)', e)
     }
-    ok(`найм: ${e.name}, $${e.incomePerTick}/тик, зарплата 250`)
-    ws.send(JSON.stringify({ type: 'next_day' })) // вне фазы отчёта — ждём ошибку
-    phase = 'wrong_phase'
-  } else if (phase === 'wrong_phase' && m.type === 'error') {
-    if (m.code !== 'wrong_phase') fail('код ошибки next_day в running', m.code)
-    ok('next_day в running: error wrong_phase')
-    phase = 'wait_lunch'
-    console.log('… ждём обеда (~24 сек) и конца дня (~54 сек)')
-  } else if (phase === 'wait_lunch' && m.type === 'state' && m.isLunch) {
-    if (m.incomePerTick !== 0) fail('в обед доход за тик не 0', m.incomePerTick)
-    ok(`обед в ${m.clock}: доход 0`)
+    ok(`найм в офис 0: ${e.name}, $${e.incomePerTick}/тик`)
+    ws.send(JSON.stringify({ type: 'hire', office: 1 })) // закрытый офис
+    phase = 'locked'
+  } else if (phase === 'locked' && m.type === 'error') {
+    if (m.code !== 'office_locked') fail('код ошибки найма в закрытый офис', m.code)
+    ok('найм в закрытый офис: error office_locked')
+    ws.send(JSON.stringify({ type: 'buy_gateway', office: 0 }))
+    phase = 'gateway'
+  } else if (phase === 'gateway' && m.type === 'error') {
+    if (m.code !== 'not_enough_money') fail('шлюз должен быть не по карману на старте', m.code)
+    ok('шлюз без денег: error not_enough_money')
     phase = 'wait_report'
+    console.log('… ждём конца дня (~54 сек)')
   } else if (phase === 'wait_report' && m.type === 'day_report') {
-    if (m.day !== 1 || m.payroll !== 250) fail('отчёт дня', m)
-    ok(`отчёт дня 1: income=${m.income} payroll=${m.payroll} balance=${m.balance}`)
-    ws.send(JSON.stringify({ type: 'next_day' }))
+    if (m.day !== 1 || m.payroll !== 250 || m.gatewayOpex !== 0) fail('отчёт дня', m)
+    ok(`отчёт дня 1: income=${m.income} payroll=${m.payroll} opex=${m.gatewayOpex}`)
+    ws.send(JSON.stringify({ type: 'next_day', office: 0 }))
     phase = 'day2'
   } else if (phase === 'day2' && m.type === 'state' && m.day === 2 && m.phase === 'running') {
-    ok('next_day: день 2 запущен, время ' + m.clock)
+    ok('день 2 запущен, время ' + m.clock)
     clearTimeout(timeout)
     console.log('ПРОТОКОЛ ОК')
     process.exit(0)
