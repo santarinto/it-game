@@ -67,7 +67,7 @@ func snapshot(g *game.Game) stateMessage {
 		Type:          "state",
 		Money:         g.Money,
 		PCs:           g.PCs,
-		Employees:     g.Employees,
+		Employees:     len(g.Employees),
 		RouterTier:    g.RouterTier,
 		Ports:         g.Ports(),
 		Connected:     g.Connected(),

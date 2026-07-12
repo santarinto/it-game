@@ -13,10 +13,15 @@ const (
 	ErrNoFreeRackSlot   = Err("no_free_rack_slot")
 	ErrRouterMaxed      = Err("router_maxed")
 	ErrWrongPhase       = Err("wrong_phase")
+	ErrStaffLimit       = Err("staff_limit")
 )
 
-// BuyPC ставит новый ПК в свободный слот офиса.
+// BuyPC ставит новый ПК в свободный слот офиса. Слоты сверх потолка
+// штата закрыты до начальника (итерация 4).
 func (g *Game) BuyPC() error {
+	if g.PCs >= g.cfg.StaffLimit {
+		return ErrStaffLimit
+	}
 	if g.PCs >= g.cfg.OfficeSlots {
 		return ErrNoFreeOfficeSlot
 	}
@@ -28,16 +33,23 @@ func (g *Game) BuyPC() error {
 	return nil
 }
 
-// Hire сажает нового сотрудника за свободный ПК.
+// Hire сажает нового сотрудника за свободный ПК: имя и выработка
+// роллятся при найме и не меняются.
 func (g *Game) Hire() error {
-	if g.Employees >= g.PCs {
+	if len(g.Employees) >= g.cfg.StaffLimit {
+		return ErrStaffLimit
+	}
+	if len(g.Employees) >= g.PCs {
 		return ErrNoFreePC
 	}
 	if g.Money < g.cfg.HirePrice {
 		return ErrNotEnoughMoney
 	}
 	g.Money -= g.cfg.HirePrice
-	g.Employees++
+	g.Employees = append(g.Employees, Employee{
+		Name:          rollName(g.rng),
+		IncomePerTick: g.cfg.IncomeMin + g.rng.IntN(g.cfg.IncomeMax-g.cfg.IncomeMin+1),
+	})
 	return nil
 }
 

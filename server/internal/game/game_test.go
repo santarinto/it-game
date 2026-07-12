@@ -10,7 +10,7 @@ func TestNewGameStart(t *testing.T) {
 	if g.PCs != 1 {
 		t.Errorf("PCs = %d, хотим 1 (стартовый ПК)", g.PCs)
 	}
-	if g.Employees != 0 || g.RouterTier != 0 || g.Servers != 0 {
+	if len(g.Employees) != 0 || g.RouterTier != 0 || g.Servers != 0 {
 		t.Errorf("на старте не должно быть сотрудников, роутера и серверов: %+v", g)
 	}
 }
@@ -25,8 +25,8 @@ func TestBuyPC(t *testing.T) {
 	}{
 		{"успех: деньги ровно по цене", func(g *Game) { g.Money = 500 }, nil, 2, 0},
 		{"не хватает денег", func(g *Game) { g.Money = 499 }, ErrNotEnoughMoney, 1, 499},
-		{"офис полон", func(g *Game) { g.Money = 10000; g.PCs = 9 }, ErrNoFreeOfficeSlot, 9, 10000},
-		{"офис полон и денег нет: слот проверяется первым", func(g *Game) { g.Money = 0; g.PCs = 9 }, ErrNoFreeOfficeSlot, 9, 0},
+		{"штат укомплектован: потолок 9 при 12 слотах офиса", func(g *Game) { g.Money = 10000; g.PCs = 9 }, ErrStaffLimit, 9, 10000},
+		{"штат укомплектован и денег нет: лимит проверяется первым", func(g *Game) { g.Money = 0; g.PCs = 9 }, ErrStaffLimit, 9, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -130,7 +130,7 @@ func TestIncome(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := New(DefaultConfig())
 			g.PCs = tt.employees
-			g.Employees = tt.employees
+			g.Employees = testStaff(tt.employees)
 			g.RouterTier = tt.routerTier
 			g.Servers = tt.servers
 			if c := g.Connected(); c != tt.wantConnected {
@@ -149,7 +149,7 @@ func TestIncome(t *testing.T) {
 func TestTickAddsIncome(t *testing.T) {
 	g := New(DefaultConfig())
 	g.Money = 0
-	g.Employees = 1
+	g.Employees = testStaff(1)
 	g.Tick()
 	g.Tick()
 	if g.Money != 20 {
@@ -162,8 +162,8 @@ func TestApply(t *testing.T) {
 	if err := g.Apply(CmdHire); err != nil {
 		t.Fatalf("Apply(hire): %v", err)
 	}
-	if g.Employees != 1 {
-		t.Errorf("Apply(hire) не нанял: Employees = %d", g.Employees)
+	if len(g.Employees) != 1 {
+		t.Errorf("Apply(hire) не нанял: Employees = %d", len(g.Employees))
 	}
 	if err := g.Apply(Command("dance")); err != ErrUnknownCommand {
 		t.Errorf("неизвестная команда: err = %v, хотим %v", err, ErrUnknownCommand)
@@ -194,9 +194,9 @@ func TestHire(t *testing.T) {
 		wantMoney     int
 	}{
 		{"успех: есть свободный стартовый ПК", func(g *Game) { g.Money = 300 }, nil, 1, 0},
-		{"нет свободного ПК", func(g *Game) { g.Money = 1000; g.Employees = 1 }, ErrNoFreePC, 1, 1000},
+		{"нет свободного ПК", func(g *Game) { g.Money = 1000; g.Employees = testStaff(1) }, ErrNoFreePC, 1, 1000},
 		{"не хватает денег", func(g *Game) { g.Money = 299 }, ErrNotEnoughMoney, 0, 299},
-		{"нет ПК и денег одновременно: ПК проверяется первым", func(g *Game) { g.Money = 0; g.Employees = 1 }, ErrNoFreePC, 1, 0},
+		{"нет ПК и денег одновременно: ПК проверяется первым", func(g *Game) { g.Money = 0; g.Employees = testStaff(1) }, ErrNoFreePC, 1, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -205,8 +205,8 @@ func TestHire(t *testing.T) {
 			if err := g.Hire(); err != tt.wantErr {
 				t.Fatalf("err = %v, хотим %v", err, tt.wantErr)
 			}
-			if g.Employees != tt.wantEmployees || g.Money != tt.wantMoney {
-				t.Errorf("Employees=%d Money=%d, хотим %d и %d", g.Employees, g.Money, tt.wantEmployees, tt.wantMoney)
+			if len(g.Employees) != tt.wantEmployees || g.Money != tt.wantMoney {
+				t.Errorf("Employees=%d Money=%d, хотим %d и %d", len(g.Employees), g.Money, tt.wantEmployees, tt.wantMoney)
 			}
 		})
 	}

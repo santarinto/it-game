@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"math"
+	"math/rand/v2"
 )
 
 // Phase — фаза игры; значения совпадают с полем phase протокола.
@@ -14,14 +15,21 @@ const (
 	PhaseGameOver  = Phase("game_over")  // банкротство, ждём restart
 )
 
+// Employee — сотрудник: имя и личная выработка, роллятся при найме навсегда.
+type Employee struct {
+	Name          string
+	IncomePerTick int
+}
+
 // Game — состояние одной игры. НЕ потокобезопасен: им владеет
 // ровно одна горутина (актор сессии в пакете ws).
 type Game struct {
 	cfg Config
+	rng *rand.Rand
 
 	Money      int
 	PCs        int // ПК в офисе; первые Employees из них заняты сотрудниками
-	Employees  int
+	Employees  []Employee
 	RouterTier int // 0 — роутера нет; 1..len(cfg.RouterTiers)
 	Servers    int
 
@@ -33,7 +41,16 @@ type Game struct {
 }
 
 func New(cfg Config) *Game {
-	return &Game{cfg: cfg, Money: cfg.StartMoney, PCs: cfg.StartPCs, Phase: PhaseRunning, Day: 1}
+	return NewWithSeed(cfg, rand.Uint64(), rand.Uint64())
+}
+
+// NewWithSeed — игра с фиксированным сидом: детерминированные роллы для тестов.
+func NewWithSeed(cfg Config, s1, s2 uint64) *Game {
+	return &Game{
+		cfg:   cfg,
+		rng:   rand.New(rand.NewPCG(s1, s2)),
+		Money: cfg.StartMoney, PCs: cfg.StartPCs, Phase: PhaseRunning, Day: 1,
+	}
 }
 
 // Config возвращает баланс, с которым создана игра (для снапшотов протокола).
@@ -50,7 +67,7 @@ func (g *Game) Ports() int {
 // Connected — сколько сотрудников сейчас в сети:
 // подключаются автоматически первые N занятых мест, N = порты роутера.
 func (g *Game) Connected() int {
-	return min(g.Ports(), g.Employees)
+	return min(g.Ports(), len(g.Employees))
 }
 
 // Multiplier — сетевой множитель выработки подключённых рабочих мест.
@@ -72,19 +89,44 @@ func (g *Game) Clock() string {
 // IsLunch — идёт ли сейчас обед (в обед доход за тик равен нулю).
 func (g *Game) IsLunch() bool { return g.cfg.isLunchTick(g.TickInDay) }
 
-// IncomePerTick — доход за один тик при текущем состоянии.
+// IncomePerTick — доход за один тик; во время обеда — 0.
 func (g *Game) IncomePerTick() int {
 	if g.IsLunch() {
 		return 0
 	}
-	base := g.cfg.BaseIncomePerTick
+	return g.incomePotentialPerTick()
+}
+
+// incomePotentialPerTick — доход за продуктивный (не обеденный) тик:
+// сумма личных выработок, первые Connected() — с сетевым множителем.
+func (g *Game) incomePotentialPerTick() int {
 	connected := g.Connected()
-	perConnected := int(math.Round(float64(base) * g.Multiplier()))
-	return connected*perConnected + (g.Employees-connected)*base
+	mult := g.Multiplier()
+	total := 0
+	for i, e := range g.Employees {
+		if i < connected {
+			total += int(math.Round(float64(e.IncomePerTick) * mult))
+		} else {
+			total += e.IncomePerTick
+		}
+	}
+	return total
 }
 
 // PayrollPerDay — дневной фонд оплаты труда при текущем штате.
-func (g *Game) PayrollPerDay() int { return g.Employees * g.cfg.SalaryPerDay }
+func (g *Game) PayrollPerDay() int { return len(g.Employees) * g.cfg.SalaryPerDay }
+
+// ForecastEndOfDay — баланс на конец дня: деньги + доход за оставшиеся
+// продуктивные тики − ФОТ. Считает сервер: клиентская формула не знает про обед.
+func (g *Game) ForecastEndOfDay() int {
+	productive := 0
+	for t := g.TickInDay; t < g.cfg.DayTicks(); t++ {
+		if !g.cfg.isLunchTick(t) {
+			productive++
+		}
+	}
+	return g.Money + g.incomePotentialPerTick()*productive - g.PayrollPerDay()
+}
 
 // DayReport — итоги дня для сообщения протокола.
 type DayReport struct {

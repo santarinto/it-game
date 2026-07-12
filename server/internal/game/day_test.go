@@ -31,7 +31,7 @@ func TestPayrollPerDay(t *testing.T) {
 	if p := g.PayrollPerDay(); p != 0 {
 		t.Errorf("без сотрудников ФОТ = %d, хотим 0", p)
 	}
-	g.Employees = 3
+	g.Employees = testStaff(3)
 	if p := g.PayrollPerDay(); p != 750 {
 		t.Errorf("ФОТ = %d, хотим 750", p)
 	}
@@ -40,7 +40,7 @@ func TestPayrollPerDay(t *testing.T) {
 func TestDayEndsWithReport(t *testing.T) {
 	g := New(dayTestConfig())
 	g.Money = 1000
-	g.Employees = 1 // $10/тик без сети
+	g.Employees = testStaff(1) // $10/тик без сети
 	var rep *DayReport
 	for i := 0; i < 3; i++ {
 		if rep != nil {
@@ -64,7 +64,7 @@ func TestDayEndsWithReport(t *testing.T) {
 func TestDayEndBankruptcy(t *testing.T) {
 	g := New(dayTestConfig())
 	g.Money = 0
-	g.Employees = 1 // доход за день 30 < ФОТ 250
+	g.Employees = testStaff(1) // доход за день 30 < ФОТ 250
 	for i := 0; i < 3; i++ {
 		g.Tick()
 	}
@@ -79,7 +79,7 @@ func TestDayEndBankruptcy(t *testing.T) {
 func TestDayEndExactZeroSurvives(t *testing.T) {
 	g := New(dayTestConfig())
 	g.Money = 220 // 220 + 30 дохода − 250 ФОТ = ровно 0
-	g.Employees = 1
+	g.Employees = testStaff(1)
 	for i := 0; i < 3; i++ {
 		g.Tick()
 	}
@@ -92,7 +92,7 @@ func TestTickNoopOutsideRunning(t *testing.T) {
 	g := New(dayTestConfig())
 	g.Phase = PhaseDayReport
 	g.Money = 100
-	g.Employees = 1
+	g.Employees = testStaff(1)
 	if rep := g.Tick(); rep != nil || g.Money != 100 || g.TickInDay != 0 {
 		t.Errorf("тик вне running должен быть no-op: rep=%v Money=%d TickInDay=%d", rep, g.Money, g.TickInDay)
 	}
@@ -101,9 +101,9 @@ func TestTickNoopOutsideRunning(t *testing.T) {
 func TestPeakIncomeTracked(t *testing.T) {
 	g := New(dayTestConfig())
 	g.PCs = 2
-	g.Employees = 2
+	g.Employees = testStaff(2)
 	g.Tick() // доход 20
-	g.Employees = 1
+	g.Employees = testStaff(1)
 	g.Tick() // доход 10 — пик не сбрасывается
 	if g.PeakIncomePerTick != 20 {
 		t.Errorf("PeakIncomePerTick = %d, хотим 20", g.PeakIncomePerTick)
@@ -113,7 +113,7 @@ func TestPeakIncomeTracked(t *testing.T) {
 func TestNextDay(t *testing.T) {
 	g := New(dayTestConfig())
 	g.Money = 1000
-	g.Employees = 1
+	g.Employees = testStaff(1)
 	for i := 0; i < 3; i++ {
 		g.Tick()
 	}
@@ -136,7 +136,7 @@ func TestRestart(t *testing.T) {
 	g := New(dayTestConfig())
 	g.Money = 0
 	g.PCs = 3
-	g.Employees = 3
+	g.Employees = testStaff(3)
 	for i := 0; i < 3; i++ {
 		g.Tick()
 	}
@@ -147,7 +147,7 @@ func TestRestart(t *testing.T) {
 		t.Fatalf("Restart: %v", err)
 	}
 	if g.Phase != PhaseRunning || g.Day != 1 || g.Money != 600 || g.PCs != 1 ||
-		g.Employees != 0 || g.RouterTier != 0 || g.Servers != 0 ||
+		len(g.Employees) != 0 || g.RouterTier != 0 || g.Servers != 0 ||
 		g.TickInDay != 0 || g.DayIncome != 0 || g.PeakIncomePerTick != 0 {
 		t.Errorf("после Restart не стартовое состояние: %+v", g)
 	}
