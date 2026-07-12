@@ -212,7 +212,9 @@ func TestSessionSetSpeed(t *testing.T) {
 }
 
 func TestSessionPause(t *testing.T) {
-	c, ctx := dialTestServer(t, game.DefaultConfig(), 10*time.Millisecond)
+	cfg := game.DefaultConfig()
+	cfg.StartMoney = 10_000 // найм и покупка на паузе не должны упираться в деньги
+	c, ctx := dialTestServer(t, cfg, 10*time.Millisecond)
 	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" })
 	// Сотрудник, чтобы на тиках капал доход.
 	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 0}); err != nil {
