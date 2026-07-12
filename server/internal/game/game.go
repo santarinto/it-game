@@ -109,13 +109,33 @@ func (g *Game) incomePotentialPerTick() int {
 	return total
 }
 
-// PayrollPerDay — дневные расходы на людей (боссы и опекс — Task 3).
+// PayrollPerDay — полные дневные расходы: зарплаты сотрудников и боссов
+// (кроме нанятых после обеда — им сегодня не платим) плюс опекс шлюза.
 func (g *Game) PayrollPerDay() int {
 	total := 0
 	for i := range g.Offices {
-		total += len(g.Offices[i].Employees) * g.cfg.SalaryPerDay
+		o := &g.Offices[i]
+		for _, e := range o.Employees {
+			if !e.UnpaidToday {
+				total += g.cfg.SalaryPerDay
+			}
+		}
+		if o.Boss != "" && !o.BossUnpaidToday {
+			total += g.cfg.BossSalaryPerDay
+		}
+	}
+	if g.Gateway {
+		total += g.cfg.GatewayOpexPerDay
 	}
 	return total
+}
+
+// gatewayOpex — дневной опекс шлюза (0, если шлюза нет).
+func (g *Game) gatewayOpex() int {
+	if g.Gateway {
+		return g.cfg.GatewayOpexPerDay
+	}
+	return 0
 }
 
 // ForecastEndOfDay — баланс на конец дня: деньги + доход за оставшиеся
@@ -132,11 +152,12 @@ func (g *Game) ForecastEndOfDay() int {
 
 // DayReport — итоги дня для сообщения протокола.
 type DayReport struct {
-	Day     int
-	Income  int
-	Payroll int
-	Profit  int
-	Balance int
+	Day         int
+	Income      int
+	Payroll     int // зарплаты людей (сотрудники + боссы)
+	GatewayOpex int // операционный расход шлюза
+	Profit      int
+	Balance     int
 }
 
 // Tick — один шаг симуляции (1 секунда). Вне фазы running — no-op.
@@ -154,12 +175,15 @@ func (g *Game) Tick() *DayReport {
 	if g.TickInDay < g.cfg.DayTicks() {
 		return nil
 	}
-	payroll := g.PayrollPerDay()
-	g.Money -= payroll
+	expenses := g.PayrollPerDay()
+	opex := g.gatewayOpex()
+	payroll := expenses - opex
+	g.Money -= expenses
 	if g.Money < 0 {
 		g.Phase = PhaseGameOver
 	} else {
 		g.Phase = PhaseDayReport
 	}
-	return &DayReport{Day: g.Day, Income: g.DayIncome, Payroll: payroll, Profit: g.DayIncome - payroll, Balance: g.Money}
+	return &DayReport{Day: g.Day, Income: g.DayIncome, Payroll: payroll,
+		GatewayOpex: opex, Profit: g.DayIncome - expenses, Balance: g.Money}
 }

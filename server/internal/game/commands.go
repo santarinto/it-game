@@ -173,6 +173,14 @@ func (g *Game) NextDay() error {
 	if g.Phase != PhaseDayReport {
 		return ErrWrongPhase
 	}
+	// Сбрасываем флаги неполного дня для нанятых после обеда
+	for i := range g.Offices {
+		o := &g.Offices[i]
+		for j := range o.Employees {
+			o.Employees[j].UnpaidToday = false
+		}
+		o.BossUnpaidToday = false
+	}
 	g.Day++
 	g.TickInDay = 0
 	g.DayIncome = 0
