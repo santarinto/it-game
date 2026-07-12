@@ -11,24 +11,36 @@ type clientMessage struct {
 // stateMessage — полный снапшот состояния. Включает производные поля
 // (доход, порты, множитель), чтобы клиент ничего не считал сам.
 type stateMessage struct {
-	Type          string  `json:"type"` // всегда "state"
-	Money         int     `json:"money"`
-	PCs           int     `json:"pcs"`
-	Employees     int     `json:"employees"`
-	RouterTier    int     `json:"routerTier"`
-	Ports         int     `json:"ports"`
-	Connected     int     `json:"connected"`
-	Servers       int     `json:"servers"`
-	Multiplier    float64 `json:"multiplier"`
-	IncomePerTick int     `json:"incomePerTick"`
-	Day           int     `json:"day"`
-	DayTicks      int     `json:"dayTicks"`
-	DayProgress   int     `json:"dayProgress"` // тиков прошло в текущем дне
-	PayrollPerDay int     `json:"payrollPerDay"`
-	Phase         string  `json:"phase"` // running | day_report | game_over
-	OfficeSlots   int     `json:"officeSlots"`
-	RackSlots     int     `json:"rackSlots"`
-	Prices        prices  `json:"prices"`
+	Type             string         `json:"type"` // всегда "state"
+	Money            int            `json:"money"`
+	PCs              int            `json:"pcs"`
+	RouterTier       int            `json:"routerTier"`
+	Ports            int            `json:"ports"`
+	Servers          int            `json:"servers"`
+	Multiplier       float64        `json:"multiplier"`
+	IncomePerTick    int            `json:"incomePerTick"`
+	Employees        []employeeInfo `json:"employees"` // порядок = порядок найма
+	Day              int            `json:"day"`
+	DayTicks         int            `json:"dayTicks"`
+	DayProgress      int            `json:"dayProgress"` // тиков прошло в текущем дне
+	Clock            string         `json:"clock"`       // «12:30»
+	IsLunch          bool           `json:"isLunch"`     // обед: доход за тик = 0
+	TicksPerHour     int            `json:"ticksPerHour"`
+	PayrollPerDay    int            `json:"payrollPerDay"`
+	SalaryPerDay     int            `json:"salaryPerDay"`
+	ForecastEndOfDay int            `json:"forecastEndOfDay"` // прогноз баланса на конец дня
+	StaffLimit       int            `json:"staffLimit"`
+	Phase            string         `json:"phase"` // running | day_report | game_over
+	OfficeSlots      int            `json:"officeSlots"`
+	RackSlots        int            `json:"rackSlots"`
+	Prices           prices         `json:"prices"`
+}
+
+// employeeInfo — сотрудник в снапшоте: всё, что нужно тултипу.
+type employeeInfo struct {
+	Name          string `json:"name"`
+	IncomePerTick int    `json:"incomePerTick"`
+	Connected     bool   `json:"connected"`
 }
 
 type prices struct {
@@ -63,24 +75,33 @@ type gameOverMessage struct {
 
 func snapshot(g *game.Game) stateMessage {
 	cfg := g.Config()
+	employees := make([]employeeInfo, len(g.Employees))
+	for i, e := range g.Employees {
+		employees[i] = employeeInfo{Name: e.Name, IncomePerTick: e.IncomePerTick, Connected: i < g.Connected()}
+	}
 	return stateMessage{
-		Type:          "state",
-		Money:         g.Money,
-		PCs:           g.PCs,
-		Employees:     len(g.Employees),
-		RouterTier:    g.RouterTier,
-		Ports:         g.Ports(),
-		Connected:     g.Connected(),
-		Servers:       g.Servers,
-		Multiplier:    g.Multiplier(),
-		IncomePerTick: g.IncomePerTick(),
-		Day:           g.Day,
-		DayTicks:      cfg.DayTicks(),
-		DayProgress:   g.TickInDay,
-		PayrollPerDay: g.PayrollPerDay(),
-		Phase:         string(g.Phase),
-		OfficeSlots:   cfg.OfficeSlots,
-		RackSlots:     cfg.RackSlots,
+		Type:             "state",
+		Money:            g.Money,
+		PCs:              g.PCs,
+		RouterTier:       g.RouterTier,
+		Ports:            g.Ports(),
+		Servers:          g.Servers,
+		Multiplier:       g.Multiplier(),
+		IncomePerTick:    g.IncomePerTick(),
+		Employees:        employees,
+		Clock:            g.Clock(),
+		IsLunch:          g.IsLunch(),
+		TicksPerHour:     cfg.TicksPerHour,
+		SalaryPerDay:     cfg.SalaryPerDay,
+		ForecastEndOfDay: g.ForecastEndOfDay(),
+		StaffLimit:       cfg.StaffLimit,
+		Day:              g.Day,
+		DayTicks:         cfg.DayTicks(),
+		DayProgress:      g.TickInDay,
+		PayrollPerDay:    g.PayrollPerDay(),
+		Phase:            string(g.Phase),
+		OfficeSlots:      cfg.OfficeSlots,
+		RackSlots:        cfg.RackSlots,
 		Prices: prices{
 			PC:         cfg.PCPrice,
 			Hire:       cfg.HirePrice,

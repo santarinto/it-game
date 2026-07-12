@@ -16,10 +16,13 @@ import (
 // testMessage покрывает state, error, day_report и game_over —
 // удобно читать любой ответ сервера одним типом.
 type testMessage struct {
-	Type         string `json:"type"`
-	Code         string `json:"code"`
-	Money        int    `json:"money"`
-	Employees    int    `json:"employees"`
+	Type      string `json:"type"`
+	Code      string `json:"code"`
+	Money     int    `json:"money"`
+	Employees []struct {
+		Name          string `json:"name"`
+		IncomePerTick int    `json:"incomePerTick"`
+	} `json:"employees"`
 	Day          int    `json:"day"`
 	Phase        string `json:"phase"`
 	Payroll      int    `json:"payroll"`
@@ -74,7 +77,7 @@ func TestSessionCommands(t *testing.T) {
 	if err := wsjson.Read(ctx, c, &msg); err != nil {
 		t.Fatal(err)
 	}
-	if msg.Type != "state" || msg.Employees != 1 || msg.Money != 300 {
+	if msg.Type != "state" || len(msg.Employees) != 1 || msg.Money != 300 {
 		t.Fatalf("после найма: %+v", msg)
 	}
 
@@ -147,10 +150,13 @@ func TestSessionBankruptcyAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := readUntil(t, ctx, c, func(m testMessage) bool {
-		return (m.Type == "state" && m.Employees == 1) || m.Type == "error"
+		return (m.Type == "state" && len(m.Employees) == 1) || m.Type == "error"
 	})
 	if first.Type == "error" {
 		t.Fatalf("hire не успел до конца дня: %+v", first)
+	}
+	if e := first.Employees[0]; e.Name == "" || e.IncomePerTick < 9 || e.IncomePerTick > 14 {
+		t.Fatalf("нанятый сотрудник в снапшоте подозрителен: %+v", e)
 	}
 	over := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "game_over" })
 	if over.DaysSurvived != 1 || over.Balance >= 0 {
@@ -161,6 +167,6 @@ func TestSessionBankruptcyAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	readUntil(t, ctx, c, func(m testMessage) bool {
-		return m.Type == "state" && m.Money == 600 && m.Employees == 0 && m.Day == 1 && m.Phase == "running"
+		return m.Type == "state" && m.Money == 600 && len(m.Employees) == 0 && m.Day == 1 && m.Phase == "running"
 	})
 }
