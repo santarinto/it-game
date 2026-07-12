@@ -1,10 +1,17 @@
 // Зеркало server/internal/ws/protocol.go — менять синхронно.
 
+export interface EffectInfo {
+  token: 'thirst' | 'hunger' | 'coffee'
+  percent: number
+  until: string // «HH:MM»; '' — до конца дня
+}
+
 export interface EmployeeInfo {
   name: string
   incomePerTick: number
   connected: boolean
   unpaidToday: boolean
+  effects: EffectInfo[]
 }
 
 export interface OfficeInfo {
@@ -17,6 +24,9 @@ export interface OfficeInfo {
   boss: string
   bossUnpaidToday: boolean
   employees: EmployeeInfo[]
+  cooler: boolean
+  fridge: boolean
+  coffeeMachine: boolean
 }
 
 export interface StateMessage {
@@ -39,7 +49,7 @@ export interface StateMessage {
   officeSlots: number
   phase: 'running' | 'day_report' | 'game_over'
   rackSlots: number
-  prices: { pc: number; hire: number; server: number; boss: number; gateway: number }
+  prices: { pc: number; hire: number; server: number; boss: number; gateway: number; cooler: number; fridge: number; coffeeMachine: number }
 }
 
 export interface ErrorMessage {
@@ -69,3 +79,4 @@ export type ServerMessage = StateMessage | ErrorMessage | DayReportMessage | Gam
 export type CommandType =
   | 'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office'
   | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart'
+  | 'buy_cooler' | 'buy_fridge' | 'buy_coffee'
