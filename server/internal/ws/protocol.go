@@ -109,7 +109,7 @@ func snapshot(g *game.Game) stateMessage {
 			PC:         cfg.PCPrice,
 			Hire:       cfg.HirePrice,
 			Server:     cfg.ServerPrice,
-			NextRouter: g.NextRouterPrice(),
+			NextRouter: g.NextRouterPrice(0), // временно офис 0 — полный снапшот по офисам в Task 4
 		},
 	}
 }

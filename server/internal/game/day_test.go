@@ -164,12 +164,12 @@ func TestApplyPhaseGating(t *testing.T) {
 	g := New(dayTestConfig())
 	g.Money = 10000
 	g.Phase = PhaseDayReport
-	for _, cmd := range []Command{CmdBuyPC, CmdHire, CmdBuyRouter, CmdBuyServer} {
-		if err := g.Apply(cmd); err != ErrWrongPhase {
+	for _, cmd := range []Command{CmdBuyPC, CmdHire, CmdBuyRouter, CmdBuyServer, CmdHireBoss, CmdBuyOffice, CmdBuyGateway} {
+		if err := g.Apply(cmd, 0); err != ErrWrongPhase {
 			t.Errorf("Apply(%s) в day_report: err = %v, хотим %v", cmd, err, ErrWrongPhase)
 		}
 	}
-	if err := g.Apply(CmdNextDay); err != nil {
+	if err := g.Apply(CmdNextDay, 0); err != nil {
 		t.Errorf("Apply(next_day) в day_report: %v", err)
 	}
 }
@@ -178,12 +178,12 @@ func TestApplyPhaseGatingGameOver(t *testing.T) {
 	g := New(dayTestConfig())
 	g.Money = 10000
 	g.Phase = PhaseGameOver
-	for _, cmd := range []Command{CmdBuyPC, CmdHire, CmdBuyRouter, CmdBuyServer, CmdNextDay} {
-		if err := g.Apply(cmd); err != ErrWrongPhase {
+	for _, cmd := range []Command{CmdBuyPC, CmdHire, CmdBuyRouter, CmdBuyServer, CmdHireBoss, CmdBuyOffice, CmdBuyGateway, CmdNextDay} {
+		if err := g.Apply(cmd, 0); err != ErrWrongPhase {
 			t.Errorf("Apply(%s) в game_over: err = %v, хотим %v", cmd, err, ErrWrongPhase)
 		}
 	}
-	if err := g.Apply(CmdRestart); err != nil {
+	if err := g.Apply(CmdRestart, 0); err != nil {
 		t.Errorf("Apply(restart) в game_over: %v", err)
 	}
 }

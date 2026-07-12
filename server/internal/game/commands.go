@@ -14,18 +14,40 @@ const (
 	ErrRouterMaxed      = Err("router_maxed")
 	ErrWrongPhase       = Err("wrong_phase")
 	ErrStaffLimit       = Err("staff_limit")
+	ErrOfficeLocked     = Err("office_locked")
+	ErrBossAlready      = Err("boss_already")
+	ErrOfficesMaxed     = Err("offices_maxed")
+	ErrGatewayAlready   = Err("gateway_already")
+	ErrBadOffice        = Err("bad_office")
 )
 
-// BuyPC ставит новый ПК в свободный слот офиса. Слоты сверх потолка
-// штата закрыты до начальника (итерация 4).
-// (временно, до Task 2: команды работают с офисом 0)
-func (g *Game) BuyPC() error {
-	o := &g.Offices[0]
-	if o.PCs >= g.cfg.StaffLimit {
-		return ErrStaffLimit
+// office проверяет адресата офисной команды: индекс и открытость.
+func (g *Game) office(idx int) (*Office, error) {
+	if idx < 0 || idx >= len(g.Offices) {
+		return nil, ErrBadOffice
 	}
+	o := &g.Offices[idx]
+	if !o.Unlocked {
+		return nil, ErrOfficeLocked
+	}
+	return o, nil
+}
+
+// BuyPC ставит новый ПК в свободный слот офиса. Слоты сверх потолка
+// штата открывает начальник офиса.
+func (g *Game) BuyPC(office int) error {
+	o, err := g.office(office)
+	if err != nil {
+		return err
+	}
+	// Сначала жёсткий физический потолок офиса (12 слотов), затем потолок
+	// штата: у босса они совпадают, и полный офис должен выдать
+	// no_free_office_slot, а не staff_limit.
 	if o.PCs >= g.cfg.OfficeSlots {
 		return ErrNoFreeOfficeSlot
+	}
+	if o.PCs >= o.StaffCap(g.cfg) {
+		return ErrStaffLimit
 	}
 	if g.Money < g.cfg.PCPrice {
 		return ErrNotEnoughMoney
@@ -35,12 +57,14 @@ func (g *Game) BuyPC() error {
 	return nil
 }
 
-// Hire сажает нового сотрудника за свободный ПК: имя и выработка
+// Hire сажает нового сотрудника за свободный ПК офиса: имя и выработка
 // роллятся при найме и не меняются.
-// (временно, до Task 2: команды работают с офисом 0)
-func (g *Game) Hire() error {
-	o := &g.Offices[0]
-	if len(o.Employees) >= g.cfg.StaffLimit {
+func (g *Game) Hire(office int) error {
+	o, err := g.office(office)
+	if err != nil {
+		return err
+	}
+	if len(o.Employees) >= o.StaffCap(g.cfg) {
 		return ErrStaffLimit
 	}
 	if len(o.Employees) >= o.PCs {
@@ -53,15 +77,17 @@ func (g *Game) Hire() error {
 	o.Employees = append(o.Employees, Employee{
 		Name:          rollName(g.rng),
 		IncomePerTick: g.cfg.IncomeMin + g.rng.IntN(g.cfg.IncomeMax-g.cfg.IncomeMin+1),
+		UnpaidToday:   g.hiredAfterLunch(),
 	})
 	return nil
 }
 
-// BuyRouter покупает следующий тир роутера (тир заменяет предыдущий).
-// Слот роутера специальный: он один, отдельный от рабочих мест.
-// (временно, до Task 2: команды работают с офисом 0)
-func (g *Game) BuyRouter() error {
-	o := &g.Offices[0]
+// BuyRouter покупает следующий тир роутера офиса (тир заменяет предыдущий).
+func (g *Game) BuyRouter(office int) error {
+	o, err := g.office(office)
+	if err != nil {
+		return err
+	}
 	if o.RouterTier >= len(g.cfg.RouterTiers) {
 		return ErrRouterMaxed
 	}
@@ -71,6 +97,61 @@ func (g *Game) BuyRouter() error {
 	}
 	g.Money -= price
 	o.RouterTier++
+	return nil
+}
+
+// HireBoss нанимает начальника офиса: не производит, открывает слоты 10-12.
+func (g *Game) HireBoss(office int) error {
+	o, err := g.office(office)
+	if err != nil {
+		return err
+	}
+	if o.Boss != "" {
+		return ErrBossAlready
+	}
+	if g.Money < g.cfg.BossPrice {
+		return ErrNotEnoughMoney
+	}
+	g.Money -= g.cfg.BossPrice
+	o.Boss = rollName(g.rng)
+	o.BossUnpaidToday = g.hiredAfterLunch()
+	return nil
+}
+
+// BuyOffice открывает следующий закрытый офис (строго последовательно, пустым).
+func (g *Game) BuyOffice(office int) error {
+	next := -1
+	for i := range g.Offices {
+		if !g.Offices[i].Unlocked {
+			next = i
+			break
+		}
+	}
+	if next == -1 {
+		return ErrOfficesMaxed
+	}
+	if office != next {
+		return ErrBadOffice
+	}
+	price := g.cfg.OfficePrices[next-1]
+	if g.Money < price {
+		return ErrNotEnoughMoney
+	}
+	g.Money -= price
+	g.Offices[next].Unlocked = true
+	return nil
+}
+
+// BuyGateway ставит шлюз в интернет (один на компанию).
+func (g *Game) BuyGateway() error {
+	if g.Gateway {
+		return ErrGatewayAlready
+	}
+	if g.Money < g.cfg.GatewayPrice {
+		return ErrNotEnoughMoney
+	}
+	g.Money -= g.cfg.GatewayPrice
+	g.Gateway = true
 	return nil
 }
 
@@ -108,14 +189,18 @@ func (g *Game) Restart() error {
 	return nil
 }
 
-// NextRouterPrice — цена следующего тира роутера; 0, если тир максимальный.
-// (временно, до Task 2: команды работают с офисом 0)
-func (g *Game) NextRouterPrice() int {
-	o := &g.Offices[0]
-	if o.RouterTier >= len(g.cfg.RouterTiers) {
+// NextRouterPrice — цена следующего тира роутера офиса; 0 на максимуме.
+func (g *Game) NextRouterPrice(office int) int {
+	tier := g.Offices[office].RouterTier
+	if tier >= len(g.cfg.RouterTiers) {
 		return 0
 	}
-	return g.cfg.RouterTiers[o.RouterTier].Price
+	return g.cfg.RouterTiers[tier].Price
+}
+
+// hiredAfterLunch — найм после обеда: без зарплаты в день найма (Task 3).
+func (g *Game) hiredAfterLunch() bool {
+	return g.TickInDay >= (g.cfg.LunchEnd-g.cfg.WorkdayStart)*g.cfg.TicksPerHour
 }
 
 const ErrUnknownCommand = Err("unknown_command")
@@ -125,17 +210,19 @@ const ErrUnknownCommand = Err("unknown_command")
 type Command string
 
 const (
-	CmdBuyPC     = Command("buy_pc")
-	CmdHire      = Command("hire")
-	CmdBuyRouter = Command("buy_router")
-	CmdBuyServer = Command("buy_server")
-	CmdNextDay   = Command("next_day")
-	CmdRestart   = Command("restart")
+	CmdBuyPC      = Command("buy_pc")
+	CmdHire       = Command("hire")
+	CmdBuyRouter  = Command("buy_router")
+	CmdBuyServer  = Command("buy_server")
+	CmdHireBoss   = Command("hire_boss")
+	CmdBuyOffice  = Command("buy_office")
+	CmdBuyGateway = Command("buy_gateway")
+	CmdNextDay    = Command("next_day")
+	CmdRestart    = Command("restart")
 )
 
-// Apply выполняет команду игрока. Команды покупки/найма работают только
-// в фазе running; next_day/restart сами проверяют свою фазу.
-func (g *Game) Apply(cmd Command) error {
+// Apply выполняет команду игрока; офисные команды адресуются индексом office.
+func (g *Game) Apply(cmd Command, office int) error {
 	switch cmd {
 	case CmdNextDay:
 		return g.NextDay()
@@ -147,13 +234,19 @@ func (g *Game) Apply(cmd Command) error {
 	}
 	switch cmd {
 	case CmdBuyPC:
-		return g.BuyPC()
+		return g.BuyPC(office)
 	case CmdHire:
-		return g.Hire()
+		return g.Hire(office)
 	case CmdBuyRouter:
-		return g.BuyRouter()
+		return g.BuyRouter(office)
+	case CmdHireBoss:
+		return g.HireBoss(office)
+	case CmdBuyOffice:
+		return g.BuyOffice(office)
 	case CmdBuyServer:
 		return g.BuyServer()
+	case CmdBuyGateway:
+		return g.BuyGateway()
 	default:
 		return ErrUnknownCommand
 	}

@@ -20,7 +20,7 @@ func TestHireRollsEmployee(t *testing.T) {
 	g.Money = 10000
 	g.Offices[0].PCs = 9
 	for i := 0; i < 9; i++ {
-		if err := g.Hire(); err != nil {
+		if err := g.Hire(0); err != nil {
 			t.Fatalf("найм %d: %v", i+1, err)
 		}
 	}
@@ -40,7 +40,7 @@ func TestHireDeterministicWithSeed(t *testing.T) {
 		g.Money = 10000
 		g.Offices[0].PCs = 3
 		for i := 0; i < 3; i++ {
-			if err := g.Hire(); err != nil {
+			if err := g.Hire(0); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -79,10 +79,10 @@ func TestStaffLimit(t *testing.T) {
 	g.Money = 100000
 	g.Offices[0].PCs = 9
 	g.Offices[0].Employees = testStaff(9)
-	if err := g.Hire(); err != ErrStaffLimit {
+	if err := g.Hire(0); err != ErrStaffLimit {
 		t.Errorf("найм 10-го: err = %v, хотим %v", err, ErrStaffLimit)
 	}
-	if err := g.BuyPC(); err != ErrStaffLimit {
+	if err := g.BuyPC(0); err != ErrStaffLimit {
 		t.Errorf("10-й ПК: err = %v, хотим %v", err, ErrStaffLimit)
 	}
 }

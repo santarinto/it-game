@@ -69,7 +69,8 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan ga
 		select {
 		case cmd := <-commands:
 			var out any
-			if err := g.Apply(cmd); err != nil {
+			// временно офис 0 без парсинга адресата — полный разбор в Task 4
+			if err := g.Apply(cmd, 0); err != nil {
 				out = errorMessage{Type: "error", Code: err.Error()}
 			} else {
 				out = snapshot(g)
