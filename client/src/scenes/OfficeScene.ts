@@ -103,8 +103,17 @@ export class OfficeScene extends Phaser.Scene {
           this.hideTooltip()
         })
         this.objects.push(worker)
-        // Спрайт пересоздан, а курсор не двигался — восстанавливаем тултип.
-        if (this.hoveredSlot === i) this.showTooltip(e, s, wx, wy)
+        // Спрайт пересоздан — восстанавливаем тултип, но только если курсор
+        // реально над спрайтом: pointerout не срабатывает по уничтоженному
+        // объекту, и без этой проверки hoveredSlot «залипает».
+        if (this.hoveredSlot === i) {
+          const p = this.input.activePointer
+          if (Math.abs(p.worldX - wx) <= 32 && Math.abs(p.worldY - wy) <= 32) {
+            this.showTooltip(e, s, wx, wy)
+          } else {
+            this.hoveredSlot = -1
+          }
+        }
         if (e.connected) {
           this.objects.push(this.add.circle(x + 30, y - 30, 4, 0x38b764))
         }
