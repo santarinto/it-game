@@ -11,7 +11,7 @@ type Config struct {
 	HirePrice         int
 	ServerPrice       int
 	BaseIncomePerTick int     // $ за тик с одного сотрудника без сети
-	NetworkBase       float64 // множитель за сам факт подключения к сети
+	NetworkBase       float64 // база множителя подключённых; 1.0 — роутер сам дохода не добавляет, только открывает доступ к серверам
 	ServerBonus       float64 // прибавка к множителю за каждый сервер
 	DayTicks          int     // тиков в одном игровом дне
 	SalaryPerDay      int     // зарплата $ с одного сотрудника, списывается в конце дня
@@ -34,7 +34,7 @@ func DefaultConfig() Config {
 		HirePrice:         300,
 		ServerPrice:       2000,
 		BaseIncomePerTick: 10,
-		NetworkBase:       1.5,
+		NetworkBase:       1.0,
 		ServerBonus:       0.5,
 		DayTicks:          60,
 		SalaryPerDay:      250,
