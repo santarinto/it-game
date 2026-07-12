@@ -51,11 +51,11 @@ export class GameClient {
     this.ws.onerror = fireDisconnect
   }
 
-  send(cmd: CommandType): void {
+  send(cmd: CommandType, office = 0): void {
     // Соединение ещё не открыто или уже потеряно — команду безопасно игнорируем,
     // сервер всё равно источник истины.
     if (this.ws.readyState !== WebSocket.OPEN) return
-    this.ws.send(JSON.stringify({ type: cmd }))
+    this.ws.send(JSON.stringify({ type: cmd, office }))
   }
 
   // Возвращает функцию отписки — сцены зовут её на shutdown.

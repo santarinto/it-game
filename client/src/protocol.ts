@@ -4,32 +4,42 @@ export interface EmployeeInfo {
   name: string
   incomePerTick: number
   connected: boolean
+  unpaidToday: boolean
+}
+
+export interface OfficeInfo {
+  unlocked: boolean
+  price: number
+  pcs: number
+  routerTier: number
+  ports: number
+  nextRouter: number
+  boss: string
+  bossUnpaidToday: boolean
+  employees: EmployeeInfo[]
 }
 
 export interface StateMessage {
   type: 'state'
   money: number
-  pcs: number
-  routerTier: number
-  ports: number
+  offices: OfficeInfo[]
   servers: number
+  gateway: boolean
   multiplier: number
   incomePerTick: number
-  employees: EmployeeInfo[]
   day: number
-  dayTicks: number
-  dayProgress: number
   clock: string
   isLunch: boolean
   ticksPerHour: number
   payrollPerDay: number
   salaryPerDay: number
+  bossSalaryPerDay: number
   forecastEndOfDay: number
   staffLimit: number
-  phase: 'running' | 'day_report' | 'game_over'
   officeSlots: number
+  phase: 'running' | 'day_report' | 'game_over'
   rackSlots: number
-  prices: { pc: number; hire: number; server: number; nextRouter: number }
+  prices: { pc: number; hire: number; server: number; boss: number; gateway: number }
 }
 
 export interface ErrorMessage {
@@ -44,6 +54,7 @@ export interface DayReportMessage {
   payroll: number
   profit: number
   balance: number
+  gatewayOpex: number
 }
 
 export interface GameOverMessage {
@@ -55,4 +66,6 @@ export interface GameOverMessage {
 
 export type ServerMessage = StateMessage | ErrorMessage | DayReportMessage | GameOverMessage
 
-export type CommandType = 'buy_pc' | 'hire' | 'buy_router' | 'buy_server' | 'next_day' | 'restart'
+export type CommandType =
+  | 'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office'
+  | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart'
