@@ -9,9 +9,9 @@ type Office struct {
 	RouterTier      int    // 0 — роутера нет; 1..len(cfg.RouterTiers)
 	Boss            string // имя начальника; "" — не нанят
 	BossUnpaidToday bool   // босс нанят после обеда: сегодня без оплаты
-	Cooler        bool
-	Fridge        bool
-	CoffeeMachine bool
+	Cooler          bool
+	Fridge          bool
+	CoffeeMachine   bool
 }
 
 // Ports — сколько рабочих мест офиса роутер подключает к сети.
