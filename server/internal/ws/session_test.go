@@ -110,7 +110,9 @@ func TestSessionTicks(t *testing.T) {
 
 func TestSessionDayCycle(t *testing.T) {
 	cfg := game.DefaultConfig()
-	cfg.DayTicks = 2
+	// День = 2 тика: 1 час по 2 тика.
+	cfg.WorkdayEnd = cfg.WorkdayStart + 1
+	cfg.TicksPerHour = 2
 	c, ctx := dialTestServer(t, cfg, 5*time.Millisecond)
 
 	// Без сотрудников ФОТ 0 — день кончается отчётом, не банкротством.
@@ -135,8 +137,9 @@ func TestSessionDayCycle(t *testing.T) {
 
 func TestSessionBankruptcyAndRestart(t *testing.T) {
 	cfg := game.DefaultConfig()
-	// День = 1 секунда (100 тиков по 10мс): огромный запас, чтобы hire гарантированно успел до конца дня.
-	cfg.DayTicks = 100
+	// День = 1 секунда (100 тиков по 10мс): огромный запас, чтобы hire успел.
+	cfg.WorkdayEnd = cfg.WorkdayStart + 1
+	cfg.TicksPerHour = 100
 	cfg.SalaryPerDay = 100000 // гарантированное банкротство с одним сотрудником
 	c, ctx := dialTestServer(t, cfg, 10*time.Millisecond)
 

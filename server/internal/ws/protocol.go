@@ -75,7 +75,7 @@ func snapshot(g *game.Game) stateMessage {
 		Multiplier:    g.Multiplier(),
 		IncomePerTick: g.IncomePerTick(),
 		Day:           g.Day,
-		DayTicks:      cfg.DayTicks,
+		DayTicks:      cfg.DayTicks(),
 		DayProgress:   g.TickInDay,
 		PayrollPerDay: g.PayrollPerDay(),
 		Phase:         string(g.Phase),

@@ -1,6 +1,9 @@
 package game
 
-import "math"
+import (
+	"fmt"
+	"math"
+)
 
 // Phase — фаза игры; значения совпадают с полем phase протокола.
 type Phase string
@@ -60,8 +63,20 @@ func (g *Game) Multiplier() float64 {
 	return g.cfg.NetworkBase + g.cfg.ServerBonus*float64(g.Servers)
 }
 
+// Clock — текущее игровое время «HH:MM»: WorkdayStart плюс 10 минут за тик.
+func (g *Game) Clock() string {
+	minutes := g.TickInDay * 60 / g.cfg.TicksPerHour
+	return fmt.Sprintf("%02d:%02d", g.cfg.WorkdayStart+minutes/60, minutes%60)
+}
+
+// IsLunch — идёт ли сейчас обед (в обед доход за тик равен нулю).
+func (g *Game) IsLunch() bool { return g.cfg.isLunchTick(g.TickInDay) }
+
 // IncomePerTick — доход за один тик при текущем состоянии.
 func (g *Game) IncomePerTick() int {
+	if g.IsLunch() {
+		return 0
+	}
 	base := g.cfg.BaseIncomePerTick
 	connected := g.Connected()
 	perConnected := int(math.Round(float64(base) * g.Multiplier()))
@@ -92,7 +107,7 @@ func (g *Game) Tick() *DayReport {
 	g.DayIncome += income
 	g.PeakIncomePerTick = max(g.PeakIncomePerTick, income)
 	g.TickInDay++
-	if g.TickInDay < g.cfg.DayTicks {
+	if g.TickInDay < g.cfg.DayTicks() {
 		return nil
 	}
 	payroll := g.PayrollPerDay()

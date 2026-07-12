@@ -2,10 +2,12 @@ package game
 
 import "testing"
 
-// dayTestConfig — короткий день, чтобы тесты не гоняли 60 тиков.
+// dayTestConfig — короткий день: 1 час по 3 тика, обед за пределами дня.
 func dayTestConfig() Config {
 	cfg := DefaultConfig()
-	cfg.DayTicks = 3
+	cfg.WorkdayStart = 10
+	cfg.WorkdayEnd = 11
+	cfg.TicksPerHour = 3
 	cfg.SalaryPerDay = 250
 	return cfg
 }
@@ -19,8 +21,8 @@ func TestNewGameDayFields(t *testing.T) {
 
 func TestDefaultConfigDay(t *testing.T) {
 	cfg := DefaultConfig()
-	if cfg.DayTicks != 60 || cfg.SalaryPerDay != 250 {
-		t.Errorf("DayTicks=%d SalaryPerDay=%d, хотим 60 и 250 (GDD, «Экономика»)", cfg.DayTicks, cfg.SalaryPerDay)
+	if cfg.DayTicks() != 54 || cfg.SalaryPerDay != 250 {
+		t.Errorf("DayTicks()=%d SalaryPerDay=%d, хотим 54 и 250 (GDD, «Экономика»)", cfg.DayTicks(), cfg.SalaryPerDay)
 	}
 }
 

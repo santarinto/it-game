@@ -13,7 +13,11 @@ type Config struct {
 	BaseIncomePerTick int     // $ за тик с одного сотрудника без сети
 	NetworkBase       float64 // база множителя подключённых; 1.0 — роутер сам дохода не добавляет, только открывает доступ к серверам
 	ServerBonus       float64 // прибавка к множителю за каждый сервер
-	DayTicks          int     // тиков в одном игровом дне
+	TicksPerHour      int     // 1 игровой час = столько тиков (секунд)
+	WorkdayStart      int     // час начала рабочего дня
+	LunchStart        int     // обед: начало (доход за тики обеда = 0)
+	LunchEnd          int     // обед: конец
+	WorkdayEnd        int     // час конца дня → зарплаты → отчёт
 	SalaryPerDay      int     // зарплата $ с одного сотрудника, списывается в конце дня
 	RouterTiers       []RouterTier
 }
@@ -36,11 +40,24 @@ func DefaultConfig() Config {
 		BaseIncomePerTick: 10,
 		NetworkBase:       1.0,
 		ServerBonus:       0.5,
-		DayTicks:          60,
+		TicksPerHour:      6,
+		WorkdayStart:      10,
+		LunchStart:        14,
+		LunchEnd:          15,
+		WorkdayEnd:        19,
 		SalaryPerDay:      250,
 		RouterTiers: []RouterTier{
 			{Price: 800, Ports: 4},
 			{Price: 2500, Ports: 9},
 		},
 	}
+}
+
+// DayTicks — длина дня в тиках; выводится из рабочих часов.
+func (c Config) DayTicks() int { return (c.WorkdayEnd - c.WorkdayStart) * c.TicksPerHour }
+
+// isLunchTick — попадает ли тик дня в обеденный час.
+func (c Config) isLunchTick(tick int) bool {
+	hour := c.WorkdayStart + tick/c.TicksPerHour
+	return hour >= c.LunchStart && hour < c.LunchEnd
 }
