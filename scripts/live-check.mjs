@@ -37,6 +37,19 @@ ws.onmessage = (ev) => {
       fail('нанятый сотрудник (утро — должен быть оплачиваемым)', e)
     }
     ok(`найм в офис 0: ${e.name}, $${e.incomePerTick}/тик`)
+    phase = 'cooler_wait'
+    console.log('… ждём денег на кулер (money >= 400)')
+  } else if (phase === 'cooler_wait' && m.type === 'state' && m.money >= 400) {
+    ws.send(JSON.stringify({ type: 'buy_cooler', office: 0 }))
+    phase = 'cooler'
+  } else if (phase === 'cooler' && m.type === 'state' && m.offices[0].cooler) {
+    if (!('effects' in m.offices[0].employees[0])) fail('нет effects у сотрудника', m.offices[0].employees[0])
+    ok('кулер куплен, effects присутствует')
+    ws.send(JSON.stringify({ type: 'buy_cooler', office: 0 }))
+    phase = 'cooler_dup'
+  } else if (phase === 'cooler_dup' && m.type === 'error') {
+    if (m.code !== 'equipment_already') fail('код повторной покупки', m.code)
+    ok('повторный кулер: error equipment_already')
     ws.send(JSON.stringify({ type: 'hire', office: 1 })) // закрытый офис
     phase = 'locked'
   } else if (phase === 'locked' && m.type === 'error') {
