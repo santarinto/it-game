@@ -12,6 +12,7 @@ const ERROR_TEXTS: Record<string, string> = {
   no_free_pc: 'Нет свободного ПК — купите ПК',
   no_free_rack_slot: 'В серверной нет свободных стоек',
   router_maxed: 'Роутер уже максимального тира',
+  staff_limit: 'Нужен начальник — офис уже занят',
   unknown_command: 'Неизвестная команда',
   wrong_phase: 'Сейчас нельзя — дождитесь начала дня',
 }
@@ -99,14 +100,14 @@ export class HUDScene extends Phaser.Scene {
       this.closeReport()
       this.closeGameOver()
     }
+    const connected = s.employees.filter((e) => e.connected).length
     this.moneyText.setText(fmtMoney(s.money))
     this.incomeText.setText(`+${fmtMoney(s.incomePerTick)}/сек`)
-    // Прогноз баланса на конец дня: если уйдём в минус — подсветить ФОТ.
-    const forecast = s.money + s.incomePerTick * (s.dayTicks - s.dayProgress) - s.payrollPerDay
     this.payrollText.setText(`Зарплата ${fmtMoney(s.payrollPerDay)}/день`)
-    this.payrollText.setColor(forecast < 0 ? '#b13e53' : '#5d7275')
-    this.dayText.setText(`День ${s.day} · ${s.dayProgress}/${s.dayTicks}`)
-    this.netText.setText(`Сотрудники: ${s.employees} · в сети ${s.connected} · ×${s.multiplier.toFixed(1)}`)
+    // Прогноз считает сервер: клиент не знает про обеденные тики.
+    this.payrollText.setColor(s.forecastEndOfDay < 0 ? '#b13e53' : '#5d7275')
+    this.dayText.setText(`День ${s.day} · ${s.clock}${s.isLunch ? ' · обед' : ''}`)
+    this.netText.setText(`Сотрудники: ${s.employees.length} · в сети ${connected} · ×${s.multiplier.toFixed(1)}`)
     this.pcBtn.setLabel(`Купить ПК  ${fmtMoney(s.prices.pc)}`)
     this.hireBtn.setLabel(`Нанять  ${fmtMoney(s.prices.hire)}`)
     this.routerBtn.setLabel(s.prices.nextRouter > 0 ? `Роутер  ${fmtMoney(s.prices.nextRouter)}` : 'Роутер MAX')
