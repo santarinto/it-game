@@ -173,3 +173,17 @@ func TestApplyPhaseGating(t *testing.T) {
 		t.Errorf("Apply(next_day) в day_report: %v", err)
 	}
 }
+
+func TestApplyPhaseGatingGameOver(t *testing.T) {
+	g := New(dayTestConfig())
+	g.Money = 10000
+	g.Phase = PhaseGameOver
+	for _, cmd := range []Command{CmdBuyPC, CmdHire, CmdBuyRouter, CmdBuyServer, CmdNextDay} {
+		if err := g.Apply(cmd); err != ErrWrongPhase {
+			t.Errorf("Apply(%s) в game_over: err = %v, хотим %v", cmd, err, ErrWrongPhase)
+		}
+	}
+	if err := g.Apply(CmdRestart); err != nil {
+		t.Errorf("Apply(restart) в game_over: %v", err)
+	}
+}

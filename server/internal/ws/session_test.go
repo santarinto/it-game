@@ -47,7 +47,7 @@ func dialTestServer(t *testing.T, cfg game.Config, tick time.Duration) (*websock
 // readUntil читает сообщения, пока не встретит подходящее (или упадёт по таймауту ctx).
 func readUntil(t *testing.T, ctx context.Context, c *websocket.Conn, ok func(testMessage) bool) testMessage {
 	t.Helper()
-	for {
+	for i := 0; i < 1000; i++ {
 		var msg testMessage
 		if err := wsjson.Read(ctx, c, &msg); err != nil {
 			t.Fatalf("readUntil: %v", err)
@@ -56,6 +56,8 @@ func readUntil(t *testing.T, ctx context.Context, c *websocket.Conn, ok func(tes
 			return msg
 		}
 	}
+	t.Fatal("readUntil: 1000 сообщений без совпадения")
+	return testMessage{}
 }
 
 func TestSessionCommands(t *testing.T) {
