@@ -89,8 +89,14 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 					out = errorMessage{Type: "error", Code: "bad_speed"}
 				} else {
 					speed = cmd.Speed
+					// Stop/Reset не чистят буфер тикера: застрявший тик выстрелил бы
+					// мгновенно после смены темпа или снятия паузы.
+					ticker.Stop()
+					select {
+					case <-ticker.C:
+					default:
+					}
 					if speed == 0 {
-						ticker.Stop()
 						tickC = nil
 					} else {
 						ticker.Reset(h.TickInterval / time.Duration(speed))
