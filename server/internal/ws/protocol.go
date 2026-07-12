@@ -3,37 +3,50 @@ package ws
 
 import "itdirector/internal/game"
 
-// clientMessage — любое сообщение клиента: {"type": "buy_pc" | ...}.
+// clientMessage — сообщение клиента: {"type": "...", "office": N}.
+// office адресует офисные команды (hire, buy_pc, buy_router, hire_boss,
+// buy_office); остальные его игнорируют.
 type clientMessage struct {
-	Type string `json:"type"`
+	Type   string `json:"type"`
+	Office int    `json:"office"`
 }
 
 // stateMessage — полный снапшот состояния. Включает производные поля
 // (доход, порты, множитель), чтобы клиент ничего не считал сам.
 type stateMessage struct {
-	Type             string         `json:"type"` // всегда "state"
-	Money            int            `json:"money"`
-	PCs              int            `json:"pcs"`
-	RouterTier       int            `json:"routerTier"`
-	Ports            int            `json:"ports"`
-	Servers          int            `json:"servers"`
-	Multiplier       float64        `json:"multiplier"`
-	IncomePerTick    int            `json:"incomePerTick"`
-	Employees        []employeeInfo `json:"employees"` // порядок = порядок найма
-	Day              int            `json:"day"`
-	DayTicks         int            `json:"dayTicks"`
-	DayProgress      int            `json:"dayProgress"` // тиков прошло в текущем дне
-	Clock            string         `json:"clock"`       // «12:30»
-	IsLunch          bool           `json:"isLunch"`     // обед: доход за тик = 0
-	TicksPerHour     int            `json:"ticksPerHour"`
-	PayrollPerDay    int            `json:"payrollPerDay"`
-	SalaryPerDay     int            `json:"salaryPerDay"`
-	ForecastEndOfDay int            `json:"forecastEndOfDay"` // прогноз баланса на конец дня
-	StaffLimit       int            `json:"staffLimit"`
-	Phase            string         `json:"phase"` // running | day_report | game_over
-	OfficeSlots      int            `json:"officeSlots"`
-	RackSlots        int            `json:"rackSlots"`
-	Prices           prices         `json:"prices"`
+	Type             string       `json:"type"` // всегда "state"
+	Money            int          `json:"money"`
+	Offices          []officeInfo `json:"offices"`
+	Servers          int          `json:"servers"`
+	Gateway          bool         `json:"gateway"`
+	Multiplier       float64      `json:"multiplier"`
+	IncomePerTick    int          `json:"incomePerTick"`
+	Day              int          `json:"day"`
+	Clock            string       `json:"clock"`   // «12:30»
+	IsLunch          bool         `json:"isLunch"` // обед: доход за тик = 0
+	TicksPerHour     int          `json:"ticksPerHour"`
+	PayrollPerDay    int          `json:"payrollPerDay"` // полные расходы дня
+	SalaryPerDay     int          `json:"salaryPerDay"`
+	BossSalaryPerDay int          `json:"bossSalaryPerDay"`
+	ForecastEndOfDay int          `json:"forecastEndOfDay"`
+	StaffLimit       int          `json:"staffLimit"`
+	OfficeSlots      int          `json:"officeSlots"`
+	Phase            string       `json:"phase"` // running | day_report | game_over
+	RackSlots        int          `json:"rackSlots"`
+	Prices           prices       `json:"prices"`
+}
+
+// officeInfo — офис в снапшоте: всё для отрисовки комнаты и панели.
+type officeInfo struct {
+	Unlocked        bool           `json:"unlocked"`
+	Price           int            `json:"price"` // цена покупки; 0 для открытых
+	PCs             int            `json:"pcs"`
+	RouterTier      int            `json:"routerTier"`
+	Ports           int            `json:"ports"`
+	NextRouter      int            `json:"nextRouter"` // 0 — тир максимальный
+	Boss            string         `json:"boss"`       // "" — начальника нет
+	BossUnpaidToday bool           `json:"bossUnpaidToday"`
+	Employees       []employeeInfo `json:"employees"` // порядок = порядок найма
 }
 
 // employeeInfo — сотрудник в снапшоте: всё, что нужно тултипу.
@@ -41,13 +54,15 @@ type employeeInfo struct {
 	Name          string `json:"name"`
 	IncomePerTick int    `json:"incomePerTick"`
 	Connected     bool   `json:"connected"`
+	UnpaidToday   bool   `json:"unpaidToday"`
 }
 
 type prices struct {
-	PC         int `json:"pc"`
-	Hire       int `json:"hire"`
-	Server     int `json:"server"`
-	NextRouter int `json:"nextRouter"` // 0 — роутер уже максимального тира
+	PC      int `json:"pc"`
+	Hire    int `json:"hire"`
+	Server  int `json:"server"`
+	Boss    int `json:"boss"`
+	Gateway int `json:"gateway"`
 }
 
 type errorMessage struct {
@@ -57,12 +72,13 @@ type errorMessage struct {
 
 // dayReportMessage — итоги дня; шлётся сразу после снапшота с phase=day_report.
 type dayReportMessage struct {
-	Type    string `json:"type"` // всегда "day_report"
-	Day     int    `json:"day"`
-	Income  int    `json:"income"`
-	Payroll int    `json:"payroll"`
-	Profit  int    `json:"profit"`
-	Balance int    `json:"balance"`
+	Type        string `json:"type"` // всегда "day_report"
+	Day         int    `json:"day"`
+	Income      int    `json:"income"`
+	Payroll     int    `json:"payroll"`
+	GatewayOpex int    `json:"gatewayOpex"`
+	Profit      int    `json:"profit"`
+	Balance     int    `json:"balance"`
 }
 
 // gameOverMessage — итоги банкротства; шлётся сразу после снапшота с phase=game_over.
@@ -75,41 +91,36 @@ type gameOverMessage struct {
 
 func snapshot(g *game.Game) stateMessage {
 	cfg := g.Config()
-	// (временно, до Task 2: снапшот берёт данные из офиса 0)
-	o := &g.Offices[0]
-	connected := o.Connected(cfg)
-	employees := make([]employeeInfo, len(o.Employees))
-	for i, e := range o.Employees {
-		employees[i] = employeeInfo{Name: e.Name, IncomePerTick: e.IncomePerTick, Connected: i < connected}
+	offices := make([]officeInfo, len(g.Offices))
+	for oi := range g.Offices {
+		o := &g.Offices[oi]
+		price := 0
+		if !o.Unlocked {
+			price = cfg.OfficePrices[oi-1]
+		}
+		connected := o.Connected(cfg)
+		employees := make([]employeeInfo, len(o.Employees))
+		for i, e := range o.Employees {
+			employees[i] = employeeInfo{Name: e.Name, IncomePerTick: e.IncomePerTick,
+				Connected: i < connected, UnpaidToday: e.UnpaidToday}
+		}
+		offices[oi] = officeInfo{
+			Unlocked: o.Unlocked, Price: price, PCs: o.PCs,
+			RouterTier: o.RouterTier, Ports: o.Ports(cfg),
+			NextRouter: g.NextRouterPrice(oi), Boss: o.Boss,
+			BossUnpaidToday: o.BossUnpaidToday, Employees: employees,
+		}
 	}
 	return stateMessage{
-		Type:             "state",
-		Money:            g.Money,
-		PCs:              o.PCs,
-		RouterTier:       o.RouterTier,
-		Ports:            o.Ports(cfg),
-		Servers:          g.Servers,
-		Multiplier:       g.Multiplier(),
-		IncomePerTick:    g.IncomePerTick(),
-		Employees:        employees,
-		Clock:            g.Clock(),
-		IsLunch:          g.IsLunch(),
-		TicksPerHour:     cfg.TicksPerHour,
-		SalaryPerDay:     cfg.SalaryPerDay,
-		ForecastEndOfDay: g.ForecastEndOfDay(),
-		StaffLimit:       cfg.StaffLimit,
-		Day:              g.Day,
-		DayTicks:         cfg.DayTicks(),
-		DayProgress:      g.TickInDay,
-		PayrollPerDay:    g.PayrollPerDay(),
-		Phase:            string(g.Phase),
-		OfficeSlots:      cfg.OfficeSlots,
-		RackSlots:        cfg.RackSlots,
-		Prices: prices{
-			PC:         cfg.PCPrice,
-			Hire:       cfg.HirePrice,
-			Server:     cfg.ServerPrice,
-			NextRouter: g.NextRouterPrice(0), // временно офис 0 — полный снапшот по офисам в Task 4
-		},
+		Type: "state", Money: g.Money, Offices: offices,
+		Servers: g.Servers, Gateway: g.Gateway,
+		Multiplier: g.Multiplier(), IncomePerTick: g.IncomePerTick(),
+		Day: g.Day, Clock: g.Clock(), IsLunch: g.IsLunch(),
+		TicksPerHour: cfg.TicksPerHour, PayrollPerDay: g.PayrollPerDay(),
+		SalaryPerDay: cfg.SalaryPerDay, BossSalaryPerDay: cfg.BossSalaryPerDay,
+		ForecastEndOfDay: g.ForecastEndOfDay(), StaffLimit: cfg.StaffLimit,
+		OfficeSlots: cfg.OfficeSlots, Phase: string(g.Phase), RackSlots: cfg.RackSlots,
+		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice, Server: cfg.ServerPrice,
+			Boss: cfg.BossPrice, Gateway: cfg.GatewayPrice},
 	}
 }

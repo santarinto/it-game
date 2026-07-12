@@ -17,6 +17,12 @@ type Handler struct {
 	TickInterval time.Duration
 }
 
+// clientCommand — команда игрока с адресатом-офисом.
+type clientCommand struct {
+	Cmd    game.Command
+	Office int
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		// Vite dev server проксирует /ws с другого порта.
@@ -30,7 +36,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	commands := make(chan game.Command)
+	commands := make(chan clientCommand)
 	go readLoop(ctx, cancel, c, commands)
 
 	h.run(ctx, c, commands)
@@ -39,7 +45,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // readLoop — единственный читатель соединения: превращает входящие
 // сообщения в команды для актора.
-func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn, commands chan<- game.Command) {
+func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn, commands chan<- clientCommand) {
 	defer cancel() // разрыв соединения останавливает актор
 	for {
 		var msg clientMessage
@@ -47,7 +53,7 @@ func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn,
 			return
 		}
 		select {
-		case commands <- game.Command(msg.Type):
+		case commands <- clientCommand{Cmd: game.Command(msg.Type), Office: msg.Office}:
 		case <-ctx.Done():
 			return
 		}
@@ -57,7 +63,7 @@ func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn,
 // run — актор: единственная горутина, владеющая состоянием игры.
 // Всё общение с миром — через канал команд и тикер; писем в сокет
 // из других горутин нет, поэтому мьютексы не нужны.
-func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan game.Command) {
+func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan clientCommand) {
 	g := game.New(h.Config)
 	ticker := time.NewTicker(h.TickInterval)
 	defer ticker.Stop()
@@ -69,8 +75,7 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan ga
 		select {
 		case cmd := <-commands:
 			var out any
-			// временно офис 0 без парсинга адресата — полный разбор в Task 4
-			if err := g.Apply(cmd, 0); err != nil {
+			if err := g.Apply(cmd.Cmd, cmd.Office); err != nil {
 				out = errorMessage{Type: "error", Code: err.Error()}
 			} else {
 				out = snapshot(g)
@@ -93,7 +98,7 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan ga
 				if g.Phase == game.PhaseGameOver {
 					out = gameOverMessage{Type: "game_over", DaysSurvived: g.Day, PeakIncomePerTick: g.PeakIncomePerTick, Balance: g.Money}
 				} else {
-					out = dayReportMessage{Type: "day_report", Day: report.Day, Income: report.Income, Payroll: report.Payroll, Profit: report.Profit, Balance: report.Balance}
+					out = dayReportMessage{Type: "day_report", Day: report.Day, Income: report.Income, Payroll: report.Payroll, GatewayOpex: report.GatewayOpex, Profit: report.Profit, Balance: report.Balance}
 				}
 				if wsjson.Write(ctx, c, out) != nil {
 					return

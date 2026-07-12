@@ -9,61 +9,54 @@ import (
 func TestSnapshot(t *testing.T) {
 	g := game.New(game.DefaultConfig())
 	s := snapshot(g)
-	if s.Type != "state" {
-		t.Errorf("Type = %q, хотим state", s.Type)
+	if s.Type != "state" || s.Money != 600 || s.OfficeSlots != 12 || s.RackSlots != 3 {
+		t.Errorf("базовые поля: %+v", s)
 	}
-	if s.Money != 600 || s.PCs != 1 || s.OfficeSlots != 12 || s.RackSlots != 3 {
-		t.Errorf("стартовый снапшот неверен: %+v", s)
+	if len(s.Offices) != 3 {
+		t.Fatalf("офисов в снапшоте %d, хотим 3", len(s.Offices))
 	}
-	if s.Prices.PC != 500 || s.Prices.Hire != 300 || s.Prices.Server != 2000 || s.Prices.NextRouter != 800 {
-		t.Errorf("цены в снапшоте неверны: %+v", s.Prices)
+	if !s.Offices[0].Unlocked || s.Offices[0].PCs != 1 || s.Offices[0].Price != 0 || s.Offices[0].NextRouter != 800 {
+		t.Errorf("офис 0: %+v", s.Offices[0])
 	}
-	if s.Multiplier != 1.0 || s.IncomePerTick != 0 {
-		t.Errorf("производные поля неверны: %+v", s)
+	if s.Offices[1].Unlocked || s.Offices[1].Price != 15000 || s.Offices[2].Price != 40000 {
+		t.Errorf("закрытые офисы: %+v %+v", s.Offices[1], s.Offices[2])
 	}
-	if s.Day != 1 || s.DayTicks != 54 || s.DayProgress != 0 || s.PayrollPerDay != 0 || s.Phase != "running" {
-		t.Errorf("поля дня в снапшоте неверны: %+v", s)
+	if s.Gateway || s.Servers != 0 || s.Multiplier != 1.0 {
+		t.Errorf("серверная: %+v", s)
 	}
-	if len(s.Employees) != 0 || s.Clock != "10:00" || s.IsLunch || s.StaffLimit != 9 ||
-		s.SalaryPerDay != 250 || s.TicksPerHour != 6 || s.ForecastEndOfDay != 600 {
-		t.Errorf("поля итерации 3 неверны: %+v", s)
+	if s.Prices.PC != 500 || s.Prices.Hire != 300 || s.Prices.Server != 2000 ||
+		s.Prices.Boss != 1000 || s.Prices.Gateway != 3000 {
+		t.Errorf("цены: %+v", s.Prices)
 	}
-}
-
-func TestSnapshotEmployees(t *testing.T) {
-	g := game.New(game.DefaultConfig())
-	g.Offices[0].PCs = 3
-	g.Offices[0].Employees = []game.Employee{
-		{Name: "Анна Иванова", IncomePerTick: 12},
-		{Name: "Пётр Волков", IncomePerTick: 9},
-	}
-	g.Offices[0].RouterTier = 1 // 4 порта: оба подключены
-	s := snapshot(g)
-	if len(s.Employees) != 2 {
-		t.Fatalf("employees в снапшоте: %d, хотим 2", len(s.Employees))
-	}
-	if s.Employees[0].Name != "Анна Иванова" || s.Employees[0].IncomePerTick != 12 || !s.Employees[0].Connected {
-		t.Errorf("первый сотрудник: %+v", s.Employees[0])
-	}
-	if !s.Employees[1].Connected {
-		t.Errorf("второй сотрудник должен быть в сети: %+v", s.Employees[1])
+	if s.Clock != "10:00" || s.IsLunch || s.StaffLimit != 9 || s.SalaryPerDay != 250 ||
+		s.BossSalaryPerDay != 500 || s.TicksPerHour != 6 || s.ForecastEndOfDay != 600 ||
+		s.Day != 1 || s.Phase != "running" || s.PayrollPerDay != 0 {
+		t.Errorf("поля дня: %+v", s)
 	}
 }
 
-func TestSnapshotEmployeesBeyondPorts(t *testing.T) {
-	// Сотрудников больше, чем портов роутера: хвост списка вне сети.
+func TestSnapshotOfficeDetails(t *testing.T) {
 	g := game.New(game.DefaultConfig())
 	g.Offices[0].PCs = 6
-	g.Offices[0].Employees = make([]game.Employee, 6)
-	for i := range g.Offices[0].Employees {
-		g.Offices[0].Employees[i] = game.Employee{Name: "Тест Тестов", IncomePerTick: 10}
+	g.Offices[0].RouterTier = 1
+	g.Offices[0].Boss = "Босс Боссов"
+	staff := make([]game.Employee, 6)
+	for i := range staff {
+		staff[i] = game.Employee{Name: "Тест Тестов", IncomePerTick: 10}
 	}
-	g.Offices[0].RouterTier = 1 // 4 порта на 6 сотрудников
+	staff[5].UnpaidToday = true
+	g.Offices[0].Employees = staff
 	s := snapshot(g)
-	for i, e := range s.Employees {
-		want := i < 4
-		if e.Connected != want {
-			t.Errorf("сотрудник %d: connected=%v, хотим %v", i, e.Connected, want)
+	o := s.Offices[0]
+	if o.Boss != "Босс Боссов" || o.Ports != 4 || o.NextRouter != 2500 {
+		t.Errorf("офис 0: %+v", o)
+	}
+	for i, e := range o.Employees {
+		if want := i < 4; e.Connected != want {
+			t.Errorf("сотрудник %d connected=%v, хотим %v", i, e.Connected, want)
 		}
+	}
+	if !o.Employees[5].UnpaidToday {
+		t.Error("unpaidToday не прокинулся в снапшот")
 	}
 }

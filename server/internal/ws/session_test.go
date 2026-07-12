@@ -16,13 +16,15 @@ import (
 // testMessage покрывает state, error, day_report и game_over —
 // удобно читать любой ответ сервера одним типом.
 type testMessage struct {
-	Type      string `json:"type"`
-	Code      string `json:"code"`
-	Money     int    `json:"money"`
-	Employees []struct {
-		Name          string `json:"name"`
-		IncomePerTick int    `json:"incomePerTick"`
-	} `json:"employees"`
+	Type    string `json:"type"`
+	Code    string `json:"code"`
+	Money   int    `json:"money"`
+	Offices []struct {
+		Employees []struct {
+			Name          string `json:"name"`
+			IncomePerTick int    `json:"incomePerTick"`
+		} `json:"employees"`
+	} `json:"offices"`
 	Day          int    `json:"day"`
 	Phase        string `json:"phase"`
 	Payroll      int    `json:"payroll"`
@@ -73,13 +75,13 @@ func TestSessionCommands(t *testing.T) {
 	}
 
 	// Успешный найм.
-	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire"}); err != nil {
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 0}); err != nil {
 		t.Fatal(err)
 	}
 	if err := wsjson.Read(ctx, c, &msg); err != nil {
 		t.Fatal(err)
 	}
-	if msg.Type != "state" || len(msg.Employees) != 1 || msg.Money != 300 {
+	if msg.Type != "state" || len(msg.Offices) == 0 || len(msg.Offices[0].Employees) != 1 || msg.Money != 300 {
 		t.Fatalf("после найма: %+v", msg)
 	}
 
@@ -102,7 +104,7 @@ func TestSessionTicks(t *testing.T) {
 	if err := wsjson.Read(ctx, c, &msg); err != nil {
 		t.Fatal(err)
 	}
-	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire"}); err != nil {
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 0}); err != nil {
 		t.Fatal(err)
 	}
 	// Ждём, пока доход от тиков превысит остаток после найма ($300).
@@ -126,7 +128,7 @@ func TestSessionDayCycle(t *testing.T) {
 		t.Fatalf("отчёт дня 1: %+v", rep)
 	}
 	// Покупка в фазе отчёта отклоняется.
-	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire"}); err != nil {
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 0}); err != nil {
 		t.Fatal(err)
 	}
 	errMsg := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "error" })
@@ -148,16 +150,16 @@ func TestSessionBankruptcyAndRestart(t *testing.T) {
 	cfg.SalaryPerDay = 100000 // гарантированное банкротство с одним сотрудником
 	c, ctx := dialTestServer(t, cfg, 10*time.Millisecond)
 
-	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire"}); err != nil {
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 0}); err != nil {
 		t.Fatal(err)
 	}
 	first := readUntil(t, ctx, c, func(m testMessage) bool {
-		return (m.Type == "state" && len(m.Employees) == 1) || m.Type == "error"
+		return (m.Type == "state" && len(m.Offices) > 0 && len(m.Offices[0].Employees) == 1) || m.Type == "error"
 	})
 	if first.Type == "error" {
 		t.Fatalf("hire не успел до конца дня: %+v", first)
 	}
-	if e := first.Employees[0]; e.Name == "" || e.IncomePerTick < 9 || e.IncomePerTick > 14 {
+	if e := first.Offices[0].Employees[0]; e.Name == "" || e.IncomePerTick < 9 || e.IncomePerTick > 14 {
 		t.Fatalf("нанятый сотрудник в снапшоте подозрителен: %+v", e)
 	}
 	over := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "game_over" })
@@ -169,6 +171,20 @@ func TestSessionBankruptcyAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	readUntil(t, ctx, c, func(m testMessage) bool {
-		return m.Type == "state" && m.Money == 600 && len(m.Employees) == 0 && m.Day == 1 && m.Phase == "running"
+		return m.Type == "state" && m.Money == 600 && len(m.Offices) > 0 && len(m.Offices[0].Employees) == 0 && m.Day == 1 && m.Phase == "running"
 	})
+}
+
+func TestSessionOfficeCommand(t *testing.T) {
+	cfg := game.DefaultConfig()
+	c, ctx := dialTestServer(t, cfg, time.Hour)
+	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" })
+	// Команда в закрытый офис — ошибка office_locked.
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 1}); err != nil {
+		t.Fatal(err)
+	}
+	e := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "error" })
+	if e.Code != "office_locked" {
+		t.Fatalf("хотим office_locked, получили %+v", e)
+	}
 }
