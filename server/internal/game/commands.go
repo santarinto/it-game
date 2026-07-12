@@ -20,6 +20,9 @@ const (
 	ErrGatewayAlready   = Err("gateway_already")
 	ErrBadOffice        = Err("bad_office")
 	ErrEquipmentAlready = Err("equipment_already")
+	ErrBadSlot          = Err("bad_slot")
+	ErrServerMaxed      = Err("server_maxed")
+	ErrCoreMaxed        = Err("core_maxed")
 )
 
 // office проверяет адресата офисной команды: индекс и открытость.
@@ -156,16 +159,56 @@ func (g *Game) BuyGateway() error {
 	return nil
 }
 
-// BuyServer ставит сервер в свободную стойку серверной.
-func (g *Game) BuyServer() error {
-	if g.Servers >= g.cfg.RackSlots {
+// BuyServer ставит сервер ур.1 в первую пустую стойку офиса.
+func (g *Game) BuyServer(office int) error {
+	o, err := g.office(office)
+	if err != nil {
+		return err
+	}
+	if len(o.Servers) >= g.cfg.ServerSlotsPerOffice() {
 		return ErrNoFreeRackSlot
 	}
-	if g.Money < g.cfg.ServerPrice {
+	price := g.cfg.ServerLevels[0].Price
+	if g.Money < price {
 		return ErrNotEnoughMoney
 	}
-	g.Money -= g.cfg.ServerPrice
-	g.Servers++
+	g.Money -= price
+	o.Servers = append(o.Servers, 1)
+	return nil
+}
+
+// UpgradeServer поднимает уровень сервера в стойке slot офиса.
+func (g *Game) UpgradeServer(office, slot int) error {
+	o, err := g.office(office)
+	if err != nil {
+		return err
+	}
+	if slot < 0 || slot >= len(o.Servers) {
+		return ErrBadSlot
+	}
+	if o.Servers[slot] >= len(g.cfg.ServerLevels) {
+		return ErrServerMaxed
+	}
+	price := g.cfg.ServerLevels[o.Servers[slot]].Price
+	if g.Money < price {
+		return ErrNotEnoughMoney
+	}
+	g.Money -= price
+	o.Servers[slot]++
+	return nil
+}
+
+// UpgradeCore поднимает уровень core-коммутатора; покупка = уровень 1.
+func (g *Game) UpgradeCore() error {
+	if g.CoreLevel >= len(g.cfg.CoreLevels) {
+		return ErrCoreMaxed
+	}
+	price := g.cfg.CoreLevels[g.CoreLevel].Price
+	if g.Money < price {
+		return ErrNotEnoughMoney
+	}
+	g.Money -= price
+	g.CoreLevel++
 	return nil
 }
 
@@ -262,22 +305,25 @@ const ErrUnknownCommand = Err("unknown_command")
 type Command string
 
 const (
-	CmdBuyPC      = Command("buy_pc")
-	CmdHire       = Command("hire")
-	CmdBuyRouter  = Command("buy_router")
-	CmdBuyServer  = Command("buy_server")
-	CmdHireBoss   = Command("hire_boss")
-	CmdBuyOffice  = Command("buy_office")
-	CmdBuyGateway = Command("buy_gateway")
-	CmdNextDay    = Command("next_day")
-	CmdRestart    = Command("restart")
-	CmdBuyCooler  = Command("buy_cooler")
-	CmdBuyFridge  = Command("buy_fridge")
-	CmdBuyCoffee  = Command("buy_coffee")
+	CmdBuyPC         = Command("buy_pc")
+	CmdHire          = Command("hire")
+	CmdBuyRouter     = Command("buy_router")
+	CmdBuyServer     = Command("buy_server")
+	CmdUpgradeServer = Command("upgrade_server")
+	CmdUpgradeCore   = Command("upgrade_core")
+	CmdHireBoss      = Command("hire_boss")
+	CmdBuyOffice     = Command("buy_office")
+	CmdBuyGateway    = Command("buy_gateway")
+	CmdNextDay       = Command("next_day")
+	CmdRestart       = Command("restart")
+	CmdBuyCooler     = Command("buy_cooler")
+	CmdBuyFridge     = Command("buy_fridge")
+	CmdBuyCoffee     = Command("buy_coffee")
 )
 
-// Apply выполняет команду игрока; офисные команды адресуются индексом office.
-func (g *Game) Apply(cmd Command, office int) error {
+// Apply выполняет команду игрока; офисные команды адресуются индексом office,
+// slot дополнительно адресует стойку сервера (upgrade_server).
+func (g *Game) Apply(cmd Command, office, slot int) error {
 	switch cmd {
 	case CmdNextDay:
 		return g.NextDay()
@@ -299,7 +345,11 @@ func (g *Game) Apply(cmd Command, office int) error {
 	case CmdBuyOffice:
 		return g.BuyOffice(office)
 	case CmdBuyServer:
-		return g.BuyServer()
+		return g.BuyServer(office)
+	case CmdUpgradeServer:
+		return g.UpgradeServer(office, slot)
+	case CmdUpgradeCore:
+		return g.UpgradeCore()
 	case CmdBuyGateway:
 		return g.BuyGateway()
 	case CmdBuyCooler:

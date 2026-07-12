@@ -44,8 +44,8 @@ func TestOfficeStaffCap(t *testing.T) {
 
 func TestIncomeAcrossOffices(t *testing.T) {
 	g := New(DefaultConfig())
-	g.Servers = 2 // база множителя 1.0+0.5×2 = ×2.0
-	g.Offices[0] = Office{Unlocked: true, PCs: 2, RouterTier: 1,
+	g.CoreLevel = 1 // core на компанию; сервер ур.3 даёт ×2.0
+	g.Offices[0] = Office{Unlocked: true, PCs: 2, RouterTier: 1, Servers: []int{3},
 		Employees: []Employee{{Name: "А Б", IncomePerTick: 10}, {Name: "В Г", IncomePerTick: 12}}}
 	g.Offices[1] = Office{Unlocked: true, PCs: 1,
 		Employees: []Employee{{Name: "Д Е", IncomePerTick: 14}}} // без роутера: серверы не достаются

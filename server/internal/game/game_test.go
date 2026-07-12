@@ -10,26 +10,29 @@ func TestNewGameStart(t *testing.T) {
 	if g.Offices[0].PCs != 1 {
 		t.Errorf("PCs = %d, хотим 1 (стартовый ПК)", g.Offices[0].PCs)
 	}
-	if len(g.Offices[0].Employees) != 0 || g.Offices[0].RouterTier != 0 || g.Servers != 0 {
+	if len(g.Offices[0].Employees) != 0 || g.Offices[0].RouterTier != 0 || len(g.Offices[0].Servers) != 0 {
 		t.Errorf("на старте не должно быть сотрудников, роутера и серверов: %+v", g)
 	}
 }
 
+// TestIncome — доход через полную цепочку «роутер → core → сервер» (см. Network).
 func TestIncome(t *testing.T) {
 	tests := []struct {
-		name                           string
-		employees, routerTier, servers int
-		wantConnected                  int
-		wantMultiplier                 float64
-		wantIncome                     int
+		name       string
+		employees  int
+		routerTier int
+		servers    []int // уровни серверов офиса; порядок покупки
+		coreLevel  int
+		wantIncome int
 	}{
-		{"без роутера: базовая выработка", 2, 0, 0, 0, 1.0, 20},
-		{"серверы без роутера не дают ничего", 2, 0, 3, 0, 2.5, 20},
-		{"роутер без серверов множителя не даёт", 2, 1, 0, 2, 1.0, 20},
-		{"портов меньше, чем сотрудников", 6, 1, 1, 4, 1.5, 80}, // 4×15 + 2×10
-		{"роутер + 2 сервера: ×2.0", 6, 1, 2, 4, 2.0, 100},      // 4×20 + 2×10
-		{"потолок: 9 сотрудников на ×2.5", 9, 2, 3, 9, 2.5, 225},
-		{"без сотрудников дохода нет", 0, 0, 0, 0, 1.0, 0},
+		{"без роутера: базовая выработка", 2, 0, nil, 0, 20},
+		{"серверы и core без роутера не дают ничего", 2, 0, []int{3}, 1, 20},
+		{"роутер и core без серверов множителя не даёт", 2, 1, nil, 1, 20},
+		{"роутер и серверы без core не дают ничего", 2, 1, []int{1}, 0, 20},
+		{"портов меньше, чем сотрудников", 6, 1, []int{1}, 1, 68},                 // 4×(10×1.2) + 2×10
+		{"роутер + сервер ур.3: ×2.0", 6, 1, []int{3}, 1, 100},                    // 4×(10×2.0) + 2×10
+		{"потолок: 9 сотрудников на серверах ур.3", 9, 2, []int{3, 3, 3}, 2, 180}, // 9×(10×2.0)
+		{"без сотрудников дохода нет", 0, 0, nil, 0, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -37,13 +40,8 @@ func TestIncome(t *testing.T) {
 			g.Offices[0].PCs = tt.employees
 			g.Offices[0].Employees = testStaff(tt.employees)
 			g.Offices[0].RouterTier = tt.routerTier
-			g.Servers = tt.servers
-			if c := g.Offices[0].Connected(DefaultConfig()); c != tt.wantConnected {
-				t.Errorf("Connected() = %d, хотим %d", c, tt.wantConnected)
-			}
-			if m := g.Multiplier(); m != tt.wantMultiplier {
-				t.Errorf("Multiplier() = %v, хотим %v", m, tt.wantMultiplier)
-			}
+			g.Offices[0].Servers = tt.servers
+			g.CoreLevel = tt.coreLevel
 			if inc := g.IncomePerTick(); inc != tt.wantIncome {
 				t.Errorf("IncomePerTick() = %d, хотим %d", inc, tt.wantIncome)
 			}

@@ -42,13 +42,9 @@ func configRows(c game.Config) []row {
 		{"Стартовые ПК", c.StartPCs},
 		{"Слотов офиса", c.OfficeSlots},
 		{"Потолок штата без начальника", c.StaffLimit},
-		{"Стоек серверной", c.RackSlots},
 		{"Цена ПК", c.PCPrice},
 		{"Цена найма", c.HirePrice},
-		{"Цена сервера", c.ServerPrice},
 		{"Выработка сотрудника, $/тик", fmt.Sprintf("%d–%d", c.IncomeMin, c.IncomeMax)},
-		{"База множителя сети", c.NetworkBase},
-		{"Бонус за сервер", c.ServerBonus},
 		{"Тиков в часе", c.TicksPerHour},
 		{"Рабочий день", fmt.Sprintf("%02d:00–%02d:00", c.WorkdayStart, c.WorkdayEnd)},
 		{"Обед", fmt.Sprintf("%02d:00–%02d:00", c.LunchStart, c.LunchEnd)},
@@ -65,6 +61,14 @@ func configRows(c game.Config) []row {
 	}
 	for i, t := range c.RouterTiers {
 		rows = append(rows, row{fmt.Sprintf("Роутер тир %d", i+1), fmt.Sprintf("$%d, портов: %d", t.Price, t.Ports)})
+	}
+	rows = append(rows, row{"Работников на сервер", c.EmployeesPerServer},
+		row{"Стоек на офис", c.ServerSlotsPerOffice()})
+	for i, l := range c.ServerLevels {
+		rows = append(rows, row{fmt.Sprintf("Сервер ур.%d", i+1), fmt.Sprintf("$%d, ×%.1f", l.Price, l.Mult)})
+	}
+	for i, l := range c.CoreLevels {
+		rows = append(rows, row{fmt.Sprintf("Core ур.%d", i+1), fmt.Sprintf("$%d, мест: %d, ×%.1f", l.Price, l.Capacity, l.Mult)})
 	}
 	return rows
 }

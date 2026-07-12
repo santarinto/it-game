@@ -28,10 +28,10 @@ type Game struct {
 	cfg Config
 	rng *rand.Rand
 
-	Money   int
-	Offices []Office
-	Servers int
-	Gateway bool // шлюз в интернет: ×GatewayBonus подключённым, опекс $/день
+	Money     int
+	Offices   []Office
+	CoreLevel int  // core-коммутатор: 0 — не куплен, 1..len(cfg.CoreLevels)
+	Gateway   bool // шлюз в интернет: ×GatewayBonus подключённым, опекс $/день
 
 	Phase             Phase
 	Day               int // номер игрового дня, с 1
@@ -59,17 +59,6 @@ func NewWithSeed(cfg Config, s1, s2 uint64) *Game {
 // Config возвращает баланс, с которым создана игра (для снапшотов протокола).
 func (g *Game) Config() Config { return g.cfg }
 
-// Multiplier — множитель компании для подключённых рабочих мест:
-// серверы дают базу, шлюз умножает её ещё раз. Применяется только
-// подключённым (подключение по-офисно, см. Office.Connected).
-func (g *Game) Multiplier() float64 {
-	m := g.cfg.NetworkBase + g.cfg.ServerBonus*float64(g.Servers)
-	if g.Gateway {
-		m *= g.cfg.GatewayBonus
-	}
-	return m
-}
-
 // Clock — текущее игровое время «HH:MM»: WorkdayStart плюс 10 минут за тик.
 func (g *Game) Clock() string { return g.cfg.clockAt(g.TickInDay) }
 
@@ -88,22 +77,19 @@ func (g *Game) IncomePerTick() int {
 }
 
 // incomeAtTick — доход компании за конкретный (продуктивный) тик дня:
-// личная выработка × эффекты × сетевой множитель подключённым.
+// личная выработка × эффекты × сетевой множитель из цепочки
+// «роутер → core → сервер» (см. Network).
 func (g *Game) incomeAtTick(tick int) int {
-	mult := g.Multiplier()
+	net := g.Network()
 	total := 0
 	for oi := range g.Offices {
 		o := &g.Offices[oi]
 		if !o.Unlocked {
 			continue
 		}
-		connected := o.Connected(g.cfg)
 		for i := range o.Employees {
 			e := &o.Employees[i]
-			v := float64(e.IncomePerTick) * g.effectMult(o, e, tick)
-			if i < connected {
-				v *= mult
-			}
+			v := float64(e.IncomePerTick) * g.effectMult(o, e, tick) * net.Mults[oi][i]
 			total += int(math.Round(v))
 		}
 	}

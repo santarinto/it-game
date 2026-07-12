@@ -21,6 +21,7 @@ type Handler struct {
 type clientCommand struct {
 	Cmd    game.Command
 	Office int
+	Slot   int // стойка для upgrade_server
 	Speed  int // параметр set_speed
 }
 
@@ -54,7 +55,7 @@ func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn,
 			return
 		}
 		select {
-		case commands <- clientCommand{Cmd: game.Command(msg.Type), Office: msg.Office, Speed: msg.Speed}:
+		case commands <- clientCommand{Cmd: game.Command(msg.Type), Office: msg.Office, Slot: msg.Slot, Speed: msg.Speed}:
 		case <-ctx.Done():
 			return
 		}
@@ -104,7 +105,7 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 					}
 					out = snapshot(g, speed)
 				}
-			} else if err := g.Apply(cmd.Cmd, cmd.Office); err != nil {
+			} else if err := g.Apply(cmd.Cmd, cmd.Office, cmd.Slot); err != nil {
 				out = errorMessage{Type: "error", Code: err.Error()}
 			} else {
 				out = snapshot(g, speed)

@@ -7,6 +7,7 @@ type Office struct {
 	PCs              int // первые len(Employees) заняты сотрудниками
 	Employees        []Employee
 	RouterTier       int    // 0 — роутера нет; 1..len(cfg.RouterTiers)
+	Servers          []int  // уровни серверов офиса (1..len(cfg.ServerLevels)); порядок = порядок покупки
 	Boss             string // имя начальника; "" — не нанят
 	BossUnpaidToday  bool   // босс нанят после обеда: сегодня без оплаты
 	Cooler           bool
