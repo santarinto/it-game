@@ -7,10 +7,10 @@ func TestNewGameStart(t *testing.T) {
 	if g.Money != 600 {
 		t.Errorf("Money = %d, хотим 600", g.Money)
 	}
-	if g.PCs != 1 {
-		t.Errorf("PCs = %d, хотим 1 (стартовый ПК)", g.PCs)
+	if g.Offices[0].PCs != 1 {
+		t.Errorf("PCs = %d, хотим 1 (стартовый ПК)", g.Offices[0].PCs)
 	}
-	if len(g.Employees) != 0 || g.RouterTier != 0 || g.Servers != 0 {
+	if len(g.Offices[0].Employees) != 0 || g.Offices[0].RouterTier != 0 || g.Servers != 0 {
 		t.Errorf("на старте не должно быть сотрудников, роутера и серверов: %+v", g)
 	}
 }
@@ -25,8 +25,8 @@ func TestBuyPC(t *testing.T) {
 	}{
 		{"успех: деньги ровно по цене", func(g *Game) { g.Money = 500 }, nil, 2, 0},
 		{"не хватает денег", func(g *Game) { g.Money = 499 }, ErrNotEnoughMoney, 1, 499},
-		{"штат укомплектован: потолок 9 при 12 слотах офиса", func(g *Game) { g.Money = 10000; g.PCs = 9 }, ErrStaffLimit, 9, 10000},
-		{"штат укомплектован и денег нет: лимит проверяется первым", func(g *Game) { g.Money = 0; g.PCs = 9 }, ErrStaffLimit, 9, 0},
+		{"штат укомплектован: потолок 9 при 12 слотах офиса", func(g *Game) { g.Money = 10000; g.Offices[0].PCs = 9 }, ErrStaffLimit, 9, 10000},
+		{"штат укомплектован и денег нет: лимит проверяется первым", func(g *Game) { g.Money = 0; g.Offices[0].PCs = 9 }, ErrStaffLimit, 9, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -35,8 +35,8 @@ func TestBuyPC(t *testing.T) {
 			if err := g.BuyPC(); err != tt.wantErr {
 				t.Fatalf("err = %v, хотим %v", err, tt.wantErr)
 			}
-			if g.PCs != tt.wantPCs || g.Money != tt.wantMoney {
-				t.Errorf("PCs=%d Money=%d, хотим PCs=%d Money=%d", g.PCs, g.Money, tt.wantPCs, tt.wantMoney)
+			if g.Offices[0].PCs != tt.wantPCs || g.Money != tt.wantMoney {
+				t.Errorf("PCs=%d Money=%d, хотим PCs=%d Money=%d", g.Offices[0].PCs, g.Money, tt.wantPCs, tt.wantMoney)
 			}
 		})
 	}
@@ -51,8 +51,8 @@ func TestBuyRouter(t *testing.T) {
 		wantMoney int
 	}{
 		{"тир 1 за $800", func(g *Game) { g.Money = 800 }, nil, 1, 0},
-		{"апгрейд до тира 2 за $2500", func(g *Game) { g.Money = 2500; g.RouterTier = 1 }, nil, 2, 0},
-		{"выше тира 2 нельзя", func(g *Game) { g.Money = 99999; g.RouterTier = 2 }, ErrRouterMaxed, 2, 99999},
+		{"апгрейд до тира 2 за $2500", func(g *Game) { g.Money = 2500; g.Offices[0].RouterTier = 1 }, nil, 2, 0},
+		{"выше тира 2 нельзя", func(g *Game) { g.Money = 99999; g.Offices[0].RouterTier = 2 }, ErrRouterMaxed, 2, 99999},
 		{"не хватает денег", func(g *Game) { g.Money = 799 }, ErrNotEnoughMoney, 0, 799},
 	}
 	for _, tt := range tests {
@@ -62,8 +62,8 @@ func TestBuyRouter(t *testing.T) {
 			if err := g.BuyRouter(); err != tt.wantErr {
 				t.Fatalf("err = %v, хотим %v", err, tt.wantErr)
 			}
-			if g.RouterTier != tt.wantTier || g.Money != tt.wantMoney {
-				t.Errorf("RouterTier=%d Money=%d, хотим %d и %d", g.RouterTier, g.Money, tt.wantTier, tt.wantMoney)
+			if g.Offices[0].RouterTier != tt.wantTier || g.Money != tt.wantMoney {
+				t.Errorf("RouterTier=%d Money=%d, хотим %d и %d", g.Offices[0].RouterTier, g.Money, tt.wantTier, tt.wantMoney)
 			}
 		})
 	}
@@ -74,11 +74,11 @@ func TestNextRouterPrice(t *testing.T) {
 	if p := g.NextRouterPrice(); p != 800 {
 		t.Errorf("без роутера цена = %d, хотим 800", p)
 	}
-	g.RouterTier = 1
+	g.Offices[0].RouterTier = 1
 	if p := g.NextRouterPrice(); p != 2500 {
 		t.Errorf("после тира 1 цена = %d, хотим 2500", p)
 	}
-	g.RouterTier = 2
+	g.Offices[0].RouterTier = 2
 	if p := g.NextRouterPrice(); p != 0 {
 		t.Errorf("на максимальном тире цена = %d, хотим 0", p)
 	}
@@ -119,7 +119,7 @@ func TestIncome(t *testing.T) {
 		wantIncome                     int
 	}{
 		{"без роутера: базовая выработка", 2, 0, 0, 0, 1.0, 20},
-		{"серверы без роутера не дают ничего", 2, 0, 3, 0, 1.0, 20},
+		{"серверы без роутера не дают ничего", 2, 0, 3, 0, 2.5, 20},
 		{"роутер без серверов множителя не даёт", 2, 1, 0, 2, 1.0, 20},
 		{"портов меньше, чем сотрудников", 6, 1, 1, 4, 1.5, 80}, // 4×15 + 2×10
 		{"роутер + 2 сервера: ×2.0", 6, 1, 2, 4, 2.0, 100},      // 4×20 + 2×10
@@ -129,11 +129,11 @@ func TestIncome(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := New(DefaultConfig())
-			g.PCs = tt.employees
-			g.Employees = testStaff(tt.employees)
-			g.RouterTier = tt.routerTier
+			g.Offices[0].PCs = tt.employees
+			g.Offices[0].Employees = testStaff(tt.employees)
+			g.Offices[0].RouterTier = tt.routerTier
 			g.Servers = tt.servers
-			if c := g.Connected(); c != tt.wantConnected {
+			if c := g.Offices[0].Connected(DefaultConfig()); c != tt.wantConnected {
 				t.Errorf("Connected() = %d, хотим %d", c, tt.wantConnected)
 			}
 			if m := g.Multiplier(); m != tt.wantMultiplier {
@@ -149,7 +149,7 @@ func TestIncome(t *testing.T) {
 func TestTickAddsIncome(t *testing.T) {
 	g := New(DefaultConfig())
 	g.Money = 0
-	g.Employees = testStaff(1)
+	g.Offices[0].Employees = testStaff(1)
 	g.Tick()
 	g.Tick()
 	if g.Money != 20 {
@@ -162,8 +162,8 @@ func TestApply(t *testing.T) {
 	if err := g.Apply(CmdHire); err != nil {
 		t.Fatalf("Apply(hire): %v", err)
 	}
-	if len(g.Employees) != 1 {
-		t.Errorf("Apply(hire) не нанял: Employees = %d", len(g.Employees))
+	if len(g.Offices[0].Employees) != 1 {
+		t.Errorf("Apply(hire) не нанял: Employees = %d", len(g.Offices[0].Employees))
 	}
 	if err := g.Apply(Command("dance")); err != ErrUnknownCommand {
 		t.Errorf("неизвестная команда: err = %v, хотим %v", err, ErrUnknownCommand)
@@ -175,8 +175,8 @@ func TestApply(t *testing.T) {
 		cmd   Command
 		check func() bool
 	}{
-		{CmdBuyPC, func() bool { return g2.PCs == 2 }},
-		{CmdBuyRouter, func() bool { return g2.RouterTier == 1 }},
+		{CmdBuyPC, func() bool { return g2.Offices[0].PCs == 2 }},
+		{CmdBuyRouter, func() bool { return g2.Offices[0].RouterTier == 1 }},
 		{CmdBuyServer, func() bool { return g2.Servers == 1 }},
 	} {
 		if err := g2.Apply(tc.cmd); err != nil || !tc.check() {
@@ -194,9 +194,9 @@ func TestHire(t *testing.T) {
 		wantMoney     int
 	}{
 		{"успех: есть свободный стартовый ПК", func(g *Game) { g.Money = 300 }, nil, 1, 0},
-		{"нет свободного ПК", func(g *Game) { g.Money = 1000; g.Employees = testStaff(1) }, ErrNoFreePC, 1, 1000},
+		{"нет свободного ПК", func(g *Game) { g.Money = 1000; g.Offices[0].Employees = testStaff(1) }, ErrNoFreePC, 1, 1000},
 		{"не хватает денег", func(g *Game) { g.Money = 299 }, ErrNotEnoughMoney, 0, 299},
-		{"нет ПК и денег одновременно: ПК проверяется первым", func(g *Game) { g.Money = 0; g.Employees = testStaff(1) }, ErrNoFreePC, 1, 0},
+		{"нет ПК и денег одновременно: ПК проверяется первым", func(g *Game) { g.Money = 0; g.Offices[0].Employees = testStaff(1) }, ErrNoFreePC, 1, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -205,8 +205,8 @@ func TestHire(t *testing.T) {
 			if err := g.Hire(); err != tt.wantErr {
 				t.Fatalf("err = %v, хотим %v", err, tt.wantErr)
 			}
-			if len(g.Employees) != tt.wantEmployees || g.Money != tt.wantMoney {
-				t.Errorf("Employees=%d Money=%d, хотим %d и %d", len(g.Employees), g.Money, tt.wantEmployees, tt.wantMoney)
+			if len(g.Offices[0].Employees) != tt.wantEmployees || g.Money != tt.wantMoney {
+				t.Errorf("Employees=%d Money=%d, хотим %d и %d", len(g.Offices[0].Employees), g.Money, tt.wantEmployees, tt.wantMoney)
 			}
 		})
 	}

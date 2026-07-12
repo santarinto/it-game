@@ -18,13 +18,13 @@ func testStaff(n int) []Employee {
 func TestHireRollsEmployee(t *testing.T) {
 	g := NewWithSeed(DefaultConfig(), 1, 2)
 	g.Money = 10000
-	g.PCs = 9
+	g.Offices[0].PCs = 9
 	for i := 0; i < 9; i++ {
 		if err := g.Hire(); err != nil {
 			t.Fatalf("найм %d: %v", i+1, err)
 		}
 	}
-	for i, e := range g.Employees {
+	for i, e := range g.Offices[0].Employees {
 		if e.IncomePerTick < 9 || e.IncomePerTick > 14 {
 			t.Errorf("сотрудник %d: выработка %d вне [9..14]", i, e.IncomePerTick)
 		}
@@ -38,13 +38,13 @@ func TestHireDeterministicWithSeed(t *testing.T) {
 	roll := func() []Employee {
 		g := NewWithSeed(DefaultConfig(), 42, 42)
 		g.Money = 10000
-		g.PCs = 3
+		g.Offices[0].PCs = 3
 		for i := 0; i < 3; i++ {
 			if err := g.Hire(); err != nil {
 				t.Fatal(err)
 			}
 		}
-		return g.Employees
+		return g.Offices[0].Employees
 	}
 	a, b := roll(), roll()
 	for i := range a {
@@ -56,8 +56,8 @@ func TestHireDeterministicWithSeed(t *testing.T) {
 
 func TestIncomeSumsPersonalRates(t *testing.T) {
 	g := New(DefaultConfig())
-	g.PCs = 3
-	g.Employees = []Employee{
+	g.Offices[0].PCs = 3
+	g.Offices[0].Employees = []Employee{
 		{Name: "А Б", IncomePerTick: 9},
 		{Name: "В Г", IncomePerTick: 14},
 		{Name: "Д Е", IncomePerTick: 11},
@@ -67,7 +67,7 @@ func TestIncomeSumsPersonalRates(t *testing.T) {
 		t.Errorf("доход без сети = %d, хотим 34", inc)
 	}
 	// Роутер (4 порта) + 2 сервера: множитель ×2.0 всем троим.
-	g.RouterTier = 1
+	g.Offices[0].RouterTier = 1
 	g.Servers = 2
 	if inc := g.IncomePerTick(); inc != 68 {
 		t.Errorf("доход с сетью ×2.0 = %d, хотим 68", inc)
@@ -77,8 +77,8 @@ func TestIncomeSumsPersonalRates(t *testing.T) {
 func TestStaffLimit(t *testing.T) {
 	g := New(DefaultConfig())
 	g.Money = 100000
-	g.PCs = 9
-	g.Employees = testStaff(9)
+	g.Offices[0].PCs = 9
+	g.Offices[0].Employees = testStaff(9)
 	if err := g.Hire(); err != ErrStaffLimit {
 		t.Errorf("найм 10-го: err = %v, хотим %v", err, ErrStaffLimit)
 	}
@@ -91,8 +91,8 @@ func TestForecastEndOfDay(t *testing.T) {
 	cfg := DefaultConfig()
 	g := New(cfg)
 	g.Money = 1000
-	g.PCs = 1
-	g.Employees = []Employee{{Name: "А Б", IncomePerTick: 10}}
+	g.Offices[0].PCs = 1
+	g.Offices[0].Employees = []Employee{{Name: "А Б", IncomePerTick: 10}}
 	g.TickInDay = 0
 	// 48 продуктивных тиков × $10 − ФОТ $250 = +$230 к балансу.
 	if f := g.ForecastEndOfDay(); f != 1230 {
@@ -113,8 +113,8 @@ func TestForecastEndOfDay(t *testing.T) {
 func TestRestartClearsStaff(t *testing.T) {
 	g := New(dayTestConfig())
 	g.Money = 0
-	g.PCs = 3
-	g.Employees = testStaff(3)
+	g.Offices[0].PCs = 3
+	g.Offices[0].Employees = testStaff(3)
 	for i := 0; i < dayTestConfig().DayTicks(); i++ {
 		g.Tick()
 	}
@@ -124,7 +124,7 @@ func TestRestartClearsStaff(t *testing.T) {
 	if err := g.Restart(); err != nil {
 		t.Fatal(err)
 	}
-	if len(g.Employees) != 0 {
-		t.Errorf("после Restart сотрудников %d, хотим 0", len(g.Employees))
+	if len(g.Offices[0].Employees) != 0 {
+		t.Errorf("после Restart сотрудников %d, хотим 0", len(g.Offices[0].Employees))
 	}
 }

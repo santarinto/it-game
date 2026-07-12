@@ -32,12 +32,12 @@ func TestSnapshot(t *testing.T) {
 
 func TestSnapshotEmployees(t *testing.T) {
 	g := game.New(game.DefaultConfig())
-	g.PCs = 3
-	g.Employees = []game.Employee{
+	g.Offices[0].PCs = 3
+	g.Offices[0].Employees = []game.Employee{
 		{Name: "Анна Иванова", IncomePerTick: 12},
 		{Name: "Пётр Волков", IncomePerTick: 9},
 	}
-	g.RouterTier = 1 // 4 порта: оба подключены
+	g.Offices[0].RouterTier = 1 // 4 порта: оба подключены
 	s := snapshot(g)
 	if len(s.Employees) != 2 {
 		t.Fatalf("employees в снапшоте: %d, хотим 2", len(s.Employees))
@@ -53,12 +53,12 @@ func TestSnapshotEmployees(t *testing.T) {
 func TestSnapshotEmployeesBeyondPorts(t *testing.T) {
 	// Сотрудников больше, чем портов роутера: хвост списка вне сети.
 	g := game.New(game.DefaultConfig())
-	g.PCs = 6
-	g.Employees = make([]game.Employee, 6)
-	for i := range g.Employees {
-		g.Employees[i] = game.Employee{Name: "Тест Тестов", IncomePerTick: 10}
+	g.Offices[0].PCs = 6
+	g.Offices[0].Employees = make([]game.Employee, 6)
+	for i := range g.Offices[0].Employees {
+		g.Offices[0].Employees[i] = game.Employee{Name: "Тест Тестов", IncomePerTick: 10}
 	}
-	g.RouterTier = 1 // 4 порта на 6 сотрудников
+	g.Offices[0].RouterTier = 1 // 4 порта на 6 сотрудников
 	s := snapshot(g)
 	for i, e := range s.Employees {
 		want := i < 4

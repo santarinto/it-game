@@ -44,8 +44,8 @@ func TestIsLunch(t *testing.T) {
 
 func TestLunchZeroIncome(t *testing.T) {
 	g := New(DefaultConfig())
-	g.PCs = 1
-	g.Employees = testStaff(1)
+	g.Offices[0].PCs = 1
+	g.Offices[0].Employees = testStaff(1)
 	g.TickInDay = 23
 	if inc := g.IncomePerTick(); inc == 0 {
 		t.Error("до обеда доход должен быть > 0")

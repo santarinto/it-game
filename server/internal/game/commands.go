@@ -18,35 +18,39 @@ const (
 
 // BuyPC ставит новый ПК в свободный слот офиса. Слоты сверх потолка
 // штата закрыты до начальника (итерация 4).
+// (временно, до Task 2: команды работают с офисом 0)
 func (g *Game) BuyPC() error {
-	if g.PCs >= g.cfg.StaffLimit {
+	o := &g.Offices[0]
+	if o.PCs >= g.cfg.StaffLimit {
 		return ErrStaffLimit
 	}
-	if g.PCs >= g.cfg.OfficeSlots {
+	if o.PCs >= g.cfg.OfficeSlots {
 		return ErrNoFreeOfficeSlot
 	}
 	if g.Money < g.cfg.PCPrice {
 		return ErrNotEnoughMoney
 	}
 	g.Money -= g.cfg.PCPrice
-	g.PCs++
+	o.PCs++
 	return nil
 }
 
 // Hire сажает нового сотрудника за свободный ПК: имя и выработка
 // роллятся при найме и не меняются.
+// (временно, до Task 2: команды работают с офисом 0)
 func (g *Game) Hire() error {
-	if len(g.Employees) >= g.cfg.StaffLimit {
+	o := &g.Offices[0]
+	if len(o.Employees) >= g.cfg.StaffLimit {
 		return ErrStaffLimit
 	}
-	if len(g.Employees) >= g.PCs {
+	if len(o.Employees) >= o.PCs {
 		return ErrNoFreePC
 	}
 	if g.Money < g.cfg.HirePrice {
 		return ErrNotEnoughMoney
 	}
 	g.Money -= g.cfg.HirePrice
-	g.Employees = append(g.Employees, Employee{
+	o.Employees = append(o.Employees, Employee{
 		Name:          rollName(g.rng),
 		IncomePerTick: g.cfg.IncomeMin + g.rng.IntN(g.cfg.IncomeMax-g.cfg.IncomeMin+1),
 	})
@@ -55,16 +59,18 @@ func (g *Game) Hire() error {
 
 // BuyRouter покупает следующий тир роутера (тир заменяет предыдущий).
 // Слот роутера специальный: он один, отдельный от рабочих мест.
+// (временно, до Task 2: команды работают с офисом 0)
 func (g *Game) BuyRouter() error {
-	if g.RouterTier >= len(g.cfg.RouterTiers) {
+	o := &g.Offices[0]
+	if o.RouterTier >= len(g.cfg.RouterTiers) {
 		return ErrRouterMaxed
 	}
-	price := g.cfg.RouterTiers[g.RouterTier].Price
+	price := g.cfg.RouterTiers[o.RouterTier].Price
 	if g.Money < price {
 		return ErrNotEnoughMoney
 	}
 	g.Money -= price
-	g.RouterTier++
+	o.RouterTier++
 	return nil
 }
 
@@ -103,11 +109,13 @@ func (g *Game) Restart() error {
 }
 
 // NextRouterPrice — цена следующего тира роутера; 0, если тир максимальный.
+// (временно, до Task 2: команды работают с офисом 0)
 func (g *Game) NextRouterPrice() int {
-	if g.RouterTier >= len(g.cfg.RouterTiers) {
+	o := &g.Offices[0]
+	if o.RouterTier >= len(g.cfg.RouterTiers) {
 		return 0
 	}
-	return g.cfg.RouterTiers[g.RouterTier].Price
+	return g.cfg.RouterTiers[o.RouterTier].Price
 }
 
 const ErrUnknownCommand = Err("unknown_command")

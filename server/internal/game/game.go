@@ -19,6 +19,7 @@ const (
 type Employee struct {
 	Name          string
 	IncomePerTick int
+	UnpaidToday   bool // нанят после обеда: в ФОТ текущего дня не входит
 }
 
 // Game — состояние одной игры. НЕ потокобезопасен: им владеет
@@ -27,11 +28,10 @@ type Game struct {
 	cfg Config
 	rng *rand.Rand
 
-	Money      int
-	PCs        int // ПК в офисе; первые Employees из них заняты сотрудниками
-	Employees  []Employee
-	RouterTier int // 0 — роутера нет; 1..len(cfg.RouterTiers)
-	Servers    int
+	Money   int
+	Offices []Office
+	Servers int
+	Gateway bool // шлюз в интернет: ×GatewayBonus подключённым, опекс $/день
 
 	Phase             Phase
 	Day               int // номер игрового дня, с 1
@@ -46,38 +46,28 @@ func New(cfg Config) *Game {
 
 // NewWithSeed — игра с фиксированным сидом: детерминированные роллы для тестов.
 func NewWithSeed(cfg Config, s1, s2 uint64) *Game {
-	return &Game{
+	g := &Game{
 		cfg:   cfg,
 		rng:   rand.New(rand.NewPCG(s1, s2)),
-		Money: cfg.StartMoney, PCs: cfg.StartPCs, Phase: PhaseRunning, Day: 1,
+		Money: cfg.StartMoney, Phase: PhaseRunning, Day: 1,
+		Offices: make([]Office, 3),
 	}
+	g.Offices[0] = Office{Unlocked: true, PCs: cfg.StartPCs}
+	return g
 }
 
 // Config возвращает баланс, с которым создана игра (для снапшотов протокола).
 func (g *Game) Config() Config { return g.cfg }
 
-// Ports — сколько рабочих мест роутер может подключить к сети.
-func (g *Game) Ports() int {
-	if g.RouterTier == 0 {
-		return 0
-	}
-	return g.cfg.RouterTiers[g.RouterTier-1].Ports
-}
-
-// Connected — сколько сотрудников сейчас в сети:
-// подключаются автоматически первые N занятых мест, N = порты роутера.
-func (g *Game) Connected() int {
-	return min(g.Ports(), len(g.Employees))
-}
-
-// Multiplier — сетевой множитель выработки подключённых рабочих мест.
-// Роутер сам множителя не даёт — он лишь открывает доступ к серверам;
-// без роутера сеть не существует, и серверы не дают ничего.
+// Multiplier — множитель компании для подключённых рабочих мест:
+// серверы дают базу, шлюз умножает её ещё раз. Применяется только
+// подключённым (подключение по-офисно, см. Office.Connected).
 func (g *Game) Multiplier() float64 {
-	if g.RouterTier == 0 {
-		return 1.0
+	m := g.cfg.NetworkBase + g.cfg.ServerBonus*float64(g.Servers)
+	if g.Gateway {
+		m *= g.cfg.GatewayBonus
 	}
-	return g.cfg.NetworkBase + g.cfg.ServerBonus*float64(g.Servers)
+	return m
 }
 
 // Clock — текущее игровое время «HH:MM»: WorkdayStart плюс 10 минут за тик.
@@ -97,24 +87,36 @@ func (g *Game) IncomePerTick() int {
 	return g.incomePotentialPerTick()
 }
 
-// incomePotentialPerTick — доход за продуктивный (не обеденный) тик:
-// сумма личных выработок, первые Connected() — с сетевым множителем.
+// incomePotentialPerTick — доход за продуктивный тик по всем открытым
+// офисам: первые Connected() сотрудников офиса — с множителем компании.
 func (g *Game) incomePotentialPerTick() int {
-	connected := g.Connected()
 	mult := g.Multiplier()
 	total := 0
-	for i, e := range g.Employees {
-		if i < connected {
-			total += int(math.Round(float64(e.IncomePerTick) * mult))
-		} else {
-			total += e.IncomePerTick
+	for oi := range g.Offices {
+		o := &g.Offices[oi]
+		if !o.Unlocked {
+			continue
+		}
+		connected := o.Connected(g.cfg)
+		for i, e := range o.Employees {
+			if i < connected {
+				total += int(math.Round(float64(e.IncomePerTick) * mult))
+			} else {
+				total += e.IncomePerTick
+			}
 		}
 	}
 	return total
 }
 
-// PayrollPerDay — дневной фонд оплаты труда при текущем штате.
-func (g *Game) PayrollPerDay() int { return len(g.Employees) * g.cfg.SalaryPerDay }
+// PayrollPerDay — дневные расходы на людей (боссы и опекс — Task 3).
+func (g *Game) PayrollPerDay() int {
+	total := 0
+	for i := range g.Offices {
+		total += len(g.Offices[i].Employees) * g.cfg.SalaryPerDay
+	}
+	return total
+}
 
 // ForecastEndOfDay — баланс на конец дня: деньги + доход за оставшиеся
 // продуктивные тики − ФОТ. Считает сервер: клиентская формула не знает про обед.

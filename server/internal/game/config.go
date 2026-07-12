@@ -22,6 +22,13 @@ type Config struct {
 	WorkdayEnd   int     // час конца дня → зарплаты → отчёт
 	SalaryPerDay int     // зарплата $ с одного сотрудника, списывается в конце дня
 	RouterTiers  []RouterTier
+
+	BossPrice         int     // найм начальника
+	BossSalaryPerDay  int     // зарплата начальника (не производит)
+	OfficePrices      []int   // цены офисов 2 и 3 (покупаются последовательно, пустыми)
+	GatewayPrice      int     // шлюз в интернет, один на компанию
+	GatewayOpexPerDay int     // операционный расход шлюза, $/день
+	GatewayBonus      float64 // множитель шлюза подключённым (поверх серверов)
 }
 
 // RouterTier — тир роутера: покупается последовательно, тир заменяет предыдущий.
@@ -54,6 +61,12 @@ func DefaultConfig() Config {
 			{Price: 800, Ports: 4},
 			{Price: 2500, Ports: 9},
 		},
+		BossPrice:         1000,
+		BossSalaryPerDay:  500,
+		OfficePrices:      []int{15000, 40000},
+		GatewayPrice:      3000,
+		GatewayOpexPerDay: 1,
+		GatewayBonus:      1.2,
 	}
 }
 

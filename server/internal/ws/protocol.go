@@ -75,17 +75,19 @@ type gameOverMessage struct {
 
 func snapshot(g *game.Game) stateMessage {
 	cfg := g.Config()
-	connected := g.Connected()
-	employees := make([]employeeInfo, len(g.Employees))
-	for i, e := range g.Employees {
+	// (временно, до Task 2: снапшот берёт данные из офиса 0)
+	o := &g.Offices[0]
+	connected := o.Connected(cfg)
+	employees := make([]employeeInfo, len(o.Employees))
+	for i, e := range o.Employees {
 		employees[i] = employeeInfo{Name: e.Name, IncomePerTick: e.IncomePerTick, Connected: i < connected}
 	}
 	return stateMessage{
 		Type:             "state",
 		Money:            g.Money,
-		PCs:              g.PCs,
-		RouterTier:       g.RouterTier,
-		Ports:            g.Ports(),
+		PCs:              o.PCs,
+		RouterTier:       o.RouterTier,
+		Ports:            o.Ports(cfg),
 		Servers:          g.Servers,
 		Multiplier:       g.Multiplier(),
 		IncomePerTick:    g.IncomePerTick(),
