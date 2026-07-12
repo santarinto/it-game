@@ -75,9 +75,10 @@ type gameOverMessage struct {
 
 func snapshot(g *game.Game) stateMessage {
 	cfg := g.Config()
+	connected := g.Connected()
 	employees := make([]employeeInfo, len(g.Employees))
 	for i, e := range g.Employees {
-		employees[i] = employeeInfo{Name: e.Name, IncomePerTick: e.IncomePerTick, Connected: i < g.Connected()}
+		employees[i] = employeeInfo{Name: e.Name, IncomePerTick: e.IncomePerTick, Connected: i < connected}
 	}
 	return stateMessage{
 		Type:             "state",

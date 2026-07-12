@@ -49,3 +49,21 @@ func TestSnapshotEmployees(t *testing.T) {
 		t.Errorf("второй сотрудник должен быть в сети: %+v", s.Employees[1])
 	}
 }
+
+func TestSnapshotEmployeesBeyondPorts(t *testing.T) {
+	// Сотрудников больше, чем портов роутера: хвост списка вне сети.
+	g := game.New(game.DefaultConfig())
+	g.PCs = 6
+	g.Employees = make([]game.Employee, 6)
+	for i := range g.Employees {
+		g.Employees[i] = game.Employee{Name: "Тест Тестов", IncomePerTick: 10}
+	}
+	g.RouterTier = 1 // 4 порта на 6 сотрудников
+	s := snapshot(g)
+	for i, e := range s.Employees {
+		want := i < 4
+		if e.Connected != want {
+			t.Errorf("сотрудник %d: connected=%v, хотим %v", i, e.Connected, want)
+		}
+	}
+}
