@@ -59,6 +59,9 @@ func configRows(c game.Config) []row {
 		{"Шлюз: цена", c.GatewayPrice},
 		{"Шлюз: опекс в день", c.GatewayOpexPerDay},
 		{"Шлюз: множитель", c.GatewayBonus},
+		{"Кулер", c.CoolerPrice},
+		{"Холодильник", c.FridgePrice},
+		{"Кофеварка", c.CoffeeMachinePrice},
 	}
 	for i, t := range c.RouterTiers {
 		rows = append(rows, row{fmt.Sprintf("Роутер тир %d", i+1), fmt.Sprintf("$%d, портов: %d", t.Price, t.Ports)})

@@ -19,6 +19,7 @@ const (
 	ErrOfficesMaxed     = Err("offices_maxed")
 	ErrGatewayAlready   = Err("gateway_already")
 	ErrBadOffice        = Err("bad_office")
+	ErrEquipmentAlready = Err("equipment_already")
 )
 
 // office проверяет адресата офисной команды: индекс и открытость.
@@ -168,6 +169,39 @@ func (g *Game) BuyServer() error {
 	return nil
 }
 
+// buyAmenity — общая покупка быт-устройства офиса.
+func (g *Game) buyAmenity(office, price int, flag func(*Office) *bool) error {
+	o, err := g.office(office)
+	if err != nil {
+		return err
+	}
+	f := flag(o)
+	if *f {
+		return ErrEquipmentAlready
+	}
+	if g.Money < price {
+		return ErrNotEnoughMoney
+	}
+	g.Money -= price
+	*f = true
+	return nil
+}
+
+// BuyCooler ставит кулер с водой (снимает дебафф жажды).
+func (g *Game) BuyCooler(office int) error {
+	return g.buyAmenity(office, g.cfg.CoolerPrice, func(o *Office) *bool { return &o.Cooler })
+}
+
+// BuyFridge ставит холодильник (снимает дебафф голода).
+func (g *Game) BuyFridge(office int) error {
+	return g.buyAmenity(office, g.cfg.FridgePrice, func(o *Office) *bool { return &o.Fridge })
+}
+
+// BuyCoffeeMachine ставит кофеварку (случайный бафф кофе).
+func (g *Game) BuyCoffeeMachine(office int) error {
+	return g.buyAmenity(office, g.cfg.CoffeeMachinePrice, func(o *Office) *bool { return &o.CoffeeMachine })
+}
+
 // NextDay начинает следующий день. Работает только из фазы отчёта.
 func (g *Game) NextDay() error {
 	if g.Phase != PhaseDayReport {
@@ -227,6 +261,9 @@ const (
 	CmdBuyGateway = Command("buy_gateway")
 	CmdNextDay    = Command("next_day")
 	CmdRestart    = Command("restart")
+	CmdBuyCooler  = Command("buy_cooler")
+	CmdBuyFridge  = Command("buy_fridge")
+	CmdBuyCoffee  = Command("buy_coffee")
 )
 
 // Apply выполняет команду игрока; офисные команды адресуются индексом office.
@@ -255,6 +292,12 @@ func (g *Game) Apply(cmd Command, office int) error {
 		return g.BuyServer()
 	case CmdBuyGateway:
 		return g.BuyGateway()
+	case CmdBuyCooler:
+		return g.BuyCooler(office)
+	case CmdBuyFridge:
+		return g.BuyFridge(office)
+	case CmdBuyCoffee:
+		return g.BuyCoffeeMachine(office)
 	default:
 		return ErrUnknownCommand
 	}

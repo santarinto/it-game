@@ -29,6 +29,10 @@ type Config struct {
 	GatewayPrice      int     // шлюз в интернет, один на компанию
 	GatewayOpexPerDay int     // операционный расход шлюза, $/день
 	GatewayBonus      float64 // множитель шлюза подключённым (поверх серверов)
+
+	CoolerPrice        int // кулер: без него жажда −10% с 2 часов работы
+	FridgePrice        int // холодильник: без него голод −10% после обеда
+	CoffeeMachinePrice int // кофеварка: случайный бафф кофе дважды в день
 }
 
 // RouterTier — тир роутера: покупается последовательно, тир заменяет предыдущий.
@@ -68,6 +72,9 @@ func DefaultConfig() Config {
 		GatewayPrice:      3000,
 		GatewayOpexPerDay: 1,
 		GatewayBonus:      1.2,
+		CoolerPrice:        400,
+		FridgePrice:        600,
+		CoffeeMachinePrice: 800,
 	}
 }
 
