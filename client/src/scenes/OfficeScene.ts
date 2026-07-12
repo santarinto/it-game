@@ -192,9 +192,13 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private showTooltip(e: EmployeeInfo, s: StateMessage, x: number, y: number) {
+    // Выработка — эффективная (с дебаффами/баффами); база в скобках,
+    // когда эффекты её меняют.
+    const base = e.incomePerTick * s.ticksPerHour
+    const effective = e.effectiveIncomePerTick * s.ticksPerHour
     const lines = [
       e.name,
-      `Выработка: ${fmtMoney(e.incomePerTick * s.ticksPerHour)}/час`,
+      `Выработка: ${fmtMoney(effective)}/час${effective !== base ? ` (база ${fmtMoney(base)})` : ''}`,
       `Зарплата:  ${fmtMoney(s.salaryPerDay)}/день${e.unpaidToday ? ' (сегодня без оплаты)' : ''}`,
     ]
     const EFFECT_NAMES: Record<string, string> = { thirst: 'жажда', hunger: 'голоден', coffee: 'выпил кофе' }

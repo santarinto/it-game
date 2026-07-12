@@ -61,11 +61,13 @@ type officeInfo struct {
 
 // employeeInfo — сотрудник в снапшоте: всё, что нужно тултипу.
 type employeeInfo struct {
-	Name          string       `json:"name"`
-	IncomePerTick int          `json:"incomePerTick"`
-	Connected     bool         `json:"connected"`
-	UnpaidToday   bool         `json:"unpaidToday"`
-	Effects       []effectInfo `json:"effects"`
+	Name          string `json:"name"`
+	IncomePerTick int    `json:"incomePerTick"`
+	// Личная выработка с учётом активных эффектов (без сетевого множителя).
+	EffectiveIncomePerTick int          `json:"effectiveIncomePerTick"`
+	Connected              bool         `json:"connected"`
+	UnpaidToday            bool         `json:"unpaidToday"`
+	Effects                []effectInfo `json:"effects"`
 }
 
 type prices struct {
@@ -125,7 +127,8 @@ func snapshot(g *game.Game) stateMessage {
 				effects = append(effects, effectInfo{Token: ef.Token, Percent: ef.Percent, Until: until})
 			}
 			employees[i] = employeeInfo{Name: e.Name, IncomePerTick: e.IncomePerTick,
-				Connected: i < connected, UnpaidToday: e.UnpaidToday, Effects: effects}
+				EffectiveIncomePerTick: g.EffectiveIncomePerTick(o, &o.Employees[i]),
+				Connected:              i < connected, UnpaidToday: e.UnpaidToday, Effects: effects}
 		}
 		offices[oi] = officeInfo{
 			Unlocked: o.Unlocked, Price: price, PCs: o.PCs,

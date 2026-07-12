@@ -34,6 +34,12 @@ func (g *Game) effectMult(o *Office, e *Employee, tick int) float64 {
 // pct переводит множитель эффекта в проценты для протокола: 0.9 → −10.
 func pct(mult float64) int { return int(math.Round((mult - 1) * 100)) }
 
+// EffectiveIncomePerTick — личная выработка с учётом активных эффектов
+// (без сетевого множителя). Для тултипа: сервер считает, клиент показывает.
+func (g *Game) EffectiveIncomePerTick(o *Office, e *Employee) int {
+	return int(math.Round(float64(e.IncomePerTick) * g.effectMult(o, e, g.TickInDay)))
+}
+
 // Effects — активные эффекты сотрудника на текущем тике.
 func (g *Game) Effects(o *Office, e *Employee) []Effect {
 	tick := g.TickInDay

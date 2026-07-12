@@ -126,3 +126,20 @@ func TestEffectsList(t *testing.T) {
 		t.Errorf("проценты эффектов: %+v", tokens)
 	}
 }
+
+func TestEffectiveIncomePerTick(t *testing.T) {
+	g := amenityGame()
+	e := &g.Offices[0].Employees[0] // $10/тик
+	g.TickInDay = 0
+	if v := g.EffectiveIncomePerTick(&g.Offices[0], e); v != 10 {
+		t.Errorf("без эффектов = %d, хотим 10", v)
+	}
+	g.TickInDay = 12 // жажда ×0.9
+	if v := g.EffectiveIncomePerTick(&g.Offices[0], e); v != 9 {
+		t.Errorf("с жаждой = %d, хотим 9", v)
+	}
+	g.TickInDay = 30 // жажда + голод ×0.81
+	if v := g.EffectiveIncomePerTick(&g.Offices[0], e); v != 8 {
+		t.Errorf("со стаком = %d, хотим 8", v)
+	}
+}

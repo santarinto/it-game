@@ -9,6 +9,8 @@ export interface EffectInfo {
 export interface EmployeeInfo {
   name: string
   incomePerTick: number
+  // Личная выработка с учётом активных эффектов (без сетевого множителя).
+  effectiveIncomePerTick: number
   connected: boolean
   unpaidToday: boolean
   effects: EffectInfo[]
