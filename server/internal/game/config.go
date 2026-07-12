@@ -60,6 +60,7 @@ func DefaultConfig() Config {
 		RouterTiers: []RouterTier{
 			{Price: 800, Ports: 4},
 			{Price: 2500, Ports: 9},
+			{Price: 6000, Ports: 12}, // покрывает офис с начальником (слоты 10-12)
 		},
 		BossPrice:         1000,
 		BossSalaryPerDay:  500,

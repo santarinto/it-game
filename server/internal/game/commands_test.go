@@ -191,7 +191,8 @@ func TestBuyRouterTable(t *testing.T) {
 	}{
 		{"тир 1 за $800", func(g *Game) { g.Money = 800 }, nil, 1, 0},
 		{"апгрейд до тира 2 за $2500", func(g *Game) { g.Money = 2500; g.Offices[0].RouterTier = 1 }, nil, 2, 0},
-		{"выше тира 2 нельзя", func(g *Game) { g.Money = 99999; g.Offices[0].RouterTier = 2 }, ErrRouterMaxed, 2, 99999},
+		{"апгрейд до тира 3 за $6000", func(g *Game) { g.Money = 6000; g.Offices[0].RouterTier = 2 }, nil, 3, 0},
+		{"выше тира 3 нельзя", func(g *Game) { g.Money = 99999; g.Offices[0].RouterTier = 3 }, ErrRouterMaxed, 3, 99999},
 		{"не хватает денег", func(g *Game) { g.Money = 799 }, ErrNotEnoughMoney, 0, 799},
 	}
 	for _, tt := range tests {
@@ -240,6 +241,10 @@ func TestNextRouterPricePerOffice(t *testing.T) {
 		t.Errorf("без роутера цена = %d, хотим 800", p)
 	}
 	g.Offices[0].RouterTier = 2
+	if p := g.NextRouterPrice(0); p != 6000 {
+		t.Errorf("после тира 2 цена = %d, хотим 6000", p)
+	}
+	g.Offices[0].RouterTier = 3
 	if p := g.NextRouterPrice(0); p != 0 {
 		t.Errorf("на максимальном тире цена = %d, хотим 0", p)
 	}
