@@ -3,6 +3,13 @@ package ws
 
 import "itdirector/internal/game"
 
+// effectInfo — активный эффект сотрудника для тултипа.
+type effectInfo struct {
+	Token   string `json:"token"`   // thirst | hunger | coffee
+	Percent int    `json:"percent"` // −10 / +15
+	Until   string `json:"until"`   // «HH:MM»; "" — до конца дня
+}
+
 // clientMessage — сообщение клиента: {"type": "...", "office": N}.
 // office адресует офисные команды (hire, buy_pc, buy_router, hire_boss,
 // buy_office); остальные его игнорируют.
@@ -46,6 +53,9 @@ type officeInfo struct {
 	NextRouter      int            `json:"nextRouter"` // 0 — тир максимальный
 	Boss            string         `json:"boss"`       // "" — начальника нет
 	BossUnpaidToday bool           `json:"bossUnpaidToday"`
+	Cooler          bool           `json:"cooler"`
+	Fridge          bool           `json:"fridge"`
+	CoffeeMachine   bool           `json:"coffeeMachine"`
 	Employees       []employeeInfo `json:"employees"` // порядок = порядок найма
 }
 
@@ -53,16 +63,22 @@ type officeInfo struct {
 type employeeInfo struct {
 	Name          string `json:"name"`
 	IncomePerTick int    `json:"incomePerTick"`
-	Connected     bool   `json:"connected"`
-	UnpaidToday   bool   `json:"unpaidToday"`
+	// Личная выработка с учётом активных эффектов (без сетевого множителя).
+	EffectiveIncomePerTick int          `json:"effectiveIncomePerTick"`
+	Connected              bool         `json:"connected"`
+	UnpaidToday            bool         `json:"unpaidToday"`
+	Effects                []effectInfo `json:"effects"`
 }
 
 type prices struct {
-	PC      int `json:"pc"`
-	Hire    int `json:"hire"`
-	Server  int `json:"server"`
-	Boss    int `json:"boss"`
-	Gateway int `json:"gateway"`
+	PC            int `json:"pc"`
+	Hire          int `json:"hire"`
+	Server        int `json:"server"`
+	Boss          int `json:"boss"`
+	Gateway       int `json:"gateway"`
+	Cooler        int `json:"cooler"`
+	Fridge        int `json:"fridge"`
+	CoffeeMachine int `json:"coffeeMachine"`
 }
 
 type errorMessage struct {
@@ -101,14 +117,25 @@ func snapshot(g *game.Game) stateMessage {
 		connected := o.Connected(cfg)
 		employees := make([]employeeInfo, len(o.Employees))
 		for i, e := range o.Employees {
+			// Не nil: nil-срез маршалится в JSON null, а клиент ждёт массив.
+			effects := make([]effectInfo, 0, 3)
+			for _, ef := range g.Effects(o, &o.Employees[i]) {
+				until := ""
+				if ef.Until >= 0 {
+					until = g.ClockAt(ef.Until)
+				}
+				effects = append(effects, effectInfo{Token: ef.Token, Percent: ef.Percent, Until: until})
+			}
 			employees[i] = employeeInfo{Name: e.Name, IncomePerTick: e.IncomePerTick,
-				Connected: i < connected, UnpaidToday: e.UnpaidToday}
+				EffectiveIncomePerTick: g.EffectiveIncomePerTick(o, &o.Employees[i]),
+				Connected:              i < connected, UnpaidToday: e.UnpaidToday, Effects: effects}
 		}
 		offices[oi] = officeInfo{
 			Unlocked: o.Unlocked, Price: price, PCs: o.PCs,
 			RouterTier: o.RouterTier, Ports: o.Ports(cfg),
 			NextRouter: g.NextRouterPrice(oi), Boss: o.Boss,
-			BossUnpaidToday: o.BossUnpaidToday, Employees: employees,
+			BossUnpaidToday: o.BossUnpaidToday, Cooler: o.Cooler,
+			Fridge: o.Fridge, CoffeeMachine: o.CoffeeMachine, Employees: employees,
 		}
 	}
 	return stateMessage{
@@ -121,6 +148,7 @@ func snapshot(g *game.Game) stateMessage {
 		ForecastEndOfDay: g.ForecastEndOfDay(), StaffLimit: cfg.StaffLimit,
 		OfficeSlots: cfg.OfficeSlots, Phase: string(g.Phase), RackSlots: cfg.RackSlots,
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice, Server: cfg.ServerPrice,
-			Boss: cfg.BossPrice, Gateway: cfg.GatewayPrice},
+			Boss: cfg.BossPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,
+			Fridge: cfg.FridgePrice, CoffeeMachine: cfg.CoffeeMachinePrice},
 	}
 }

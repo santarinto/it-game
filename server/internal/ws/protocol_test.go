@@ -1,6 +1,8 @@
 package ws
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"itdirector/internal/game"
@@ -58,5 +60,53 @@ func TestSnapshotOfficeDetails(t *testing.T) {
 	}
 	if !o.Employees[5].UnpaidToday {
 		t.Error("unpaidToday не прокинулся в снапшот")
+	}
+}
+
+func TestSnapshotAmenitiesAndEffects(t *testing.T) {
+	g := game.New(game.DefaultConfig())
+	g.Offices[0].PCs = 1
+	g.Offices[0].Employees = []game.Employee{{Name: "Тест Тестов", IncomePerTick: 10, CoffeeUntil: 34}}
+	g.Offices[0].Cooler = true
+	g.TickInDay = 30 // после обеда: голод есть (холодильника нет), жажды нет (кулер)
+	s := snapshot(g)
+	o := s.Offices[0]
+	if !o.Cooler || o.Fridge || o.CoffeeMachine {
+		t.Errorf("флаги устройств: %+v", o)
+	}
+	eff := o.Employees[0].Effects
+	if len(eff) != 2 {
+		t.Fatalf("эффектов %d, хотим 2 (голод+кофе): %+v", len(eff), eff)
+	}
+	byToken := map[string]effectInfo{}
+	for _, e := range eff {
+		byToken[e.Token] = e
+	}
+	if byToken["hunger"].Percent != -10 || byToken["hunger"].Until != "" {
+		t.Errorf("голод: %+v", byToken["hunger"])
+	}
+	if byToken["coffee"].Percent != 15 || byToken["coffee"].Until != "15:40" {
+		t.Errorf("кофе: %+v (until тика 34 = 15:40)", byToken["coffee"])
+	}
+	if s.Prices.Cooler != 400 || s.Prices.Fridge != 600 || s.Prices.CoffeeMachine != 800 {
+		t.Errorf("цены устройств: %+v", s.Prices)
+	}
+}
+
+func TestSnapshotEffectsNeverNull(t *testing.T) {
+	// Регрессия: nil-срез эффектов маршалился в JSON null и ронял клиент.
+	g := game.New(game.DefaultConfig())
+	g.Offices[0].PCs = 1
+	g.Offices[0].Employees = []game.Employee{{Name: "Тест Тестов", IncomePerTick: 10}}
+	// Тик 0: ни одного эффекта — самый опасный случай.
+	raw, err := json.Marshal(snapshot(g))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"effects":null`) {
+		t.Error("effects без эффектов должен быть [], а не null")
+	}
+	if !strings.Contains(string(raw), `"effects":[]`) {
+		t.Error("в снапшоте нет пустого массива effects")
 	}
 }

@@ -1,5 +1,7 @@
 package game
 
+import "fmt"
+
 // Config — весь баланс игры в одном месте.
 // Источник истины для чисел — docs/design/gdd.md, раздел «Экономика».
 type Config struct {
@@ -29,6 +31,17 @@ type Config struct {
 	GatewayPrice      int     // шлюз в интернет, один на компанию
 	GatewayOpexPerDay int     // операционный расход шлюза, $/день
 	GatewayBonus      float64 // множитель шлюза подключённым (поверх серверов)
+
+	CoolerPrice        int // кулер: без него жажда −10% с 2 часов работы
+	FridgePrice        int // холодильник: без него голод −10% после обеда
+	CoffeeMachinePrice int // кофеварка: случайный бафф кофе дважды в день
+
+	ThirstMult       float64 // дебафф жажды (нет кулера)
+	HungerMult       float64 // дебафф голода (нет холодильника)
+	CoffeeMult       float64 // бафф кофе
+	CoffeeTicks      int     // длительность кофе, тиков
+	CoffeeChancePct  int     // шанс баффа на сотрудника, %
+	ThirstAfterHours int     // жажда после стольких часов работы
 }
 
 // RouterTier — тир роутера: покупается последовательно, тир заменяет предыдущий.
@@ -62,12 +75,22 @@ func DefaultConfig() Config {
 			{Price: 2500, Ports: 9},
 			{Price: 6000, Ports: 12}, // покрывает офис с начальником (слоты 10-12)
 		},
-		BossPrice:         1000,
-		BossSalaryPerDay:  500,
-		OfficePrices:      []int{15000, 40000},
-		GatewayPrice:      3000,
-		GatewayOpexPerDay: 1,
-		GatewayBonus:      1.2,
+		BossPrice:          1000,
+		BossSalaryPerDay:   500,
+		OfficePrices:       []int{15000, 40000},
+		GatewayPrice:       3000,
+		GatewayOpexPerDay:  1,
+		GatewayBonus:       1.2,
+		CoolerPrice:        400,
+		FridgePrice:        600,
+		CoffeeMachinePrice: 800,
+
+		ThirstMult:       0.9,
+		HungerMult:       0.9,
+		CoffeeMult:       1.15,
+		CoffeeTicks:      6,
+		CoffeeChancePct:  40,
+		ThirstAfterHours: 2,
 	}
 }
 
@@ -78,4 +101,16 @@ func (c Config) DayTicks() int { return (c.WorkdayEnd - c.WorkdayStart) * c.Tick
 func (c Config) isLunchTick(tick int) bool {
 	hour := c.WorkdayStart + tick/c.TicksPerHour
 	return hour >= c.LunchStart && hour < c.LunchEnd
+}
+
+// thirstTick — тик дня, с которого без кулера действует жажда.
+func (c Config) thirstTick() int { return c.ThirstAfterHours * c.TicksPerHour }
+
+// lunchEndTick — первый тик после обеда.
+func (c Config) lunchEndTick() int { return (c.LunchEnd - c.WorkdayStart) * c.TicksPerHour }
+
+// clockAt — игровое время «HH:MM» произвольного тика дня.
+func (c Config) clockAt(tick int) string {
+	minutes := tick * 60 / c.TicksPerHour
+	return fmt.Sprintf("%02d:%02d", c.WorkdayStart+minutes/60, minutes%60)
 }

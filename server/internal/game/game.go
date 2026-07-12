@@ -1,7 +1,6 @@
 package game
 
 import (
-	"fmt"
 	"math"
 	"math/rand/v2"
 )
@@ -20,6 +19,7 @@ type Employee struct {
 	Name          string
 	IncomePerTick int
 	UnpaidToday   bool // нанят после обеда: в ФОТ текущего дня не входит
+	CoffeeUntil   int  // бафф кофе действует, пока тик дня < CoffeeUntil; 0 — нет
 }
 
 // Game — состояние одной игры. НЕ потокобезопасен: им владеет
@@ -71,10 +71,10 @@ func (g *Game) Multiplier() float64 {
 }
 
 // Clock — текущее игровое время «HH:MM»: WorkdayStart плюс 10 минут за тик.
-func (g *Game) Clock() string {
-	minutes := g.TickInDay * 60 / g.cfg.TicksPerHour
-	return fmt.Sprintf("%02d:%02d", g.cfg.WorkdayStart+minutes/60, minutes%60)
-}
+func (g *Game) Clock() string { return g.cfg.clockAt(g.TickInDay) }
+
+// ClockAt — игровое время произвольного тика (для протокола).
+func (g *Game) ClockAt(tick int) string { return g.cfg.clockAt(tick) }
 
 // IsLunch — идёт ли сейчас обед (в обед доход за тик равен нулю).
 func (g *Game) IsLunch() bool { return g.cfg.isLunchTick(g.TickInDay) }
@@ -84,12 +84,12 @@ func (g *Game) IncomePerTick() int {
 	if g.IsLunch() {
 		return 0
 	}
-	return g.incomePotentialPerTick()
+	return g.incomeAtTick(g.TickInDay)
 }
 
-// incomePotentialPerTick — доход за продуктивный тик по всем открытым
-// офисам: первые Connected() сотрудников офиса — с множителем компании.
-func (g *Game) incomePotentialPerTick() int {
+// incomeAtTick — доход компании за конкретный (продуктивный) тик дня:
+// личная выработка × эффекты × сетевой множитель подключённым.
+func (g *Game) incomeAtTick(tick int) int {
 	mult := g.Multiplier()
 	total := 0
 	for oi := range g.Offices {
@@ -98,12 +98,13 @@ func (g *Game) incomePotentialPerTick() int {
 			continue
 		}
 		connected := o.Connected(g.cfg)
-		for i, e := range o.Employees {
+		for i := range o.Employees {
+			e := &o.Employees[i]
+			v := float64(e.IncomePerTick) * g.effectMult(o, e, tick)
 			if i < connected {
-				total += int(math.Round(float64(e.IncomePerTick) * mult))
-			} else {
-				total += e.IncomePerTick
+				v *= mult
 			}
+			total += int(math.Round(v))
 		}
 	}
 	return total
@@ -141,16 +142,16 @@ func (g *Game) gatewayOpex() int {
 	return 0
 }
 
-// ForecastEndOfDay — баланс на конец дня: деньги + доход за оставшиеся
-// продуктивные тики − ФОТ. Считает сервер: клиентская формула не знает про обед.
+// ForecastEndOfDay — баланс на конец дня. Считает по-тиково: дебаффы
+// будущих тиков предсказуемы, будущий кофе не угадываем (консервативно).
 func (g *Game) ForecastEndOfDay() int {
-	productive := 0
+	total := g.Money
 	for t := g.TickInDay; t < g.cfg.DayTicks(); t++ {
 		if !g.cfg.isLunchTick(t) {
-			productive++
+			total += g.incomeAtTick(t)
 		}
 	}
-	return g.Money + g.incomePotentialPerTick()*productive - g.PayrollPerDay()
+	return total - g.PayrollPerDay()
 }
 
 // DayReport — итоги дня для сообщения протокола.
@@ -169,6 +170,21 @@ type DayReport struct {
 func (g *Game) Tick() *DayReport {
 	if g.Phase != PhaseRunning {
 		return nil
+	}
+	for oi := range g.Offices {
+		o := &g.Offices[oi]
+		if !o.Unlocked || !o.CoffeeMachine {
+			continue
+		}
+		for _, et := range o.CoffeeEventTicks {
+			if et == g.TickInDay {
+				for i := range o.Employees {
+					if g.rng.IntN(100) < g.cfg.CoffeeChancePct {
+						o.Employees[i].CoffeeUntil = g.TickInDay + g.cfg.CoffeeTicks
+					}
+				}
+			}
+		}
 	}
 	income := g.IncomePerTick()
 	g.Money += income
