@@ -61,11 +61,11 @@ type officeInfo struct {
 
 // employeeInfo — сотрудник в снапшоте: всё, что нужно тултипу.
 type employeeInfo struct {
-	Name          string        `json:"name"`
-	IncomePerTick int           `json:"incomePerTick"`
-	Connected     bool          `json:"connected"`
-	UnpaidToday   bool          `json:"unpaidToday"`
-	Effects       []effectInfo  `json:"effects"`
+	Name          string       `json:"name"`
+	IncomePerTick int          `json:"incomePerTick"`
+	Connected     bool         `json:"connected"`
+	UnpaidToday   bool         `json:"unpaidToday"`
+	Effects       []effectInfo `json:"effects"`
 }
 
 type prices struct {
