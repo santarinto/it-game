@@ -1,5 +1,9 @@
 .PHONY: dev dev-server dev-client test typecheck build
 
+# .env (DATABASE_URL) подхватывается автоматически; файла может не быть.
+-include .env
+export DATABASE_URL TEST_DATABASE_URL
+
 dev: ## сервер и клиент параллельно
 	$(MAKE) -j2 dev-server dev-client
 

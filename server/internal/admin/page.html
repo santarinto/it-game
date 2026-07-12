@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>IT Director — админка</title>
+<style>
+  body { font-family: monospace; background: #1a1c2c; color: #f4f4f4; padding: 24px; }
+  h1, h2 { color: #ffcd75; }
+  table { border-collapse: collapse; margin-bottom: 24px; }
+  td, th { border: 1px solid #3a3f5c; padding: 4px 12px; text-align: left; }
+  th { color: #41a6f6; }
+  .err { color: #b13e53; }
+</style>
+</head>
+<body>
+<h1>IT Director — админка</h1>
+<h2>Конфигурация игры</h2>
+<table>
+  <tr><th>Параметр</th><th>Значение</th></tr>
+  {{range .ConfigRows}}<tr><td>{{.Label}}</td><td>{{.Value}}</td></tr>{{end}}
+</table>
+<h2>Каталог оборудования (lib_equipment)</h2>
+{{if .DBError}}<p class="err">БД недоступна: {{.DBError}}</p>{{else}}
+<table>
+  <tr><th>id</th><th>name</th><th>locale_token</th></tr>
+  {{range .Equipment}}<tr><td>{{.ID}}</td><td>{{.Name}}</td><td>{{.LocaleToken}}</td></tr>{{end}}
+</table>
+{{end}}
+</body>
+</html>
