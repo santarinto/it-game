@@ -198,7 +198,9 @@ export class OfficeScene extends Phaser.Scene {
       `Зарплата:  ${fmtMoney(s.salaryPerDay)}/день${e.unpaidToday ? ' (сегодня без оплаты)' : ''}`,
     ]
     const EFFECT_NAMES: Record<string, string> = { thirst: 'жажда', hunger: 'голоден', coffee: 'выпил кофе' }
-    for (const ef of e.effects) {
+    // Ремень безопасности: старый сервер мог прислать null вместо [] —
+    // краш тултипа обрывал перерисовку всей сцены.
+    for (const ef of e.effects ?? []) {
       const sign = ef.percent > 0 ? '+' : ''
       lines.push(`${EFFECT_NAMES[ef.token] ?? ef.token} ${sign}${ef.percent}%${ef.until ? ` (до ${ef.until})` : ''}`)
     }

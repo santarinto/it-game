@@ -1,6 +1,8 @@
 package ws
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"itdirector/internal/game"
@@ -88,5 +90,23 @@ func TestSnapshotAmenitiesAndEffects(t *testing.T) {
 	}
 	if s.Prices.Cooler != 400 || s.Prices.Fridge != 600 || s.Prices.CoffeeMachine != 800 {
 		t.Errorf("цены устройств: %+v", s.Prices)
+	}
+}
+
+func TestSnapshotEffectsNeverNull(t *testing.T) {
+	// Регрессия: nil-срез эффектов маршалился в JSON null и ронял клиент.
+	g := game.New(game.DefaultConfig())
+	g.Offices[0].PCs = 1
+	g.Offices[0].Employees = []game.Employee{{Name: "Тест Тестов", IncomePerTick: 10}}
+	// Тик 0: ни одного эффекта — самый опасный случай.
+	raw, err := json.Marshal(snapshot(g))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"effects":null`) {
+		t.Error("effects без эффектов должен быть [], а не null")
+	}
+	if !strings.Contains(string(raw), `"effects":[]`) {
+		t.Error("в снапшоте нет пустого массива effects")
 	}
 }

@@ -115,7 +115,8 @@ func snapshot(g *game.Game) stateMessage {
 		connected := o.Connected(cfg)
 		employees := make([]employeeInfo, len(o.Employees))
 		for i, e := range o.Employees {
-			var effects []effectInfo
+			// Не nil: nil-срез маршалится в JSON null, а клиент ждёт массив.
+			effects := make([]effectInfo, 0, 3)
 			for _, ef := range g.Effects(o, &o.Employees[i]) {
 				until := ""
 				if ef.Until >= 0 {
