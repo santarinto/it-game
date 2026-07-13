@@ -113,16 +113,16 @@ func TestBuyGateway(t *testing.T) {
 
 func TestApplyWithOffice(t *testing.T) {
 	g := unlockedGame(100000)
-	if err := g.Apply(CmdHire, 0); err != nil {
+	if err := g.Apply(CmdHire, 0, 0); err != nil {
 		t.Fatalf("Apply(hire, 0): %v", err)
 	}
 	if len(g.Offices[0].Employees) != 1 {
 		t.Error("Apply(hire) не нанял в офис 0")
 	}
-	if err := g.Apply(CmdHireBoss, 1); err != ErrOfficeLocked {
+	if err := g.Apply(CmdHireBoss, 1, 0); err != ErrOfficeLocked {
 		t.Errorf("босс в закрытый офис: %v, хотим %v", err, ErrOfficeLocked)
 	}
-	if err := g.Apply(CmdBuyGateway, 99); err != nil {
+	if err := g.Apply(CmdBuyGateway, 99, 0); err != nil {
 		t.Errorf("buy_gateway игнорирует офис: %v", err)
 	}
 }
@@ -218,18 +218,18 @@ func TestBuyServerTable(t *testing.T) {
 		wantMoney   int
 	}{
 		{"успех", func(g *Game) { g.Money = 2000 }, nil, 1, 0},
-		{"серверная полна", func(g *Game) { g.Money = 99999; g.Servers = 3 }, ErrNoFreeRackSlot, 3, 99999},
+		{"стойки офиса кончились", func(g *Game) { g.Money = 99999; g.Offices[0].Servers = []int{1, 1, 1} }, ErrNoFreeRackSlot, 3, 99999},
 		{"не хватает денег", func(g *Game) { g.Money = 1999 }, ErrNotEnoughMoney, 0, 1999},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := New(DefaultConfig())
 			tt.setup(g)
-			if err := g.BuyServer(); err != tt.wantErr {
+			if err := g.BuyServer(0); err != tt.wantErr {
 				t.Fatalf("err = %v, хотим %v", err, tt.wantErr)
 			}
-			if g.Servers != tt.wantServers || g.Money != tt.wantMoney {
-				t.Errorf("Servers=%d Money=%d, хотим %d и %d", g.Servers, g.Money, tt.wantServers, tt.wantMoney)
+			if len(g.Offices[0].Servers) != tt.wantServers || g.Money != tt.wantMoney {
+				t.Errorf("Servers=%d Money=%d, хотим %d и %d", len(g.Offices[0].Servers), g.Money, tt.wantServers, tt.wantMoney)
 			}
 		})
 	}
@@ -252,13 +252,67 @@ func TestNextRouterPricePerOffice(t *testing.T) {
 
 func TestApplyUnknownAndPhase(t *testing.T) {
 	g := New(DefaultConfig())
-	if err := g.Apply(Command("dance"), 0); err != ErrUnknownCommand {
+	if err := g.Apply(Command("dance"), 0, 0); err != ErrUnknownCommand {
 		t.Errorf("неизвестная команда: %v, хотим %v", err, ErrUnknownCommand)
 	}
 	g.Phase = PhaseDayReport
-	for _, cmd := range []Command{CmdBuyPC, CmdHire, CmdBuyRouter, CmdBuyServer, CmdHireBoss, CmdBuyOffice, CmdBuyGateway} {
-		if err := g.Apply(cmd, 0); err != ErrWrongPhase {
+	for _, cmd := range []Command{CmdBuyPC, CmdHire, CmdBuyRouter, CmdBuyServer, CmdUpgradeServer, CmdUpgradeCore, CmdHireBoss, CmdBuyOffice, CmdBuyGateway} {
+		if err := g.Apply(cmd, 0, 0); err != ErrWrongPhase {
 			t.Errorf("Apply(%s) в day_report: %v, хотим %v", cmd, err, ErrWrongPhase)
 		}
+	}
+}
+
+func TestBuyAndUpgradeServer(t *testing.T) {
+	g := NewWithSeed(DefaultConfig(), 1, 2)
+	g.Money = 100_000
+	// Стойки офиса кончаются: слотов OfficeSlots/EmployeesPerServer = 3.
+	for i := 0; i < 3; i++ {
+		if err := g.BuyServer(0); err != nil {
+			t.Fatalf("покупка сервера %d: %v", i, err)
+		}
+	}
+	if err := g.BuyServer(0); err != ErrNoFreeRackSlot {
+		t.Fatalf("4-й сервер: %v, хотим no_free_rack_slot", err)
+	}
+	if g.Money != 100_000-3*2000 {
+		t.Fatalf("деньги после трёх серверов: %d", g.Money)
+	}
+	// Апгрейд по уровням до максимума.
+	if err := g.UpgradeServer(0, 0); err != nil || g.Offices[0].Servers[0] != 2 {
+		t.Fatalf("апгрейд до ур.2: %v, уровень %d", err, g.Offices[0].Servers[0])
+	}
+	if err := g.UpgradeServer(0, 0); err != nil || g.Offices[0].Servers[0] != 3 {
+		t.Fatalf("апгрейд до ур.3: %v", err)
+	}
+	if err := g.UpgradeServer(0, 0); err != ErrServerMaxed {
+		t.Fatalf("апгрейд максимума: %v, хотим server_maxed", err)
+	}
+	if err := g.UpgradeServer(0, 7); err != ErrBadSlot {
+		t.Fatalf("апгрейд несуществующей стойки: %v, хотим bad_slot", err)
+	}
+	// Покупка в закрытый офис.
+	if err := g.BuyServer(1); err != ErrOfficeLocked {
+		t.Fatalf("сервер в закрытый офис: %v", err)
+	}
+}
+
+func TestUpgradeCore(t *testing.T) {
+	g := NewWithSeed(DefaultConfig(), 1, 2)
+	// Стартовых $600 на core ур.1 ($1500) не хватает.
+	if err := g.UpgradeCore(); err != ErrNotEnoughMoney {
+		t.Fatalf("core без денег: %v", err)
+	}
+	g.Money = 100_000
+	for lvl := 1; lvl <= 5; lvl++ {
+		if err := g.UpgradeCore(); err != nil || g.CoreLevel != lvl {
+			t.Fatalf("core до ур.%d: %v, уровень %d", lvl, err, g.CoreLevel)
+		}
+	}
+	if err := g.UpgradeCore(); err != ErrCoreMaxed {
+		t.Fatalf("апгрейд максимального core: %v, хотим core_maxed", err)
+	}
+	if want := 100_000 - 1500 - 4000 - 10000 - 20000 - 40000; g.Money != want {
+		t.Fatalf("деньги после всех уровней core: %d, хотим %d", g.Money, want)
 	}
 }

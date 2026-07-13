@@ -43,12 +43,12 @@ func TestApplyAmenities(t *testing.T) {
 	g := New(DefaultConfig())
 	g.Money = 10000
 	for _, cmd := range []Command{CmdBuyCooler, CmdBuyFridge, CmdBuyCoffee} {
-		if err := g.Apply(cmd, 0); err != nil {
+		if err := g.Apply(cmd, 0, 0); err != nil {
 			t.Errorf("Apply(%s): %v", cmd, err)
 		}
 	}
 	g.Phase = PhaseDayReport
-	if err := g.Apply(CmdBuyCooler, 0); err != ErrWrongPhase {
+	if err := g.Apply(CmdBuyCooler, 0, 0); err != ErrWrongPhase {
 		t.Errorf("покупка в day_report: %v, хотим %v", err, ErrWrongPhase)
 	}
 }

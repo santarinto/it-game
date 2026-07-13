@@ -147,7 +147,8 @@ func TestRestart(t *testing.T) {
 		t.Fatalf("Restart: %v", err)
 	}
 	if g.Phase != PhaseRunning || g.Day != 1 || g.Money != 600 || g.Offices[0].PCs != 1 ||
-		len(g.Offices[0].Employees) != 0 || g.Offices[0].RouterTier != 0 || g.Servers != 0 ||
+		len(g.Offices[0].Employees) != 0 || g.Offices[0].RouterTier != 0 ||
+		len(g.Offices[0].Servers) != 0 || g.CoreLevel != 0 ||
 		g.TickInDay != 0 || g.DayIncome != 0 || g.PeakIncomePerTick != 0 {
 		t.Errorf("после Restart не стартовое состояние: %+v", g)
 	}
@@ -164,12 +165,12 @@ func TestApplyPhaseGating(t *testing.T) {
 	g := New(dayTestConfig())
 	g.Money = 10000
 	g.Phase = PhaseDayReport
-	for _, cmd := range []Command{CmdBuyPC, CmdHire, CmdBuyRouter, CmdBuyServer, CmdHireBoss, CmdBuyOffice, CmdBuyGateway} {
-		if err := g.Apply(cmd, 0); err != ErrWrongPhase {
+	for _, cmd := range []Command{CmdBuyPC, CmdHire, CmdBuyRouter, CmdBuyServer, CmdUpgradeServer, CmdUpgradeCore, CmdHireBoss, CmdBuyOffice, CmdBuyGateway} {
+		if err := g.Apply(cmd, 0, 0); err != ErrWrongPhase {
 			t.Errorf("Apply(%s) в day_report: err = %v, хотим %v", cmd, err, ErrWrongPhase)
 		}
 	}
-	if err := g.Apply(CmdNextDay, 0); err != nil {
+	if err := g.Apply(CmdNextDay, 0, 0); err != nil {
 		t.Errorf("Apply(next_day) в day_report: %v", err)
 	}
 }
@@ -178,12 +179,12 @@ func TestApplyPhaseGatingGameOver(t *testing.T) {
 	g := New(dayTestConfig())
 	g.Money = 10000
 	g.Phase = PhaseGameOver
-	for _, cmd := range []Command{CmdBuyPC, CmdHire, CmdBuyRouter, CmdBuyServer, CmdHireBoss, CmdBuyOffice, CmdBuyGateway, CmdNextDay} {
-		if err := g.Apply(cmd, 0); err != ErrWrongPhase {
+	for _, cmd := range []Command{CmdBuyPC, CmdHire, CmdBuyRouter, CmdBuyServer, CmdUpgradeServer, CmdUpgradeCore, CmdHireBoss, CmdBuyOffice, CmdBuyGateway, CmdNextDay} {
+		if err := g.Apply(cmd, 0, 0); err != ErrWrongPhase {
 			t.Errorf("Apply(%s) в game_over: err = %v, хотим %v", cmd, err, ErrWrongPhase)
 		}
 	}
-	if err := g.Apply(CmdRestart, 0); err != nil {
+	if err := g.Apply(CmdRestart, 0, 0); err != nil {
 		t.Errorf("Apply(restart) в game_over: %v", err)
 	}
 }

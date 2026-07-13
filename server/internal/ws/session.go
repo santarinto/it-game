@@ -21,6 +21,8 @@ type Handler struct {
 type clientCommand struct {
 	Cmd    game.Command
 	Office int
+	Slot   int // стойка для upgrade_server
+	Speed  int // параметр set_speed
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -53,44 +55,72 @@ func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn,
 			return
 		}
 		select {
-		case commands <- clientCommand{Cmd: game.Command(msg.Type), Office: msg.Office}:
+		case commands <- clientCommand{Cmd: game.Command(msg.Type), Office: msg.Office, Slot: msg.Slot, Speed: msg.Speed}:
 		case <-ctx.Done():
 			return
 		}
 	}
 }
 
+// cmdSetSpeed — команда сессии, не игры: меняет темп реального времени,
+// игровое состояние не трогает, поэтому живёт в ws, а не в game.
+const cmdSetSpeed = game.Command("set_speed")
+
 // run — актор: единственная горутина, владеющая состоянием игры.
 // Всё общение с миром — через канал команд и тикер; писем в сокет
 // из других горутин нет, поэтому мьютексы не нужны.
 func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan clientCommand) {
 	g := game.New(h.Config)
+	speed := 1
 	ticker := time.NewTicker(h.TickInterval)
 	defer ticker.Stop()
+	// На паузе tickC = nil: select по nil-каналу не срабатывает,
+	// фаза игры и команды покупок при этом живут.
+	tickC := ticker.C
 
-	if wsjson.Write(ctx, c, snapshot(g)) != nil {
+	if wsjson.Write(ctx, c, snapshot(g, speed)) != nil {
 		return
 	}
 	for {
 		select {
 		case cmd := <-commands:
 			var out any
-			if err := g.Apply(cmd.Cmd, cmd.Office); err != nil {
+			if cmd.Cmd == cmdSetSpeed {
+				if cmd.Speed < 0 || cmd.Speed > 3 {
+					out = errorMessage{Type: "error", Code: "bad_speed"}
+				} else {
+					speed = cmd.Speed
+					// Stop/Reset не чистят буфер тикера: застрявший тик выстрелил бы
+					// мгновенно после смены темпа или снятия паузы.
+					ticker.Stop()
+					select {
+					case <-ticker.C:
+					default:
+					}
+					if speed == 0 {
+						tickC = nil
+					} else {
+						ticker.Reset(h.TickInterval / time.Duration(speed))
+						tickC = ticker.C
+					}
+					out = snapshot(g, speed)
+				}
+			} else if err := g.Apply(cmd.Cmd, cmd.Office, cmd.Slot); err != nil {
 				out = errorMessage{Type: "error", Code: err.Error()}
 			} else {
-				out = snapshot(g)
+				out = snapshot(g, speed)
 			}
 			if wsjson.Write(ctx, c, out) != nil {
 				return
 			}
-		case <-ticker.C:
+		case <-tickC:
 			report := g.Tick()
-			// На паузе (отчёт/банкротство) тик — no-op: не шлём одинаковые
+			// На паузе фазы (отчёт/банкротство) тик — no-op: не шлём одинаковые
 			// снапшоты каждую секунду, клиент ждёт команду игрока.
 			if report == nil && g.Phase != game.PhaseRunning {
 				continue
 			}
-			if wsjson.Write(ctx, c, snapshot(g)) != nil {
+			if wsjson.Write(ctx, c, snapshot(g, speed)) != nil {
 				return
 			}
 			if report != nil {

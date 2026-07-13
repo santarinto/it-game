@@ -10,8 +10,8 @@ import (
 
 func TestSnapshot(t *testing.T) {
 	g := game.New(game.DefaultConfig())
-	s := snapshot(g)
-	if s.Type != "state" || s.Money != 600 || s.OfficeSlots != 12 || s.RackSlots != 3 {
+	s := snapshot(g, 1)
+	if s.Type != "state" || s.Money != 600 || s.OfficeSlots != 12 || s.Speed != 1 {
 		t.Errorf("базовые поля: %+v", s)
 	}
 	if len(s.Offices) != 3 {
@@ -23,10 +23,11 @@ func TestSnapshot(t *testing.T) {
 	if s.Offices[1].Unlocked || s.Offices[1].Price != 15000 || s.Offices[2].Price != 40000 {
 		t.Errorf("закрытые офисы: %+v %+v", s.Offices[1], s.Offices[2])
 	}
-	if s.Gateway || s.Servers != 0 || s.Multiplier != 1.0 {
+	if s.Gateway || s.Core.Level != 0 || s.Core.NextPrice != 1500 {
 		t.Errorf("серверная: %+v", s)
 	}
-	if s.Prices.PC != 500 || s.Prices.Hire != 300 || s.Prices.Server != 2000 ||
+	if s.Prices.PC != 500 || s.Prices.Hire != 300 ||
+		len(s.Prices.ServerLevels) != 3 || s.Prices.ServerLevels[0].Price != 2000 || len(s.Prices.CoreLevels) != 5 ||
 		s.Prices.Boss != 1000 || s.Prices.Gateway != 3000 {
 		t.Errorf("цены: %+v", s.Prices)
 	}
@@ -41,6 +42,7 @@ func TestSnapshotOfficeDetails(t *testing.T) {
 	g := game.New(game.DefaultConfig())
 	g.Offices[0].PCs = 6
 	g.Offices[0].RouterTier = 1
+	g.CoreLevel = 1 // core с запасом ёмкости: connected в снапшоте = получил место в core
 	g.Offices[0].Boss = "Босс Боссов"
 	staff := make([]game.Employee, 6)
 	for i := range staff {
@@ -48,7 +50,7 @@ func TestSnapshotOfficeDetails(t *testing.T) {
 	}
 	staff[5].UnpaidToday = true
 	g.Offices[0].Employees = staff
-	s := snapshot(g)
+	s := snapshot(g, 1)
 	o := s.Offices[0]
 	if o.Boss != "Босс Боссов" || o.Ports != 4 || o.NextRouter != 2500 {
 		t.Errorf("офис 0: %+v", o)
@@ -69,7 +71,7 @@ func TestSnapshotAmenitiesAndEffects(t *testing.T) {
 	g.Offices[0].Employees = []game.Employee{{Name: "Тест Тестов", IncomePerTick: 10, CoffeeUntil: 34}}
 	g.Offices[0].Cooler = true
 	g.TickInDay = 30 // после обеда: голод есть (холодильника нет), жажды нет (кулер)
-	s := snapshot(g)
+	s := snapshot(g, 1)
 	o := s.Offices[0]
 	if !o.Cooler || o.Fridge || o.CoffeeMachine {
 		t.Errorf("флаги устройств: %+v", o)
@@ -99,7 +101,7 @@ func TestSnapshotEffectsNeverNull(t *testing.T) {
 	g.Offices[0].PCs = 1
 	g.Offices[0].Employees = []game.Employee{{Name: "Тест Тестов", IncomePerTick: 10}}
 	// Тик 0: ни одного эффекта — самый опасный случай.
-	raw, err := json.Marshal(snapshot(g))
+	raw, err := json.Marshal(snapshot(g, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,5 +110,23 @@ func TestSnapshotEffectsNeverNull(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `"effects":[]`) {
 		t.Error("в снапшоте нет пустого массива effects")
+	}
+}
+
+func TestSnapshotServersNeverNull(t *testing.T) {
+	// Регрессия И5: nil-срез маршалится в JSON null и ронял клиент.
+	g := game.New(game.DefaultConfig())
+	raw, err := json.Marshal(snapshot(g, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"servers":null`) {
+		t.Error("servers без серверов должен быть [], а не null")
+	}
+	if !strings.Contains(string(raw), `"servers":[]`) {
+		t.Error("в снапшоте нет пустого массива servers")
+	}
+	if !strings.Contains(string(raw), `"core":{`) {
+		t.Error("в снапшоте нет объекта core")
 	}
 }

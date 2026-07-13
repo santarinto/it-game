@@ -4,6 +4,8 @@ import { GAME_H, GAME_W, HUD_H, NAV_W } from '../layout'
 import { client } from '../net'
 import { nav } from '../rooms'
 import type { CommandType, EmployeeInfo, OfficeInfo, StateMessage } from '../protocol'
+import { drawDebugFrames } from '../debug'
+import { showModal } from '../ui/modal'
 
 const SCALE = 4 // 16px спрайт → 64px на экране
 const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
@@ -72,19 +74,25 @@ export class OfficeScene extends Phaser.Scene {
       }).setOrigin(0.5)
       if (canBuy) btn.on('pointerdown', () => client.send('buy_office', nav.activeOffice))
       this.objects.push(btn, txt)
+      this.objects.push(...drawDebugFrames(this, this.objects))
       return
     }
 
     // Специальный слот роутера: рабочее место сюда не поставить.
     const rx = GAME_W - 130
     const ry = 170
+    const routerZone = this.add.rectangle(rx, ry, 84, 84, 0x232640)
+      .setStrokeStyle(2, 0x5d7275).setInteractive({ useHandCursor: true })
+    routerZone.on('pointerdown', () => this.openRouterModal(office, s))
     this.objects.push(
-      this.add.rectangle(rx, ry, 84, 84, 0x232640).setStrokeStyle(2, 0x5d7275),
+      routerZone,
       this.add.text(rx, ry - 56, 'сеть', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
     )
     if (office.routerTier > 0) {
+      const routerImg = this.add.image(rx, ry, 'router').setScale(SCALE).setInteractive({ useHandCursor: true })
+      routerImg.on('pointerdown', () => this.openRouterModal(office, s))
       this.objects.push(
-        this.add.image(rx, ry, 'router').setScale(SCALE),
+        routerImg,
         this.add.text(rx, ry + 52, `роутер т${office.routerTier} · ${office.ports} порт.`, {
           fontFamily: 'monospace', fontSize: '11px', color: '#41a6f6',
         }).setOrigin(0.5),
@@ -189,6 +197,7 @@ export class OfficeScene extends Phaser.Scene {
         box.on('pointerdown', () => client.send(a.cmd, nav.activeOffice))
       }
     })
+    this.objects.push(...drawDebugFrames(this, this.objects))
   }
 
   private showTooltip(e: EmployeeInfo, s: StateMessage, x: number, y: number) {
@@ -201,6 +210,7 @@ export class OfficeScene extends Phaser.Scene {
       `Выработка: ${fmtMoney(effective)}/час${effective !== base ? ` (база ${fmtMoney(base)})` : ''}`,
       `Зарплата:  ${fmtMoney(s.salaryPerDay)}/день${e.unpaidToday ? ' (сегодня без оплаты)' : ''}`,
     ]
+    lines.push(e.serverSlot > 0 ? `сервер ${e.serverSlot} · ×${e.netMult.toFixed(1)}` : 'без сервера')
     const EFFECT_NAMES: Record<string, string> = { thirst: 'жажда', hunger: 'голоден', coffee: 'выпил кофе' }
     // Ремень безопасности: старый сервер мог прислать null вместо [] —
     // краш тултипа обрывал перерисовку всей сцены.
@@ -222,6 +232,24 @@ export class OfficeScene extends Phaser.Scene {
     this.tooltipBg.setSize(this.tooltipText.width + 20, this.tooltipText.height + 16)
     const tx = Math.min(x, GAME_W - this.tooltipBg.width - 8)
     this.tooltip.setPosition(tx, y).setVisible(true)
+  }
+
+  // Модалка роутера: апгрейд переехал сюда из кнопки HUD (заявка И4).
+  private openRouterModal(o: OfficeInfo, s: StateMessage) {
+    const connected = o.employees.filter((e) => e.connected).length
+    const lines = o.routerTier > 0
+      ? [`Тир ${o.routerTier} · ${o.ports} портов`, `Подключено ${connected} из ${o.employees.length}`]
+      : ['Роутера нет —', 'офис не подключён к сети.']
+    if (o.nextRouter === 0) lines.push('Тир максимальный')
+    const buttons = o.nextRouter > 0
+      ? [{
+          label: o.routerTier === 0
+            ? `Купить роутер ${fmtMoney(o.nextRouter)}`
+            : `Апгрейд до т${o.routerTier + 1} ${fmtMoney(o.nextRouter)}`,
+          onClick: () => client.send('buy_router', nav.activeOffice),
+        }]
+      : []
+    showModal(this, `Роутер — офис ${nav.activeOffice + 1}`, lines, buttons)
   }
 
   private showBossTooltip(o: OfficeInfo, s: StateMessage, x: number, y: number) {

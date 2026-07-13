@@ -4,6 +4,7 @@ import { client } from '../net'
 import type { DayReportMessage, GameOverMessage, StateMessage } from '../protocol'
 import { fmtMoney } from '../format'
 import { nav } from '../rooms'
+import { debug, drawDebugFrames, setDebug } from '../debug'
 
 const CX = GAME_W / 2 // центр поля — якорь модалок и тостов
 
@@ -11,7 +12,7 @@ const ERROR_TEXTS: Record<string, string> = {
   not_enough_money: 'Не хватает денег',
   no_free_office_slot: 'В офисе нет свободных мест',
   no_free_pc: 'Нет свободного ПК — купите ПК',
-  no_free_rack_slot: 'В серверной нет свободных стоек',
+  no_free_rack_slot: 'У офиса нет свободных стоек',
   router_maxed: 'Роутер уже максимального тира',
   unknown_command: 'Неизвестная команда',
   wrong_phase: 'Сейчас нельзя — дождитесь начала дня',
@@ -21,6 +22,10 @@ const ERROR_TEXTS: Record<string, string> = {
   offices_maxed: 'Все офисы уже куплены',
   gateway_already: 'Шлюз уже установлен',
   bad_office: 'Нет такого офиса',
+  bad_speed: 'Нет такой скорости',
+  bad_slot: 'Нет такой стойки',
+  server_maxed: 'Сервер уже максимального уровня',
+  core_maxed: 'Core уже максимального уровня',
 }
 
 interface Button {
@@ -35,8 +40,6 @@ export class HUDScene extends Phaser.Scene {
   private dayText!: Phaser.GameObjects.Text
   private pcBtn!: Button
   private hireBtn!: Button
-  private routerBtn!: Button
-  private serverBtn!: Button
   private bossBtn!: Button
   private gatewayBtn!: Button
   private navItems: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; sub: Phaser.GameObjects.Text }[] = []
@@ -45,6 +48,9 @@ export class HUDScene extends Phaser.Scene {
   private gameOverUI: Phaser.GameObjects.GameObject[] = []
   private skipReports = localStorage.getItem('skipReports') === '1'
   private switching = false
+  private speedBtns: { bg: Phaser.GameObjects.Rectangle; speed: number }[] = []
+  private hudInteractive: Phaser.GameObjects.GameObject[] = []
+  private debugFrames: Phaser.GameObjects.GameObject[] = []
 
   constructor() {
     super('hud')
@@ -71,10 +77,34 @@ export class HUDScene extends Phaser.Scene {
 
     this.pcBtn = this.makeButton(420, 10, () => client.send('buy_pc', nav.activeOffice))
     this.hireBtn = this.makeButton(420, 52, () => client.send('hire', nav.activeOffice))
-    this.routerBtn = this.makeButton(640, 10, () => client.send('buy_router', nav.activeOffice))
-    this.bossBtn = this.makeButton(640, 52, () => client.send('hire_boss', nav.activeOffice))
-    this.serverBtn = this.makeButton(860, 10, () => client.send('buy_server'))
-    this.gatewayBtn = this.makeButton(860, 52, () => client.send('buy_gateway'))
+    this.bossBtn = this.makeButton(640, 10, () => client.send('hire_boss', nav.activeOffice))
+    this.gatewayBtn = this.makeButton(640, 52, () => client.send('buy_gateway'))
+
+    // Темп времени: пауза и множители. Активная кнопка подсвечивается по speed
+    // из снапшота — сервер источник истины.
+    const speeds = [
+      { s: 0, label: '⏸' }, { s: 1, label: '1x' }, { s: 2, label: '2x' }, { s: 3, label: '3x' },
+    ]
+    speeds.forEach((sp, i) => {
+      const x = GAME_W - 176 + i * 40
+      const bg = this.add.rectangle(x, 10, 36, 28, 0x232640)
+        .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true })
+      this.add.text(x + 18, 24, sp.label, { fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4' }).setOrigin(0.5)
+      bg.on('pointerdown', () => client.send('set_speed', 0, { speed: sp.s }))
+      this.speedBtns.push({ bg, speed: sp.s })
+      this.hudInteractive.push(bg)
+    })
+    // Тумблер debug: рамки интерактивных зон во всех сценах.
+    const dbg = this.add
+      .text(GAME_W - 280, 17, this.debugLabel(), { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
+      .setInteractive({ useHandCursor: true })
+    dbg.on('pointerdown', () => {
+      setDebug(!debug.enabled)
+      dbg.setText(this.debugLabel())
+      client.reemit() // сцены перерисуются по последнему снапшоту
+    })
+    this.hudInteractive.push(dbg)
+
     this.createNavPanel()
 
     const unsub = client.subscribe({
@@ -124,6 +154,7 @@ export class HUDScene extends Phaser.Scene {
         .setOrigin(0.5)
       bg.on('pointerdown', () => this.switchRoom(r.key, r.office))
       this.navItems.push({ bg, label, sub })
+      this.hudInteractive.push(bg)
     })
   }
 
@@ -156,7 +187,6 @@ export class HUDScene extends Phaser.Scene {
       this.closeGameOver()
     }
     const employees = s.offices.flatMap((o) => o.employees)
-    const connected = employees.filter((e) => e.connected).length
     const active = s.offices[nav.activeOffice]
     this.moneyText.setText(fmtMoney(s.money))
     this.incomeText.setText(`+${fmtMoney(s.incomePerTick)}/сек`)
@@ -164,12 +194,10 @@ export class HUDScene extends Phaser.Scene {
     // Прогноз считает сервер: клиент не знает про обеденные тики.
     this.payrollText.setColor(s.forecastEndOfDay < 0 ? '#b13e53' : '#5d7275')
     this.dayText.setText(`День ${s.day} · ${s.clock}${s.isLunch ? ' · обед' : ''}`)
-    this.netText.setText(`Сотрудники: ${employees.length} · в сети ${connected} · ×${s.multiplier.toFixed(1)}`)
+    this.netText.setText(`Сотрудники: ${employees.length} · в сети ${s.core.connected}/${employees.length}`)
     this.pcBtn.setLabel(`Купить ПК  ${fmtMoney(s.prices.pc)}`)
     this.hireBtn.setLabel(`Нанять  ${fmtMoney(s.prices.hire)}`)
-    this.routerBtn.setLabel(active.nextRouter > 0 ? `Роутер  ${fmtMoney(active.nextRouter)}` : 'Роутер MAX')
     this.bossBtn.setLabel(active.boss === '' ? `Начальник  ${fmtMoney(s.prices.boss)}` : 'Начальник ✓')
-    this.serverBtn.setLabel(`Сервер  ${fmtMoney(s.prices.server)}`)
     this.gatewayBtn.setLabel(s.gateway ? 'Шлюз ✓' : `Шлюз  ${fmtMoney(s.prices.gateway)}`)
     this.navItems.forEach((item, idx) => {
       if (idx === 3) return
@@ -177,6 +205,9 @@ export class HUDScene extends Phaser.Scene {
       item.sub.setText(o.unlocked ? `${o.employees.length}/${s.officeSlots}` : fmtMoney(o.price))
     })
     this.highlightNav()
+    this.speedBtns.forEach((b) => b.bg.setStrokeStyle(2, b.speed === s.speed ? 0x41a6f6 : 0x3a3f5c))
+    this.debugFrames.forEach((f) => f.destroy())
+    this.debugFrames = drawDebugFrames(this, this.hudInteractive)
   }
 
   private makeButton(x: number, y: number, onClick: () => void): Button {
@@ -190,6 +221,7 @@ export class HUDScene extends Phaser.Scene {
     bg.on('pointerdown', onClick)
     bg.on('pointerover', () => bg.setFillStyle(0x41a6f6))
     bg.on('pointerout', () => bg.setFillStyle(0x3b5dc9))
+    this.hudInteractive.push(bg)
     return { setLabel: (s: string) => txt.setText(s) }
   }
 
@@ -251,10 +283,15 @@ export class HUDScene extends Phaser.Scene {
     btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
     btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
     this.reportUI = [overlay, panel, title, bodyText, checkbox, btnBg, btnText]
+    this.reportUI.push(...drawDebugFrames(this, this.reportUI))
   }
 
   private checkboxLabel(): string {
     return `[${this.skipReports ? 'x' : ' '}] пропускать отчёты`
+  }
+
+  private debugLabel(): string {
+    return `debug ${debug.enabled ? 'on' : 'off'}`
   }
 
   private closeReport() {
@@ -286,6 +323,7 @@ export class HUDScene extends Phaser.Scene {
     btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
     btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
     this.gameOverUI = [overlay, title, body, btnBg, btnText]
+    this.gameOverUI.push(...drawDebugFrames(this, this.gameOverUI))
   }
 
   private closeGameOver() {

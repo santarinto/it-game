@@ -8,22 +8,22 @@ type Config struct {
 	StartMoney   int
 	StartPCs     int
 	OfficeSlots  int // слоты офиса под рабочие места
-	RackSlots    int // слоты серверной под стойки
 	PCPrice      int
 	HirePrice    int
-	ServerPrice  int
-	IncomeMin    int     // нижняя граница выработки сотрудника, $/тик
-	IncomeMax    int     // верхняя граница выработки сотрудника, $/тик
-	StaffLimit   int     // потолок штата и ПК; слоты сверх лимита ждут начальника
-	NetworkBase  float64 // база множителя подключённых; 1.0 — роутер сам дохода не добавляет, только открывает доступ к серверам
-	ServerBonus  float64 // прибавка к множителю за каждый сервер
-	TicksPerHour int     // 1 игровой час = столько тиков (секунд)
-	WorkdayStart int     // час начала рабочего дня
-	LunchStart   int     // обед: начало (доход за тики обеда = 0)
-	LunchEnd     int     // обед: конец
-	WorkdayEnd   int     // час конца дня → зарплаты → отчёт
-	SalaryPerDay int     // зарплата $ с одного сотрудника, списывается в конце дня
+	IncomeMin    int // нижняя граница выработки сотрудника, $/тик
+	IncomeMax    int // верхняя граница выработки сотрудника, $/тик
+	StaffLimit   int // потолок штата и ПК; слоты сверх лимита ждут начальника
+	TicksPerHour int // 1 игровой час = столько тиков (секунд)
+	WorkdayStart int // час начала рабочего дня
+	LunchStart   int // обед: начало (доход за тики обеда = 0)
+	LunchEnd     int // обед: конец
+	WorkdayEnd   int // час конца дня → зарплаты → отчёт
+	SalaryPerDay int // зарплата $ с одного сотрудника, списывается в конце дня
 	RouterTiers  []RouterTier
+
+	EmployeesPerServer int           // один сервер обслуживает столько работников офиса
+	ServerLevels       []ServerLevel // уровни сервера; покупка = уровень 1
+	CoreLevels         []CoreLevel   // уровни core-коммутатора; CoreLevel 0 — не куплен
 
 	BossPrice         int     // найм начальника
 	BossSalaryPerDay  int     // зарплата начальника (не производит)
@@ -50,20 +50,30 @@ type RouterTier struct {
 	Ports int
 }
 
+// ServerLevel — уровень офисного сервера: множитель четвёрке работников.
+type ServerLevel struct {
+	Mult  float64
+	Price int
+}
+
+// CoreLevel — уровень core: ёмкость подключённых мест по компании.
+// Mult > 1.0 только у финального уровня (бонус всем обслуженным серверами).
+type CoreLevel struct {
+	Capacity int
+	Price    int
+	Mult     float64
+}
+
 func DefaultConfig() Config {
 	return Config{
 		StartMoney:   600,
 		StartPCs:     1,
 		OfficeSlots:  12,
-		RackSlots:    3,
 		PCPrice:      500,
 		HirePrice:    300,
-		ServerPrice:  2000,
 		IncomeMin:    9,
 		IncomeMax:    14,
 		StaffLimit:   9,
-		NetworkBase:  1.0,
-		ServerBonus:  0.5,
 		TicksPerHour: 6,
 		WorkdayStart: 10,
 		LunchStart:   14,
@@ -74,6 +84,19 @@ func DefaultConfig() Config {
 			{Price: 800, Ports: 4},
 			{Price: 2500, Ports: 9},
 			{Price: 6000, Ports: 12}, // покрывает офис с начальником (слоты 10-12)
+		},
+		EmployeesPerServer: 4,
+		ServerLevels: []ServerLevel{
+			{Mult: 1.2, Price: 2000},
+			{Mult: 1.5, Price: 4000},
+			{Mult: 2.0, Price: 8000},
+		},
+		CoreLevels: []CoreLevel{
+			{Capacity: 8, Price: 1500, Mult: 1.0},
+			{Capacity: 16, Price: 4000, Mult: 1.0},
+			{Capacity: 24, Price: 10000, Mult: 1.0},
+			{Capacity: 36, Price: 20000, Mult: 1.0},
+			{Capacity: 36, Price: 40000, Mult: 1.1},
 		},
 		BossPrice:          1000,
 		BossSalaryPerDay:   500,
@@ -96,6 +119,11 @@ func DefaultConfig() Config {
 
 // DayTicks — длина дня в тиках; выводится из рабочих часов.
 func (c Config) DayTicks() int { return (c.WorkdayEnd - c.WorkdayStart) * c.TicksPerHour }
+
+// ServerSlotsPerOffice — стоек на офис: ровно столько, чтобы серверы
+// покрыли все слоты офиса (12/4 = 3; четвёртая стойка обслуживала бы
+// работников, которых не бывает).
+func (c Config) ServerSlotsPerOffice() int { return c.OfficeSlots / c.EmployeesPerServer }
 
 // isLunchTick — попадает ли тик дня в обеденный час.
 func (c Config) isLunchTick(tick int) bool {

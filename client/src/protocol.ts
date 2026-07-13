@@ -6,14 +6,35 @@ export interface EffectInfo {
   until: string // «HH:MM»; '' — до конца дня
 }
 
+export interface ServerInfo {
+  slot: number // 0-based индекс стойки
+  level: number
+  mult: number
+  nextPrice: number // 0 — уровень максимальный
+  maxed: boolean
+  servedFrom: number // обслуживаемые работники офиса, 1-based
+  servedTo: number
+}
+
+export interface CoreInfo {
+  level: number // 0 — не куплен
+  capacity: number
+  connected: number // занято мест по компании
+  mult: number // 1.1 на финальном уровне, иначе 1.0
+  nextPrice: number
+  maxed: boolean
+}
+
 export interface EmployeeInfo {
   name: string
   incomePerTick: number
   // Личная выработка с учётом активных эффектов (без сетевого множителя).
   effectiveIncomePerTick: number
-  connected: boolean
+  connected: boolean // получил место в ёмкости core
   unpaidToday: boolean
   effects: EffectInfo[]
+  netMult: number
+  serverSlot: number // 1-based сервер; 0 — без сервера
 }
 
 export interface OfficeInfo {
@@ -29,15 +50,16 @@ export interface OfficeInfo {
   cooler: boolean
   fridge: boolean
   coffeeMachine: boolean
+  servers: ServerInfo[]
+  serverSlots: number
 }
 
 export interface StateMessage {
   type: 'state'
   money: number
   offices: OfficeInfo[]
-  servers: number
   gateway: boolean
-  multiplier: number
+  core: CoreInfo
   incomePerTick: number
   day: number
   clock: string
@@ -50,8 +72,18 @@ export interface StateMessage {
   staffLimit: number
   officeSlots: number
   phase: 'running' | 'day_report' | 'game_over'
-  rackSlots: number
-  prices: { pc: number; hire: number; server: number; boss: number; gateway: number; cooler: number; fridge: number; coffeeMachine: number }
+  speed: number // темп сессии: 0 — пауза, 1..3
+  prices: {
+    pc: number
+    hire: number
+    boss: number
+    gateway: number
+    cooler: number
+    fridge: number
+    coffeeMachine: number
+    serverLevels: { mult: number; price: number }[]
+    coreLevels: { capacity: number; price: number; mult: number }[]
+  }
 }
 
 export interface ErrorMessage {
@@ -81,4 +113,5 @@ export type ServerMessage = StateMessage | ErrorMessage | DayReportMessage | Gam
 export type CommandType =
   | 'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office'
   | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart'
-  | 'buy_cooler' | 'buy_fridge' | 'buy_coffee'
+  | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed'
+  | 'upgrade_server' | 'upgrade_core'
