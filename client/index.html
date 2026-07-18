@@ -8,8 +8,13 @@
       html, body { margin: 0; background: #1a1c2c; }
       #app { display: flex; justify-content: center; padding-top: 8px; }
       #topbar { text-align: right; padding: 4px 16px; }
-      #topbar a { color: #5d7275; font-family: monospace; font-size: 13px; text-decoration: none; }
-      #topbar a:hover { color: #41a6f6; }
+      #topbar a {
+        display: inline-block;
+        color: #41a6f6; font-family: monospace; font-size: 15px; text-decoration: none;
+        background: #232640; border: 1px solid #3a3f5c; border-radius: 4px;
+        padding: 4px 12px;
+      }
+      #topbar a:hover { background: #3b5dc9; color: #f4f4f4; }
     </style>
   </head>
   <body>
