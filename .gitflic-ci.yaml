@@ -1,0 +1,59 @@
+# GitFlic CI/CD — тесты + деплой itgame.santarinto.ru.
+#
+# Грабли GitFlic и обоснования решений — в плейбуке gitflic-ci-cd-playbook
+# (обкатан на my.santarinto.ru). Коротко:
+#   • only: (не rules: — те молча не матчатся);
+#   • триггер CD — пуш в main (tag-пайплайнов у GitFlic не существует);
+#   • шумные шаги пишем в файл, хвост при падении (лог режется на 100 KB);
+#   • составную логику — отдельными строками (слепленная падает молча);
+#   • все сетевые шаги — с таймаутами (обрыв без таймаута вешает джобу).
+#
+# Раннеры: Docker-executor на ci-cd-srv (тег `docker`).
+#
+# ── Настроить в GitFlic (Настройки проекта → CI/CD → Переменные) ─────────────
+#   • DEPLOY_HOOK_SECRET — HMAC-секрет вебхука деплоя (masked!).
+# ─────────────────────────────────────────────────────────────────────────────
+
+stages:
+  - test
+  - deploy
+
+# ── Сервер: Go (vet + тесты) ─────────────────────────────────────────────────
+test-server:
+  stage: test
+  image: golang:1.26
+  tags:
+    - docker
+  script:
+    - cd server
+    - 'timeout 600 go vet ./... || { echo "go vet FAILED или таймаут 600с"; exit 1; }'
+    - 'timeout 600 go test ./... || { echo "go test FAILED или таймаут 600с"; exit 1; }'
+
+# ── Клиент: typecheck + сборка ───────────────────────────────────────────────
+test-client:
+  stage: test
+  image: node:20
+  tags:
+    - docker
+  before_script:
+    - cd client
+    - 'timeout 600 npm ci --no-audit --no-fund > /tmp/npmci.log 2>&1 || { echo "npm ci FAILED (или таймаут 600с), последние 40 строк:"; tail -40 /tmp/npmci.log; exit 1; }'
+  script:
+    - npm run typecheck
+    - 'npm run build > /tmp/build.log 2>&1 || { echo "vite build FAILED, последние 40 строк:"; tail -40 /tmp/build.log; exit 1; }'
+
+# ── Деплой: КАЖДЫЙ пуш в main, ПОСЛЕ тестов ──────────────────────────────────
+# Красные тесты на прод не поедут: deploy идёт стадией после test.
+# Деплоим протестированный SHA — бокс (itgame-deploy) ресетится на него.
+deploy:
+  stage: deploy
+  image: alpine:3.20
+  tags:
+    - docker
+  before_script:
+    - apk add --no-cache bash curl openssl git
+  script:
+    - 'test -n "$DEPLOY_HOOK_SECRET" && echo "секрет получен (${#DEPLOY_HOOK_SECRET} символов)" || { echo "DEPLOY_HOOK_SECRET ПУСТ — проверь переменные проекта"; exit 1; }'
+    - 'echo "деплой $(git log -1 --pretty=%h): $(git log -1 --pretty=%s)"; DEPLOY_HOOK_SECRET="$DEPLOY_HOOK_SECRET" bash bin/trigger-deploy.sh "$(git rev-parse HEAD)"'
+  only:
+    - main

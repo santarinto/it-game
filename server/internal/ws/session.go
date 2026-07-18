@@ -27,8 +27,8 @@ type clientCommand struct {
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// Vite dev server проксирует /ws с другого порта.
-		OriginPatterns: []string{"localhost:*", "127.0.0.1:*"},
+		// Vite dev server проксирует /ws с другого порта; itgame — прод за nginx.
+		OriginPatterns: []string{"localhost:*", "127.0.0.1:*", "itgame.santarinto.ru"},
 	})
 	if err != nil {
 		return

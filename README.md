@@ -80,6 +80,17 @@
     make build
     ./bin/itdirector -static client/dist   # всё на http://localhost:8080
 
+## Прод (itgame.santarinto.ru)
+
+Каждый пуш в `main` деплоится автоматически: GitFlic CI (`.gitflic-ci.yaml`,
+стадии test → deploy) после зелёных тестов дёргает on-box webhook
+(`bin/trigger-deploy.sh`, HMAC), бокс собирает релиз атомарно
+(`bin/deploy-local.sh`: `releases/<id>` → своп симлинка `current` →
+`systemctl restart itgame`). Схема и грабли GitFlic — в плейбуке
+`gitflic-ci-cd-playbook` (репо my-santarinto). На боксе: nginx (TLS, статика,
+`/ws`, `/admin` под basic auth) → Go-бинарь на `127.0.0.1:8080`. Деплой рвёт
+активные WS-сессии — сейвов пока нет, игроки начинают заново.
+
 ## Тесты
 
     make test        # Go: домен и WebSocket-слой
