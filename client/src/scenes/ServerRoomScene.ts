@@ -122,7 +122,8 @@ export class ServerRoomScene extends Phaser.Scene {
         'Пустая стойка.',
         `Сервер ур.1 даёт ×${lvl1.mult.toFixed(1)}`,
         'четырём работникам офиса.',
-      ], [{ label: `Купить ${fmtMoney(lvl1.price)}`, onClick: () => client.send('buy_server', oi) }])
+      ], [{ label: `Купить ${fmtMoney(lvl1.price)}`, onClick: () => client.send('buy_server', oi) }],
+      { filled: 0, total: 24 })
       return
     }
     const lines = [
@@ -133,7 +134,9 @@ export class ServerRoomScene extends Phaser.Scene {
     const buttons = srv.maxed
       ? []
       : [{ label: `Апгрейд ${fmtMoney(srv.nextPrice)}`, onClick: () => client.send('upgrade_server', oi, { slot: sl }) }]
-    showModal(this, `Серверная стойка ${sl + 1} — офис ${oi + 1}`, lines, buttons)
+    // level/3 от 24U: ур.1 = 8U, ур.2 = 16U, ур.3 = 24U
+    showModal(this, `Серверная стойка ${sl + 1} — офис ${oi + 1}`, lines, buttons,
+      { filled: srv.level * 8, total: 24 })
   }
 
   private openCoreModal(s: StateMessage) {
@@ -152,6 +155,8 @@ export class ServerRoomScene extends Phaser.Scene {
           label: c.level === 0 ? `Купить ${fmtMoney(c.nextPrice)}` : `Апгрейд ${fmtMoney(c.nextPrice)}`,
           onClick: () => client.send('upgrade_core'),
         }]
-    showModal(this, 'Серверная стойка роутеров', lines, buttons)
+    // level/5 от 24U: ур.1 = 5U, ур.2 = 10U, ур.3 = 14U, ур.4 = 19U, ур.5 = 24U
+    showModal(this, 'Серверная стойка роутеров', lines, buttons,
+      { filled: Math.round(c.level / 5 * 24), total: 24 })
   }
 }
