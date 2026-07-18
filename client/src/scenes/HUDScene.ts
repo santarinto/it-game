@@ -24,8 +24,8 @@ const ERROR_TEXTS: Record<string, string> = {
   bad_office: 'Нет такого офиса',
   bad_speed: 'Нет такой скорости',
   bad_slot: 'Нет такой стойки',
-  server_maxed: 'Сервер уже максимального уровня',
-  core_maxed: 'Core уже максимального уровня',
+  server_maxed: 'Серверная стойка уже максимального уровня',
+  core_maxed: 'Стойка роутеров уже максимального уровня',
 }
 
 interface Button {

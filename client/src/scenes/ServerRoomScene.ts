@@ -41,7 +41,7 @@ export class ServerRoomScene extends Phaser.Scene {
     const cy = 380
     this.objects.push(
       this.add.rectangle(cx, cy, 92, 92, 0x232640).setStrokeStyle(2, 0x5d7275),
-      this.add.text(cx, cy - 60, 'core', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
+      this.add.text(cx, cy - 60, 'стойка роутеров', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
     )
     const coreZone = this.add.rectangle(cx, cy, 92, 92, 0x000000, 0.001).setInteractive({ useHandCursor: true })
     coreZone.on('pointerdown', () => this.openCoreModal(s))
@@ -104,7 +104,7 @@ export class ServerRoomScene extends Phaser.Scene {
     const totalServers = s.offices.reduce((n, o) => n + o.servers.length, 0)
     this.objects.push(
       this.add.text(GAME_W / 2, GAME_H - 40,
-        `core ${s.core.connected}/${s.core.capacity} · серверов ${totalServers}${s.gateway ? ' · интернет' : ''}`, {
+        `роутеры ${s.core.connected}/${s.core.capacity} · стоек ${totalServers}${s.gateway ? ' · интернет' : ''}`, {
           fontFamily: 'monospace', fontSize: '15px', color: '#41a6f6',
         }).setOrigin(0.5),
     )
@@ -133,7 +133,7 @@ export class ServerRoomScene extends Phaser.Scene {
     const buttons = srv.maxed
       ? []
       : [{ label: `Апгрейд ${fmtMoney(srv.nextPrice)}`, onClick: () => client.send('upgrade_server', oi, { slot: sl }) }]
-    showModal(this, `Сервер ${sl + 1} — офис ${oi + 1}`, lines, buttons)
+    showModal(this, `Серверная стойка ${sl + 1} — офис ${oi + 1}`, lines, buttons)
   }
 
   private openCoreModal(s: StateMessage) {
@@ -144,7 +144,7 @@ export class ServerRoomScene extends Phaser.Scene {
           `Подключено ${c.connected} из ${c.capacity}`,
           ...(c.mult > 1 ? [`Бонус ×${c.mult.toFixed(1)} всем за серверами`] : []),
         ]
-      : ['Core не куплен — роутеры офисов', 'не достают до серверов.']
+      : ['Стойка роутеров пуста — роутеры офисов', 'не достают до серверов.']
     if (c.maxed) lines.push('Уровень максимальный')
     const buttons = c.maxed
       ? []
@@ -152,6 +152,6 @@ export class ServerRoomScene extends Phaser.Scene {
           label: c.level === 0 ? `Купить ${fmtMoney(c.nextPrice)}` : `Апгрейд ${fmtMoney(c.nextPrice)}`,
           onClick: () => client.send('upgrade_core'),
         }]
-    showModal(this, 'Core-коммутатор', lines, buttons)
+    showModal(this, 'Серверная стойка роутеров', lines, buttons)
   }
 }
