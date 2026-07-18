@@ -133,5 +133,7 @@ PostgreSQL опциональна: геймплей от неё не завис�
 
 ## Документация
 
+- Паспорт проекта: docs/passport.md
+- Вехи развития: docs/stages/
 - Геймдизайн (живой): docs/design/gdd.md
 - Спека итерации 1: docs/superpowers/specs/2026-07-11-it-director-mvp-design.md
