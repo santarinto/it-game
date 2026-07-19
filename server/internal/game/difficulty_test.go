@@ -5,11 +5,11 @@ import "testing"
 // Снапшот ключевых значений каждого уровня — числа из спеки итерации 8.
 func TestConfigForDifficulty(t *testing.T) {
 	cases := []struct {
-		d          Difficulty
-		start, pc, hire, salary, bossSalary int
+		d                                          Difficulty
+		start, pc, hire, salary, bossSalary        int
 		incomeMin, incomeMax, coffeePct, winTarget int
-		routerT1   int
-		debuff     float64
+		routerT1                                   int
+		debuff                                     float64
 	}{
 		{DiffEasy, 900, 400, 240, 200, 400, 10, 16, 50, 60000, 640, 0.95},
 		{DiffNormal, 600, 500, 300, 250, 500, 9, 14, 40, 120000, 800, 0.9},
