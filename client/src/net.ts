@@ -1,4 +1,4 @@
-import type { CommandType, DayReportMessage, GameOverMessage, ServerMessage, StateMessage } from './protocol'
+import type { CommandType, DayReportMessage, DifficultyId, GameOverMessage, ServerMessage, StateMessage, VictoryMessage } from './protocol'
 
 export interface Listener {
   onState(s: StateMessage): void
@@ -7,6 +7,7 @@ export interface Listener {
   // Только HUD показывает отчёты и банкротство — для остальных сцен опциональны.
   onDayReport?(r: DayReportMessage): void
   onGameOver?(o: GameOverMessage): void
+  onVictory?(v: VictoryMessage): void
 }
 
 // GameClient — единственная точка общения с сервером.
@@ -15,10 +16,13 @@ export class GameClient {
   latest: StateMessage | null = null
   private ws!: WebSocket
   private listeners: Listener[] = []
+  private intentionalClose = false
 
-  connect(): void {
+  connect(difficulty: DifficultyId): void {
+    this.latest = null
+    this.intentionalClose = false
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    this.ws = new WebSocket(`${proto}://${location.host}/ws`)
+    this.ws = new WebSocket(`${proto}://${location.host}/ws?difficulty=${difficulty}`)
     this.ws.onmessage = (ev) => {
       let msg: ServerMessage
       try {
@@ -36,6 +40,8 @@ export class GameClient {
         this.listeners.forEach((l) => l.onDayReport?.(msg))
       } else if (msg.type === 'game_over') {
         this.listeners.forEach((l) => l.onGameOver?.(msg))
+      } else if (msg.type === 'victory') {
+        this.listeners.forEach((l) => l.onVictory?.(msg))
       } else {
         console.error('неизвестный тип сообщения от сервера', msg)
       }
@@ -43,12 +49,20 @@ export class GameClient {
     // onerror и onclose могут прийти оба — дисконнект сообщаем один раз.
     let disconnected = false
     const fireDisconnect = () => {
+      if (this.intentionalClose) return
       if (disconnected) return
       disconnected = true
       this.listeners.forEach((l) => l.onDisconnect())
     }
     this.ws.onclose = fireDisconnect
     this.ws.onerror = fireDisconnect
+  }
+
+  // Намеренный разрыв (возврат в меню): onDisconnect не дёргаем.
+  disconnect(): void {
+    this.intentionalClose = true
+    this.ws.close()
+    this.latest = null
   }
 
   send(cmd: CommandType, office = 0, extra: Record<string, number> = {}): void {

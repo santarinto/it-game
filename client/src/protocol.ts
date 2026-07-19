@@ -6,6 +6,8 @@ export interface EffectInfo {
   until: string // «HH:MM»; '' — до конца дня
 }
 
+export type DifficultyId = 'easy' | 'normal' | 'hard' | 'hardcore'
+
 export interface ServerInfo {
   slot: number // 0-based индекс стойки
   level: number
@@ -71,8 +73,10 @@ export interface StateMessage {
   forecastEndOfDay: number
   staffLimit: number
   officeSlots: number
-  phase: 'running' | 'day_report' | 'game_over'
+  phase: 'running' | 'day_report' | 'game_over' | 'won'
   speed: number // темп сессии: 0 — пауза, 1..3
+  difficulty: DifficultyId
+  winTarget: number // цель победы, $
   prices: {
     pc: number
     hire: number
@@ -108,7 +112,14 @@ export interface GameOverMessage {
   balance: number
 }
 
-export type ServerMessage = StateMessage | ErrorMessage | DayReportMessage | GameOverMessage
+export interface VictoryMessage {
+  type: 'victory'
+  difficulty: DifficultyId
+  day: number
+  balance: number
+}
+
+export type ServerMessage = StateMessage | ErrorMessage | DayReportMessage | GameOverMessage | VictoryMessage
 
 export type CommandType =
   | 'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office'
