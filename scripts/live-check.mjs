@@ -1,5 +1,10 @@
 // Живая проверка протокола итерации 8 против реального сервера (хардкор).
 // Запуск: go run ./cmd/server -addr :8091 (из server/), затем node scripts/live-check.mjs
+//
+// ИЗВЕСТНОЕ ОГРАНИЧЕНИЕ: доход сотрудника роллится 7–11/тик, и до покупки
+// кулера ($600) за 5-дневный кап доходят не все роллы — при нехватке денег
+// ветка buy_cooler/effects/equipment_already честно пропускается с логом,
+// и «ПРОТОКОЛ ОК» её тогда НЕ покрывает (~20% прогонов покрывают).
 const FIELDS = [
   'money', 'offices', 'gateway', 'core', 'incomePerTick',
   'day', 'clock', 'isLunch', 'ticksPerHour', 'payrollPerDay', 'salaryPerDay',
