@@ -42,6 +42,8 @@ type Config struct {
 	CoffeeTicks      int     // длительность кофе, тиков
 	CoffeeChancePct  int     // шанс баффа на сотрудника, %
 	ThirstAfterHours int     // жажда после стольких часов работы
+	Difficulty       Difficulty // уровень сложности этой игры
+	WinTarget        int        // цель победы: достигнутый баланс $
 }
 
 // RouterTier — тир роутера: покупается последовательно, тир заменяет предыдущий.
@@ -114,6 +116,8 @@ func DefaultConfig() Config {
 		CoffeeTicks:      6,
 		CoffeeChancePct:  40,
 		ThirstAfterHours: 2,
+		Difficulty:       DiffNormal,
+		WinTarget:        120000,
 	}
 }
 
