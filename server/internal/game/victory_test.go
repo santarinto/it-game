@@ -2,7 +2,7 @@ package game
 
 import "testing"
 
-// tickCfg — быстрый конфиг: победа достижима за несколько тиков.
+// victoryCfg — быстрый конфиг: победа достижима за несколько тиков.
 func victoryCfg(target int) Config {
 	c := DefaultConfig()
 	c.WinTarget = target
