@@ -12,6 +12,7 @@ const (
 	PhaseRunning   = Phase("running")
 	PhaseDayReport = Phase("day_report") // день кончился, ждём next_day
 	PhaseGameOver  = Phase("game_over")  // банкротство, ждём restart
+	PhaseWon       = Phase("won")        // цель достигнута, игра заморожена
 )
 
 // Employee — сотрудник: имя и личная выработка, роллятся при найме навсегда.
@@ -176,6 +177,12 @@ func (g *Game) Tick() *DayReport {
 	g.Money += income
 	g.DayIncome += income
 	g.PeakIncomePerTick = max(g.PeakIncomePerTick, income)
+	// Победа проверяется до конца дня: достиг цели днём — победа сразу,
+	// вечерний ФОТ уже не списывается.
+	if g.cfg.WinTarget > 0 && g.Money >= g.cfg.WinTarget {
+		g.Phase = PhaseWon
+		return nil
+	}
 	g.TickInDay++
 	if g.TickInDay < g.cfg.DayTicks() {
 		return nil
