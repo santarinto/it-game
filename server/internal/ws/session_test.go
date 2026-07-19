@@ -31,6 +31,11 @@ type testMessage struct {
 	Payroll      int    `json:"payroll"`
 	Balance      int    `json:"balance"`
 	DaysSurvived int    `json:"daysSurvived"`
+	Difficulty   string `json:"difficulty"`
+	WinTarget    int    `json:"winTarget"`
+	Prices       struct {
+		PC int `json:"pc"`
+	} `json:"prices"`
 }
 
 func dialTestServer(t *testing.T, cfg game.Config, tick time.Duration) (*websocket.Conn, context.Context) {
@@ -40,6 +45,20 @@ func dialTestServer(t *testing.T, cfg game.Config, tick time.Duration) (*websock
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
 	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	t.Cleanup(func() { c.CloseNow() })
+	return c, ctx
+}
+
+func dialTestServerQuery(t *testing.T, cfg game.Config, tick time.Duration, query string) (*websocket.Conn, context.Context) {
+	t.Helper()
+	srv := httptest.NewServer(&Handler{Config: cfg, TickInterval: tick})
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+query, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -244,4 +263,44 @@ func TestSessionPause(t *testing.T) {
 		t.Fatal(err)
 	}
 	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" && m.Money > after.Money })
+}
+
+func TestDifficultyFromQuery(t *testing.T) {
+	c, ctx := dialTestServerQuery(t, game.DefaultConfig(), time.Hour, "?difficulty=hardcore")
+	var msg testMessage
+	if err := wsjson.Read(ctx, c, &msg); err != nil {
+		t.Fatal(err)
+	}
+	if msg.Difficulty != "hardcore" || msg.Money != 480 || msg.Prices.PC != 750 || msg.WinTarget != 500000 {
+		t.Fatalf("хардкор-снапшот: %+v", msg)
+	}
+}
+
+func TestDifficultyGarbageIsNormal(t *testing.T) {
+	c, ctx := dialTestServerQuery(t, game.DefaultConfig(), time.Hour, "?difficulty=xxx")
+	var msg testMessage
+	if err := wsjson.Read(ctx, c, &msg); err != nil {
+		t.Fatal(err)
+	}
+	if msg.Difficulty != "normal" || msg.Money != 600 {
+		t.Fatalf("мусорная сложность должна дать норму: %+v", msg)
+	}
+}
+
+func TestVictoryMessage(t *testing.T) {
+	cfg := game.DefaultConfig()
+	cfg.WinTarget = 500 // старт $600 ≥ цели: победа первым же тиком
+	c, ctx := dialTestServer(t, cfg, 10*time.Millisecond)
+	won := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "victory" })
+	if won.Day != 1 || won.Balance < 500 || won.Difficulty != "normal" {
+		t.Fatalf("victory: %+v", won)
+	}
+	// После победы соединение живо, покупки отвергаются wrong_phase.
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "buy_pc"}); err != nil {
+		t.Fatal(err)
+	}
+	errMsg := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "error" })
+	if errMsg.Code != "wrong_phase" {
+		t.Fatalf("покупка после победы: %+v", errMsg)
+	}
 }

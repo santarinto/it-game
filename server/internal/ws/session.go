@@ -41,7 +41,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	commands := make(chan clientCommand)
 	go readLoop(ctx, cancel, c, commands)
 
-	h.run(ctx, c, commands)
+	// Сложность применяется ТОЛЬКО при непустом query-параметре: иначе
+	// кастомные тестовые конфиги (например WinTarget) затирались бы нормой.
+	cfg := h.Config
+	if q := r.URL.Query().Get("difficulty"); q != "" {
+		cfg = game.ApplyDifficulty(h.Config, game.ParseDifficulty(q))
+	}
+
+	h.run(ctx, c, commands, cfg)
 	c.Close(websocket.StatusNormalClosure, "сессия завершена")
 }
 
@@ -69,8 +76,8 @@ const cmdSetSpeed = game.Command("set_speed")
 // run — актор: единственная горутина, владеющая состоянием игры.
 // Всё общение с миром — через канал команд и тикер; писем в сокет
 // из других горутин нет, поэтому мьютексы не нужны.
-func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan clientCommand) {
-	g := game.New(h.Config)
+func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan clientCommand, cfg game.Config) {
+	g := game.New(cfg)
 	speed := 1
 	ticker := time.NewTicker(h.TickInterval)
 	defer ticker.Stop()
@@ -114,7 +121,18 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 				return
 			}
 		case <-tickC:
+			wasRunning := g.Phase == game.PhaseRunning
 			report := g.Tick()
+			if wasRunning && g.Phase == game.PhaseWon {
+				if wsjson.Write(ctx, c, snapshot(g, speed)) != nil {
+					return
+				}
+				if wsjson.Write(ctx, c, victoryMessage{Type: "victory",
+					Difficulty: string(g.Config().Difficulty), Day: g.Day, Balance: g.Money}) != nil {
+					return
+				}
+				continue
+			}
 			// На паузе фазы (отчёт/банкротство) тик — no-op: не шлём одинаковые
 			// снапшоты каждую секунду, клиент ждёт команду игрока.
 			if report == nil && g.Phase != game.PhaseRunning {
