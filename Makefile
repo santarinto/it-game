@@ -1,4 +1,4 @@
-.PHONY: dev dev-server dev-client test typecheck build
+.PHONY: dev dev-server dev-client test typecheck build sync-docs
 
 # .env (DATABASE_URL) подхватывается автоматически; файла может не быть.
 -include .env
@@ -22,3 +22,6 @@ typecheck:
 build:
 	cd client && npm run build
 	cd server && go build -o ../bin/itdirector ./cmd/server
+
+sync-docs: ## docs/ -> Obsidian vault (односторонне, источник истины — репо)
+	bash scripts/sync-docs-to-vault.sh
