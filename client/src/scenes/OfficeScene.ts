@@ -7,6 +7,7 @@ import type { CommandType, EmployeeInfo, OfficeInfo, StateMessage } from '../pro
 import { drawDebugFrames } from '../debug'
 import { showModal } from '../ui/modal'
 import { coreFree, routerGain } from '../network-preview'
+import { playSfx } from '../audio'
 
 const SCALE = 4 // 16px спрайт → 64px на экране
 const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
@@ -92,7 +93,10 @@ export class OfficeScene extends Phaser.Scene {
       const txt = this.add.text(GAME_W / 2, 380, canBuy ? `Купить офис — ${fmtMoney(office.price)}` : 'Сначала купите предыдущий', {
         fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4',
       }).setOrigin(0.5)
-      if (canBuy) btn.on('pointerdown', () => client.send('buy_office', nav.activeOffice))
+      if (canBuy) btn.on('pointerdown', () => {
+        playSfx(this, 'select')
+        client.send('buy_office', nav.activeOffice)
+      })
       this.objects.push(btn, txt)
       this.objects.push(...drawDebugFrames(this, this.objects))
       return
@@ -163,7 +167,10 @@ export class OfficeScene extends Phaser.Scene {
       if (e?.pcBroken) {
         const overlay = this.add.rectangle(x, y - 8, 76, 56, 0xb13e53, 0.3)
           .setInteractive({ useHandCursor: true })
-        overlay.on('pointerdown', () => client.send('repair_click', nav.activeOffice, { slot: i }))
+        overlay.on('pointerdown', () => {
+          playSfx(this, 'click')
+          client.send('repair_click', nav.activeOffice, { slot: i })
+        })
         this.tweens.add({
           targets: overlay, alpha: { from: 0.65, to: 0.15 }, duration: 420, yoyo: true, repeat: -1,
         })
@@ -172,7 +179,10 @@ export class OfficeScene extends Phaser.Scene {
         const masterTxt = this.add.text(x, y + 46, `мастер ${fmtMoney(s.prices.repair)}`, {
           fontFamily: 'monospace', fontSize: '10px', color: '#f4f4f4',
         }).setOrigin(0.5)
-        masterBg.on('pointerdown', () => client.send('call_master', nav.activeOffice, { slot: i }))
+        masterBg.on('pointerdown', () => {
+          playSfx(this, 'select')
+          client.send('call_master', nav.activeOffice, { slot: i })
+        })
         this.objects.push(
           this.add.text(x, y - 48, `✖ чинить ${e.repairClicks}/3`, {
             fontFamily: 'monospace', fontSize: '11px', color: '#b13e53',
@@ -186,7 +196,10 @@ export class OfficeScene extends Phaser.Scene {
         const wy = s.isLunch ? y - 6 + LUNCH_SHIFT : y - 6
         const worker = this.add.image(wx, wy, 'worker').setScale(SCALE).setInteractive({ useHandCursor: true })
         // Клик по сотруднику — мотивация: +25% на 3 часа с кулдауном.
-        worker.on('pointerdown', () => client.send('motivate', nav.activeOffice, { slot: i }))
+        worker.on('pointerdown', () => {
+        playSfx(this, 'click')
+        client.send('motivate', nav.activeOffice, { slot: i })
+      })
         worker.on('pointerover', () => {
           this.hoveredSlot = i
           this.showTooltip(e, s, wx, wy)
@@ -251,7 +264,10 @@ export class OfficeScene extends Phaser.Scene {
         this.objects.push(this.add.text(ax, ay, `${a.label}\n${fmtMoney(a.price)}`, {
           fontFamily: 'monospace', fontSize: '10px', color: '#5d7275', align: 'center',
         }).setOrigin(0.5))
-        box.on('pointerdown', () => client.send(a.cmd, nav.activeOffice))
+        box.on('pointerdown', () => {
+          playSfx(this, 'select')
+          client.send(a.cmd, nav.activeOffice)
+        })
       }
     })
     this.objects.push(...drawDebugFrames(this, this.objects))

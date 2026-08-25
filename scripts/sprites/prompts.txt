@@ -1,0 +1,19 @@
+# Промпты спрайтов: имя|описание (ITGAME-6). Стиль-префикс добавляет
+# gen-sprites.sh автоматически. Порядок = приоритет генерации.
+# office_floor_tile|seamless office floor tile, grey-blue carpet
+# office_wall_tile|office wall with window, night city outside
+# desk_pc|office desk with desktop computer and monitor
+# desk_empty|empty office desk
+# router|small network router with antennas
+# rack_server|tall server rack with blinking lights
+# rack_empty|empty server rack frame
+# cooler|water cooler with blue bottle
+# fridge|small office fridge
+# coffee_machine|coffee machine with cup
+# gateway|network gateway device with globe icon
+# worker|office worker sitting, back view
+# boss|office boss standing with tablet
+# icon_hud_money|dollar coin icon
+# icon_hud_network|network node icon
+# bg_victory|celebrating office scene with confetti
+# bg_bankruptcy|empty dark office with broken computer

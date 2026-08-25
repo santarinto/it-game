@@ -6,6 +6,7 @@ import { fmtMoney } from '../format'
 import { nav } from '../rooms'
 import { debug, drawDebugFrames, setDebug } from '../debug'
 import { showModal } from '../ui/modal'
+import { playSfx } from '../audio'
 
 const CX = GAME_W / 2 // центр поля — якорь модалок и тостов
 
@@ -91,10 +92,22 @@ export class HUDScene extends Phaser.Scene {
       fontFamily: 'monospace', fontSize: '15px', color: '#38b764',
     })
 
-    this.pcBtn = this.makeButton(420, 10, () => client.send('buy_pc', nav.activeOffice))
-    this.hireBtn = this.makeButton(420, 52, () => client.send('hire', nav.activeOffice))
-    this.bossBtn = this.makeButton(640, 10, () => client.send('hire_boss', nav.activeOffice))
-    this.gatewayBtn = this.makeButton(640, 52, () => client.send('buy_gateway'))
+    this.pcBtn = this.makeButton(420, 10, () => {
+      playSfx(this, 'select')
+      client.send('buy_pc', nav.activeOffice)
+    })
+    this.hireBtn = this.makeButton(420, 52, () => {
+      playSfx(this, 'select')
+      client.send('hire', nav.activeOffice)
+    })
+    this.bossBtn = this.makeButton(640, 10, () => {
+      playSfx(this, 'select')
+      client.send('hire_boss', nav.activeOffice)
+    })
+    this.gatewayBtn = this.makeButton(640, 52, () => {
+      playSfx(this, 'select')
+      client.send('buy_gateway')
+    })
 
     // Темп времени: пауза и множители. Активная кнопка подсвечивается по speed
     // из снапшота — сервер источник истины.
@@ -133,7 +146,10 @@ export class HUDScene extends Phaser.Scene {
 
     const unsub = client.subscribe({
       onState: (s) => this.refresh(s),
-      onError: (code) => this.toast(ERROR_TEXTS[code] ?? code),
+      onError: (code) => {
+        playSfx(this, 'error')
+        this.toast(ERROR_TEXTS[code] ?? code)
+      },
       onDisconnect: () => this.showDisconnect(),
       onDayReport: (r) => this.onDayReport(r),
       onGameOver: (o) => this.showGameOver(o),
@@ -249,7 +265,13 @@ export class HUDScene extends Phaser.Scene {
 
   // Панель события Unseen Forces: не модальная — игра идёт дальше,
   // пока игрок думает (цифры обновляются с каждым снапшотом).
+  private lastEventId = ''
+
   private showEvent(ev: NonNullable<StateMessage['activeEvent']>) {
+    if (ev.id !== this.lastEventId) {
+      this.lastEventId = ev.id
+      playSfx(this, 'question')
+    }
     this.closeEvent()
     const panel = this.add.rectangle(CX, 148, 480, 176, 0x14162b).setStrokeStyle(2, 0xffcd75).setDepth(40)
     const title = this.add
@@ -359,6 +381,7 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private onDayReport(r: DayReportMessage) {
+    playSfx(this, r.profit >= 0 ? 'bong' : 'drop')
     if (this.skipReports) {
       client.send('next_day')
       this.toast(`День ${r.day}: прибыль ${fmtMoney(r.profit)} · баланс ${fmtMoney(r.balance)}`)
@@ -425,6 +448,7 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private showGameOver(o: GameOverMessage) {
+    playSfx(this, 'glitch')
     this.closeReport()
     this.closeGameOver()
     const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.9).setOrigin(0).setDepth(60).setInteractive()
@@ -461,6 +485,7 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private showVictory(v: VictoryMessage) {
+    playSfx(this, 'confirmation')
     this.closeReport()
     this.closeVictory()
     const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.9).setOrigin(0).setDepth(60).setInteractive()

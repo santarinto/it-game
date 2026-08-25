@@ -143,3 +143,28 @@ PostgreSQL опциональна: геймплей от неё не завис�
 - Вехи развития: docs/stages/
 - Геймдизайн (живой): docs/design/gdd.md
 - Спека итерации 1: docs/superpowers/specs/2026-07-11-it-director-mvp-design.md
+
+## Ассеты: спрайты и звук (ITGAME-6, итерация 13)
+
+Правило «пиксель-арт только кодогеном» (итерации 1-12) сменилось:
+графика — dev-time пайплайн AI-генерации, игра остаётся полностью
+офлайн, в репо коммитятся готовые PNG.
+
+- **Пайплайн:** `scripts/gen-sprites.sh` — промпты
+  `scripts/sprites/prompts.txt` → API генератора → постобработка
+  `scripts/sprites/remap.sh` (downscale до 16/32px + квантизация в
+  палитру Sweetie-16) → `client/public/assets/sprites/`.
+- **Ключ** — в `.env` корня репо (gitignored): `SPRITES_API_KEY=...`,
+  опционально `SPRITES_API_URL`/`SPRITES_API_MODEL` (по умолчанию —
+  Leonardo AI REST; интеграционная часть не проверена живым ключом —
+  сверься с документацией своего сервиса перед первым прогоном).
+- **Куриция:** автопроверка читаемости силуэта — локальной vision-
+  моделью LocalMind (`localmind_recognize` MCP по пути к PNG с
+  промптом «что изображено и читается ли силуэт на 32px»), ручная
+  доводка — Aseprite.
+- **Звук:** SFX из CC0-пака [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds)
+  (лицензия CC0 1.0) — `client/public/assets/sfx/`, проигрывание
+  `client/src/audio.ts` (клик, покупка, ошибка, событие, итоги дня).
+- Кодоген `client/src/pixelart.ts` остаётся фолбэком: PNG из
+  `assets/sprites/` подменяют текстуры по мере появления (поэтапно:
+  тайлы и устройства, затем персонажи).
