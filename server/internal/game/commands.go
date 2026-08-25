@@ -369,6 +369,16 @@ func (g *Game) NextRouterPrice(office int) int {
 	return g.cfg.RouterTiers[tier].Price
 }
 
+// NextRouterPorts — порты следующего тира роутера офиса; 0 на максимуме.
+// Для превью «+N в сеть» перед покупкой (итерация 11).
+func (g *Game) NextRouterPorts(office int) int {
+	tier := g.Offices[office].RouterTier
+	if tier >= len(g.cfg.RouterTiers) {
+		return 0
+	}
+	return g.cfg.RouterTiers[tier].Ports
+}
+
 // hiredAfterLunch — найм после обеда: без зарплаты в день найма (Task 3).
 func (g *Game) hiredAfterLunch() bool {
 	return g.TickInDay >= g.cfg.lunchEndTick()

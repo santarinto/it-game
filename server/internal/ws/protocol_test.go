@@ -65,6 +65,50 @@ func TestSnapshotOfficeDetails(t *testing.T) {
 	}
 }
 
+// TestSnapshotOfflineReason — причина отсутствия сети по звеньям цепочки
+// (итерация 11): роутер → core → стойка.
+func TestSnapshotOfflineReason(t *testing.T) {
+	g := game.New(game.DefaultConfig())
+	g.CoreLevel = 2 // 16 мест; core раздаёт офисам по порядку
+	g.Offices[0].PCs = 9
+	g.Offices[0].RouterTier = 2 // 9 портов: все 9 мест О1 в core
+	g.Offices[1].Unlocked = true
+	g.Offices[1].PCs = 9
+	g.Offices[1].RouterTier = 2 // 9 портов, но core осталось 16−9=7
+	staff := func(n int) []game.Employee {
+		s := make([]game.Employee, n)
+		for i := range s {
+			s[i] = game.Employee{Name: "Тест Тестов", IncomePerTick: 10}
+		}
+		return s
+	}
+	g.Offices[0].Employees = staff(9)
+	g.Offices[1].Employees = staff(9)
+	s := snapshot(g, 1)
+	// Стоек нет нигде: место в core без стойки — no_server.
+	if r := s.Offices[0].Employees[0].OfflineReason; r != "no_server" {
+		t.Errorf("в core без стойки: reason=%q, хотим no_server", r)
+	}
+	// О2 получил 7 мест core: 0-6 no_server, 7-8 за ёмкостью — no_core.
+	if r := s.Offices[1].Employees[6].OfflineReason; r != "no_server" {
+		t.Errorf("О2 сотр.7 в core: reason=%q, хотим no_server", r)
+	}
+	if r := s.Offices[1].Employees[7].OfflineReason; r != "no_core" {
+		t.Errorf("О2 сотр.8 за core: reason=%q, хотим no_core", r)
+	}
+	if s.Offices[0].NextPorts != 12 {
+		t.Errorf("nextPorts офиса 0 = %d, хотим 12 (тир 3)", s.Offices[0].NextPorts)
+	}
+	// Роутера нет: сотрудник офиса без роутера — no_router.
+	g2 := game.New(game.DefaultConfig())
+	g2.Offices[0].PCs = 1
+	g2.Offices[0].Employees = []game.Employee{{Name: "Тест Тестов", IncomePerTick: 10}}
+	s2 := snapshot(g2, 1)
+	if r := s2.Offices[0].Employees[0].OfflineReason; r != "no_router" {
+		t.Errorf("без роутера offlineReason = %q, хотим no_router", r)
+	}
+}
+
 func TestSnapshotAmenitiesAndEffects(t *testing.T) {
 	g := game.New(game.DefaultConfig())
 	g.Offices[0].PCs = 1

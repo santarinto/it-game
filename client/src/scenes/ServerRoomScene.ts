@@ -4,6 +4,7 @@ import { GAME_H, GAME_W, HUD_H, NAV_W } from '../layout'
 import { client } from '../net'
 import { drawDebugFrames } from '../debug'
 import { showModal } from '../ui/modal'
+import { coreGain, serverGain } from '../network-preview'
 import type { StateMessage } from '../protocol'
 
 const SCALE = 4 // 9 стоек + core + шлюз — мельче, чем прежние три
@@ -113,17 +114,21 @@ export class ServerRoomScene extends Phaser.Scene {
   }
 
   private openServerModal(s: StateMessage, oi: number, sl: number) {
-    const srv = s.offices[oi].servers[sl]
+    const o = s.offices[oi]
+    const srv = o.servers[sl]
     if (!srv) {
       // buy_server ставит в первую пустую стойку; пустые стойки неотличимы,
       // поэтому неважно, по которой из них кликнули.
       const lvl1 = s.prices.serverLevels[0]
-      showModal(this, `Стойка ${sl + 1} — офис ${oi + 1}`, [
+      const gain = serverGain(o)
+      const lines = [
         'Пустая стойка.',
         `Сервер ур.1 даёт ×${lvl1.mult.toFixed(1)}`,
         'четырём работникам офиса.',
-      ], [{ label: `Купить ${fmtMoney(lvl1.price)}`, onClick: () => client.send('buy_server', oi) }],
-      { filled: 0, total: 24 })
+        ...(gain > 0 ? [`≈ +${gain} в сеть после покупки`] : ['Ждущих обслуживания нет — наймите людей']),
+      ]
+      showModal(this, `Стойка ${sl + 1} — офис ${oi + 1}`, lines, [{ label: `Купить ${fmtMoney(lvl1.price)}`, onClick: () => client.send('buy_server', oi) }],
+        { filled: 0, total: 24 })
       return
     }
     const lines = [
@@ -148,6 +153,21 @@ export class ServerRoomScene extends Phaser.Scene {
           ...(c.mult > 1 ? [`Бонус ×${c.mult.toFixed(1)} всем за серверами`] : []),
         ]
       : ['Стойка роутеров пуста — роутеры офисов', 'не достают до серверов.']
+    // Схема цепочки: кто сколько мест занимает в каждом звене (итерация 11).
+    lines.push('', 'ЦЕПЬ: место → роутер → core → стойка')
+    s.offices.forEach((o, oi) => {
+      if (!o.unlocked) {
+        lines.push(`О${oi + 1}: закрыт`)
+        return
+      }
+      const router = o.routerTier > 0 ? `роутер т${o.routerTier} (${o.ports})` : 'роутера нет'
+      lines.push(`О${oi + 1}: ${router} · ${o.employees.length} сотр. · стоек ${o.servers.length}`)
+    })
+    lines.push(s.gateway ? 'шлюз: интернет ×1.2' : 'шлюза нет')
+    if (!c.maxed) {
+      const gain = coreGain(s)
+      lines.push(gain > 0 ? `≈ +${gain} в сеть после апгрейда` : 'Ждущих места в core нет')
+    }
     if (c.maxed) lines.push('Уровень максимальный')
     const buttons = c.maxed
       ? []

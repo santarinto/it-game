@@ -224,6 +224,7 @@ export class HUDScene extends Phaser.Scene {
     } else {
       this.closeEvent() // отчёт дня/победа/банкротство глушат панель
     }
+    this.checkHints(s)
     this.debugFrames.forEach((f) => f.destroy())
     this.debugFrames = drawDebugFrames(this, this.hudInteractive)
   }
@@ -279,14 +280,59 @@ export class HUDScene extends Phaser.Scene {
     return { setLabel: (s: string) => txt.setText(s) }
   }
 
-  private toast(text: string) {
+  private toast(text: string, ms = 1500) {
     const t = this.add
       .text(CX, GAME_H - 40, text, {
         fontFamily: 'monospace', fontSize: '18px', color: '#f4f4f4',
         backgroundColor: '#b13e53', padding: { x: 12, y: 6 },
       })
       .setOrigin(0.5)
-    this.tweens.add({ targets: t, alpha: 0, y: GAME_H - 80, duration: 1500, onComplete: () => t.destroy() })
+    this.tweens.add({ targets: t, alpha: 0, y: GAME_H - 80, duration: ms, delay: ms * 2, onComplete: () => t.destroy() })
+  }
+
+  // Онбординг-хинты (итерация 11): одноразовые тосты по триггерам.
+  // Один хинт за снапшот — очередь не копится, следующий придёт своим ходом.
+  private checkHints(s: StateMessage) {
+    if (s.phase !== 'running') return
+    const office = s.offices[nav.activeOffice]
+    const emps = office.employees
+    const anyEmp = s.offices.some((o) => o.employees.length > 0)
+    const clockH = parseInt(s.clock.slice(0, 2), 10)
+    const hints: { id: string; when: boolean; text: string }[] = [
+      {
+        id: 'master', when: s.offices.some((o) => o.employees.some((e) => e.pcBroken)),
+        text: 'ПК сломан: доход места 0. Чините кликами по столу или мастером',
+      },
+      {
+        id: 'router', when: emps.some((e) => e.offlineReason === 'no_router'),
+        text: 'Сотрудник вне сети: роутер офиса ведёт к серверам (×1.2+). Купите роутер',
+      },
+      {
+        id: 'core', when: emps.some((e) => e.offlineReason === 'no_core'),
+        text: 'Мест в стойке роутеров (core) не хватило — расширьте её в серверной',
+      },
+      {
+        id: 'server', when: emps.some((e) => e.offlineReason === 'no_server'),
+        text: 'Core есть, но стойка не обслуживает сотрудника — купите серверную стойку',
+      },
+      {
+        id: 'cooler', when: anyEmp && !office.cooler && clockH >= 12,
+        text: 'Жажда −10% с 12:00 — кулер снимает дебафф',
+      },
+      {
+        id: 'fridge', when: anyEmp && !office.fridge && clockH >= 15,
+        text: 'Голод −10% после обеда — холодильник снимает дебафф',
+      },
+      {
+        id: 'motivate', when: anyEmp && clockH >= 11,
+        text: 'Клик по сотруднику мотивирует: +25% на 3 часа',
+      },
+    ]
+    const hint = hints.find((h) => h.when && !localStorage.getItem('hint:' + h.id))
+    if (hint) {
+      localStorage.setItem('hint:' + hint.id, '1')
+      this.toast(hint.text, 2200)
+    }
   }
 
   private onDayReport(r: DayReportMessage) {

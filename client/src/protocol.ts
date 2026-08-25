@@ -37,6 +37,8 @@ export interface EmployeeInfo {
   effects: EffectInfo[]
   netMult: number
   serverSlot: number // 1-based сервер; 0 — без сервера
+  // Видимость сети (итерация 11): причина отсутствия сетевого бонуса.
+  offlineReason: '' | 'no_router' | 'no_core' | 'no_server'
   // Активный день (итерация 9).
   pcBroken: boolean // ПК сломан: доход места 0 до починки
   repairClicks: number // клики починки уже сделаны
@@ -52,6 +54,7 @@ export interface OfficeInfo {
   routerTier: number
   ports: number
   nextRouter: number
+  nextPorts: number // порты следующего тира; 0 — тир максимальный
   boss: string
   bossUnpaidToday: boolean
   employees: EmployeeInfo[]

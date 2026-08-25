@@ -6,10 +6,18 @@ import { nav } from '../rooms'
 import type { CommandType, EmployeeInfo, OfficeInfo, StateMessage } from '../protocol'
 import { drawDebugFrames } from '../debug'
 import { showModal } from '../ui/modal'
+import { coreFree, routerGain } from '../network-preview'
 
 const SCALE = 4 // 16px спрайт → 64px на экране
 const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
 const LUNCH_SHIFT = 24 // на обеде сотрудник отходит от стола
+
+// Метки причин отсутствия сети над столом (итерация 11).
+const OFFLINE_LABELS: Record<string, string> = {
+  no_router: '✗ роутер',
+  no_core: '✗ core',
+  no_server: 'без стойки',
+}
 
 export class OfficeScene extends Phaser.Scene {
   private objects: Phaser.GameObjects.GameObject[] = []
@@ -199,8 +207,17 @@ export class OfficeScene extends Phaser.Scene {
             this.hoveredSlot = -1
           }
         }
-        if (e.connected) {
+        if (e.connected && e.serverSlot > 0) {
           this.objects.push(this.add.circle(x + 30, y - 30, 4, 0x38b764))
+        }
+        // Видимость сети (итерация 11): метка-причина над проблемным
+        // столом — точка 4px «почему я без бонуса» не объясняла.
+        if (e.offlineReason) {
+          const label = OFFLINE_LABELS[e.offlineReason] ?? e.offlineReason
+          const color = e.offlineReason === 'no_server' ? '#5d7275' : '#b13e53'
+          this.objects.push(this.add.text(x + 30, y - 44, label, {
+            fontFamily: 'monospace', fontSize: '9px', color,
+          }).setOrigin(0.5))
         }
         // Жёлтый значок-бейдж, пока действует мотивация кликом.
         if (e.effects.some((ef) => ef.token === 'motivated')) {
@@ -251,6 +268,14 @@ export class OfficeScene extends Phaser.Scene {
       `Зарплата:  ${fmtMoney(e.salary)}/день${e.unpaidToday ? ' (сегодня без оплаты)' : ''}`,
     ]
     lines.push(e.serverSlot > 0 ? `сервер ${e.serverSlot} · ×${e.netMult.toFixed(1)}` : 'без сервера')
+    // Причина отсутствия сети — словами, не кодом.
+    if (e.offlineReason === 'no_router') {
+      lines.push('✗ ВНЕ СЕТИ: роутер офиса не подключает это место')
+    } else if (e.offlineReason === 'no_core') {
+      lines.push('✗ ВНЕ СЕТИ: нет места в стойке роутеров (core)')
+    } else if (e.offlineReason === 'no_server') {
+      lines.push('· в core есть, но серверная стойка не обслуживает место')
+    }
     if (e.pcBroken) {
       lines.push('ПК СЛОМАН — доход 0; кликайте по столу')
     }
@@ -284,6 +309,19 @@ export class OfficeScene extends Phaser.Scene {
     const lines = o.routerTier > 0
       ? [`Тир ${o.routerTier} · ${o.ports} портов`, `Подключено ${connected} из ${o.employees.length}`]
       : ['Роутера нет —', 'офис не подключён к сети.']
+    // Превью покупки: сколько мест доберётся до сервера (итерация 11).
+    const free = coreFree(s)
+    const gain = routerGain(o, free)
+    if (o.nextRouter > 0) {
+      const waiting = o.employees.filter((e) => e.offlineReason === 'no_router').length
+      if (gain > 0) {
+        lines.push(`≈ +${gain} в сеть после покупки`)
+      } else if (free <= 0 && waiting > 0) {
+        lines.push('Мест в core нет — сначала стойка роутеров')
+      } else if (waiting > 0) {
+        lines.push('Ждут порт роутера, но core уже занят')
+      }
+    }
     if (o.nextRouter === 0) lines.push('Тир максимальный')
     const buttons = o.nextRouter > 0
       ? [{

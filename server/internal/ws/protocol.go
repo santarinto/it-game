@@ -55,6 +55,7 @@ type officeInfo struct {
 	RouterTier      int            `json:"routerTier"`
 	Ports           int            `json:"ports"`
 	NextRouter      int            `json:"nextRouter"` // 0 — тир максимальный
+	NextPorts       int            `json:"nextPorts"`  // порты следующего тира; 0 — тир максимальный
 	Servers         []serverInfo   `json:"servers"`
 	ServerSlots     int            `json:"serverSlots"`
 	Boss            string         `json:"boss"` // "" — начальника нет
@@ -77,6 +78,10 @@ type employeeInfo struct {
 	Effects                []effectInfo `json:"effects"`
 	NetMult                float64      `json:"netMult"`    // итоговый сетевой множитель
 	ServerSlot             int          `json:"serverSlot"` // 1-based сервер работника; 0 — без сервера
+	// Видимость сети (итерация 11): причина, почему место без бонусов сети.
+	// '' — всё хорошо; no_router — нет роутера/порта; no_core — нет места
+	// в стойке роутеров; no_server — в core есть, серверной стойки нет.
+	OfflineReason string `json:"offlineReason"`
 	// Активный день (итерация 9).
 	PCBroken        bool   `json:"pcBroken"`        // ПК сломан: доход места 0
 	RepairClicks    int    `json:"repairClicks"`    // клики почивки уже сделаны
@@ -198,12 +203,24 @@ func snapshot(g *game.Game, speed int) stateMessage {
 			if e.MotivateCooldownUntil > g.TickInDay {
 				readyAt = g.ClockAt(e.MotivateCooldownUntil)
 			}
+			// Причина отсутствия сети: сверяется с логикой Network() —
+			// ports режут первых, потом ёмкость core, стойки обслуживают четвёрками.
+			reason := ""
+			ports := o.Ports(cfg)
+			switch {
+			case i >= ports:
+				reason = "no_router"
+			case !net.CoreLinked[oi][i]:
+				reason = "no_core"
+			case net.ServerSlot[oi][i] == 0:
+				reason = "no_server"
+			}
 			employees[i] = employeeInfo{Name: e.Name, IncomePerTick: e.IncomePerTick,
 				EffectiveIncomePerTick: g.EffectiveIncomePerTick(o, &o.Employees[i]),
 				Connected:              net.CoreLinked[oi][i], UnpaidToday: e.UnpaidToday, Effects: effects,
 				NetMult: net.Mults[oi][i], ServerSlot: net.ServerSlot[oi][i],
 				PCBroken: e.PCBroken, RepairClicks: e.RepairClicks, MotivateReadyAt: readyAt,
-				Salary: cfg.SalaryPerDay + e.SalaryAdd}
+				Salary: cfg.SalaryPerDay + e.SalaryAdd, OfflineReason: reason}
 		}
 		// Не nil: nil-срез маршалится в JSON null, а клиент ждёт массив.
 		servers := make([]serverInfo, 0, len(o.Servers))
@@ -226,7 +243,8 @@ func snapshot(g *game.Game, speed int) stateMessage {
 		offices[oi] = officeInfo{
 			Unlocked: o.Unlocked, Price: price, PCs: o.PCs,
 			RouterTier: o.RouterTier, Ports: o.Ports(cfg),
-			NextRouter: g.NextRouterPrice(oi), Servers: servers, ServerSlots: cfg.ServerSlotsPerOffice(),
+			NextRouter: g.NextRouterPrice(oi), NextPorts: g.NextRouterPorts(oi),
+			Servers: servers, ServerSlots: cfg.ServerSlotsPerOffice(),
 			Boss: o.Boss, BossUnpaidToday: o.BossUnpaidToday, Cooler: o.Cooler,
 			Fridge: o.Fridge, CoffeeMachine: o.CoffeeMachine, Employees: employees,
 			VirusUntil: virusUntil,
