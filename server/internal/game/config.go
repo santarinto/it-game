@@ -51,6 +51,19 @@ type Config struct {
 	BreakdownChancePct    int     // шанс поломки ПК за тик на офис, %
 	RepairClicksNeeded    int     // кликов по столу для починки
 	MasterCallPrice       int     // «вызвать мастера»: мгновенная починка
+
+	// Unseen Forces (итерация 10): дневные события. Числа — GDD «События».
+	EventChancePct  int     // шанс события в дне, %
+	EventSecondPct  int     // шанс второго события в дне, %
+	EventK          float64 // жёсткость от сложности: динамические штрафы ×K, премии ÷K
+	VirusMult       float64 // вирус: множитель дохода офиса
+	VirusTicks      int     // вирус: длительность, тиков
+	VirusPrice      int     // антивирус (ApplyDifficulty уже умножает на EventK)
+	AuditReward     int     // аудит: субсидия за топ-конфиг (÷EventK в ApplyDifficulty)
+	AuditPenalty    int     // аудит: штраф без топ-конфига (×EventK в ApplyDifficulty)
+	AuditMinCore    int     // аудит: минимальный уровень core для субсидии
+	RaiseBoostMult  float64 // согласие на повышение: множитель выработки навсегда
+	RaiseOffendMult float64 // отказ в повышении: множитель выработки до конца дня
 }
 
 // RouterTier — тир роутера: покупается последовательно, тир заменяет предыдущий.
@@ -132,6 +145,18 @@ func DefaultConfig() Config {
 		BreakdownChancePct:    2,
 		RepairClicksNeeded:    3,
 		MasterCallPrice:       150,
+
+		EventChancePct:  75,
+		EventSecondPct:  30,
+		EventK:          1,
+		VirusMult:       0.7,
+		VirusTicks:      18,
+		VirusPrice:      250,
+		AuditReward:     2000,
+		AuditPenalty:    1200,
+		AuditMinCore:    2,
+		RaiseBoostMult:  1.15,
+		RaiseOffendMult: 0.85,
 	}
 }
 
@@ -159,4 +184,16 @@ func (c Config) lunchEndTick() int { return (c.LunchEnd - c.WorkdayStart) * c.Ti
 func (c Config) clockAt(tick int) string {
 	minutes := tick * 60 / c.TicksPerHour
 	return fmt.Sprintf("%02d:%02d", c.WorkdayStart+minutes/60, minutes%60)
+}
+
+// deadlineTick — тик дедлайна «заработать к 17:00».
+func (c Config) deadlineTick() int { return c.DayTicks() - 2*c.TicksPerHour }
+
+// auditTick — тик проверки аудита «в 18:00».
+func (c Config) auditTick() int { return c.DayTicks() - c.TicksPerHour }
+
+// eventWindow — окно активации событий [lo, hi): после обеда, не позже
+// чем за 2 часа до конца дня (у дедлайна остаётся время).
+func (c Config) eventWindow() (lo, hi int) {
+	return 2 * c.TicksPerHour, c.DayTicks() - 2*c.TicksPerHour
 }

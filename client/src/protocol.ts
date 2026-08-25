@@ -1,7 +1,7 @@
 // Зеркало server/internal/ws/protocol.go — менять синхронно.
 
 export interface EffectInfo {
-  token: 'thirst' | 'hunger' | 'coffee' | 'motivated'
+  token: 'thirst' | 'hunger' | 'coffee' | 'motivated' | 'offended'
   percent: number
   until: string // «HH:MM»; '' — до конца дня
 }
@@ -41,6 +41,8 @@ export interface EmployeeInfo {
   pcBroken: boolean // ПК сломан: доход места 0 до починки
   repairClicks: number // клики починки уже сделаны
   motivateReadyAt: string // «HH:MM» клика возможен; '' — уже можно
+  // Unseen Forces (итерация 10).
+  salary: number // дневная зарплата этого сотрудника с надбавками
 }
 
 export interface OfficeInfo {
@@ -56,8 +58,16 @@ export interface OfficeInfo {
   cooler: boolean
   fridge: boolean
   coffeeMachine: boolean
+  virusUntil: string // вирус: «HH:MM»; '' — нет
   servers: ServerInfo[]
   serverSlots: number
+}
+
+export interface ActiveEventInfo {
+  id: 'virus' | 'deadline' | 'audit' | 'raise' | 'star'
+  title: string
+  text: string
+  options: string[] // индекс опции уходит в event_choice (slot)
 }
 
 export interface StateMessage {
@@ -81,6 +91,7 @@ export interface StateMessage {
   speed: number // темп сессии: 0 — пауза, 1..3
   difficulty: DifficultyId
   winTarget: number // цель победы, $
+  activeEvent: ActiveEventInfo | null // висящее событие Unseen Forces
   prices: {
     pc: number
     hire: number
@@ -110,6 +121,7 @@ export interface DayReportMessage {
   gatewayOpex: number
   incidents: number // поломок ПК за день
   lostIncome: number // упущено из-за поломок, $
+  events: string[] // события дня: по строке на итог
 }
 
 export interface GameOverMessage {
@@ -133,4 +145,4 @@ export type CommandType =
   | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart'
   | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed'
   | 'upgrade_server' | 'upgrade_core'
-  | 'motivate' | 'repair_click' | 'call_master'
+  | 'motivate' | 'repair_click' | 'call_master' | 'event_choice'

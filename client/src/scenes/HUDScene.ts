@@ -28,6 +28,8 @@ const ERROR_TEXTS: Record<string, string> = {
   core_maxed: 'Стойка роутеров уже максимального уровня',
   motivate_cooldown: 'Мотивация ещё не готова',
   not_broken: 'ПК не сломан',
+  no_event: 'Событие уже закрыто',
+  bad_option: 'Нет такого варианта',
 }
 
 interface Button {
@@ -48,6 +50,7 @@ export class HUDScene extends Phaser.Scene {
   private navItems: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; sub: Phaser.GameObjects.Text }[] = []
   private currentRoom: 'office' | 'serverRoom' = 'office'
   private reportUI: Phaser.GameObjects.GameObject[] = []
+  private eventUI: Phaser.GameObjects.GameObject[] = []
   private gameOverUI: Phaser.GameObjects.GameObject[] = []
   private victoryUI: Phaser.GameObjects.GameObject[] = []
   private skipReports = localStorage.getItem('skipReports') === '1'
@@ -216,8 +219,49 @@ export class HUDScene extends Phaser.Scene {
     })
     this.highlightNav()
     this.speedBtns.forEach((b) => b.bg.setStrokeStyle(2, b.speed === s.speed ? 0x41a6f6 : 0x3a3f5c))
+    if (s.activeEvent && s.phase === 'running') {
+      this.showEvent(s.activeEvent)
+    } else {
+      this.closeEvent() // отчёт дня/победа/банкротство глушат панель
+    }
     this.debugFrames.forEach((f) => f.destroy())
     this.debugFrames = drawDebugFrames(this, this.hudInteractive)
+  }
+
+  // Панель события Unseen Forces: не модальная — игра идёт дальше,
+  // пока игрок думает (цифры обновляются с каждым снапшотом).
+  private showEvent(ev: NonNullable<StateMessage['activeEvent']>) {
+    this.closeEvent()
+    const panel = this.add.rectangle(CX, 148, 480, 176, 0x14162b).setStrokeStyle(2, 0xffcd75).setDepth(40)
+    const title = this.add
+      .text(CX, 84, ev.title, { fontFamily: 'monospace', fontSize: '18px', color: '#ffcd75' })
+      .setOrigin(0.5).setDepth(41)
+    const body = this.add
+      .text(CX, 148, ev.text, {
+        fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4',
+        align: 'center', wordWrap: { width: 440 }, lineSpacing: 4,
+      })
+      .setOrigin(0.5).setDepth(41)
+    this.eventUI = [panel, title, body]
+    const n = ev.options.length
+    ev.options.forEach((label, i) => {
+      const w = n > 1 ? 226 : 300
+      const x = n > 1 ? CX - 232 + i * 238 : CX - w / 2
+      const bg = this.add.rectangle(x, 196, w, 32, 0x3b5dc9).setOrigin(0, 0)
+        .setDepth(41).setInteractive({ useHandCursor: true })
+      const txt = this.add
+        .text(x + w / 2, 212, label, { fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4' })
+        .setOrigin(0.5).setDepth(42)
+      bg.on('pointerdown', () => client.send('event_choice', 0, { slot: i }))
+      bg.on('pointerover', () => bg.setFillStyle(0x41a6f6))
+      bg.on('pointerout', () => bg.setFillStyle(0x3b5dc9))
+      this.eventUI.push(bg, txt)
+    })
+  }
+
+  private closeEvent() {
+    this.eventUI.forEach((o) => o.destroy())
+    this.eventUI = []
   }
 
   private makeButton(x: number, y: number, onClick: () => void): Button {
@@ -263,6 +307,7 @@ export class HUDScene extends Phaser.Scene {
       `Прибыль:   ${fmtMoney(r.profit)}`,
       `Баланс:    ${fmtMoney(r.balance)}`,
       ...(r.incidents > 0 ? [`Поломки:   ${r.incidents} (−${fmtMoney(r.lostIncome)})`] : []),
+      ...(r.events?.length ? ['', 'События:', ...r.events.map((e) => `· ${e}`)] : []),
     ].join('\n')
     // Подложка interactive: глушит клики по кнопкам HUD под модалкой.
     const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(50).setInteractive()

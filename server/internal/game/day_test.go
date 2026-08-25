@@ -1,6 +1,9 @@
 package game
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 // dayTestConfig — короткий день: 1 час по 3 тика, обед за пределами дня.
 func dayTestConfig() Config {
@@ -52,9 +55,11 @@ func TestDayEndsWithReport(t *testing.T) {
 	if rep == nil {
 		t.Fatal("после последнего тика дня ждём отчёт")
 	}
-	// доход 3×10=30, ФОТ 250: 1000+30-250 = 780
+	// доход 3×10=30, ФОТ 250: 1000+30-250 = 780; Events не сравнивается
+	// напрямую — в этом тесте событий нет.
 	want := DayReport{Day: 1, Income: 30, Payroll: 250, Profit: -220, Balance: 780}
-	if *rep != want {
+	rep.Events, want.Events = nil, nil
+	if !reflect.DeepEqual(*rep, want) {
 		t.Errorf("отчёт = %+v, хотим %+v", *rep, want)
 	}
 	if g.Phase != PhaseDayReport || g.Money != 780 {

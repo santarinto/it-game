@@ -33,13 +33,16 @@ type difficultySpec struct {
 	CoffeePct  int     // шанс баффа кофе (абсолютный, %)
 	DebuffMult float64 // множитель жажды и голода (абсолютный)
 	WinTarget  int     // цель победы, $
+	EventPct   int     // шанс события в дне, % (итерация 10)
+	Event2Pct  int     // шанс второго события, %
+	EventK     float64 // жёсткость событий: штрафы ×K, премии ÷K
 }
 
 var difficulties = map[Difficulty]difficultySpec{
-	DiffEasy:     {PriceK: 0.8, WageK: 0.8, StartK: 1.5, IncomeK: 1.15, CoffeePct: 50, DebuffMult: 0.95, WinTarget: 60000},
-	DiffNormal:   {PriceK: 1, WageK: 1, StartK: 1, IncomeK: 1, CoffeePct: 40, DebuffMult: 0.9, WinTarget: 120000},
-	DiffHard:     {PriceK: 1.25, WageK: 1.25, StartK: 0.9, IncomeK: 0.9, CoffeePct: 30, DebuffMult: 0.88, WinTarget: 250000},
-	DiffHardcore: {PriceK: 1.5, WageK: 1.5, StartK: 0.8, IncomeK: 0.8, CoffeePct: 20, DebuffMult: 0.85, WinTarget: 500000},
+	DiffEasy:     {PriceK: 0.8, WageK: 0.8, StartK: 1.5, IncomeK: 1.15, CoffeePct: 50, DebuffMult: 0.95, WinTarget: 60000, EventPct: 60, Event2Pct: 25, EventK: 0.7},
+	DiffNormal:   {PriceK: 1, WageK: 1, StartK: 1, IncomeK: 1, CoffeePct: 40, DebuffMult: 0.9, WinTarget: 120000, EventPct: 75, Event2Pct: 30, EventK: 1},
+	DiffHard:     {PriceK: 1.25, WageK: 1.25, StartK: 0.9, IncomeK: 0.9, CoffeePct: 30, DebuffMult: 0.88, WinTarget: 250000, EventPct: 85, Event2Pct: 35, EventK: 1.25},
+	DiffHardcore: {PriceK: 1.5, WageK: 1.5, StartK: 0.8, IncomeK: 0.8, CoffeePct: 20, DebuffMult: 0.85, WinTarget: 500000, EventPct: 95, Event2Pct: 45, EventK: 1.5},
 }
 
 // scale — денежное значение × коэффициент: округление до целого $, минимум 1.
@@ -88,5 +91,12 @@ func ApplyDifficulty(c Config, d Difficulty) Config {
 	c.IncomeMax = scale(c.IncomeMax, s.IncomeK)
 	c.CoffeeChancePct = s.CoffeePct
 	c.ThirstMult, c.HungerMult = s.DebuffMult, s.DebuffMult
+	// Unseen Forces: частота и жёсткость событий. Абсолютные цены/штрафы
+	// скалируем здесь (VirusPrice ×K, AuditPenalty ×K, AuditReward ÷K);
+	// динамические доли дедлайна умножаются на EventK в рантайме.
+	c.EventChancePct, c.EventSecondPct, c.EventK = s.EventPct, s.Event2Pct, s.EventK
+	c.VirusPrice = scale(c.VirusPrice, s.EventK)
+	c.AuditPenalty = scale(c.AuditPenalty, s.EventK)
+	c.AuditReward = scale(c.AuditReward, 1/s.EventK)
 	return c
 }

@@ -26,6 +26,10 @@ type Employee struct {
 	MotivateCooldownUntil int  // повторная мотивация возможна с этого тика дня
 	PCBroken              bool // ПК сломан: доход места 0 до починки
 	RepairClicks          int  // клики починки накоплены; чинит на RepairClicksNeeded
+
+	// Unseen Forces (итерация 10).
+	SalaryAdd     int // повышение: надбавка к дневной зарплате, навсегда
+	OffendedUntil int // отказ в повышении: дебафф пока тик < OffendedUntil
 }
 
 // Game — состояние одной игры. НЕ потокобезопасен: им владеет
@@ -46,6 +50,15 @@ type Game struct {
 	PeakIncomePerTick int // максимум дохода за тик за игру (для итогов банкротства)
 	DayIncidents      int // поломок ПК за текущий день (для отчёта)
 	DayLostIncome     int // упущено из-за поломок за текущий день (для отчёта)
+
+	// Unseen Forces (итерация 10): план дня, активное событие и рантайм
+	// дедлайна. Владеет всем этим актор сессии, как и остальным стейтом.
+	DayEvents    []DayEvent // события, роллящиеся в NextDay
+	ActiveEvent  *DayEvent  // висит, ждёт выбора (одно одновременно)
+	EventLog     []string   // итоги событий дня для отчёта
+	DeadlineOn   bool       // дедлайн принят
+	DeadlineGot  int        // накоплено $ с принятия
+	DeadlineGoal int        // цель, $
 }
 
 func New(cfg Config) *Game {
@@ -128,7 +141,7 @@ func (g *Game) PayrollPerDay() int {
 		}
 		for _, e := range o.Employees {
 			if !e.UnpaidToday {
-				total += g.cfg.SalaryPerDay
+				total += g.cfg.SalaryPerDay + e.SalaryAdd
 			}
 		}
 		if o.Boss != "" && !o.BossUnpaidToday {
@@ -169,8 +182,9 @@ type DayReport struct {
 	GatewayOpex int // операционный расход шлюза
 	Profit      int
 	Balance     int
-	Incidents   int // поломок ПК за день
-	LostIncome  int // упущено из-за поломок, $
+	Incidents   int      // поломок ПК за день
+	LostIncome  int      // упущено из-за поломок, $
+	Events      []string // события дня: по строке на итог
 }
 
 // Tick — один шаг симуляции (1 секунда). Вне фазы running — no-op.
@@ -196,10 +210,12 @@ func (g *Game) Tick() *DayReport {
 		}
 	}
 	g.rollBreakdowns()
+	g.activateEvents()
 	income, lost := g.incomeAtTickDetail(g.TickInDay)
 	g.Money += income
 	g.DayIncome += income
 	g.DayLostIncome += lost
+	g.tickEvents(income)
 	g.PeakIncomePerTick = max(g.PeakIncomePerTick, income)
 	// Победа проверяется до конца дня: достиг цели днём — победа сразу,
 	// вечерний ФОТ уже не списывается.
@@ -211,6 +227,7 @@ func (g *Game) Tick() *DayReport {
 	if g.TickInDay < g.cfg.DayTicks() {
 		return nil
 	}
+	g.autoResolveEvents()
 	expenses := g.PayrollPerDay()
 	opex := g.gatewayOpex()
 	payroll := expenses - opex
@@ -222,7 +239,7 @@ func (g *Game) Tick() *DayReport {
 	}
 	return &DayReport{Day: g.Day, Income: g.DayIncome, Payroll: payroll,
 		GatewayOpex: opex, Profit: g.DayIncome - expenses, Balance: g.Money,
-		Incidents: g.DayIncidents, LostIncome: g.DayLostIncome}
+		Incidents: g.DayIncidents, LostIncome: g.DayLostIncome, Events: g.EventLog}
 }
 
 // rollBreakdowns — инциденты дня: с шансом за тик на офис ломается ПК

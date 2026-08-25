@@ -23,22 +23,30 @@ type testMessage struct {
 		Employees []struct {
 			Name            string `json:"name"`
 			IncomePerTick   int    `json:"incomePerTick"`
+			Salary          int    `json:"salary"`
 			PCBroken        bool   `json:"pcBroken"`
 			RepairClicks    int    `json:"repairClicks"`
 			MotivateReadyAt string `json:"motivateReadyAt"`
 		} `json:"employees"`
 	} `json:"offices"`
-	Day          int    `json:"day"`
-	Phase        string `json:"phase"`
-	Speed        int    `json:"speed"`
-	Payroll      int    `json:"payroll"`
-	Balance      int    `json:"balance"`
-	Incidents    int    `json:"incidents"`
-	LostIncome   int    `json:"lostIncome"`
-	DaysSurvived int    `json:"daysSurvived"`
-	Difficulty   string `json:"difficulty"`
-	WinTarget    int    `json:"winTarget"`
-	Prices       struct {
+	Day          int      `json:"day"`
+	Phase        string   `json:"phase"`
+	Speed        int      `json:"speed"`
+	Payroll      int      `json:"payroll"`
+	Balance      int      `json:"balance"`
+	Incidents    int      `json:"incidents"`
+	LostIncome   int      `json:"lostIncome"`
+	Events       []string `json:"events"`
+	DaysSurvived int      `json:"daysSurvived"`
+	Difficulty   string   `json:"difficulty"`
+	WinTarget    int      `json:"winTarget"`
+	ActiveEvent  *struct {
+		ID      string   `json:"id"`
+		Title   string   `json:"title"`
+		Text    string   `json:"text"`
+		Options []string `json:"options"`
+	} `json:"activeEvent"`
+	Prices struct {
 		PC     int `json:"pc"`
 		Repair int `json:"repair"`
 	} `json:"prices"`
@@ -381,6 +389,58 @@ func TestActiveDayBrokenSnapshot(t *testing.T) {
 	rep := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "day_report" })
 	if rep.Incidents < 1 {
 		t.Fatalf("отчёт без инцидентов: %+v", rep)
+	}
+}
+
+// TestEventsProtocol — события «Unseen Forces»: activeEvent в снапшоте,
+// event_choice, no_event после решения, events в отчёте дня.
+func TestEventsProtocol(t *testing.T) {
+	cfg := game.DefaultConfig()
+	cfg.EventChancePct = 100 // день 2 гарантированно с событием
+	cfg.EventSecondPct = 0
+	cfg.BreakdownChancePct = 0
+	cfg.SalaryPerDay = 0 // не банкротимся за два дня
+	c, ctx := dialTestServer(t, cfg, 20*time.Millisecond)
+
+	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" })
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 0}); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, ctx, c, func(m testMessage) bool {
+		return m.Type == "state" && len(m.Offices[0].Employees) == 1
+	})
+	// День 1 без событий: дожидаемся отчёта и переходим в день 2.
+	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "day_report" })
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "next_day"}); err != nil {
+		t.Fatal(err)
+	}
+	// Событие дня 2: любая опция 0 валидна для любого типа.
+	ev := readUntil(t, ctx, c, func(m testMessage) bool {
+		return m.Type == "state" && m.Day == 2 && m.ActiveEvent != nil
+	})
+	if len(ev.ActiveEvent.Options) == 0 || ev.ActiveEvent.Title == "" {
+		t.Fatalf("событие без опций: %+v", ev.ActiveEvent)
+	}
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "event_choice", Slot: 0}); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, ctx, c, func(m testMessage) bool {
+		return m.Type == "state" && m.ActiveEvent == nil
+	})
+	// Повторный выбор без события — no_event; плохой индекс не проверяем:
+	// событие уже закрыто, проверка bad_option в юнит-тестах.
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "event_choice", Slot: 0}); err != nil {
+		t.Fatal(err)
+	}
+	e := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "error" })
+	if e.Code != "no_event" {
+		t.Fatalf("хотим no_event, получили %+v", e)
+	}
+	// Отчёт дня 2 несёт events-массив (может быть пустым после выбора,
+	// но не null).
+	rep := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "day_report" && m.Day == 2 })
+	if rep.Events == nil {
+		t.Fatal("events в отчёте дня = null, клиент ждёт массив")
 	}
 }
 

@@ -146,7 +146,12 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 				if g.Phase == game.PhaseGameOver {
 					out = gameOverMessage{Type: "game_over", DaysSurvived: g.Day, PeakIncomePerTick: g.PeakIncomePerTick, Balance: g.Money}
 				} else {
-					out = dayReportMessage{Type: "day_report", Day: report.Day, Income: report.Income, Payroll: report.Payroll, GatewayOpex: report.GatewayOpex, Profit: report.Profit, Balance: report.Balance, Incidents: report.Incidents, LostIncome: report.LostIncome}
+					// Не nil: nil-срез маршалится в JSON null, а клиент ждёт массив.
+					events := report.Events
+					if events == nil {
+						events = []string{}
+					}
+					out = dayReportMessage{Type: "day_report", Day: report.Day, Income: report.Income, Payroll: report.Payroll, GatewayOpex: report.GatewayOpex, Profit: report.Profit, Balance: report.Balance, Incidents: report.Incidents, LostIncome: report.LostIncome, Events: events}
 				}
 				if wsjson.Write(ctx, c, out) != nil {
 					return

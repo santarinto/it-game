@@ -23,27 +23,28 @@ type clientMessage struct {
 // stateMessage — полный снапшот состояния. Включает производные поля
 // (доход, порты, множитель), чтобы клиент ничего не считал сам.
 type stateMessage struct {
-	Type             string       `json:"type"` // всегда "state"
-	Money            int          `json:"money"`
-	Offices          []officeInfo `json:"offices"`
-	Gateway          bool         `json:"gateway"`
-	Core             coreInfo     `json:"core"`
-	IncomePerTick    int          `json:"incomePerTick"`
-	Day              int          `json:"day"`
-	Clock            string       `json:"clock"`   // «12:30»
-	IsLunch          bool         `json:"isLunch"` // обед: доход за тик = 0
-	TicksPerHour     int          `json:"ticksPerHour"`
-	PayrollPerDay    int          `json:"payrollPerDay"` // полные расходы дня
-	SalaryPerDay     int          `json:"salaryPerDay"`
-	BossSalaryPerDay int          `json:"bossSalaryPerDay"`
-	ForecastEndOfDay int          `json:"forecastEndOfDay"`
-	StaffLimit       int          `json:"staffLimit"`
-	OfficeSlots      int          `json:"officeSlots"`
-	Phase            string       `json:"phase"`      // running | day_report | game_over
-	Speed            int          `json:"speed"`      // темп сессии: 0 — пауза, 1..3
-	Difficulty       string       `json:"difficulty"` // easy | normal | hard | hardcore
-	WinTarget        int          `json:"winTarget"`  // цель победы, $
-	Prices           prices       `json:"prices"`
+	Type             string           `json:"type"` // всегда "state"
+	Money            int              `json:"money"`
+	Offices          []officeInfo     `json:"offices"`
+	Gateway          bool             `json:"gateway"`
+	Core             coreInfo         `json:"core"`
+	IncomePerTick    int              `json:"incomePerTick"`
+	Day              int              `json:"day"`
+	Clock            string           `json:"clock"`   // «12:30»
+	IsLunch          bool             `json:"isLunch"` // обед: доход за тик = 0
+	TicksPerHour     int              `json:"ticksPerHour"`
+	PayrollPerDay    int              `json:"payrollPerDay"` // полные расходы дня
+	SalaryPerDay     int              `json:"salaryPerDay"`
+	BossSalaryPerDay int              `json:"bossSalaryPerDay"`
+	ForecastEndOfDay int              `json:"forecastEndOfDay"`
+	StaffLimit       int              `json:"staffLimit"`
+	OfficeSlots      int              `json:"officeSlots"`
+	Phase            string           `json:"phase"`      // running | day_report | game_over
+	Speed            int              `json:"speed"`      // темп сессии: 0 — пауза, 1..3
+	Difficulty       string           `json:"difficulty"` // easy | normal | hard | hardcore
+	WinTarget        int              `json:"winTarget"`  // цель победы, $
+	ActiveEvent      *activeEventInfo `json:"activeEvent"`
+	Prices           prices           `json:"prices"`
 }
 
 // officeInfo — офис в снапшоте: всё для отрисовки комнаты и панели.
@@ -61,7 +62,8 @@ type officeInfo struct {
 	Cooler          bool           `json:"cooler"`
 	Fridge          bool           `json:"fridge"`
 	CoffeeMachine   bool           `json:"coffeeMachine"`
-	Employees       []employeeInfo `json:"employees"` // порядок = порядок найма
+	VirusUntil      string         `json:"virusUntil"` // вирус: «HH:MM»; "" — нет
+	Employees       []employeeInfo `json:"employees"`  // порядок = порядок найма
 }
 
 // employeeInfo — сотрудник в снапшоте: всё, что нужно тултипу.
@@ -79,6 +81,8 @@ type employeeInfo struct {
 	PCBroken        bool   `json:"pcBroken"`        // ПК сломан: доход места 0
 	RepairClicks    int    `json:"repairClicks"`    // клики почивки уже сделаны
 	MotivateReadyAt string `json:"motivateReadyAt"` // «HH:MM» клика возможен; "" — уже можно
+	// Unseen Forces (итерация 10).
+	Salary int `json:"salary"` // дневная зарплата этого сотрудника (с надбавками)
 }
 
 // serverInfo — сервер офиса в снапшоте: всё для модалки стойки.
@@ -113,6 +117,14 @@ type coreLevelPrice struct {
 	Mult     float64 `json:"mult"`
 }
 
+// activeEventInfo — висящее событие «Unseen Forces» (итерация 10).
+type activeEventInfo struct {
+	ID      string   `json:"id"`
+	Title   string   `json:"title"`
+	Text    string   `json:"text"`
+	Options []string `json:"options"`
+}
+
 type prices struct {
 	PC            int                `json:"pc"`
 	Hire          int                `json:"hire"`
@@ -133,15 +145,16 @@ type errorMessage struct {
 
 // dayReportMessage — итоги дня; шлётся сразу после снапшота с phase=day_report.
 type dayReportMessage struct {
-	Type        string `json:"type"` // всегда "day_report"
-	Day         int    `json:"day"`
-	Income      int    `json:"income"`
-	Payroll     int    `json:"payroll"`
-	GatewayOpex int    `json:"gatewayOpex"`
-	Profit      int    `json:"profit"`
-	Balance     int    `json:"balance"`
-	Incidents   int    `json:"incidents"`  // поломок ПК за день
-	LostIncome  int    `json:"lostIncome"` // упущено из-за поломок, $
+	Type        string   `json:"type"` // всегда "day_report"
+	Day         int      `json:"day"`
+	Income      int      `json:"income"`
+	Payroll     int      `json:"payroll"`
+	GatewayOpex int      `json:"gatewayOpex"`
+	Profit      int      `json:"profit"`
+	Balance     int      `json:"balance"`
+	Incidents   int      `json:"incidents"`  // поломок ПК за день
+	LostIncome  int      `json:"lostIncome"` // упущено из-за поломок, $
+	Events      []string `json:"events"`     // события дня: по строке на итог
 }
 
 // gameOverMessage — итоги банкротства; шлётся сразу после снапшота с phase=game_over.
@@ -189,7 +202,8 @@ func snapshot(g *game.Game, speed int) stateMessage {
 				EffectiveIncomePerTick: g.EffectiveIncomePerTick(o, &o.Employees[i]),
 				Connected:              net.CoreLinked[oi][i], UnpaidToday: e.UnpaidToday, Effects: effects,
 				NetMult: net.Mults[oi][i], ServerSlot: net.ServerSlot[oi][i],
-				PCBroken: e.PCBroken, RepairClicks: e.RepairClicks, MotivateReadyAt: readyAt}
+				PCBroken: e.PCBroken, RepairClicks: e.RepairClicks, MotivateReadyAt: readyAt,
+				Salary: cfg.SalaryPerDay + e.SalaryAdd}
 		}
 		// Не nil: nil-срез маршалится в JSON null, а клиент ждёт массив.
 		servers := make([]serverInfo, 0, len(o.Servers))
@@ -205,12 +219,17 @@ func snapshot(g *game.Game, speed int) stateMessage {
 				ServedTo:   (si + 1) * cfg.EmployeesPerServer,
 			})
 		}
+		virusUntil := ""
+		if o.VirusUntil > g.TickInDay {
+			virusUntil = g.ClockAt(o.VirusUntil)
+		}
 		offices[oi] = officeInfo{
 			Unlocked: o.Unlocked, Price: price, PCs: o.PCs,
 			RouterTier: o.RouterTier, Ports: o.Ports(cfg),
 			NextRouter: g.NextRouterPrice(oi), Servers: servers, ServerSlots: cfg.ServerSlotsPerOffice(),
 			Boss: o.Boss, BossUnpaidToday: o.BossUnpaidToday, Cooler: o.Cooler,
 			Fridge: o.Fridge, CoffeeMachine: o.CoffeeMachine, Employees: employees,
+			VirusUntil: virusUntil,
 		}
 	}
 	core := coreInfo{Level: g.CoreLevel, Connected: net.CoreUsed, Mult: 1.0}
@@ -231,6 +250,14 @@ func snapshot(g *game.Game, speed int) stateMessage {
 	for _, l := range cfg.CoreLevels {
 		coreLevels = append(coreLevels, coreLevelPrice{Capacity: l.Capacity, Price: l.Price, Mult: l.Mult})
 	}
+	var active *activeEventInfo
+	if info := g.ActiveEventInfo(); info != nil {
+		options := info.Options
+		if options == nil {
+			options = []string{}
+		}
+		active = &activeEventInfo{ID: info.ID, Title: info.Title, Text: info.Text, Options: options}
+	}
 	return stateMessage{
 		Type: "state", Money: g.Money, Offices: offices,
 		Gateway: g.Gateway, Core: core, IncomePerTick: g.IncomePerTick(),
@@ -240,6 +267,7 @@ func snapshot(g *game.Game, speed int) stateMessage {
 		ForecastEndOfDay: g.ForecastEndOfDay(), StaffLimit: cfg.StaffLimit,
 		OfficeSlots: cfg.OfficeSlots, Phase: string(g.Phase), Speed: speed,
 		Difficulty: string(cfg.Difficulty), WinTarget: cfg.WinTarget,
+		ActiveEvent: active,
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice,
 			Boss: cfg.BossPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,
 			Fridge: cfg.FridgePrice, CoffeeMachine: cfg.CoffeeMachinePrice, Repair: cfg.MasterCallPrice,

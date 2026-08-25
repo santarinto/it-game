@@ -61,6 +61,15 @@ export class OfficeScene extends Phaser.Scene {
       }).setOrigin(0.5),
     )
 
+    // Вирус: доход офиса проседает — плашка, пока лечат или терпят.
+    if (office.virusUntil) {
+      const plate = this.add.text(GAME_W / 2, HUD_H + 44, `☣ вирус −30% до ${office.virusUntil}`, {
+        fontFamily: 'monospace', fontSize: '13px', color: '#b13e53',
+        backgroundColor: '#14162b', padding: { x: 8, y: 4 },
+      }).setOrigin(0.5)
+      this.objects.push(plate)
+    }
+
     if (!office.unlocked) {
       this.objects.push(
         this.add.text(GAME_W / 2, 300, `Офис ${nav.activeOffice + 1} закрыт`, {
@@ -239,14 +248,14 @@ export class OfficeScene extends Phaser.Scene {
     const lines = [
       e.name,
       `Выработка: ${fmtMoney(effective)}/час${effective !== base ? ` (база ${fmtMoney(base)})` : ''}`,
-      `Зарплата:  ${fmtMoney(s.salaryPerDay)}/день${e.unpaidToday ? ' (сегодня без оплаты)' : ''}`,
+      `Зарплата:  ${fmtMoney(e.salary)}/день${e.unpaidToday ? ' (сегодня без оплаты)' : ''}`,
     ]
     lines.push(e.serverSlot > 0 ? `сервер ${e.serverSlot} · ×${e.netMult.toFixed(1)}` : 'без сервера')
     if (e.pcBroken) {
       lines.push('ПК СЛОМАН — доход 0; кликайте по столу')
     }
     lines.push(e.motivateReadyAt ? `мотивация: после ${e.motivateReadyAt}` : 'мотивация: готова (клик)')
-    const EFFECT_NAMES: Record<string, string> = { thirst: 'жажда', hunger: 'голоден', coffee: 'выпил кофе', motivated: 'мотивирован' }
+    const EFFECT_NAMES: Record<string, string> = { thirst: 'жажда', hunger: 'голоден', coffee: 'выпил кофе', motivated: 'мотивирован', offended: 'обижен' }
     // Ремень безопасности: старый сервер мог прислать null вместо [] —
     // краш тултипа обрывал перерисовку всей сцены.
     for (const ef of e.effects ?? []) {

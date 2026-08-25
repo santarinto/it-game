@@ -8,6 +8,7 @@ const (
 	EffectHunger    = "hunger"
 	EffectCoffee    = "coffee"
 	EffectMotivated = "motivated"
+	EffectOffended  = "offended" // отказ в повышении (итерация 10)
 )
 
 // Effect — активный эффект сотрудника (для снапшота и тултипа).
@@ -31,6 +32,12 @@ func (g *Game) effectMult(o *Office, e *Employee, tick int) float64 {
 	}
 	if e.MotivatedUntil > tick {
 		m *= g.cfg.MotivateMult
+	}
+	if o.VirusUntil > tick {
+		m *= g.cfg.VirusMult
+	}
+	if e.OffendedUntil > tick {
+		m *= g.cfg.RaiseOffendMult
 	}
 	return m
 }
@@ -59,6 +66,9 @@ func (g *Game) Effects(o *Office, e *Employee) []Effect {
 	}
 	if e.MotivatedUntil > tick {
 		out = append(out, Effect{Token: EffectMotivated, Percent: pct(g.cfg.MotivateMult), Until: e.MotivatedUntil})
+	}
+	if e.OffendedUntil > tick {
+		out = append(out, Effect{Token: EffectOffended, Percent: pct(g.cfg.RaiseOffendMult), Until: e.OffendedUntil})
 	}
 	return out
 }

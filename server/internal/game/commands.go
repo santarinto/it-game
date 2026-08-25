@@ -25,6 +25,8 @@ const (
 	ErrCoreMaxed        = Err("core_maxed")
 	ErrMotivateCooldown = Err("motivate_cooldown")
 	ErrNotBroken        = Err("not_broken")
+	ErrNoEvent          = Err("no_event")
+	ErrBadOption        = Err("bad_option")
 )
 
 // office проверяет адресата офисной команды: индекс и открытость.
@@ -315,7 +317,7 @@ func (g *Game) NextDay() error {
 		return ErrWrongPhase
 	}
 	// Сбрасываем флаги неполного дня для нанятых после обеда, баффы
-	// дня и поломки (ночной ИТ-шник чинит ПК сам).
+	// дня и поломки (ночной ИТ-шник чинит ПК и лечит вирусы сам).
 	for i := range g.Offices {
 		o := &g.Offices[i]
 		for j := range o.Employees {
@@ -325,8 +327,10 @@ func (g *Game) NextDay() error {
 			o.Employees[j].MotivateCooldownUntil = 0
 			o.Employees[j].PCBroken = false
 			o.Employees[j].RepairClicks = 0
+			o.Employees[j].OffendedUntil = 0
 		}
 		o.BossUnpaidToday = false
+		o.VirusUntil = 0
 		// Роллим кофе-события следующего дня: одно до обеда, одно после.
 		if o.CoffeeMachine {
 			o.CoffeeEventTicks = []int{
@@ -342,6 +346,7 @@ func (g *Game) NextDay() error {
 	g.DayIncome = 0
 	g.DayIncidents = 0
 	g.DayLostIncome = 0
+	g.rollDayEvents()
 	g.Phase = PhaseRunning
 	return nil
 }
@@ -393,6 +398,7 @@ const (
 	CmdMotivate      = Command("motivate")
 	CmdRepairClick   = Command("repair_click")
 	CmdCallMaster    = Command("call_master")
+	CmdEventChoice   = Command("event_choice")
 )
 
 // Apply выполняет команду игрока; офисные команды адресуются индексом office,
@@ -438,6 +444,9 @@ func (g *Game) Apply(cmd Command, office, slot int) error {
 		return g.RepairClick(office, slot)
 	case CmdCallMaster:
 		return g.CallMaster(office, slot)
+	case CmdEventChoice:
+		// slot — индекс опции активного события (см. спеку итерации 10).
+		return g.ChooseEvent(slot)
 	default:
 		return ErrUnknownCommand
 	}
