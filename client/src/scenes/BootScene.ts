@@ -8,7 +8,6 @@ export class BootScene extends Phaser.Scene {
 
   create() {
     registerTextures(this)
-    this.scene.start('office')
-    this.scene.launch('hud') // HUD живёт поверх комнат
+    this.scene.start('menu')
   }
 }

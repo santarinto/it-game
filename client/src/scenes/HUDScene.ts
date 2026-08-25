@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { GAME_H, GAME_W, HUD_H, NAV_W } from '../layout'
 import { client } from '../net'
-import type { DayReportMessage, GameOverMessage, StateMessage } from '../protocol'
+import type { DayReportMessage, GameOverMessage, StateMessage, VictoryMessage } from '../protocol'
 import { fmtMoney } from '../format'
 import { nav } from '../rooms'
 import { debug, drawDebugFrames, setDebug } from '../debug'
@@ -38,6 +38,7 @@ export class HUDScene extends Phaser.Scene {
   private netText!: Phaser.GameObjects.Text
   private payrollText!: Phaser.GameObjects.Text
   private dayText!: Phaser.GameObjects.Text
+  private goalText!: Phaser.GameObjects.Text
   private pcBtn!: Button
   private hireBtn!: Button
   private bossBtn!: Button
@@ -46,6 +47,7 @@ export class HUDScene extends Phaser.Scene {
   private currentRoom: 'office' | 'serverRoom' = 'office'
   private reportUI: Phaser.GameObjects.GameObject[] = []
   private gameOverUI: Phaser.GameObjects.GameObject[] = []
+  private victoryUI: Phaser.GameObjects.GameObject[] = []
   private skipReports = localStorage.getItem('skipReports') === '1'
   private switching = false
   private speedBtns: { bg: Phaser.GameObjects.Rectangle; speed: number }[] = []
@@ -73,6 +75,9 @@ export class HUDScene extends Phaser.Scene {
     })
     this.dayText = this.add
       .text(GAME_W - 16, 70, '', { fontFamily: 'monospace', fontSize: '13px', color: '#5d7275' })
+      .setOrigin(1, 0)
+    this.goalText = this.add
+      .text(GAME_W - 16, 52, '', { fontFamily: 'monospace', fontSize: '13px', color: '#ffcd75' })
       .setOrigin(1, 0)
 
     this.pcBtn = this.makeButton(420, 10, () => client.send('buy_pc', nav.activeOffice))
@@ -113,6 +118,7 @@ export class HUDScene extends Phaser.Scene {
       onDisconnect: () => this.showDisconnect(),
       onDayReport: (r) => this.onDayReport(r),
       onGameOver: (o) => this.showGameOver(o),
+      onVictory: (v) => this.showVictory(v),
     })
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, unsub)
   }
@@ -185,6 +191,7 @@ export class HUDScene extends Phaser.Scene {
     if (s.phase === 'running') {
       this.closeReport()
       this.closeGameOver()
+      this.closeVictory()
     }
     const employees = s.offices.flatMap((o) => o.employees)
     const active = s.offices[nav.activeOffice]
@@ -194,6 +201,7 @@ export class HUDScene extends Phaser.Scene {
     // Прогноз считает сервер: клиент не знает про обеденные тики.
     this.payrollText.setColor(s.forecastEndOfDay < 0 ? '#b13e53' : '#5d7275')
     this.dayText.setText(`День ${s.day} · ${s.clock}${s.isLunch ? ' · обед' : ''}`)
+    this.goalText.setText(`Цель: ${fmtMoney(s.winTarget)}`)
     this.netText.setText(`Сотрудники: ${employees.length} · в сети ${s.core.connected}/${employees.length}`)
     this.pcBtn.setLabel(`Купить ПК  ${fmtMoney(s.prices.pc)}`)
     this.hireBtn.setLabel(`Нанять  ${fmtMoney(s.prices.hire)}`)
@@ -317,9 +325,9 @@ export class HUDScene extends Phaser.Scene {
       .rectangle(CX - 100, 380, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(61)
       .setInteractive({ useHandCursor: true })
     const btnText = this.add
-      .text(CX, 397, 'Начать заново', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
+      .text(CX, 397, 'В меню', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
       .setOrigin(0.5).setDepth(62)
-    btnBg.on('pointerdown', () => client.send('restart'))
+    btnBg.on('pointerdown', () => this.returnToMenu())
     btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
     btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
     this.gameOverUI = [overlay, title, body, btnBg, btnText]
@@ -329,5 +337,49 @@ export class HUDScene extends Phaser.Scene {
   private closeGameOver() {
     this.gameOverUI.forEach((o) => o.destroy())
     this.gameOverUI = []
+  }
+
+  private static DIFF_LABELS: Record<string, string> = {
+    easy: 'Легко', normal: 'Норма', hard: 'Сложно', hardcore: 'Хардкор',
+  }
+
+  private showVictory(v: VictoryMessage) {
+    this.closeReport()
+    this.closeVictory()
+    const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.9).setOrigin(0).setDepth(60).setInteractive()
+    const title = this.add
+      .text(CX, 220, 'ПОБЕДА!', { fontFamily: 'monospace', fontSize: '32px', color: '#38b764' })
+      .setOrigin(0.5).setDepth(61)
+    const body = this.add
+      .text(CX, 300, [
+        `Сложность: ${HUDScene.DIFF_LABELS[v.difficulty] ?? v.difficulty}`,
+        `Дней прошло: ${v.day}`,
+        `Баланс: ${fmtMoney(v.balance)}`,
+      ].join('\n'), { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8, align: 'center' })
+      .setOrigin(0.5).setDepth(61)
+    const btnBg = this.add
+      .rectangle(CX - 100, 380, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(61)
+      .setInteractive({ useHandCursor: true })
+    const btnText = this.add
+      .text(CX, 397, 'В меню', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
+      .setOrigin(0.5).setDepth(62)
+    btnBg.on('pointerdown', () => this.returnToMenu())
+    btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
+    btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
+    this.victoryUI = [overlay, title, body, btnBg, btnText]
+    this.victoryUI.push(...drawDebugFrames(this, this.victoryUI))
+  }
+
+  private closeVictory() {
+    this.victoryUI.forEach((o) => o.destroy())
+    this.victoryUI = []
+  }
+
+  // Возврат в меню: намеренный разрыв WS (новая игра = новое подключение).
+  private returnToMenu() {
+    client.disconnect()
+    this.scene.stop('office')
+    this.scene.stop('serverRoom')
+    this.scene.start('menu') // start глушит hud
   }
 }

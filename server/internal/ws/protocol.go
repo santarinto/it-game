@@ -39,8 +39,10 @@ type stateMessage struct {
 	ForecastEndOfDay int          `json:"forecastEndOfDay"`
 	StaffLimit       int          `json:"staffLimit"`
 	OfficeSlots      int          `json:"officeSlots"`
-	Phase            string       `json:"phase"` // running | day_report | game_over
-	Speed            int          `json:"speed"` // темп сессии: 0 — пауза, 1..3
+	Phase            string       `json:"phase"`      // running | day_report | game_over
+	Speed            int          `json:"speed"`      // темп сессии: 0 — пауза, 1..3
+	Difficulty       string       `json:"difficulty"` // easy | normal | hard | hardcore
+	WinTarget        int          `json:"winTarget"`  // цель победы, $
 	Prices           prices       `json:"prices"`
 }
 
@@ -143,6 +145,14 @@ type gameOverMessage struct {
 	Balance           int    `json:"balance"` // отрицательный: сколько не хватило
 }
 
+// victoryMessage — итоги победы; шлётся сразу после снапшота с phase=won.
+type victoryMessage struct {
+	Type       string `json:"type"` // всегда "victory"
+	Difficulty string `json:"difficulty"`
+	Day        int    `json:"day"`
+	Balance    int    `json:"balance"`
+}
+
 func snapshot(g *game.Game, speed int) stateMessage {
 	cfg := g.Config()
 	net := g.Network()
@@ -217,6 +227,7 @@ func snapshot(g *game.Game, speed int) stateMessage {
 		SalaryPerDay: cfg.SalaryPerDay, BossSalaryPerDay: cfg.BossSalaryPerDay,
 		ForecastEndOfDay: g.ForecastEndOfDay(), StaffLimit: cfg.StaffLimit,
 		OfficeSlots: cfg.OfficeSlots, Phase: string(g.Phase), Speed: speed,
+		Difficulty: string(cfg.Difficulty), WinTarget: cfg.WinTarget,
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice,
 			Boss: cfg.BossPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,
 			Fridge: cfg.FridgePrice, CoffeeMachine: cfg.CoffeeMachinePrice,

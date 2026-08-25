@@ -1,12 +1,10 @@
 import Phaser from 'phaser'
 import { GAME_H, GAME_W } from './layout'
-import { client } from './net'
 import { BootScene } from './scenes/BootScene'
+import { MenuScene } from './scenes/MenuScene'
 import { HUDScene } from './scenes/HUDScene'
 import { OfficeScene } from './scenes/OfficeScene'
 import { ServerRoomScene } from './scenes/ServerRoomScene'
-
-client.connect()
 
 new Phaser.Game({
   type: Phaser.AUTO,
@@ -15,5 +13,5 @@ new Phaser.Game({
   parent: 'app',
   pixelArt: true, // чёткие пиксели без сглаживания
   backgroundColor: '#1a1c2c',
-  scene: [BootScene, OfficeScene, ServerRoomScene, HUDScene],
+  scene: [BootScene, MenuScene, OfficeScene, ServerRoomScene, HUDScene],
 })
