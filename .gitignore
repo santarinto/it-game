@@ -2,3 +2,6 @@
 client/node_modules/
 client/dist/
 .env
+.idea/
+.playwright-mcp/
+iter8-smoke-menu.png
