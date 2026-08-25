@@ -50,14 +50,14 @@ func TestIncomeAcrossOffices(t *testing.T) {
 	g.Offices[1] = Office{Unlocked: true, PCs: 1,
 		Employees: []Employee{{Name: "Д Е", IncomePerTick: 14}}} // без роутера: серверы не достаются
 	g.TickInDay = 0
-	// офис 0: (10+12)×2.0 = 44; офис 1: 14 без множителя. Итого 58.
-	if inc := g.IncomePerTick(); inc != 58 {
-		t.Errorf("доход по офисам = %d, хотим 58", inc)
+	// офис 0: сервер ур.3 ×2.2 → 22+26=48; офис 1: 14 без множителя. Итого 62.
+	if inc := g.IncomePerTick(); inc != 62 {
+		t.Errorf("доход по офисам = %d, хотим 62", inc)
 	}
-	// Шлюз: подключённым ещё ×1.2 → офис 0: round(10×2.4)+round(12×2.4)=24+29=53; офис 1: 14. Итого 67.
+	// Шлюз: подключённым ещё ×1.2 → офис 0: round(10×2.64)+round(12×2.64)=26+32=58; офис 1: 14. Итого 72.
 	g.Gateway = true
-	if inc := g.IncomePerTick(); inc != 67 {
-		t.Errorf("доход со шлюзом = %d, хотим 67", inc)
+	if inc := g.IncomePerTick(); inc != 72 {
+		t.Errorf("доход со шлюзом = %d, хотим 72", inc)
 	}
 }
 

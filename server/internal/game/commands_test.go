@@ -135,8 +135,8 @@ func TestBuyPCTable(t *testing.T) {
 		wantPCs   int
 		wantMoney int
 	}{
-		{"успех: деньги ровно по цене", func(g *Game) { g.Money = 500 }, nil, 2, 0},
-		{"не хватает денег", func(g *Game) { g.Money = 499 }, ErrNotEnoughMoney, 1, 499},
+		{"успех: деньги ровно по цене", func(g *Game) { g.Money = 575 }, nil, 2, 0},
+		{"не хватает денег", func(g *Game) { g.Money = 574 }, ErrNotEnoughMoney, 1, 574},
 		{"штат укомплектован без босса", func(g *Game) { g.Money = 10000; g.Offices[0].PCs = 9 }, ErrStaffLimit, 9, 10000},
 		{"офис полон даже с боссом", func(g *Game) { g.Money = 10000; g.Offices[0].Boss = "Т Б"; g.Offices[0].PCs = 12 }, ErrNoFreeOfficeSlot, 12, 10000},
 	}
@@ -299,7 +299,7 @@ func TestBuyAndUpgradeServer(t *testing.T) {
 
 func TestUpgradeCore(t *testing.T) {
 	g := NewWithSeed(DefaultConfig(), 1, 2)
-	// Стартовых $600 на core ур.1 ($1500) не хватает.
+	// Стартовых $600 на core ур.1 ($800) не хватает.
 	if err := g.UpgradeCore(); err != ErrNotEnoughMoney {
 		t.Fatalf("core без денег: %v", err)
 	}
@@ -312,7 +312,7 @@ func TestUpgradeCore(t *testing.T) {
 	if err := g.UpgradeCore(); err != ErrCoreMaxed {
 		t.Fatalf("апгрейд максимального core: %v, хотим core_maxed", err)
 	}
-	if want := 100_000 - 1500 - 4000 - 10000 - 20000 - 40000; g.Money != want {
+	if want := 100_000 - 800 - 4000 - 10000 - 20000 - 30000; g.Money != want {
 		t.Fatalf("деньги после всех уровней core: %d, хотим %d", g.Money, want)
 	}
 }

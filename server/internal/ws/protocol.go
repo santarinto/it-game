@@ -52,6 +52,7 @@ type officeInfo struct {
 	Unlocked        bool           `json:"unlocked"`
 	Price           int            `json:"price"` // цена покупки; 0 для открытых
 	PCs             int            `json:"pcs"`
+	NextPC          int            `json:"nextPC"` // цена следующего ПК офиса; 0 — мест нет
 	RouterTier      int            `json:"routerTier"`
 	Ports           int            `json:"ports"`
 	NextRouter      int            `json:"nextRouter"` // 0 — тир максимальный
@@ -241,7 +242,7 @@ func snapshot(g *game.Game, speed int) stateMessage {
 			virusUntil = g.ClockAt(o.VirusUntil)
 		}
 		offices[oi] = officeInfo{
-			Unlocked: o.Unlocked, Price: price, PCs: o.PCs,
+			Unlocked: o.Unlocked, Price: price, PCs: o.PCs, NextPC: g.NextPCPrice(oi),
 			RouterTier: o.RouterTier, Ports: o.Ports(cfg),
 			NextRouter: g.NextRouterPrice(oi), NextPorts: g.NextRouterPorts(oi),
 			Servers: servers, ServerSlots: cfg.ServerSlotsPerOffice(),

@@ -242,7 +242,7 @@ export class HUDScene extends Phaser.Scene {
     this.dayProfitText.setText(`${dayProfit >= 0 ? '+' : ''}${fmtMoney(dayProfit)}/день`)
     this.dayProfitText.setColor(dayProfit >= 0 ? '#38b764' : '#b13e53')
     this.netText.setText(`Сотрудники: ${employees.length} · в сети ${s.core.connected}/${employees.length}`)
-    this.pcBtn.setLabel(`Купить ПК  ${fmtMoney(s.prices.pc)}`)
+    this.pcBtn.setLabel(active.nextPC > 0 ? `Купить ПК  ${fmtMoney(active.nextPC)}` : 'Купить ПК — мест нет')
     this.hireBtn.setLabel(`Нанять  ${fmtMoney(s.prices.hire)}`)
     this.bossBtn.setLabel(active.boss === '' ? `Начальник  ${fmtMoney(s.prices.boss)}` : 'Начальник ✓')
     this.gatewayBtn.setLabel(s.gateway ? 'Шлюз ✓' : `Шлюз  ${fmtMoney(s.prices.gateway)}`)

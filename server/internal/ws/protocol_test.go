@@ -23,7 +23,7 @@ func TestSnapshot(t *testing.T) {
 	if s.Offices[1].Unlocked || s.Offices[1].Price != 15000 || s.Offices[2].Price != 40000 {
 		t.Errorf("закрытые офисы: %+v %+v", s.Offices[1], s.Offices[2])
 	}
-	if s.Gateway || s.Core.Level != 0 || s.Core.NextPrice != 1500 {
+	if s.Gateway || s.Core.Level != 0 || s.Core.NextPrice != 800 {
 		t.Errorf("серверная: %+v", s)
 	}
 	if s.Prices.PC != 500 || s.Prices.Hire != 300 ||

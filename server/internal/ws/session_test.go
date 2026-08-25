@@ -272,7 +272,7 @@ func TestSessionPause(t *testing.T) {
 	if after.Type == "error" {
 		t.Fatalf("покупка на паузе должна работать: %+v", after)
 	}
-	if want := paused.Money - 500; after.Money != want {
+	if want := paused.Money - 575; after.Money != want { // второй ПК дорожает ×1.15
 		t.Fatalf("на паузе тикали деньги: было %d, после покупки %d, хотим %d", paused.Money, after.Money, want)
 	}
 	// Снятие паузы: тики снова идут, деньги растут.
@@ -288,7 +288,7 @@ func TestDifficultyFromQuery(t *testing.T) {
 	if err := wsjson.Read(ctx, c, &msg); err != nil {
 		t.Fatal(err)
 	}
-	if msg.Difficulty != "hardcore" || msg.Money != 480 || msg.Prices.PC != 750 || msg.WinTarget != 500000 {
+	if msg.Difficulty != "hardcore" || msg.Money != 480 || msg.Prices.PC != 750 || msg.WinTarget != 1000000 {
 		t.Fatalf("хардкор-снапшот: %+v", msg)
 	}
 }

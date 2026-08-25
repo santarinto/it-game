@@ -51,6 +51,7 @@ export interface OfficeInfo {
   unlocked: boolean
   price: number
   pcs: number
+  nextPC: number // цена следующего ПК офиса (растёт ×1.15); 0 — мест нет
   routerTier: number
   ports: number
   nextRouter: number

@@ -66,12 +66,12 @@ func TestIncomeSumsPersonalRates(t *testing.T) {
 	if inc := g.IncomePerTick(); inc != 34 {
 		t.Errorf("доход без сети = %d, хотим 34", inc)
 	}
-	// Роутер (4 порта) + core + сервер ур.3: множитель ×2.0 всем троим.
+	// Роутер (4 порта) + core + сервер ур.3: множитель ×2.2 всем троим.
 	g.Offices[0].RouterTier = 1
 	g.Offices[0].Servers = []int{3}
 	g.CoreLevel = 1
-	if inc := g.IncomePerTick(); inc != 68 {
-		t.Errorf("доход с сетью ×2.0 = %d, хотим 68", inc)
+	if inc := g.IncomePerTick(); inc != 75 {
+		t.Errorf("доход с сетью ×2.2 = %d, хотим 75", inc)
 	}
 }
 

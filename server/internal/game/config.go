@@ -64,6 +64,8 @@ type Config struct {
 	AuditMinCore    int     // аудит: минимальный уровень core для субсидии
 	RaiseBoostMult  float64 // согласие на повышение: множитель выработки навсегда
 	RaiseOffendMult float64 // отказ в повышении: множитель выработки до конца дня
+
+	PCPriceGrowth float64 // рост цены ПК за каждый следующий в офисе (ит. 14)
 }
 
 // RouterTier — тир роутера: покупается последовательно, тир заменяет предыдущий.
@@ -109,16 +111,16 @@ func DefaultConfig() Config {
 		},
 		EmployeesPerServer: 4,
 		ServerLevels: []ServerLevel{
-			{Mult: 1.2, Price: 2000},
-			{Mult: 1.5, Price: 4000},
-			{Mult: 2.0, Price: 8000},
+			{Mult: 1.3, Price: 2000},
+			{Mult: 1.6, Price: 4800}, // апгрейды дороже новой стойки (ит. 14)
+			{Mult: 2.2, Price: 9600},
 		},
 		CoreLevels: []CoreLevel{
-			{Capacity: 8, Price: 1500, Mult: 1.0},
+			{Capacity: 8, Price: 800, Mult: 1.0}, // дешёвый вход в сеть (ит. 14)
 			{Capacity: 16, Price: 4000, Mult: 1.0},
 			{Capacity: 24, Price: 10000, Mult: 1.0},
 			{Capacity: 36, Price: 20000, Mult: 1.0},
-			{Capacity: 36, Price: 40000, Mult: 1.1},
+			{Capacity: 36, Price: 30000, Mult: 1.15},
 		},
 		BossPrice:          1000,
 		BossSalaryPerDay:   500,
@@ -137,7 +139,7 @@ func DefaultConfig() Config {
 		CoffeeChancePct:  40,
 		ThirstAfterHours: 2,
 		Difficulty:       DiffNormal,
-		WinTarget:        120000,
+		WinTarget:        250000,
 
 		MotivateMult:          1.25,
 		MotivateTicks:         18,
@@ -157,6 +159,8 @@ func DefaultConfig() Config {
 		AuditMinCore:    2,
 		RaiseBoostMult:  1.15,
 		RaiseOffendMult: 0.85,
+
+		PCPriceGrowth: 1.15,
 	}
 }
 

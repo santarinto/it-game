@@ -1,5 +1,7 @@
 package game
 
+import "math"
+
 // Err — доменная ошибка. Значение строки — это код ошибки протокола,
 // поэтому новые ошибки должны совпадать с кодами в спеке.
 type Err string
@@ -42,7 +44,8 @@ func (g *Game) office(idx int) (*Office, error) {
 }
 
 // BuyPC ставит новый ПК в свободный слот офиса. Слоты сверх потолка
-// штата открывает начальник офиса.
+// штата открывает начальник офиса. Цена растёт с каждым купленным
+// ПК офиса (итерация 14) — развилка «нанять vs сеть».
 func (g *Game) BuyPC(office int) error {
 	o, err := g.office(office)
 	if err != nil {
@@ -57,12 +60,24 @@ func (g *Game) BuyPC(office int) error {
 	if o.PCs >= o.StaffCap(g.cfg) {
 		return ErrStaffLimit
 	}
-	if g.Money < g.cfg.PCPrice {
+	price := g.NextPCPrice(office)
+	if g.Money < price {
 		return ErrNotEnoughMoney
 	}
-	g.Money -= g.cfg.PCPrice
+	g.Money -= price
 	o.PCs++
 	return nil
+}
+
+// NextPCPrice — цена следующего ПК офиса: базовая × рост за каждый
+// купленный, округление вверх до $5. 0 на физических местах не осталось.
+func (g *Game) NextPCPrice(office int) int {
+	o := &g.Offices[office]
+	if o.PCs >= g.cfg.OfficeSlots {
+		return 0
+	}
+	v := float64(g.cfg.PCPrice) * math.Pow(g.cfg.PCPriceGrowth, float64(o.PCs))
+	return int(math.Ceil(v/5) * 5)
 }
 
 // Hire сажает нового сотрудника за свободный ПК офиса: имя и выработка

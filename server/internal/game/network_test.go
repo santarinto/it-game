@@ -37,15 +37,15 @@ func TestNetworkNoCore(t *testing.T) {
 func TestNetworkServersByFours(t *testing.T) {
 	g := netGame()
 	g.Offices[0].Employees = staff(10)
-	g.Offices[0].Servers = []int{1, 3} // ур.1 ×1.2 и ур.3 ×2.0
+	g.Offices[0].Servers = []int{1, 3} // ур.1 ×1.3 и ур.3 ×2.2
 	g.CoreLevel = 2                    // 16 мест — хватает всем десяти
 	n := g.Network()
 	want := []struct {
 		mult float64
 		slot int
 	}{
-		{1.2, 1}, {1.2, 1}, {1.2, 1}, {1.2, 1}, // сервер 1
-		{2.0, 2}, {2.0, 2}, {2.0, 2}, {2.0, 2}, // сервер 2
+		{1.3, 1}, {1.3, 1}, {1.3, 1}, {1.3, 1}, // сервер 1
+		{2.2, 2}, {2.2, 2}, {2.2, 2}, {2.2, 2}, // сервер 2
 		{1.0, 0}, {1.0, 0}, // до core дошли, серверов не хватило
 	}
 	for i, w := range want {
@@ -90,7 +90,7 @@ func TestNetworkGatewayOnlyServed(t *testing.T) {
 	g.CoreLevel = 1
 	g.Gateway = true
 	n := g.Network()
-	if want := 1.2 * 1.2; n.Mults[0][0] != want { // сервер ×1.2 × шлюз ×1.2
+	if want := 1.3 * 1.2; n.Mults[0][0] != want { // сервер ×1.3 × шлюз ×1.2
 		t.Fatalf("с сервером и шлюзом: %v, хотим %v", n.Mults[0][0], want)
 	}
 	// Пятый в core, но без сервера — шлюз его НЕ баффает.
