@@ -15,3 +15,4 @@
 | 8 | [Прод-деплой itgame.santarinto.ru](08-production-deploy.md) | 2026-07-18 | CD работает |
 | 9 | [Активный день: мотивация и поломки](09-active-day.md) | 2026-08-25…26 | авто-smoke 8/8 |
 | 10 | [События «Unseen Forces»](10-unseen-forces.md) | 2026-08-26 | авто-smoke 5/5, прод-чек |
+| 11 | [Видимость сети и онбординг](11-network-visibility.md) | 2026-08-26 | авто-smoke live |
