@@ -66,6 +66,7 @@ export class ServerRoomScene extends Phaser.Scene {
           fontFamily: 'monospace', fontSize: '14px', color: o.unlocked ? '#f4f4f4' : '#5d7275',
         }).setOrigin(0.5),
       )
+      let firstEmpty = true // первая пустая стойка — куда встанет покупка
       for (let sl = 0; sl < o.serverSlots; sl++) {
         const x = 430 + sl * 150
         const srv = o.servers[sl]
@@ -81,6 +82,19 @@ export class ServerRoomScene extends Phaser.Scene {
           this.objects.push(this.add.text(x, gy + 44, `ур.${srv.level} ×${srv.mult.toFixed(1)}`, {
             fontFamily: 'monospace', fontSize: '11px', color: '#41a6f6',
           }).setOrigin(0.5))
+        } else {
+          // Пустые стойки неотличимы — нумеруем и подсвечиваем ту,
+          // куда buy_server реально поставит сервер (итерация 11).
+          this.objects.push(this.add.text(x, gy + 44, `стойка ${sl + 1}`, {
+            fontFamily: 'monospace', fontSize: '11px', color: firstEmpty ? '#38b764' : '#5d7275',
+          }).setOrigin(0.5))
+          if (firstEmpty) {
+            img.setTint(0x9be3ba)
+            this.objects.push(this.add.text(x, gy - 44, 'сервер сюда', {
+              fontFamily: 'monospace', fontSize: '10px', color: '#38b764',
+            }).setOrigin(0.5))
+            firstEmpty = false
+          }
         }
       }
     })

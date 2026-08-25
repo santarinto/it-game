@@ -5,6 +5,7 @@ import type { DayReportMessage, GameOverMessage, StateMessage, VictoryMessage } 
 import { fmtMoney } from '../format'
 import { nav } from '../rooms'
 import { debug, drawDebugFrames, setDebug } from '../debug'
+import { showModal } from '../ui/modal'
 
 const CX = GAME_W / 2 // центр поля — якорь модалок и тостов
 
@@ -43,6 +44,7 @@ export class HUDScene extends Phaser.Scene {
   private payrollText!: Phaser.GameObjects.Text
   private dayText!: Phaser.GameObjects.Text
   private goalText!: Phaser.GameObjects.Text
+  private dayProfitText!: Phaser.GameObjects.Text
   private pcBtn!: Button
   private hireBtn!: Button
   private bossBtn!: Button
@@ -84,6 +86,10 @@ export class HUDScene extends Phaser.Scene {
     this.goalText = this.add
       .text(GAME_W - 16, 52, '', { fontFamily: 'monospace', fontSize: '13px', color: '#ffcd75' })
       .setOrigin(1, 0)
+    // Темп дня одним взглядом: прогноз прибыли «сейчас до вечера».
+    this.dayProfitText = this.add.text(200, 66, '', {
+      fontFamily: 'monospace', fontSize: '15px', color: '#38b764',
+    })
 
     this.pcBtn = this.makeButton(420, 10, () => client.send('buy_pc', nav.activeOffice))
     this.hireBtn = this.makeButton(420, 52, () => client.send('hire', nav.activeOffice))
@@ -104,6 +110,14 @@ export class HUDScene extends Phaser.Scene {
       this.speedBtns.push({ bg, speed: sp.s })
       this.hudInteractive.push(bg)
     })
+    // Выход в меню из игры (анти-софтлок + «сдаться»): с подтверждением.
+    const menuBg = this.add.rectangle(GAME_W - 220, 10, 36, 28, 0x232640)
+      .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true })
+    this.add.text(GAME_W - 202, 24, '⌂', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' }).setOrigin(0.5)
+    menuBg.on('pointerdown', () => this.confirmExitToMenu())
+    menuBg.on('pointerover', () => menuBg.setStrokeStyle(2, 0xb13e53))
+    menuBg.on('pointerout', () => menuBg.setStrokeStyle(2, 0x3a3f5c))
+    this.hudInteractive.push(menuBg)
     // Тумблер debug: рамки интерактивных зон во всех сценах.
     const dbg = this.add
       .text(GAME_W - 280, 17, this.debugLabel(), { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
@@ -207,6 +221,10 @@ export class HUDScene extends Phaser.Scene {
     this.payrollText.setColor(s.forecastEndOfDay < 0 ? '#b13e53' : '#5d7275')
     this.dayText.setText(`День ${s.day} · ${s.clock}${s.isLunch ? ' · обед' : ''}`)
     this.goalText.setText(`Цель: ${fmtMoney(s.winTarget)}`)
+    // Прогноз считает сервер: остаток дохода дня минус вечерний ФОТ.
+    const dayProfit = s.forecastEndOfDay - s.money
+    this.dayProfitText.setText(`${dayProfit >= 0 ? '+' : ''}${fmtMoney(dayProfit)}/день`)
+    this.dayProfitText.setColor(dayProfit >= 0 ? '#38b764' : '#b13e53')
     this.netText.setText(`Сотрудники: ${employees.length} · в сети ${s.core.connected}/${employees.length}`)
     this.pcBtn.setLabel(`Купить ПК  ${fmtMoney(s.prices.pc)}`)
     this.hireBtn.setLabel(`Нанять  ${fmtMoney(s.prices.hire)}`)
@@ -326,6 +344,11 @@ export class HUDScene extends Phaser.Scene {
       {
         id: 'motivate', when: anyEmp && clockH >= 11,
         text: 'Клик по сотруднику мотивирует: +25% на 3 часа',
+      },
+      {
+        id: 'softlock',
+        when: !anyEmp && s.money < s.prices.hire,
+        text: 'Нанять не на что, а дохода нет — сдаться и начать заново: кнопка ⌂',
       },
     ]
     const hint = hints.find((h) => h.when && !localStorage.getItem('hint:' + h.id))
@@ -475,5 +498,14 @@ export class HUDScene extends Phaser.Scene {
     this.scene.stop('office')
     this.scene.stop('serverRoom')
     this.scene.start('menu') // start глушит hud
+  }
+
+  // Подтверждение выхода: игра без сейвов — «сдаться» должно быть
+  // осознанным, случайный клик по ⌂ не должен рвать партию.
+  private confirmExitToMenu() {
+    showModal(this, 'Выйти в меню?', ['Текущая игра не сохраняется —', 'новая начнётся с нуля.'], [
+      { label: 'Сдаться и выйти', onClick: () => this.returnToMenu() },
+      { label: 'Отмена', onClick: () => {} },
+    ])
   }
 }
