@@ -146,7 +146,7 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 				if g.Phase == game.PhaseGameOver {
 					out = gameOverMessage{Type: "game_over", DaysSurvived: g.Day, PeakIncomePerTick: g.PeakIncomePerTick, Balance: g.Money}
 				} else {
-					out = dayReportMessage{Type: "day_report", Day: report.Day, Income: report.Income, Payroll: report.Payroll, GatewayOpex: report.GatewayOpex, Profit: report.Profit, Balance: report.Balance}
+					out = dayReportMessage{Type: "day_report", Day: report.Day, Income: report.Income, Payroll: report.Payroll, GatewayOpex: report.GatewayOpex, Profit: report.Profit, Balance: report.Balance, Incidents: report.Incidents, LostIncome: report.LostIncome}
 				}
 				if wsjson.Write(ctx, c, out) != nil {
 					return

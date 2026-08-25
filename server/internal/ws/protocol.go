@@ -75,6 +75,10 @@ type employeeInfo struct {
 	Effects                []effectInfo `json:"effects"`
 	NetMult                float64      `json:"netMult"`    // итоговый сетевой множитель
 	ServerSlot             int          `json:"serverSlot"` // 1-based сервер работника; 0 — без сервера
+	// Активный день (итерация 9).
+	PCBroken        bool   `json:"pcBroken"`        // ПК сломан: доход места 0
+	RepairClicks    int    `json:"repairClicks"`    // клики почивки уже сделаны
+	MotivateReadyAt string `json:"motivateReadyAt"` // «HH:MM» клика возможен; "" — уже можно
 }
 
 // serverInfo — сервер офиса в снапшоте: всё для модалки стойки.
@@ -117,6 +121,7 @@ type prices struct {
 	Cooler        int                `json:"cooler"`
 	Fridge        int                `json:"fridge"`
 	CoffeeMachine int                `json:"coffeeMachine"`
+	Repair        int                `json:"repair"` // «вызвать мастера» для сломанного ПК
 	ServerLevels  []serverLevelPrice `json:"serverLevels"`
 	CoreLevels    []coreLevelPrice   `json:"coreLevels"`
 }
@@ -135,6 +140,8 @@ type dayReportMessage struct {
 	GatewayOpex int    `json:"gatewayOpex"`
 	Profit      int    `json:"profit"`
 	Balance     int    `json:"balance"`
+	Incidents   int    `json:"incidents"`  // поломок ПК за день
+	LostIncome  int    `json:"lostIncome"` // упущено из-за поломок, $
 }
 
 // gameOverMessage — итоги банкротства; шлётся сразу после снапшота с phase=game_over.
@@ -166,7 +173,7 @@ func snapshot(g *game.Game, speed int) stateMessage {
 		employees := make([]employeeInfo, len(o.Employees))
 		for i, e := range o.Employees {
 			// Не nil: nil-срез маршалится в JSON null, а клиент ждёт массив.
-			effects := make([]effectInfo, 0, 3)
+			effects := make([]effectInfo, 0, 4)
 			for _, ef := range g.Effects(o, &o.Employees[i]) {
 				until := ""
 				if ef.Until >= 0 {
@@ -174,10 +181,15 @@ func snapshot(g *game.Game, speed int) stateMessage {
 				}
 				effects = append(effects, effectInfo{Token: ef.Token, Percent: ef.Percent, Until: until})
 			}
+			readyAt := ""
+			if e.MotivateCooldownUntil > g.TickInDay {
+				readyAt = g.ClockAt(e.MotivateCooldownUntil)
+			}
 			employees[i] = employeeInfo{Name: e.Name, IncomePerTick: e.IncomePerTick,
 				EffectiveIncomePerTick: g.EffectiveIncomePerTick(o, &o.Employees[i]),
 				Connected:              net.CoreLinked[oi][i], UnpaidToday: e.UnpaidToday, Effects: effects,
-				NetMult: net.Mults[oi][i], ServerSlot: net.ServerSlot[oi][i]}
+				NetMult: net.Mults[oi][i], ServerSlot: net.ServerSlot[oi][i],
+				PCBroken: e.PCBroken, RepairClicks: e.RepairClicks, MotivateReadyAt: readyAt}
 		}
 		// Не nil: nil-срез маршалится в JSON null, а клиент ждёт массив.
 		servers := make([]serverInfo, 0, len(o.Servers))
@@ -230,7 +242,7 @@ func snapshot(g *game.Game, speed int) stateMessage {
 		Difficulty: string(cfg.Difficulty), WinTarget: cfg.WinTarget,
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice,
 			Boss: cfg.BossPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,
-			Fridge: cfg.FridgePrice, CoffeeMachine: cfg.CoffeeMachinePrice,
+			Fridge: cfg.FridgePrice, CoffeeMachine: cfg.CoffeeMachinePrice, Repair: cfg.MasterCallPrice,
 			ServerLevels: serverLevels, CoreLevels: coreLevels},
 	}
 }

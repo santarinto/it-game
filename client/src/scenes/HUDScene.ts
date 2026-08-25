@@ -26,6 +26,8 @@ const ERROR_TEXTS: Record<string, string> = {
   bad_slot: 'Нет такой стойки',
   server_maxed: 'Серверная стойка уже максимального уровня',
   core_maxed: 'Стойка роутеров уже максимального уровня',
+  motivate_cooldown: 'Мотивация ещё не готова',
+  not_broken: 'ПК не сломан',
 }
 
 interface Button {
@@ -260,6 +262,7 @@ export class HUDScene extends Phaser.Scene {
       ...(r.gatewayOpex > 0 ? [`Интернет: -${fmtMoney(r.gatewayOpex)}`] : []),
       `Прибыль:   ${fmtMoney(r.profit)}`,
       `Баланс:    ${fmtMoney(r.balance)}`,
+      ...(r.incidents > 0 ? [`Поломки:   ${r.incidents} (−${fmtMoney(r.lostIncome)})`] : []),
     ].join('\n')
     // Подложка interactive: глушит клики по кнопкам HUD под модалкой.
     const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(50).setInteractive()

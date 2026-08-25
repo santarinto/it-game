@@ -49,7 +49,10 @@ export class OfficeScene extends Phaser.Scene {
   private render(s: StateMessage) {
     const office = s.offices[nav.activeOffice]
     this.hideTooltip() // спрайты пересоздаются — старая цель тултипа мертва
-    this.objects.forEach((o) => o.destroy())
+    this.objects.forEach((o) => {
+      this.tweens.killTweensOf(o) // мигание поломок не должно переживать перерисовку
+      o.destroy()
+    })
     this.objects = []
 
     this.objects.push(
@@ -136,13 +139,37 @@ export class OfficeScene extends Phaser.Scene {
         )
         continue
       }
-      this.objects.push(this.add.image(x, y, i < office.pcs ? 'desk_pc' : 'desk_empty').setScale(SCALE))
+      const desk = this.add.image(x, y, i < office.pcs ? 'desk_pc' : 'desk_empty').setScale(SCALE)
+      this.objects.push(desk)
       const e = office.employees[i]
+      // Сломанный ПК: доход места 0; клики по столу чинят, мастер чинит за деньги.
+      if (e?.pcBroken) {
+        const overlay = this.add.rectangle(x, y - 8, 76, 56, 0xb13e53, 0.3)
+          .setInteractive({ useHandCursor: true })
+        overlay.on('pointerdown', () => client.send('repair_click', nav.activeOffice, { slot: i }))
+        this.tweens.add({
+          targets: overlay, alpha: { from: 0.65, to: 0.15 }, duration: 420, yoyo: true, repeat: -1,
+        })
+        const masterBg = this.add.rectangle(x, y + 46, 108, 22, 0x3b5dc9)
+          .setOrigin(0.5).setInteractive({ useHandCursor: true })
+        const masterTxt = this.add.text(x, y + 46, `мастер ${fmtMoney(s.prices.repair)}`, {
+          fontFamily: 'monospace', fontSize: '10px', color: '#f4f4f4',
+        }).setOrigin(0.5)
+        masterBg.on('pointerdown', () => client.send('call_master', nav.activeOffice, { slot: i }))
+        this.objects.push(
+          this.add.text(x, y - 48, `✖ чинить ${e.repairClicks}/3`, {
+            fontFamily: 'monospace', fontSize: '11px', color: '#b13e53',
+          }).setOrigin(0.5),
+          overlay, masterBg, masterTxt,
+        )
+      }
       if (e) {
         // На обеде сотрудник отходит от стола.
         const wx = s.isLunch ? x - 52 + LUNCH_SHIFT : x - 52
         const wy = s.isLunch ? y - 6 + LUNCH_SHIFT : y - 6
         const worker = this.add.image(wx, wy, 'worker').setScale(SCALE).setInteractive({ useHandCursor: true })
+        // Клик по сотруднику — мотивация: +25% на 3 часа с кулдауном.
+        worker.on('pointerdown', () => client.send('motivate', nav.activeOffice, { slot: i }))
         worker.on('pointerover', () => {
           this.hoveredSlot = i
           this.showTooltip(e, s, wx, wy)
@@ -165,6 +192,10 @@ export class OfficeScene extends Phaser.Scene {
         }
         if (e.connected) {
           this.objects.push(this.add.circle(x + 30, y - 30, 4, 0x38b764))
+        }
+        // Жёлтый значок-бейдж, пока действует мотивация кликом.
+        if (e.effects.some((ef) => ef.token === 'motivated')) {
+          this.objects.push(this.add.circle(x - 28, y - 36, 5, 0xffcd75))
         }
       }
     }
@@ -211,7 +242,11 @@ export class OfficeScene extends Phaser.Scene {
       `Зарплата:  ${fmtMoney(s.salaryPerDay)}/день${e.unpaidToday ? ' (сегодня без оплаты)' : ''}`,
     ]
     lines.push(e.serverSlot > 0 ? `сервер ${e.serverSlot} · ×${e.netMult.toFixed(1)}` : 'без сервера')
-    const EFFECT_NAMES: Record<string, string> = { thirst: 'жажда', hunger: 'голоден', coffee: 'выпил кофе' }
+    if (e.pcBroken) {
+      lines.push('ПК СЛОМАН — доход 0; кликайте по столу')
+    }
+    lines.push(e.motivateReadyAt ? `мотивация: после ${e.motivateReadyAt}` : 'мотивация: готова (клик)')
+    const EFFECT_NAMES: Record<string, string> = { thirst: 'жажда', hunger: 'голоден', coffee: 'выпил кофе', motivated: 'мотивирован' }
     // Ремень безопасности: старый сервер мог прислать null вместо [] —
     // краш тултипа обрывал перерисовку всей сцены.
     for (const ef of e.effects ?? []) {

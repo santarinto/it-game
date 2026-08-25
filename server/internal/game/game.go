@@ -21,6 +21,11 @@ type Employee struct {
 	IncomePerTick int
 	UnpaidToday   bool // нанят после обеда: в ФОТ текущего дня не входит
 	CoffeeUntil   int  // бафф кофе действует, пока тик дня < CoffeeUntil; 0 — нет
+	// Активный день (итерация 9): мотивация кликом и поломки ПК.
+	MotivatedUntil        int  // бафф «мотивирован», пока тик < MotivatedUntil; 0 — нет
+	MotivateCooldownUntil int  // повторная мотивация возможна с этого тика дня
+	PCBroken              bool // ПК сломан: доход места 0 до починки
+	RepairClicks          int  // клики починки накоплены; чинит на RepairClicksNeeded
 }
 
 // Game — состояние одной игры. НЕ потокобезопасен: им владеет
@@ -39,6 +44,8 @@ type Game struct {
 	TickInDay         int // тиков прошло в текущем дне
 	DayIncome         int // доход, накопленный за текущий день (для отчёта)
 	PeakIncomePerTick int // максимум дохода за тик за игру (для итогов банкротства)
+	DayIncidents      int // поломок ПК за текущий день (для отчёта)
+	DayLostIncome     int // упущено из-за поломок за текущий день (для отчёта)
 }
 
 func New(cfg Config) *Game {
@@ -81,8 +88,17 @@ func (g *Game) IncomePerTick() int {
 // личная выработка × эффекты × сетевой множитель из цепочки
 // «роутер → core → сервер» (см. Network).
 func (g *Game) incomeAtTick(tick int) int {
+	total, _ := g.incomeAtTickDetail(tick)
+	return total
+}
+
+// incomeAtTickDetail — доход тика и упущенное из-за сломанных ПК:
+// сколько заработал бы сотрудник сломанного места без поломки.
+func (g *Game) incomeAtTickDetail(tick int) (total, lost int) {
+	if g.cfg.isLunchTick(tick) {
+		return 0, 0
+	}
 	net := g.Network()
-	total := 0
 	for oi := range g.Offices {
 		o := &g.Offices[oi]
 		if !o.Unlocked {
@@ -90,11 +106,15 @@ func (g *Game) incomeAtTick(tick int) int {
 		}
 		for i := range o.Employees {
 			e := &o.Employees[i]
-			v := float64(e.IncomePerTick) * g.effectMult(o, e, tick) * net.Mults[oi][i]
-			total += int(math.Round(v))
+			v := int(math.Round(float64(e.IncomePerTick) * g.effectMult(o, e, tick) * net.Mults[oi][i]))
+			if e.PCBroken {
+				lost += v
+				continue
+			}
+			total += v
 		}
 	}
-	return total
+	return total, lost
 }
 
 // PayrollPerDay — полные дневные расходы: зарплаты сотрудников и боссов
@@ -149,6 +169,8 @@ type DayReport struct {
 	GatewayOpex int // операционный расход шлюза
 	Profit      int
 	Balance     int
+	Incidents   int // поломок ПК за день
+	LostIncome  int // упущено из-за поломок, $
 }
 
 // Tick — один шаг симуляции (1 секунда). Вне фазы running — no-op.
@@ -173,9 +195,11 @@ func (g *Game) Tick() *DayReport {
 			}
 		}
 	}
-	income := g.IncomePerTick()
+	g.rollBreakdowns()
+	income, lost := g.incomeAtTickDetail(g.TickInDay)
 	g.Money += income
 	g.DayIncome += income
+	g.DayLostIncome += lost
 	g.PeakIncomePerTick = max(g.PeakIncomePerTick, income)
 	// Победа проверяется до конца дня: достиг цели днём — победа сразу,
 	// вечерний ФОТ уже не списывается.
@@ -197,5 +221,32 @@ func (g *Game) Tick() *DayReport {
 		g.Phase = PhaseDayReport
 	}
 	return &DayReport{Day: g.Day, Income: g.DayIncome, Payroll: payroll,
-		GatewayOpex: opex, Profit: g.DayIncome - expenses, Balance: g.Money}
+		GatewayOpex: opex, Profit: g.DayIncome - expenses, Balance: g.Money,
+		Incidents: g.DayIncidents, LostIncome: g.DayLostIncome}
+}
+
+// rollBreakdowns — инциденты дня: с шансом за тик на офис ломается ПК
+// случайного занятого слота. Максимум один сломанный ПК на офис
+// одновременно — иначе ранняя игра карается, а поздняя тонет в ремонте.
+func (g *Game) rollBreakdowns() {
+	for oi := range g.Offices {
+		o := &g.Offices[oi]
+		if !o.Unlocked || len(o.Employees) == 0 {
+			continue
+		}
+		broken := false
+		for i := range o.Employees {
+			if o.Employees[i].PCBroken {
+				broken = true
+				break
+			}
+		}
+		if broken || g.rng.IntN(100) >= g.cfg.BreakdownChancePct {
+			continue
+		}
+		slot := g.rng.IntN(len(o.Employees))
+		o.Employees[slot].PCBroken = true
+		o.Employees[slot].RepairClicks = 0
+		g.DayIncidents++
+	}
 }

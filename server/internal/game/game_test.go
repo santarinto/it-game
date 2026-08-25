@@ -50,7 +50,9 @@ func TestIncome(t *testing.T) {
 }
 
 func TestTickAddsIncome(t *testing.T) {
-	g := New(DefaultConfig())
+	cfg := DefaultConfig()
+	cfg.BreakdownChancePct = 0 // доход теста не должен зависеть от роллов поломок
+	g := New(cfg)
 	g.Money = 0
 	g.Offices[0].Employees = testStaff(1)
 	g.Tick()

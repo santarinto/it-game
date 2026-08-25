@@ -44,6 +44,13 @@ type Config struct {
 	ThirstAfterHours int        // жажда после стольких часов работы
 	Difficulty       Difficulty // уровень сложности этой игры
 	WinTarget        int        // цель победы: достигнутый баланс $
+
+	MotivateMult          float64 // бафф «мотивирован» за клик по сотруднику
+	MotivateTicks         int     // длительность мотивации, тиков
+	MotivateCooldownTicks int     // персональный кулдаун мотивации, тиков
+	BreakdownChancePct    int     // шанс поломки ПК за тик на офис, %
+	RepairClicksNeeded    int     // кликов по столу для починки
+	MasterCallPrice       int     // «вызвать мастера»: мгновенная починка
 }
 
 // RouterTier — тир роутера: покупается последовательно, тир заменяет предыдущий.
@@ -118,6 +125,13 @@ func DefaultConfig() Config {
 		ThirstAfterHours: 2,
 		Difficulty:       DiffNormal,
 		WinTarget:        120000,
+
+		MotivateMult:          1.25,
+		MotivateTicks:         18,
+		MotivateCooldownTicks: 36,
+		BreakdownChancePct:    2,
+		RepairClicksNeeded:    3,
+		MasterCallPrice:       150,
 	}
 }
 

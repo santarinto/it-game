@@ -4,9 +4,10 @@ import "math"
 
 // Токены эффектов — значения совпадают с полем token протокола.
 const (
-	EffectThirst = "thirst"
-	EffectHunger = "hunger"
-	EffectCoffee = "coffee"
+	EffectThirst    = "thirst"
+	EffectHunger    = "hunger"
+	EffectCoffee    = "coffee"
+	EffectMotivated = "motivated"
 )
 
 // Effect — активный эффект сотрудника (для снапшота и тултипа).
@@ -27,6 +28,9 @@ func (g *Game) effectMult(o *Office, e *Employee, tick int) float64 {
 	}
 	if e.CoffeeUntil > tick {
 		m *= g.cfg.CoffeeMult
+	}
+	if e.MotivatedUntil > tick {
+		m *= g.cfg.MotivateMult
 	}
 	return m
 }
@@ -52,6 +56,9 @@ func (g *Game) Effects(o *Office, e *Employee) []Effect {
 	}
 	if e.CoffeeUntil > tick {
 		out = append(out, Effect{Token: EffectCoffee, Percent: pct(g.cfg.CoffeeMult), Until: e.CoffeeUntil})
+	}
+	if e.MotivatedUntil > tick {
+		out = append(out, Effect{Token: EffectMotivated, Percent: pct(g.cfg.MotivateMult), Until: e.MotivatedUntil})
 	}
 	return out
 }

@@ -9,6 +9,7 @@ func dayTestConfig() Config {
 	cfg.WorkdayEnd = 11
 	cfg.TicksPerHour = 3
 	cfg.SalaryPerDay = 250
+	cfg.BreakdownChancePct = 0 // поломки тестируются отдельно (activeday_test)
 	return cfg
 }
 

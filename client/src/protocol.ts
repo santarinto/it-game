@@ -1,7 +1,7 @@
 // Зеркало server/internal/ws/protocol.go — менять синхронно.
 
 export interface EffectInfo {
-  token: 'thirst' | 'hunger' | 'coffee'
+  token: 'thirst' | 'hunger' | 'coffee' | 'motivated'
   percent: number
   until: string // «HH:MM»; '' — до конца дня
 }
@@ -37,6 +37,10 @@ export interface EmployeeInfo {
   effects: EffectInfo[]
   netMult: number
   serverSlot: number // 1-based сервер; 0 — без сервера
+  // Активный день (итерация 9).
+  pcBroken: boolean // ПК сломан: доход места 0 до починки
+  repairClicks: number // клики починки уже сделаны
+  motivateReadyAt: string // «HH:MM» клика возможен; '' — уже можно
 }
 
 export interface OfficeInfo {
@@ -85,6 +89,7 @@ export interface StateMessage {
     cooler: number
     fridge: number
     coffeeMachine: number
+    repair: number // «вызвать мастера» для сломанного ПК
     serverLevels: { mult: number; price: number }[]
     coreLevels: { capacity: number; price: number; mult: number }[]
   }
@@ -103,6 +108,8 @@ export interface DayReportMessage {
   profit: number
   balance: number
   gatewayOpex: number
+  incidents: number // поломок ПК за день
+  lostIncome: number // упущено из-за поломок, $
 }
 
 export interface GameOverMessage {
@@ -126,3 +133,4 @@ export type CommandType =
   | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart'
   | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed'
   | 'upgrade_server' | 'upgrade_core'
+  | 'motivate' | 'repair_click' | 'call_master'

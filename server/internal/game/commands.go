@@ -23,6 +23,8 @@ const (
 	ErrBadSlot          = Err("bad_slot")
 	ErrServerMaxed      = Err("server_maxed")
 	ErrCoreMaxed        = Err("core_maxed")
+	ErrMotivateCooldown = Err("motivate_cooldown")
+	ErrNotBroken        = Err("not_broken")
 )
 
 // office проверяет адресата офисной команды: индекс и открытость.
@@ -245,17 +247,84 @@ func (g *Game) BuyCoffeeMachine(office int) error {
 	return g.buyAmenity(office, g.cfg.CoffeeMachinePrice, func(o *Office) *bool { return &o.CoffeeMachine })
 }
 
+// Motivate — активный день: клик по сотруднику даёт бафф «мотивирован»
+// с персональным кулдауном. slot — индекс сотрудника в офисе.
+func (g *Game) Motivate(office, slot int) error {
+	o, err := g.office(office)
+	if err != nil {
+		return err
+	}
+	if slot < 0 || slot >= len(o.Employees) {
+		return ErrBadSlot
+	}
+	e := &o.Employees[slot]
+	if g.TickInDay < e.MotivateCooldownUntil {
+		return ErrMotivateCooldown
+	}
+	e.MotivatedUntil = g.TickInDay + g.cfg.MotivateTicks
+	e.MotivateCooldownUntil = g.TickInDay + g.cfg.MotivateCooldownTicks
+	return nil
+}
+
+// RepairClick — один клик починки сломанного ПК: чинит на N-й клик.
+func (g *Game) RepairClick(office, slot int) error {
+	o, err := g.office(office)
+	if err != nil {
+		return err
+	}
+	if slot < 0 || slot >= len(o.Employees) {
+		return ErrBadSlot
+	}
+	e := &o.Employees[slot]
+	if !e.PCBroken {
+		return ErrNotBroken
+	}
+	e.RepairClicks++
+	if e.RepairClicks >= g.cfg.RepairClicksNeeded {
+		e.PCBroken = false
+		e.RepairClicks = 0
+	}
+	return nil
+}
+
+// CallMaster — «вызвать мастера»: мгновенная починка за деньги.
+func (g *Game) CallMaster(office, slot int) error {
+	o, err := g.office(office)
+	if err != nil {
+		return err
+	}
+	if slot < 0 || slot >= len(o.Employees) {
+		return ErrBadSlot
+	}
+	e := &o.Employees[slot]
+	if !e.PCBroken {
+		return ErrNotBroken
+	}
+	if g.Money < g.cfg.MasterCallPrice {
+		return ErrNotEnoughMoney
+	}
+	g.Money -= g.cfg.MasterCallPrice
+	e.PCBroken = false
+	e.RepairClicks = 0
+	return nil
+}
+
 // NextDay начинает следующий день. Работает только из фазы отчёта.
 func (g *Game) NextDay() error {
 	if g.Phase != PhaseDayReport {
 		return ErrWrongPhase
 	}
-	// Сбрасываем флаги неполного дня для нанятых после обеда и бафф кофе
+	// Сбрасываем флаги неполного дня для нанятых после обеда, баффы
+	// дня и поломки (ночной ИТ-шник чинит ПК сам).
 	for i := range g.Offices {
 		o := &g.Offices[i]
 		for j := range o.Employees {
 			o.Employees[j].UnpaidToday = false
 			o.Employees[j].CoffeeUntil = 0
+			o.Employees[j].MotivatedUntil = 0
+			o.Employees[j].MotivateCooldownUntil = 0
+			o.Employees[j].PCBroken = false
+			o.Employees[j].RepairClicks = 0
 		}
 		o.BossUnpaidToday = false
 		// Роллим кофе-события следующего дня: одно до обеда, одно после.
@@ -271,6 +340,8 @@ func (g *Game) NextDay() error {
 	g.Day++
 	g.TickInDay = 0
 	g.DayIncome = 0
+	g.DayIncidents = 0
+	g.DayLostIncome = 0
 	g.Phase = PhaseRunning
 	return nil
 }
@@ -319,6 +390,9 @@ const (
 	CmdBuyCooler     = Command("buy_cooler")
 	CmdBuyFridge     = Command("buy_fridge")
 	CmdBuyCoffee     = Command("buy_coffee")
+	CmdMotivate      = Command("motivate")
+	CmdRepairClick   = Command("repair_click")
+	CmdCallMaster    = Command("call_master")
 )
 
 // Apply выполняет команду игрока; офисные команды адресуются индексом office,
@@ -358,6 +432,12 @@ func (g *Game) Apply(cmd Command, office, slot int) error {
 		return g.BuyFridge(office)
 	case CmdBuyCoffee:
 		return g.BuyCoffeeMachine(office)
+	case CmdMotivate:
+		return g.Motivate(office, slot)
+	case CmdRepairClick:
+		return g.RepairClick(office, slot)
+	case CmdCallMaster:
+		return g.CallMaster(office, slot)
 	default:
 		return ErrUnknownCommand
 	}
