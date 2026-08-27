@@ -20,6 +20,10 @@ const OFFLINE_LABELS: Record<string, string> = {
   no_server: 'без стойки',
 }
 
+// Прибавка выработки за уровень, $/тик — зеркало EmployeeLevelBonus
+// конфига (только для строки тултипа; сервер считает сам).
+const LEVEL_BONUS: Record<number, number> = { 1: 1, 2: 2, 3: 2 }
+
 export class OfficeScene extends Phaser.Scene {
   private objects: Phaser.GameObjects.GameObject[] = []
   private tooltip!: Phaser.GameObjects.Container
@@ -36,6 +40,8 @@ export class OfficeScene extends Phaser.Scene {
   create() {
     // сцены перезапускаются при переключении комнат — сбрасываем ссылки прошлого цикла
     this.objects = []
+    // Правый клик по сотруднику — увольнение: контекстное меню браузера мешает.
+    this.input.mouse?.disableContextMenu()
     this.add.rectangle(NAV_W, HUD_H, GAME_W - NAV_W, GAME_H - HUD_H, 0x2b2f4a).setOrigin(0) // пол офиса
 
     // Один переиспользуемый тултип поверх всего; наполняется при наведении.
@@ -195,11 +201,16 @@ export class OfficeScene extends Phaser.Scene {
         const wx = s.isLunch ? x - 52 + LUNCH_SHIFT : x - 52
         const wy = s.isLunch ? y - 6 + LUNCH_SHIFT : y - 6
         const worker = this.add.image(wx, wy, 'worker').setScale(SCALE).setInteractive({ useHandCursor: true })
-        // Клик по сотруднику — мотивация: +25% на 3 часа с кулдауном.
-        worker.on('pointerdown', () => {
-        playSfx(this, 'click')
-        client.send('motivate', nav.activeOffice, { slot: i })
-      })
+        // ЛКМ по сотруднику — мотивация: +25% на 3 часа с кулдауном.
+        // ПКМ (правый клик) — модалка увольнения (итерация 15).
+        worker.on('pointerdown', (p: Phaser.Input.Pointer) => {
+          if (p.rightButtonDown()) {
+            this.openFireModal(e, i)
+          } else {
+            playSfx(this, 'click')
+            client.send('motivate', nav.activeOffice, { slot: i })
+          }
+        })
         worker.on('pointerover', () => {
           this.hoveredSlot = i
           this.showTooltip(e, s, wx, wy)
@@ -235,6 +246,12 @@ export class OfficeScene extends Phaser.Scene {
         // Жёлтый значок-бейдж, пока действует мотивация кликом.
         if (e.effects.some((ef) => ef.token === 'motivated')) {
           this.objects.push(this.add.circle(x - 28, y - 36, 5, 0xffcd75))
+        }
+        // Золотая звезда найма-рулетки (и кандидата события) — ×1.5 базы.
+        if (e.star) {
+          this.objects.push(this.add.text(x - 28, y - 58, '★', {
+            fontFamily: 'monospace', fontSize: '14px', color: '#ffcd75',
+          }).setOrigin(0.5))
         }
       }
     }
@@ -274,15 +291,23 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private showTooltip(e: EmployeeInfo, s: StateMessage, x: number, y: number) {
-    // Выработка — эффективная (с дебаффами/баффами); база в скобках,
-    // когда эффекты её меняют.
-    const base = e.incomePerTick * s.ticksPerHour
+    // Выработка — эффективная (с прибавкой уровня и дебаффами/баффами);
+    // база в скобках, когда эффекты её меняют.
+    const base = (e.incomePerTick + (e.level > 0 ? LEVEL_BONUS[e.level] : 0)) * s.ticksPerHour
     const effective = e.effectiveIncomePerTick * s.ticksPerHour
     const lines = [
       e.name,
       `Выработка: ${fmtMoney(effective)}/час${effective !== base ? ` (база ${fmtMoney(base)})` : ''}`,
       `Зарплата:  ${fmtMoney(e.salary)}/день${e.unpaidToday ? ' (сегодня без оплаты)' : ''}`,
     ]
+    // Опыт/уровень: тенура — актив, а не только ФОТ (итерация 15).
+    const lvl = e.level > 0 ? ` (+$${LEVEL_BONUS[e.level]}/тик)` : ''
+    lines.push(e.xpNext > 0
+      ? `Уровень ${e.level}${lvl}, опыт ${e.xp}/${e.xpNext}`
+      : `Уровень ${e.level}${lvl}, опыт MAX`)
+    if (e.star) {
+      lines.push('★ звезда: выработка ×1.5 при найме')
+    }
     lines.push(e.serverSlot > 0 ? `сервер ${e.serverSlot} · ×${e.netMult.toFixed(1)}` : 'без сервера')
     // Причина отсутствия сети — словами, не кодом.
     if (e.offlineReason === 'no_router') {
@@ -296,6 +321,7 @@ export class OfficeScene extends Phaser.Scene {
       lines.push('ПК СЛОМАН — доход 0; кликайте по столу')
     }
     lines.push(e.motivateReadyAt ? `мотивация: после ${e.motivateReadyAt}` : 'мотивация: готова (клик)')
+    lines.push(`уволить: ${fmtMoney(e.firePrice)} (правый клик)`)
     const EFFECT_NAMES: Record<string, string> = { thirst: 'жажда', hunger: 'голоден', coffee: 'выпил кофе', motivated: 'мотивирован', offended: 'обижен' }
     // Ремень безопасности: старый сервер мог прислать null вместо [] —
     // краш тултипа обрывал перерисовку всей сцены.
@@ -317,6 +343,27 @@ export class OfficeScene extends Phaser.Scene {
     this.tooltipBg.setSize(this.tooltipText.width + 20, this.tooltipText.height + 16)
     const tx = Math.min(x, GAME_W - this.tooltipBg.width - 8)
     this.tooltip.setPosition(tx, y).setVisible(true)
+  }
+
+  // Модалка увольнения (итерация 15): ПК освобождается, опыт теряется.
+  // Отдельная от motivate модалка — случайный клик не должен увольнять.
+  private openFireModal(e: EmployeeInfo, slot: number) {
+    const lost = [
+      e.level > 0 ? `уровень ${e.level} и опыт ${e.xp}` : null,
+      e.star ? 'статус звезды ★' : null,
+    ].filter(Boolean)
+    const lines = [
+      `${e.name}`,
+      `Компенсация: ${fmtMoney(e.firePrice)}${e.hiredToday ? ' (день найма — испытательный срок)' : ''}`,
+      'ПК останется в офисе — свободен для нового найма.',
+      lost.length ? `Теряется: ${lost.join(', ')}.` : 'Опыт теряется (его пока нет).',
+    ]
+    showModal(this, 'Уволить сотрудника?', lines, [
+      {
+        label: `Уволить (${fmtMoney(e.firePrice)})`,
+        onClick: () => client.send('fire', nav.activeOffice, { slot }),
+      },
+    ])
   }
 
   // Модалка роутера: апгрейд переехал сюда из кнопки HUD (заявка И4).

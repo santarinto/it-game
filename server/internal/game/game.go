@@ -30,6 +30,11 @@ type Employee struct {
 	// Unseen Forces (итерация 10).
 	SalaryAdd     int // повышение: надбавка к дневной зарплате, навсегда
 	OffendedUntil int // отказ в повышении: дебафф пока тик < OffendedUntil
+
+	// Сотрудники 2.0 (итерация 15).
+	Star    bool // звезда: выработка уже умножена при найме, бейдж ★
+	HireDay int  // день найма: компенсация увольнения в тот же день ниже
+	XP      int  // опыт за продуктивные тики; уровень — производный (LevelFor)
 }
 
 // Game — состояние одной игры. НЕ потокобезопасен: им владеет
@@ -86,6 +91,58 @@ func (g *Game) Clock() string { return g.cfg.clockAt(g.TickInDay) }
 // ClockAt — игровое время произвольного тика (для протокола).
 func (g *Game) ClockAt(tick int) string { return g.cfg.clockAt(tick) }
 
+// LevelFor — уровень сотрудника по накопленному XP (производный, не хранится).
+func (g *Game) LevelFor(e *Employee) int {
+	level := 0
+	for i, need := range g.cfg.EmployeeLevelXP {
+		if e.XP >= need {
+			level = i + 1
+		}
+	}
+	return level
+}
+
+// levelBonus — прибавка к выработке за уровень сотрудника, $/тик.
+func (g *Game) levelBonus(e *Employee) int {
+	if lvl := g.LevelFor(e); lvl > 0 {
+		return g.cfg.EmployeeLevelBonus[lvl-1]
+	}
+	return 0
+}
+
+// XPNext — XP до следующего уровня; 0 на потолке.
+func (g *Game) XPNext(e *Employee) int {
+	for _, need := range g.cfg.EmployeeLevelXP {
+		if e.XP < need {
+			return need
+		}
+	}
+	return 0
+}
+
+// accrueXP — опыт за тик: каждому сотруднику с целым ПК (не в обед —
+// вызывается только из Tick на продуктивном тике). Начальник в офисе
+// менторствует: ×1.5. На потолке уровней опыт не копится.
+func (g *Game) accrueXP() {
+	for oi := range g.Offices {
+		o := &g.Offices[oi]
+		if !o.Unlocked {
+			continue
+		}
+		rate := g.cfg.XPPerTick
+		if o.Boss != "" {
+			rate = g.cfg.XPMentorPerTick
+		}
+		for i := range o.Employees {
+			e := &o.Employees[i]
+			if e.PCBroken || g.XPNext(e) == 0 {
+				continue
+			}
+			e.XP += rate
+		}
+	}
+}
+
 // IsLunch — идёт ли сейчас обед (в обед доход за тик равен нулю).
 func (g *Game) IsLunch() bool { return g.cfg.isLunchTick(g.TickInDay) }
 
@@ -119,7 +176,9 @@ func (g *Game) incomeAtTickDetail(tick int) (total, lost int) {
 		}
 		for i := range o.Employees {
 			e := &o.Employees[i]
-			v := int(math.Round(float64(e.IncomePerTick) * g.effectMult(o, e, tick) * net.Mults[oi][i]))
+			// Прибавка уровня входит в личную выработку до эффектов и сети:
+			// тенюра масштабируется инфраструктурой (итерация 15).
+			v := int(math.Round(float64(e.IncomePerTick+g.levelBonus(e)) * g.effectMult(o, e, tick) * net.Mults[oi][i]))
 			if e.PCBroken {
 				lost += v
 				continue
@@ -212,6 +271,9 @@ func (g *Game) Tick() *DayReport {
 	g.rollBreakdowns()
 	g.activateEvents()
 	income, lost := g.incomeAtTickDetail(g.TickInDay)
+	if !g.cfg.isLunchTick(g.TickInDay) {
+		g.accrueXP()
+	}
 	g.Money += income
 	g.DayIncome += income
 	g.DayLostIncome += lost

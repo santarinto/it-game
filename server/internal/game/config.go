@@ -66,6 +66,17 @@ type Config struct {
 	RaiseOffendMult float64 // отказ в повышении: множитель выработки до конца дня
 
 	PCPriceGrowth float64 // рост цены ПК за каждый следующий в офисе (ит. 14)
+
+	// Сотрудники 2.0 (итерация 15): увольнение, опыт/уровни, звёзды.
+	// Числа — GDD «Сотрудники 2.0».
+	XPPerTick          int   // XP за продуктивный тик (не обед, ПК цел)
+	XPMentorPerTick    int   // XP за тик при начальнике в офисе (менторство ×1.5)
+	EmployeeLevelXP    []int // пороги уровней накопленным XP; len = потолок уровня
+	EmployeeLevelBonus []int // прибавка к выработке за уровень, $/тик
+	StarChancePct      int   // шанс звезды при обычном найме, %
+	StarMult           float64 // множитель выработки звезды (на ролл)
+	FireCompensation   int   // компенсация увольнения
+	FireCompSameDay    int   // компенсация увольнения в день найма («испытательный»)
 }
 
 // RouterTier — тир роутера: покупается последовательно, тир заменяет предыдущий.
@@ -161,6 +172,15 @@ func DefaultConfig() Config {
 		RaiseOffendMult: 0.85,
 
 		PCPriceGrowth: 1.15,
+
+		XPPerTick:          2,
+		XPMentorPerTick:    3,
+		EmployeeLevelXP:    []int{96, 288, 576},
+		EmployeeLevelBonus: []int{1, 2, 2},
+		StarChancePct:      5,
+		StarMult:           1.5,
+		FireCompensation:   250,
+		FireCompSameDay:    100,
 	}
 }
 
@@ -183,6 +203,9 @@ func (c Config) thirstTick() int { return c.ThirstAfterHours * c.TicksPerHour }
 
 // lunchEndTick — первый тик после обеда.
 func (c Config) lunchEndTick() int { return (c.LunchEnd - c.WorkdayStart) * c.TicksPerHour }
+
+// lunchStartTick — первый тик обеда.
+func (c Config) lunchStartTick() int { return (c.LunchStart - c.WorkdayStart) * c.TicksPerHour }
 
 // clockAt — игровое время «HH:MM» произвольного тика дня.
 func (c Config) clockAt(tick int) string {

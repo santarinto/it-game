@@ -45,6 +45,13 @@ export interface EmployeeInfo {
   motivateReadyAt: string // «HH:MM» клика возможен; '' — уже можно
   // Unseen Forces (итерация 10).
   salary: number // дневная зарплата этого сотрудника с надбавками
+  // Сотрудники 2.0 (итерация 15).
+  level: number // 0–3; производный от XP
+  xp: number // накопленный опыт
+  xpNext: number // до следующего уровня; 0 — потолок
+  star: boolean // звезда: золотой бейдж, выработка ×1.5 при найме
+  firePrice: number // компенсация увольнения этого сотрудника
+  hiredToday: boolean // нанят в текущий день (компенсация ниже)
 }
 
 export interface OfficeInfo {
@@ -149,4 +156,4 @@ export type CommandType =
   | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart'
   | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed'
   | 'upgrade_server' | 'upgrade_core'
-  | 'motivate' | 'repair_click' | 'call_master' | 'event_choice'
+  | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire'

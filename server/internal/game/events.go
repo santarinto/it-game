@@ -154,6 +154,7 @@ func (g *Game) starOffice() int {
 
 // baseIncomePerTick — суммарная базовая выработка компании без эффектов
 // и сети: точка отсчёта цели дедлайна (баффы помогают перевыполнить).
+// Прибавка уровней входит: цель растёт вместе с тенюрой (итерация 15).
 func (g *Game) baseIncomePerTick() int {
 	total := 0
 	for oi := range g.Offices {
@@ -161,8 +162,8 @@ func (g *Game) baseIncomePerTick() int {
 		if !o.Unlocked {
 			continue
 		}
-		for _, e := range o.Employees {
-			total += e.IncomePerTick
+		for i := range o.Employees {
+			total += o.Employees[i].IncomePerTick + g.levelBonus(&o.Employees[i])
 		}
 	}
 	return total
@@ -355,6 +356,8 @@ func (g *Game) ChooseEvent(option int) error {
 				IncomePerTick: g.cfg.IncomeMax + starIncomeBonus,
 				SalaryAdd:     g.cfg.SalaryPerDay,
 				UnpaidToday:   g.hiredAfterLunch(),
+				Star:          true, // бейдж общий с звёздами найма (итерация 15)
+				HireDay:       g.Day,
 			})
 			g.logEvent(fmt.Sprintf("звёздный кандидат нанят (−$%d)", price))
 		case 1:

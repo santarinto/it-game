@@ -27,6 +27,12 @@ type testMessage struct {
 			PCBroken        bool   `json:"pcBroken"`
 			RepairClicks    int    `json:"repairClicks"`
 			MotivateReadyAt string `json:"motivateReadyAt"`
+			Level           int    `json:"level"`
+			XP              int    `json:"xp"`
+			XPNext          int    `json:"xpNext"`
+			Star            bool   `json:"star"`
+			FirePrice       int    `json:"firePrice"`
+			HiredToday      bool   `json:"hiredToday"`
 		} `json:"employees"`
 	} `json:"offices"`
 	Day          int      `json:"day"`
@@ -459,5 +465,57 @@ func TestVictoryMessage(t *testing.T) {
 	errMsg := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "error" })
 	if errMsg.Code != "wrong_phase" {
 		t.Fatalf("покупка после победы: %+v", errMsg)
+	}
+}
+
+// TestEmployees2Protocol — сотрудники 2.0 (итерация 15): снапшот несёт
+// level/xp/xpNext/star/firePrice/hiredToday, fire освобождает ПК,
+// компенсация в день найма ниже, ошибки bad_slot/not_enough_money.
+func TestEmployees2Protocol(t *testing.T) {
+	cfg := game.DefaultConfig()
+	cfg.BreakdownChancePct = 0
+	cfg.StartMoney = 10_000
+	c, ctx := dialTestServer(t, cfg, time.Hour)
+
+	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" })
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 0}); err != nil {
+		t.Fatal(err)
+	}
+	st := readUntil(t, ctx, c, func(m testMessage) bool {
+		return m.Type == "state" && len(m.Offices[0].Employees) == 1
+	})
+	e := st.Offices[0].Employees[0]
+	if e.Level != 0 || e.XP != 0 || e.XPNext != cfg.EmployeeLevelXP[0] {
+		t.Fatalf("свежий сотрудник: %+v, хотим уровень 0 и xpNext %d", e, cfg.EmployeeLevelXP[0])
+	}
+	if e.HiredToday != true || e.FirePrice != cfg.FireCompSameDay {
+		t.Fatalf("день найма: hiredToday=%v firePrice=%d, хотим true и %d", e.HiredToday, e.FirePrice, cfg.FireCompSameDay)
+	}
+	// fire вне штата — bad_slot.
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "fire", Office: 0, Slot: 3}); err != nil {
+		t.Fatal(err)
+	}
+	errMsg := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "error" })
+	if errMsg.Code != "bad_slot" {
+		t.Fatalf("хотим bad_slot, получили %+v", errMsg)
+	}
+	// Увольнение освобождает ПК: найм работает без buy_pc.
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "fire", Office: 0, Slot: 0}); err != nil {
+		t.Fatal(err)
+	}
+	st = readUntil(t, ctx, c, func(m testMessage) bool {
+		return m.Type == "state" && len(m.Offices[0].Employees) == 0
+	})
+	if st.Money != cfg.StartMoney-cfg.HirePrice-cfg.FireCompSameDay {
+		t.Fatalf("баланс после найма+увольнения = %d, хотим %d", st.Money, cfg.StartMoney-cfg.HirePrice-cfg.FireCompSameDay)
+	}
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 0}); err != nil {
+		t.Fatal(err)
+	}
+	st = readUntil(t, ctx, c, func(m testMessage) bool {
+		return m.Type == "state" && len(m.Offices[0].Employees) == 1
+	})
+	if st.Money != cfg.StartMoney-2*cfg.HirePrice-cfg.FireCompSameDay {
+		t.Fatalf("найм в освобождённый ПК: баланс %d", st.Money)
 	}
 }

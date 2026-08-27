@@ -81,7 +81,8 @@ func (g *Game) NextPCPrice(office int) int {
 }
 
 // Hire сажает нового сотрудника за свободный ПК офиса: имя и выработка
-// роллятся при найме и не меняются.
+// роллятся при найме и не меняются. Шанс StarChancePct — «звезда»:
+// ролл выработки ×StarMult, суффикс « ★», золотой бейдж (итерация 15).
 func (g *Game) Hire(office int) error {
 	o, err := g.office(office)
 	if err != nil {
@@ -97,12 +98,84 @@ func (g *Game) Hire(office int) error {
 		return ErrNotEnoughMoney
 	}
 	g.Money -= g.cfg.HirePrice
+	name := rollName(g.rng)
+	income := g.cfg.IncomeMin + g.rng.IntN(g.cfg.IncomeMax-g.cfg.IncomeMin+1)
+	star := g.rng.IntN(100) < g.cfg.StarChancePct
+	if star {
+		name += " ★"
+		income = int(math.Round(float64(income) * g.cfg.StarMult))
+	}
 	o.Employees = append(o.Employees, Employee{
-		Name:          rollName(g.rng),
-		IncomePerTick: g.cfg.IncomeMin + g.rng.IntN(g.cfg.IncomeMax-g.cfg.IncomeMin+1),
+		Name:          name,
+		IncomePerTick: income,
 		UnpaidToday:   g.hiredAfterLunch(),
+		Star:          star,
+		HireDay:       g.Day,
 	})
 	return nil
+}
+
+// FireCompensation — компенсация увольнения этого сотрудника: в день
+// найма дешевле («испытательный срок»).
+func (g *Game) FireCompensation(e *Employee) int {
+	if e.HireDay == g.Day {
+		return g.cfg.FireCompSameDay
+	}
+	return g.cfg.FireCompensation
+}
+
+// Fire увольняет сотрудника: ПК остаётся в офисе (свободен для найма),
+// сотрудник уходит с опытом и уровнем. События «повышение», адресованные
+// этому офису, ретаргетятся: адресат уволен — резолв, следующий сдвигается.
+func (g *Game) Fire(office, slot int) error {
+	o, err := g.office(office)
+	if err != nil {
+		return err
+	}
+	if slot < 0 || slot >= len(o.Employees) {
+		return ErrBadSlot
+	}
+	comp := g.FireCompensation(&o.Employees[slot])
+	if g.Money < comp {
+		return ErrNotEnoughMoney
+	}
+	g.Money -= comp
+	g.retargetRaiseEvents(office, slot)
+	o.Employees = append(o.Employees[:slot], o.Employees[slot+1:]...)
+	return nil
+}
+
+// retargetRaiseEvents — события «просит повышения» хранят индекс
+// сотрудника; увольнение сдвигает индексы. Адресат уволен — событие
+// закрывается (активное — с логом, ожидающее — молча).
+func (g *Game) retargetRaiseEvents(office, firedSlot int) {
+	resolve := func(ev *DayEvent, log bool) {
+		if log && g.ActiveEvent == ev {
+			g.logEvent("повышение: сотрудник уволен до ответа")
+		}
+		ev.Resolved = true
+		if g.ActiveEvent == ev {
+			g.ActiveEvent = nil
+		}
+	}
+	if ev := g.ActiveEvent; ev != nil && ev.ID == EventRaise && ev.Office == office {
+		if ev.Slot == firedSlot {
+			resolve(ev, true)
+		} else if ev.Slot > firedSlot {
+			ev.Slot--
+		}
+	}
+	for i := range g.DayEvents {
+		ev := &g.DayEvents[i]
+		if ev.ID != EventRaise || ev.Office != office || ev.Resolved {
+			continue
+		}
+		if ev.Slot == firedSlot {
+			resolve(ev, false)
+		} else if ev.Slot > firedSlot {
+			ev.Slot--
+		}
+	}
 }
 
 // BuyRouter покупает следующий тир роутера офиса (тир заменяет предыдущий).
@@ -424,6 +497,7 @@ const (
 	CmdRepairClick   = Command("repair_click")
 	CmdCallMaster    = Command("call_master")
 	CmdEventChoice   = Command("event_choice")
+	CmdFire          = Command("fire")
 )
 
 // Apply выполняет команду игрока; офисные команды адресуются индексом office,
@@ -469,6 +543,8 @@ func (g *Game) Apply(cmd Command, office, slot int) error {
 		return g.RepairClick(office, slot)
 	case CmdCallMaster:
 		return g.CallMaster(office, slot)
+	case CmdFire:
+		return g.Fire(office, slot)
 	case CmdEventChoice:
 		// slot — индекс опции активного события (см. спеку итерации 10).
 		return g.ChooseEvent(slot)
