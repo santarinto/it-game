@@ -20,10 +20,10 @@ const (
 	EventStar     = EventID("star")
 )
 
-// Доли дедлайна от ожидаемого дохода окна (GDD): цель 70%, премия 35%,
-// штраф 15%, отказ 5%. Скалируются EventK: штрафы жёстче, премии мягче.
+// Доли дедлайна от ожидаемого дохода окна (GDD): премия 35%, штраф 15%,
+// отказ 5%. Скалируются EventK: штрафы жёстче, премии мягче. Цель —
+// cfg.DeadlineGoalShare (Сложность 2.0: доля от уровня, easy 55%..hardcore 85%).
 const (
-	deadlineGoalShare   = 0.7
 	deadlineRewardShare = 0.35
 	deadlineFineShare   = 0.15
 	deadlineRefuseShare = 0.05
@@ -78,7 +78,8 @@ func (g *Game) rollDayEvents() {
 }
 
 // rollOneEvent — кандидат из пула доступных типов по весам
-// (вирус 25, дедлайн 20, аудит 15, повышение 25, звезда 15).
+// (вирус 25×VirusWeightK, дедлайн 20, аудит 15, повышение 25, звезда 15).
+// Вес вируса скалируется сложностью (Сложность 2.0: хардкор — вирусы чаще).
 func (g *Game) rollOneEvent(used map[EventID]bool, lo, hi int) (DayEvent, bool) {
 	tick := lo + g.rng.IntN(hi-lo)
 	type cand struct {
@@ -91,7 +92,7 @@ func (g *Game) rollOneEvent(used map[EventID]bool, lo, hi int) (DayEvent, bool) 
 			cands = append(cands, cand{id, w})
 		}
 	}
-	add(EventVirus, 25, g.randomStaffedOffice() >= 0)
+	add(EventVirus, int(25*g.cfg.VirusWeightK+0.5), g.randomStaffedOffice() >= 0)
 	add(EventDeadline, 20, g.baseIncomePerTick() > 0)
 	add(EventAudit, 15, true)
 	add(EventRaise, 25, g.randomStaffedOffice() >= 0)
@@ -271,8 +272,10 @@ func (g *Game) autoResolveEvents() {
 	g.ActiveEvent = nil
 }
 
-// deadlineGoalFor — цель дедлайна от текущего момента: 70% базовой
-// выработки за продуктивные тики до 17:00.
+// deadlineGoalFor — цель дедлайна от текущего момента: доля уровня
+// (cfg.DeadlineGoalShare) базовой выработки за продуктивные тики до 17:00.
+// Рынок дня входит (Сложность 2.0): на «красном» дне и цель меньше —
+// событие остаётся честным к ожиданиям, риск несёт перевыполнение.
 func (g *Game) deadlineGoalFor() int {
 	n := 0
 	for t := g.TickInDay; t < g.cfg.deadlineTick(); t++ {
@@ -280,7 +283,7 @@ func (g *Game) deadlineGoalFor() int {
 			n++
 		}
 	}
-	return int(deadlineGoalShare * float64(g.baseIncomePerTick()) * float64(n))
+	return int(g.cfg.DeadlineGoalShare * float64(g.baseIncomePerTick()) * float64(n) * g.marketMult())
 }
 
 // ChooseEvent — выбор опции активного события; option — её индекс.

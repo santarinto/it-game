@@ -37,6 +37,8 @@ type Save struct {
 	DeadlineOn        bool      `json:"deadlineOn"`
 	DeadlineGot       int       `json:"deadlineGot"`
 	DeadlineGoal      int       `json:"deadlineGoal"`
+	MarketToday       int       `json:"marketToday"`    // рынок дня, % (Сложность 2.0)
+	MarketTomorrow    int       `json:"marketTomorrow"` // завтрашний ролл, виден заранее
 }
 
 // Export — слепок текущего состояния для сейва.
@@ -48,6 +50,7 @@ func (g *Game) Export() Save {
 		DayIncidents: g.DayIncidents, DayLostIncome: g.DayLostIncome,
 		DayEvents: g.DayEvents, ActiveEvent: g.ActiveEvent, EventLog: g.EventLog,
 		DeadlineOn: g.DeadlineOn, DeadlineGot: g.DeadlineGot, DeadlineGoal: g.DeadlineGoal,
+		MarketToday: g.MarketToday, MarketTomorrow: g.MarketTomorrow,
 	}
 }
 
@@ -79,6 +82,7 @@ func Restore(s Save) (*Game, error) {
 		DayIncidents: s.DayIncidents, DayLostIncome: s.DayLostIncome,
 		DayEvents: s.DayEvents, ActiveEvent: s.ActiveEvent, EventLog: s.EventLog,
 		DeadlineOn: s.DeadlineOn, DeadlineGot: s.DeadlineGot, DeadlineGoal: s.DeadlineGoal,
+		MarketToday: s.MarketToday, MarketTomorrow: s.MarketTomorrow,
 	}
 	return g, nil
 }

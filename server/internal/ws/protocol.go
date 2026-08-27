@@ -43,7 +43,14 @@ type stateMessage struct {
 	Speed            int              `json:"speed"`      // темп сессии: 0 — пауза, 1..3
 	Resumed          bool             `json:"resumed"`    // снапшот восстановленной сессии (ITGAME-8)
 	Difficulty       string           `json:"difficulty"` // easy | normal | hard | hardcore
-	WinTarget        int              `json:"winTarget"`  // цель победы, $
+	WinTarget        int              `json:"winTarget"`  // денежная часть цели, $
+	WinStaff         int              `json:"winStaff"`   // комбо-цель: сотрудников (0 — нет; Сложность 2.0)
+	WinCore          int              `json:"winCore"`    // комбо-цель: уровень core (0 — нет)
+	WinDayLimit      int              `json:"winDayLimit"` // дедлайн цели: дней (0 — нет)
+	MarketToday      int              `json:"marketToday"`   // рынок: % выработки сегодня (0 — нет)
+	MarketTomorrow   int              `json:"marketTomorrow"` // завтрашний рынок, виден заранее
+	CreditLimit      int              `json:"creditLimit"`  // кредитный порог, $ (0 — кредита нет)
+	CreditRatePct    int              `json:"creditRatePct"` // процент за день на долг
 	ActiveEvent      *activeEventInfo `json:"activeEvent"`
 	Prices           prices           `json:"prices"`
 }
@@ -171,12 +178,13 @@ type dayReportMessage struct {
 	Events      []string `json:"events"`     // события дня: по строке на итог
 }
 
-// gameOverMessage — итоги банкротства; шлётся сразу после снапшота с phase=game_over.
+// gameOverMessage — итоги проигрыша; шлётся сразу после снапшота с phase=game_over.
 type gameOverMessage struct {
 	Type              string `json:"type"` // всегда "game_over"
 	DaysSurvived      int    `json:"daysSurvived"`
 	PeakIncomePerTick int    `json:"peakIncomePerTick"`
 	Balance           int    `json:"balance"` // отрицательный: сколько не хватило
+	Reason            string `json:"reason"` // bankrupt | time_up (Сложность 2.0)
 }
 
 // victoryMessage — итоги победы; шлётся сразу после снапшота с phase=won.
@@ -199,6 +207,7 @@ type offlineReportMessage struct {
 	Balance  int    `json:"balance"`
 	GameOver bool   `json:"gameOver"`
 	Victory  bool   `json:"victory"`
+	Reason   string `json:"reason"` // причина финала: bankrupt | time_up
 }
 
 func snapshot(g *game.Game, speed int, resumed bool) stateMessage {
@@ -310,6 +319,9 @@ func snapshot(g *game.Game, speed int, resumed bool) stateMessage {
 		ForecastEndOfDay: g.ForecastEndOfDay(), StaffLimit: cfg.StaffLimit,
 		OfficeSlots: cfg.OfficeSlots, Phase: string(g.Phase), Speed: speed,
 		Resumed: resumed, Difficulty: string(cfg.Difficulty), WinTarget: cfg.WinTarget,
+		WinStaff: cfg.WinStaff, WinCore: cfg.WinCore, WinDayLimit: cfg.WinDayLimit,
+		MarketToday: g.MarketToday, MarketTomorrow: g.MarketTomorrow,
+		CreditLimit: cfg.CreditLimit, CreditRatePct: int(cfg.CreditRate * 100),
 		ActiveEvent: active,
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice,
 			Boss: cfg.BossPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,

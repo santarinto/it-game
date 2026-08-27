@@ -102,7 +102,14 @@ export interface StateMessage {
   speed: number // темп сессии: 0 — пауза, 1..3
   resumed: boolean // снапшот восстановленной сессии (ITGAME-8)
   difficulty: DifficultyId
-  winTarget: number // цель победы, $
+  winTarget: number // денежная часть цели, $
+  winStaff: number // комбо-цель: сотрудников (0 — нет; сложность 2.0)
+  winCore: number // комбо-цель: уровень core (0 — нет)
+  winDayLimit: number // дедлайн цели: дней (0 — нет)
+  marketToday: number // рынок: % выработки сегодня (0 — нет)
+  marketTomorrow: number // завтрашний рынок, виден заранее
+  creditLimit: number // кредитный порог, $ (0 — кредита нет)
+  creditRatePct: number // процент за день на долг
   activeEvent: ActiveEventInfo | null // висящее событие Unseen Forces
   prices: {
     pc: number
@@ -141,6 +148,7 @@ export interface GameOverMessage {
   daysSurvived: number
   peakIncomePerTick: number
   balance: number
+  reason: 'bankrupt' | 'time_up' // сложность 2.0: время вышло
 }
 
 export interface VictoryMessage {
@@ -161,6 +169,7 @@ export interface OfflineReportMessage {
   balance: number
   gameOver: boolean
   victory: boolean
+  reason?: 'bankrupt' | 'time_up' // причина офлайн-финала
 }
 
 export type ServerMessage =

@@ -67,6 +67,17 @@ type Config struct {
 
 	PCPriceGrowth float64 // рост цены ПК за каждый следующий в офисе (ит. 14)
 
+	// Сложность 2.0 (итерация 17, ITGAME-9): сложность меняет решения,
+	// а не только длину прогона. Числа — GDD «Сложность 2.0».
+	CreditLimit        int     // кредит: долг до −X жив (0 — минус = банкротство)
+	CreditRate         float64 // кредит: процент на долг за день, 0..1
+	WinStaff           int     // комбо-цель: сотрудников в штате (0 — не требуется)
+	WinCore            int     // комбо-цель: уровень core (0 — не требуется)
+	WinDayLimit        int     // дедлайн цели: конец дня X без победы — финал (0 — нет)
+	MarketSwingPct     int     // рынок: амплитуда качелей выработки, % (0 — рынка нет)
+	VirusWeightK       float64 // вес «вируса» в пуле событий (хардкор — чаще)
+	DeadlineGoalShare  float64 // доля цели дедлайна от ожидаемого дохода окна
+
 	// Сотрудники 2.0 (итерация 15): увольнение, опыт/уровни, звёзды.
 	// Числа — GDD «Сотрудники 2.0».
 	XPPerTick          int   // XP за продуктивный тик (не обед, ПК цел)
@@ -172,6 +183,9 @@ func DefaultConfig() Config {
 		RaiseOffendMult: 0.85,
 
 		PCPriceGrowth: 1.15,
+
+		VirusWeightK:      1,
+		DeadlineGoalShare: 0.7,
 
 		XPPerTick:          2,
 		XPMentorPerTick:    3,

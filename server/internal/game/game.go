@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"math"
 	"math/rand/v2"
 )
@@ -56,6 +57,10 @@ type Game struct {
 	DayIncidents      int // поломок ПК за текущий день (для отчёта)
 	DayLostIncome     int // упущено из-за поломок за текущий день (для отчёта)
 
+	// Won-финал: причина проигрыша для протокола (bankrupt | time_up);
+	// живёт только в терминальной фазе, в сейвы не попадает.
+	LoseReason string
+
 	// Unseen Forces (итерация 10): план дня, активное событие и рантайм
 	// дедлайна. Владеет всем этим актор сессии, как и остальным стейтом.
 	DayEvents    []DayEvent // события, роллящиеся в NextDay
@@ -64,7 +69,19 @@ type Game struct {
 	DeadlineOn   bool       // дедлайн принят
 	DeadlineGot  int        // накоплено $ с принятия
 	DeadlineGoal int        // цель, $
+
+	// Рынок (Сложность 2.0, ITGAME-9): модификатор выработки дня, %.
+	// Завтрашний ролл виден заранее — решение «нанять сейчас или ждать».
+	// День 1 без рынка (онбординг), дальше качели ±MarketSwingPct.
+	MarketToday     int
+	MarketTomorrow  int
 }
+
+// Причины проигрыша — значения поля reason протокола.
+const (
+	LoseBankrupt = "bankrupt" // долг за кредитным порогом / минус без кредита
+	LoseTimeUp   = "time_up"  // дедлайн уровня: день X закрыт без победы
+)
 
 func New(cfg Config) *Game {
 	return NewWithSeed(cfg, rand.Uint64(), rand.Uint64())
@@ -79,6 +96,8 @@ func NewWithSeed(cfg Config, s1, s2 uint64) *Game {
 		Offices: make([]Office, 3),
 	}
 	g.Offices[0] = Office{Unlocked: true, PCs: cfg.StartPCs}
+	// Рынок: сегодня онбординг без качелей, завтрашний ролл уже виден.
+	g.MarketTomorrow = g.rollMarket()
 	return g
 }
 
@@ -146,6 +165,68 @@ func (g *Game) accrueXP() {
 // IsLunch — идёт ли сейчас обед (в обед доход за тик равен нулю).
 func (g *Game) IsLunch() bool { return g.cfg.isLunchTick(g.TickInDay) }
 
+// marketMult — множитель рыночных качелей на выработку (Сложность 2.0).
+func (g *Game) marketMult() float64 { return 1 + float64(g.MarketToday)/100 }
+
+// rollMarket — рыночный ролл дня: шаг 5% в [−MarketSwingPct, +MarketSwingPct];
+// MarketSwingPct = 0 — рынка нет, всегда 0.
+func (g *Game) rollMarket() int {
+	k := g.cfg.MarketSwingPct
+	if k <= 0 {
+		return 0
+	}
+	return (g.rng.IntN(2*k/5+1) - k/5) * 5
+}
+
+// staffCount — сотрудники всех открытых офисов (комбо-цель WinStaff).
+func (g *Game) staffCount() int {
+	n := 0
+	for i := range g.Offices {
+		if g.Offices[i].Unlocked {
+			n += len(g.Offices[i].Employees)
+		}
+	}
+	return n
+}
+
+// won — цель уровня достигнута: баланс плюс комбо (штат/сеть), если заданы.
+func (g *Game) won() bool {
+	if g.cfg.WinTarget <= 0 || g.Money < g.cfg.WinTarget {
+		return false
+	}
+	if g.cfg.WinStaff > 0 && g.staffCount() < g.cfg.WinStaff {
+		return false
+	}
+	return g.cfg.WinCore <= 0 || g.CoreLevel >= g.cfg.WinCore
+}
+
+// settleDebt — конец дня с отрицательным балансом (Сложность 2.0): долг
+// растёт на CreditRate за день; за кредитным порогом — банкротство.
+// Уровни без кредита (CreditLimit 0) банкротят сразу — как до итерации 17.
+func (g *Game) settleDebt() bool {
+	if g.Money >= 0 {
+		return false
+	}
+	g.Money -= int(math.Ceil(float64(-g.Money) * g.cfg.CreditRate))
+	return -g.Money > g.cfg.CreditLimit
+}
+
+// closeDay — конец дня после списания ФОТ: кредит или банкротство,
+// затем дедлайн уровня (время вышло без победы). Переводит фазу.
+func (g *Game) closeDay() {
+	g.Phase = PhaseDayReport
+	if g.settleDebt() {
+		g.Phase = PhaseGameOver
+		g.LoseReason = LoseBankrupt
+	} else if g.Money < 0 {
+		g.logEvent(fmt.Sprintf("кредит: долг $%d под %d%%/день", -g.Money, int(g.cfg.CreditRate*100)))
+	}
+	if g.Phase == PhaseDayReport && g.cfg.WinDayLimit > 0 && g.Day >= g.cfg.WinDayLimit {
+		g.Phase = PhaseGameOver
+		g.LoseReason = LoseTimeUp
+	}
+}
+
 // IncomePerTick — доход за один тик; во время обеда — 0.
 func (g *Game) IncomePerTick() int {
 	if g.IsLunch() {
@@ -185,6 +266,12 @@ func (g *Game) incomeAtTickDetail(tick int) (total, lost int) {
 			}
 			total += v
 		}
+	}
+	// Рынок (Сложность 2.0): качели выработки всего дня, один множитель
+	// на компанию; округляем сумму, а не каждое место.
+	if m := g.marketMult(); m != 1 {
+		total = int(math.Round(float64(total) * m))
+		lost = int(math.Round(float64(lost) * m))
 	}
 	return total, lost
 }
@@ -281,7 +368,7 @@ func (g *Game) Tick() *DayReport {
 	g.PeakIncomePerTick = max(g.PeakIncomePerTick, income)
 	// Победа проверяется до конца дня: достиг цели днём — победа сразу,
 	// вечерний ФОТ уже не списывается.
-	if g.cfg.WinTarget > 0 && g.Money >= g.cfg.WinTarget {
+	if g.won() {
 		g.Phase = PhaseWon
 		return nil
 	}
@@ -294,11 +381,7 @@ func (g *Game) Tick() *DayReport {
 	opex := g.gatewayOpex()
 	payroll := expenses - opex
 	g.Money -= expenses
-	if g.Money < 0 {
-		g.Phase = PhaseGameOver
-	} else {
-		g.Phase = PhaseDayReport
-	}
+	g.closeDay()
 	return &DayReport{Day: g.Day, Income: g.DayIncome, Payroll: payroll,
 		GatewayOpex: opex, Profit: g.DayIncome - expenses, Balance: g.Money,
 		Incidents: g.DayIncidents, LostIncome: g.DayLostIncome, Events: g.EventLog}

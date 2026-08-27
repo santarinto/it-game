@@ -106,6 +106,7 @@ func TestRestoreRejectsGarbage(t *testing.T) {
 func TestSaveConfigSurvives(t *testing.T) {
 	cfg := ConfigForDifficulty(DiffHardcore)
 	g := NewWithSeed(cfg, 3, 4)
+	g.MarketToday, g.MarketTomorrow = -10, 15 // рынок катится день за днём (ит. 17)
 	r, err := Restore(g.Export())
 	if err != nil {
 		t.Fatal(err)
@@ -113,5 +114,11 @@ func TestSaveConfigSurvives(t *testing.T) {
 	got := r.Config()
 	if got.WinTarget != cfg.WinTarget || got.Difficulty != DiffHardcore || got.SalaryPerDay != cfg.SalaryPerDay {
 		t.Fatalf("конфиг не перенёсся: %+v", got)
+	}
+	if got.CreditLimit != cfg.CreditLimit || got.WinDayLimit != cfg.WinDayLimit {
+		t.Fatalf("рычаги 2.0 не перенеслись: %+v", got)
+	}
+	if r.MarketToday != -10 || r.MarketTomorrow != 15 {
+		t.Fatalf("рынок не перенёсся: сегодня %d, завтра %d", r.MarketToday, r.MarketTomorrow)
 	}
 }

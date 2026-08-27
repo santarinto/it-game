@@ -182,7 +182,7 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 		if wsjson.Write(ctx, c, offlineReportMessage{
 			Type: "offline_report", Ticks: offline.Ticks, Days: offline.Days,
 			Income: offline.Income, Payroll: offline.Payroll, Balance: offline.Balance,
-			GameOver: offline.GameOver, Victory: offline.Victory,
+			GameOver: offline.GameOver, Victory: offline.Victory, Reason: offline.Reason,
 		}) != nil {
 			return false
 		}
@@ -279,9 +279,10 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 			}
 			if report != nil {
 				var out any
-				if g.Phase == game.PhaseGameOver {
-					out = gameOverMessage{Type: "game_over", DaysSurvived: g.Day, PeakIncomePerTick: g.PeakIncomePerTick, Balance: g.Money}
-				} else {
+			if g.Phase == game.PhaseGameOver {
+				out = gameOverMessage{Type: "game_over", DaysSurvived: g.Day,
+					PeakIncomePerTick: g.PeakIncomePerTick, Balance: g.Money, Reason: g.LoseReason}
+			} else {
 					out = dayReportMsg(report)
 				}
 				if wsjson.Write(ctx, c, out) != nil {

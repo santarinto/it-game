@@ -46,6 +46,8 @@ export class HUDScene extends Phaser.Scene {
   private dayText!: Phaser.GameObjects.Text
   private goalText!: Phaser.GameObjects.Text
   private dayProfitText!: Phaser.GameObjects.Text
+  private marketText!: Phaser.GameObjects.Text
+  private debtText!: Phaser.GameObjects.Text
   private pcBtn!: Button
   private hireBtn!: Button
   private bossBtn!: Button
@@ -89,6 +91,14 @@ export class HUDScene extends Phaser.Scene {
     this.goalText = this.add
       .text(GAME_W - 16, 52, '', { fontFamily: 'monospace', fontSize: '13px', color: '#ffcd75' })
       .setOrigin(1, 0)
+    // Рынок дня (сложность 2.0): сегодня и завтра, тренд виден заранее.
+    this.marketText = this.add
+      .text(GAME_W - 16, 86, '', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
+      .setOrigin(1, 0)
+    // Долг по кредиту (сложность 2.0): виден только в минусе.
+    this.debtText = this.add.text(16, 84, '', {
+      fontFamily: 'monospace', fontSize: '12px', color: '#b13e53',
+    })
     // Темп дня одним взглядом: прогноз прибыли «сейчас до вечера».
     this.dayProfitText = this.add.text(200, 66, '', {
       fontFamily: 'monospace', fontSize: '15px', color: '#38b764',
@@ -205,7 +215,9 @@ export class HUDScene extends Phaser.Scene {
     this.offlineUI.forEach((o) => o.destroy())
     const bankrupt = r.gameOver
     const finalLine = bankrupt
-      ? 'Компания обанкротилась.'
+      ? r.reason === 'time_up'
+        ? 'Срок вышел: цель не достигнута.'
+        : 'Компания обанкротилась.'
       : r.victory
         ? 'Цель достигнута — победа!'
         : ''
@@ -307,6 +319,15 @@ export class HUDScene extends Phaser.Scene {
     })
   }
 
+  // Цель уровня (сложность 2.0): деньги + комбо (штат/сеть) + дедлайн дней.
+  private goalLabel(s: StateMessage): string {
+    let goal = `Цель: ${fmtMoney(s.winTarget)}`
+    if (s.winStaff > 0) goal += ` + ${s.winStaff} чел.`
+    if (s.winCore > 0) goal += ` + core ур.${s.winCore}`
+    if (s.winDayLimit > 0) goal += ` до дня ${s.winDayLimit}`
+    return goal
+  }
+
   private refresh(s: StateMessage) {
     // Живой снапшот = соединение восстановлено: баннер реконнекта долой.
     this.reconnectUI.forEach((o) => o.destroy())
@@ -319,12 +340,27 @@ export class HUDScene extends Phaser.Scene {
     const employees = s.offices.flatMap((o) => o.employees)
     const active = s.offices[nav.activeOffice]
     this.moneyText.setText(fmtMoney(s.money))
+    this.moneyText.setColor(s.money < 0 ? '#b13e53' : '#ffcd75')
     this.incomeText.setText(`+${fmtMoney(s.incomePerTick)}/сек`)
     this.payrollText.setText(`Расходы ${fmtMoney(s.payrollPerDay)}/день`)
     // Прогноз считает сервер: клиент не знает про обеденные тики.
     this.payrollText.setColor(s.forecastEndOfDay < 0 ? '#b13e53' : '#5d7275')
     this.dayText.setText(`День ${s.day} · ${s.clock}${s.isLunch ? ' · обед' : ''}`)
-    this.goalText.setText(`Цель: ${fmtMoney(s.winTarget)}`)
+    this.goalText.setText(this.goalLabel(s))
+    // Рынок (сложность 2.0): качели выработки ±%, завтра виден заранее.
+    if (s.marketToday !== 0 || s.marketTomorrow !== 0) {
+      const pct = (v: number) => (v > 0 ? `+${v}` : `${v}`)
+      this.marketText.setText(`Рынок ${pct(s.marketToday)}% · завтра ${pct(s.marketTomorrow)}%`)
+      this.marketText.setColor(s.marketToday < 0 ? '#b13e53' : s.marketToday > 0 ? '#38b764' : '#5d7275')
+    } else {
+      this.marketText.setText('')
+    }
+    // Долг: минус в кредитных уровнях — не приговор, но проценты капают.
+    if (s.money < 0 && s.creditLimit > 0) {
+      this.debtText.setText(`Долг ${fmtMoney(s.money)} из ${fmtMoney(-s.creditLimit)} · ${s.creditRatePct}%/день`)
+    } else {
+      this.debtText.setText('')
+    }
     // Прогноз считает сервер: остаток дохода дня минус вечерний ФОТ.
     const dayProfit = s.forecastEndOfDay - s.money
     this.dayProfitText.setText(`${dayProfit >= 0 ? '+' : ''}${fmtMoney(dayProfit)}/день`)
@@ -539,12 +575,18 @@ export class HUDScene extends Phaser.Scene {
     playSfx(this, 'glitch')
     this.closeReport()
     this.closeGameOver()
+    const timeUp = o.reason === 'time_up' // дедлайн уровня (сложность 2.0)
     const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.9).setOrigin(0).setDepth(60).setInteractive()
     const title = this.add
-      .text(CX, 220, 'БАНКРОТСТВО', { fontFamily: 'monospace', fontSize: '32px', color: '#b13e53' })
+      .text(CX, 220, timeUp ? 'ВРЕМЯ ВЫШЛО' : 'БАНКРОТСТВО', { fontFamily: 'monospace', fontSize: '32px', color: '#b13e53' })
       .setOrigin(0.5).setDepth(61)
     const body = this.add
-      .text(CX, 300, [
+      .text(CX, 300, timeUp ? [
+        'Инвесторы потеряли терпение:',
+        'цель не достигнута к концу срока.',
+        `Дней дано: ${o.daysSurvived}`,
+        `Баланс: ${fmtMoney(o.balance)}`,
+      ].join('\n') : [
         `Прожито дней: ${o.daysSurvived}`,
         `Пик дохода: ${fmtMoney(o.peakIncomePerTick)}/сек`,
         `На зарплаты не хватило: ${fmtMoney(-o.balance)}`,

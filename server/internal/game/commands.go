@@ -434,6 +434,9 @@ func (g *Game) NextDay() error {
 	g.DayIncome = 0
 	g.DayIncidents = 0
 	g.DayLostIncome = 0
+	// Рынок: вчерашний «завтра» становится сегодня, роллится новый завтра —
+	// тренд всегда виден на день вперёд (Сложность 2.0).
+	g.MarketToday, g.MarketTomorrow = g.MarketTomorrow, g.rollMarket()
 	g.rollDayEvents()
 	g.Phase = PhaseRunning
 	return nil

@@ -8,13 +8,14 @@ package game
 
 // OfflineSummary — итог офлайн-догона для отчёта «пока вас не было».
 type OfflineSummary struct {
-	Ticks   int  // пропущено тиков всего
-	Days    int  // прошло полных дней
-	Income  int  // заработано офлайн
-	Payroll int  // списано офлайн (ФОТ + опекс)
-	Balance int  // итоговый баланс
-	GameOver bool // компания обанкротилась офлайн
+	Ticks    int  // пропущено тиков всего
+	Days     int  // прошло полных дней
+	Income   int  // заработано офлайн
+	Payroll  int  // списано офлайн (ФОТ + опекс)
+	Balance  int  // итоговый баланс
+	GameOver bool // компания погибла офлайн
 	Victory  bool // цель достигнута офлайн
+	Reason   string // причина финала (bankrupt | time_up), Сложность 2.0
 }
 
 // AdvanceOffline — досимулировать miss тиков вперёд. Меняет игру на месте;
@@ -46,15 +47,15 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	s.Days++ // текущий день закрывается — для игрока это прошедший день
 	miss -= dayTicks - g.TickInDay
 	g.TickInDay = dayTicks
-	if g.Money < 0 {
-		g.Phase = PhaseGameOver
-		s.GameOver, s.Balance = true, g.Money
+	if g.closeOfflineDay(s) {
 		return s
 	}
 
 	// 2. Полные дни по шаблону: дневные сбросы (как NextDay), без событий
 	// и кофе. Шаблон считается один раз — между днями офлайн ничего не меняется.
+	// Рынок шаблона нейтрален (0%): роллов офлайн нет, качели не угадываем.
 	tpl := g.offlineTemplate()
+	tpl.MarketToday = 0
 	dayInc := tpl.sumIncome(0, dayTicks)
 	dayExp := tpl.PayrollPerDay()
 	for miss >= dayTicks {
@@ -64,12 +65,7 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 		s.Income += dayInc
 		s.Payroll += dayExp
 		s.Days++
-		if g.Money < 0 {
-			g.Phase = PhaseGameOver
-			s.GameOver, s.Balance = true, g.Money
-			return s
-		}
-		if g.checkOfflineWin(s) {
+		if g.closeOfflineDay(s) {
 			return s
 		}
 	}
@@ -85,6 +81,30 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	s.Balance = g.Money
 	g.checkOfflineWin(s)
 	return s
+}
+
+// closeOfflineDay — закрытие дня офлайн: как closeDay, но без лога
+// (отчёт «пока вас не было» показывает числа, не строки). true — финал.
+// Победа проверяется раньше дедлайна — как в Tick: цель, достигнутая
+// в последний день, сильнее таймера.
+func (g *Game) closeOfflineDay(s *OfflineSummary) bool {
+	if g.settleDebt() {
+		g.Phase = PhaseGameOver
+		g.LoseReason = LoseBankrupt
+		s.GameOver, s.Reason, s.Balance = true, LoseBankrupt, g.Money
+		return true
+	}
+	if g.checkOfflineWin(s) {
+		return true
+	}
+	if g.cfg.WinDayLimit > 0 && g.Day >= g.cfg.WinDayLimit {
+		g.Phase = PhaseGameOver
+		g.LoseReason = LoseTimeUp
+		s.GameOver, s.Reason, s.Balance = true, LoseTimeUp, g.Money
+		return true
+	}
+	s.Balance = g.Money
+	return false
 }
 
 // sumIncome — доход за тики [lo, hi) по текущему состоянию (обед = 0).
@@ -143,11 +163,14 @@ func (g *Game) resetForNextDay() {
 	g.ActiveEvent = nil
 	g.EventLog = nil
 	g.DeadlineOn, g.DeadlineGot, g.DeadlineGoal = false, 0, 0
+	// Рынок сдвигается как в NextDay: сегодня — вчерашний «завтра».
+	g.MarketToday, g.MarketTomorrow = g.MarketTomorrow, g.rollMarket()
 }
 
-// checkOfflineWin — победа офлайн; true, если игра закончилась.
+// checkOfflineWin — победа офлайн (комбо-цель учитывается целиком);
+// true, если игра закончилась.
 func (g *Game) checkOfflineWin(s *OfflineSummary) bool {
-	if g.cfg.WinTarget > 0 && g.Money >= g.cfg.WinTarget {
+	if g.won() {
 		g.Phase = PhaseWon
 		s.Victory, s.Balance = true, g.Money
 		return true
