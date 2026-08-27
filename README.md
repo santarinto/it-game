@@ -144,6 +144,14 @@
 
     make test        # Go: домен и WebSocket-слой
     make typecheck   # клиент: проверка типов
+    make smoke-ui    # клиент: headless-Chromium открывает билд — меню
+                     # стартует, консоль чистая (или FAIL)
+
+UI-смоук (ITGAME-11) — часть релизного пути: CI гоняет его после сборки
+до вебхука деплоя, так что «молчаливый чёрный экран» до прода больше
+не доедет. Локально можно проверить любой URL:
+`cd client && npm run smoke-ui -- https://itgame.santarinto.ru`.
+Скриншот проверки — client/smoke-menu.png (gitignored).
 
 Живая проверка протокола (сервер + реальный WebSocket-клиент,
 без браузера):

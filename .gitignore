@@ -5,6 +5,7 @@ client/dist/
 .idea/
 .playwright-mcp/
 iter8-smoke-menu.png
+client/smoke-menu.png
 
 # сейвы сессий (dev по умолчанию, ITGAME-8)
 saves/

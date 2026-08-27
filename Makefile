@@ -1,4 +1,4 @@
-.PHONY: dev dev-server dev-client test typecheck build sync-docs
+.PHONY: dev dev-server dev-client test typecheck smoke-ui build sync-docs
 
 # .env (DATABASE_URL) подхватывается автоматически; файла может не быть.
 -include .env
@@ -18,6 +18,9 @@ test:
 
 typecheck:
 	cd client && npm run typecheck
+
+smoke-ui: ## headless-Chromium: билд открывается, menu стартует, консоль чистая
+	cd client && npm run build && npm run smoke-ui
 
 build:
 	cd client && npm run build

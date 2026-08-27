@@ -182,20 +182,26 @@ const SPRITES: Record<string, string[]> = {
 // registerTextures рисует все спрайты в canvas-текстуры Phaser.
 // Вызывать один раз в BootScene до старта комнат.
 export function registerTextures(scene: Phaser.Scene): void {
-  if (scene.textures.exists('worker')) return // повторный Boot — текстуры уже есть
   for (const [key, rows] of Object.entries(SPRITES)) {
-    const canvas = scene.textures.createCanvas(key, 16, 16)
-    if (!canvas) continue // текстура уже зарегистрирована
-    const ctx = canvas.context
-    rows.forEach((row, y) => {
-      ;[...row].forEach((ch, x) => {
-        const color = PALETTE[ch]
-        if (color) {
-          ctx.fillStyle = color
-          ctx.fillRect(x, y, 1, 1)
-        }
+    // Сторож по КАЖДОМУ ключу, а не по одному «worker»: набор не должен
+    // разъезжаться, если часть ключей уже занята (инцидент ITGAME-11).
+    if (scene.textures.exists(key)) continue
+    try {
+      const canvas = scene.textures.createCanvas(key, 16, 16)
+      if (!canvas) continue // текстура уже зарегистрирована
+      const ctx = canvas.context
+      rows.forEach((row, y) => {
+        ;[...row].forEach((ch, x) => {
+          const color = PALETTE[ch]
+          if (color) {
+            ctx.fillStyle = color
+            ctx.fillRect(x, y, 1, 1)
+          }
+        })
       })
-    })
-    canvas.refresh()
+      canvas.refresh()
+    } catch (e) {
+      console.error(`пиксель-арт ${key}: кодоген не удался`, e)
+    }
   }
 }

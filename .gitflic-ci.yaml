@@ -34,7 +34,7 @@ test-server:
     - 'timeout 600 go vet ./... || { echo "go vet FAILED или таймаут 600с"; exit 1; }'
     - 'timeout 600 go test ./... || { echo "go test FAILED или таймаут 600с"; exit 1; }'
 
-# ── Клиент: typecheck + сборка ───────────────────────────────────────────────
+# ── Клиент: typecheck + сборка + UI-смоук ────────────────────────────────────
 test-client:
   stage: test
   image: node:20
@@ -46,6 +46,11 @@ test-client:
   script:
     - npm run typecheck
     - 'npm run build > /tmp/build.log 2>&1 || { echo "vite build FAILED, последние 40 строк:"; tail -40 /tmp/build.log; exit 1; }'
+    # UI-смоук (ITGAME-11): headless-Chromium открывает собранный билд,
+    # ждёт старта сцены menu и роняет джобу на любой ошибке консоли —
+    # релиз с молчаливым чёрным экраном до деплоя больше не доедет.
+    - 'apt-get update -qq > /tmp/apt.log 2>&1 && apt-get install -qq -y chromium >> /tmp/apt.log 2>&1 || { echo "chromium install FAILED:"; tail -20 /tmp/apt.log; exit 1; }'
+    - 'CHROME_PATH=/usr/bin/chromium timeout 300 npm run smoke-ui > /tmp/smoke.log 2>&1 || { echo "SMOKE-UI FAILED (страница/консоль):"; cat /tmp/smoke.log; exit 1; }'
 
 # ── Деплой: КАЖДЫЙ пуш в main, ПОСЛЕ тестов ──────────────────────────────────
 # Красные тесты на прод не поедут: deploy идёт стадией после test.
