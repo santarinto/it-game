@@ -7,13 +7,11 @@ import { preloadSfx } from '../audio'
 // кодогена: при наличии PNG ключ текстуры перезатирается — кодоген
 // остаётся фолбэком для всего, что ещё не перегенерено.
 const AI_SPRITES = [
-  'desk_pc', 'worker', 'boss',
+  'desk_pc', 'desk_empty', 'worker', 'boss',
   'router', 'rack_server', 'rack_empty', 'gateway',
   'cooler', 'fridge', 'coffee_machine',
   'office_floor_tile', 'icon_money', 'icon_network',
 ]
-// desk_empty: генератор упорно рисует технике на «пустом» столе —
-// до правки через Gemini-редактирование пользуемся кодогеном.
 
 export class BootScene extends Phaser.Scene {
   constructor() {
