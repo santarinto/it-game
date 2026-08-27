@@ -10,7 +10,7 @@ import (
 
 func TestSnapshot(t *testing.T) {
 	g := game.New(game.DefaultConfig())
-	s := snapshot(g, 1)
+	s := snapshot(g, 1, false)
 	if s.Type != "state" || s.Money != 600 || s.OfficeSlots != 12 || s.Speed != 1 {
 		t.Errorf("базовые поля: %+v", s)
 	}
@@ -50,7 +50,7 @@ func TestSnapshotOfficeDetails(t *testing.T) {
 	}
 	staff[5].UnpaidToday = true
 	g.Offices[0].Employees = staff
-	s := snapshot(g, 1)
+	s := snapshot(g, 1, false)
 	o := s.Offices[0]
 	if o.Boss != "Босс Боссов" || o.Ports != 4 || o.NextRouter != 2500 {
 		t.Errorf("офис 0: %+v", o)
@@ -84,7 +84,7 @@ func TestSnapshotOfflineReason(t *testing.T) {
 	}
 	g.Offices[0].Employees = staff(9)
 	g.Offices[1].Employees = staff(9)
-	s := snapshot(g, 1)
+	s := snapshot(g, 1, false)
 	// Стоек нет нигде: место в core без стойки — no_server.
 	if r := s.Offices[0].Employees[0].OfflineReason; r != "no_server" {
 		t.Errorf("в core без стойки: reason=%q, хотим no_server", r)
@@ -103,7 +103,7 @@ func TestSnapshotOfflineReason(t *testing.T) {
 	g2 := game.New(game.DefaultConfig())
 	g2.Offices[0].PCs = 1
 	g2.Offices[0].Employees = []game.Employee{{Name: "Тест Тестов", IncomePerTick: 10}}
-	s2 := snapshot(g2, 1)
+	s2 := snapshot(g2, 1, false)
 	if r := s2.Offices[0].Employees[0].OfflineReason; r != "no_router" {
 		t.Errorf("без роутера offlineReason = %q, хотим no_router", r)
 	}
@@ -115,7 +115,7 @@ func TestSnapshotAmenitiesAndEffects(t *testing.T) {
 	g.Offices[0].Employees = []game.Employee{{Name: "Тест Тестов", IncomePerTick: 10, CoffeeUntil: 34}}
 	g.Offices[0].Cooler = true
 	g.TickInDay = 30 // после обеда: голод есть (холодильника нет), жажды нет (кулер)
-	s := snapshot(g, 1)
+	s := snapshot(g, 1, false)
 	o := s.Offices[0]
 	if !o.Cooler || o.Fridge || o.CoffeeMachine {
 		t.Errorf("флаги устройств: %+v", o)
@@ -145,7 +145,7 @@ func TestSnapshotEffectsNeverNull(t *testing.T) {
 	g.Offices[0].PCs = 1
 	g.Offices[0].Employees = []game.Employee{{Name: "Тест Тестов", IncomePerTick: 10}}
 	// Тик 0: ни одного эффекта — самый опасный случай.
-	raw, err := json.Marshal(snapshot(g, 1))
+	raw, err := json.Marshal(snapshot(g, 1, false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestSnapshotEffectsNeverNull(t *testing.T) {
 func TestSnapshotServersNeverNull(t *testing.T) {
 	// Регрессия И5: nil-срез маршалится в JSON null и ронял клиент.
 	g := game.New(game.DefaultConfig())
-	raw, err := json.Marshal(snapshot(g, 1))
+	raw, err := json.Marshal(snapshot(g, 1, false))
 	if err != nil {
 		t.Fatal(err)
 	}

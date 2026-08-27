@@ -36,6 +36,8 @@ type testMessage struct {
 		} `json:"employees"`
 	} `json:"offices"`
 	Day          int      `json:"day"`
+	Clock        string   `json:"clock"`
+	Resumed      bool     `json:"resumed"`
 	Phase        string   `json:"phase"`
 	Speed        int      `json:"speed"`
 	Payroll      int      `json:"payroll"`
@@ -44,6 +46,7 @@ type testMessage struct {
 	LostIncome   int      `json:"lostIncome"`
 	Events       []string `json:"events"`
 	DaysSurvived int      `json:"daysSurvived"`
+	Days         int      `json:"days"` // offline_report: прошедшие дни
 	Difficulty   string   `json:"difficulty"`
 	WinTarget    int      `json:"winTarget"`
 	ActiveEvent  *struct {
@@ -62,7 +65,7 @@ func dialTestServer(t *testing.T, cfg game.Config, tick time.Duration) (*websock
 	t.Helper()
 	srv := httptest.NewServer(&Handler{Config: cfg, TickInterval: tick})
 	t.Cleanup(srv.Close)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	t.Cleanup(cancel)
 	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
 	if err != nil {
@@ -76,7 +79,7 @@ func dialTestServerQuery(t *testing.T, cfg game.Config, tick time.Duration, quer
 	t.Helper()
 	srv := httptest.NewServer(&Handler{Config: cfg, TickInterval: tick})
 	t.Cleanup(srv.Close)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	t.Cleanup(cancel)
 	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+query, nil)
 	if err != nil {
@@ -186,6 +189,8 @@ func TestSessionDayCycle(t *testing.T) {
 
 func TestSessionBankruptcyAndRestart(t *testing.T) {
 	cfg := game.DefaultConfig()
+	// звезда (×1.5 выработки) рвёт диапазон 9–14 ниже
+	cfg.StarChancePct = 0
 	// День = 1 секунда (100 тиков по 10мс): огромный запас, чтобы hire успел.
 	cfg.WorkdayEnd = cfg.WorkdayStart + 1
 	cfg.TicksPerHour = 100

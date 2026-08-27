@@ -41,6 +41,7 @@ type stateMessage struct {
 	OfficeSlots      int              `json:"officeSlots"`
 	Phase            string           `json:"phase"`      // running | day_report | game_over
 	Speed            int              `json:"speed"`      // темп сессии: 0 — пауза, 1..3
+	Resumed          bool             `json:"resumed"`    // снапшот восстановленной сессии (ITGAME-8)
 	Difficulty       string           `json:"difficulty"` // easy | normal | hard | hardcore
 	WinTarget        int              `json:"winTarget"`  // цель победы, $
 	ActiveEvent      *activeEventInfo `json:"activeEvent"`
@@ -186,7 +187,21 @@ type victoryMessage struct {
 	Balance    int    `json:"balance"`
 }
 
-func snapshot(g *game.Game, speed int) stateMessage {
+// offlineReportMessage — «пока вас не было» (ITGAME-8): итог офлайн-догона
+// после восстановления сессии. GameOver/Victory — финал случился офлайн,
+// обычные экраны финала не придут отдельными сообщениями.
+type offlineReportMessage struct {
+	Type     string `json:"type"` // всегда "offline_report"
+	Ticks    int    `json:"ticks"`
+	Days     int    `json:"days"`
+	Income   int    `json:"income"`
+	Payroll  int    `json:"payroll"`
+	Balance  int    `json:"balance"`
+	GameOver bool   `json:"gameOver"`
+	Victory  bool   `json:"victory"`
+}
+
+func snapshot(g *game.Game, speed int, resumed bool) stateMessage {
 	cfg := g.Config()
 	net := g.Network()
 	offices := make([]officeInfo, len(g.Offices))
@@ -294,7 +309,7 @@ func snapshot(g *game.Game, speed int) stateMessage {
 		SalaryPerDay: cfg.SalaryPerDay, BossSalaryPerDay: cfg.BossSalaryPerDay,
 		ForecastEndOfDay: g.ForecastEndOfDay(), StaffLimit: cfg.StaffLimit,
 		OfficeSlots: cfg.OfficeSlots, Phase: string(g.Phase), Speed: speed,
-		Difficulty: string(cfg.Difficulty), WinTarget: cfg.WinTarget,
+		Resumed: resumed, Difficulty: string(cfg.Difficulty), WinTarget: cfg.WinTarget,
 		ActiveEvent: active,
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice,
 			Boss: cfg.BossPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,

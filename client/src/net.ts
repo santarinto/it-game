@@ -1,28 +1,78 @@
-import type { CommandType, DayReportMessage, DifficultyId, GameOverMessage, ServerMessage, StateMessage, VictoryMessage } from './protocol'
+import type { CommandType, DayReportMessage, DifficultyId, GameOverMessage, OfflineReportMessage, ServerMessage, StateMessage, VictoryMessage } from './protocol'
 
 export interface Listener {
   onState(s: StateMessage): void
   onError(code: string): void
-  onDisconnect(): void
-  // Только HUD показывает отчёты и банкротство — для остальных сцен опциональны.
+  onDisconnect(reason?: string): void
+  // Только HUD показывает отчёты, банкротство и офлайн-итог — для
+  // остальных сцен опциональны.
   onDayReport?(r: DayReportMessage): void
   onGameOver?(o: GameOverMessage): void
   onVictory?(v: VictoryMessage): void
+  onOfflineReport?(r: OfflineReportMessage): void
+  // Реконнект в процессе (деплой рвёт WS): баннер «переподключение».
+  onReconnecting?(attempt: number): void
+}
+
+const SID_KEY = 'itd.sid'
+const DIFF_KEY = 'itd.diff'
+
+// sessionId — ключ сейва на сервере: живёт в localStorage, переживает
+// перезагрузку страницы и рестарт сервера (мягкий деплой).
+export function sessionId(): string {
+  let sid = localStorage.getItem(SID_KEY)
+  if (!sid) {
+    sid = typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : 'sid-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
+    localStorage.setItem(SID_KEY, sid)
+  }
+
+  return sid
+}
+
+// Есть ли сейв для «Продолжить» в меню (sid + сложность прошлой игры).
+export function hasSavedSession(): boolean {
+  return localStorage.getItem(SID_KEY) !== null
+}
+
+export function savedDifficulty(): DifficultyId {
+  return (localStorage.getItem(DIFF_KEY) as DifficultyId) ?? 'normal'
+}
+
+// clearSession — сейва больше нет (финал/сдаться): спрятать «Продолжить».
+export function clearSession(): void {
+  localStorage.removeItem(SID_KEY)
+  localStorage.removeItem(DIFF_KEY)
 }
 
 // GameClient — единственная точка общения с сервером.
 // Сцены подписываются и получают снапшоты; игровой логики здесь нет.
+// Разрыв соединения (кроме намеренного и session_taken) лечится
+// автопереподключением с тем же sid: сервер восстанавливает прогресс.
 export class GameClient {
   latest: StateMessage | null = null
   private ws!: WebSocket
   private listeners: Listener[] = []
   private intentionalClose = false
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private reconnectAttempt = 0
+  private takenOver = false
+  private difficulty: DifficultyId = 'normal'
 
   connect(difficulty: DifficultyId): void {
     this.latest = null
     this.intentionalClose = false
+    this.takenOver = false
+    this.difficulty = difficulty
+    localStorage.setItem(DIFF_KEY, difficulty)
+    this.openSocket()
+  }
+
+  private openSocket(): void {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    this.ws = new WebSocket(`${proto}://${location.host}/ws?difficulty=${difficulty}`)
+    const sid = encodeURIComponent(sessionId())
+    this.ws = new WebSocket(`${proto}://${location.host}/ws?difficulty=${this.difficulty}&sid=${sid}`)
     this.ws.onmessage = (ev) => {
       let msg: ServerMessage
       try {
@@ -32,6 +82,8 @@ export class GameClient {
         return
       }
       if (msg.type === 'state') {
+        // соединение живое: банк экспоненты сброс
+        this.reconnectAttempt = 0
         this.latest = msg
         this.listeners.forEach((l) => l.onState(msg))
       } else if (msg.type === 'error') {
@@ -39,30 +91,68 @@ export class GameClient {
       } else if (msg.type === 'day_report') {
         this.listeners.forEach((l) => l.onDayReport?.(msg))
       } else if (msg.type === 'game_over') {
+        // финал: сейв на сервере удалён, «Продолжить» ни к чему
+        clearSession()
         this.listeners.forEach((l) => l.onGameOver?.(msg))
       } else if (msg.type === 'victory') {
+        // финал: сейв на сервере удалён, «Продолжить» ни к чему
+        clearSession()
         this.listeners.forEach((l) => l.onVictory?.(msg))
+      } else if (msg.type === 'offline_report') {
+        if (msg.gameOver || msg.victory) clearSession()
+        this.listeners.forEach((l) => l.onOfflineReport?.(msg))
       } else {
         console.error('неизвестный тип сообщения от сервера', msg)
       }
     }
-    // onerror и onclose могут прийти оба — дисконнект сообщаем один раз.
-    let disconnected = false
-    const fireDisconnect = () => {
-      if (this.intentionalClose) return
-      if (disconnected) return
-      disconnected = true
-      this.listeners.forEach((l) => l.onDisconnect())
+    // onerror и onclose могут прийти оба — реакция одна, ровно один раз.
+    let handled = false
+    const onGone = (ev: CloseEvent | null) => {
+      if (this.intentionalClose || handled) return
+      handled = true
+      const reason = ev?.reason ?? ''
+      if (reason.includes('session_taken')) {
+        // Другая вкладка забрала сессию: реконнект устроит войну вкладок.
+        this.takenOver = true
+        this.listeners.forEach((l) => l.onDisconnect('session_taken'))
+
+        return
+      }
+      this.scheduleReconnect()
     }
-    this.ws.onclose = fireDisconnect
-    this.ws.onerror = fireDisconnect
+    this.ws.onclose = (ev) => onGone(ev)
+    this.ws.onerror = () => onGone(null)
   }
 
-  // Намеренный разрыв (возврат в меню): onDisconnect не дёргаем.
+  // Экспоненциальная пауза 1..15с: деплой поднимает сервер за секунды,
+  // но и долгий простой не должен сдаваться.
+  private scheduleReconnect(): void {
+    this.reconnectAttempt++
+    const delay = Math.min(1000 * 2 ** (this.reconnectAttempt - 1), 15_000)
+    this.listeners.forEach((l) => l.onReconnecting?.(this.reconnectAttempt))
+    this.reconnectTimer = setTimeout(() => this.openSocket(), delay)
+  }
+
+  // Намеренный разрыв: onDisconnect не дёргаем, реконнект не планируем.
   disconnect(): void {
     this.intentionalClose = true
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = null
     this.ws.close()
     this.latest = null
+  }
+
+  // Сдаться: удалить сейв на сервере и забыть сессию локально.
+  abandon(): void {
+    if (this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'abandon' }))
+    }
+    clearSession()
+    this.disconnect()
+  }
+
+  get sessionTakenOver(): boolean {
+    return this.takenOver
   }
 
   send(cmd: CommandType, office = 0, extra: Record<string, number> = {}): void {

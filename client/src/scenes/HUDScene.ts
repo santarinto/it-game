@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { GAME_H, GAME_W, HUD_H, NAV_W } from '../layout'
 import { client } from '../net'
-import type { DayReportMessage, GameOverMessage, StateMessage, VictoryMessage } from '../protocol'
+import type { DayReportMessage, GameOverMessage, OfflineReportMessage, StateMessage, VictoryMessage } from '../protocol'
 import { fmtMoney } from '../format'
 import { nav } from '../rooms'
 import { debug, drawDebugFrames, setDebug } from '../debug'
@@ -61,6 +61,8 @@ export class HUDScene extends Phaser.Scene {
   private speedBtns: { bg: Phaser.GameObjects.Rectangle; speed: number }[] = []
   private hudInteractive: Phaser.GameObjects.GameObject[] = []
   private debugFrames: Phaser.GameObjects.GameObject[] = []
+  private reconnectUI: Phaser.GameObjects.GameObject[] = []
+  private offlineUI: Phaser.GameObjects.GameObject[] = []
 
   constructor() {
     super('hud')
@@ -150,28 +152,111 @@ export class HUDScene extends Phaser.Scene {
         playSfx(this, 'error')
         this.toast(ERROR_TEXTS[code] ?? code)
       },
-      onDisconnect: () => this.showDisconnect(),
+      onDisconnect: (reason) => this.showDisconnect(reason),
       onDayReport: (r) => this.onDayReport(r),
       onGameOver: (o) => this.showGameOver(o),
       onVictory: (v) => this.showVictory(v),
+      onOfflineReport: (r) => this.showOfflineReport(r),
+      onReconnecting: (n) => this.showReconnecting(n),
     })
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, unsub)
   }
 
-  private showDisconnect() {
+  // Баннер реконнекта: деплой/сеть рвут WS — клиент возвращается сам,
+  // сервер продолжает сессию по sid (ITGAME-8). Прячется первым снапшотом.
+  private showReconnecting(attempt: number) {
+    this.reconnectUI.forEach((o) => o.destroy())
+    this.reconnectUI = []
+    const bg = this.add.rectangle(CX, 130, 360, 30, 0x14162b).setStrokeStyle(2, 0xffcd75).setDepth(90)
+    const txt = this.add
+      .text(CX, 130, `Переподключение… (попытка ${attempt})`, {
+        fontFamily: 'monospace', fontSize: '13px', color: '#ffcd75',
+      })
+      .setOrigin(0.5).setDepth(91)
+    this.reconnectUI.push(bg, txt)
+  }
+
+  private showDisconnect(reason?: string) {
+    this.reconnectUI.forEach((o) => o.destroy())
+    this.reconnectUI = []
+    const taken = reason === 'session_taken'
     this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.85).setOrigin(0).setDepth(100)
     this.add
-      .text(CX, 300, 'Соединение потеряно', {
-        fontFamily: 'monospace', fontSize: '28px', color: '#b13e53',
+      .text(CX, 300, taken ? 'Игра открыта в другой вкладке' : 'Соединение потеряно', {
+        fontFamily: 'monospace', fontSize: '26px', color: '#b13e53',
       })
       .setOrigin(0.5)
       .setDepth(101)
     this.add
-      .text(CX, 344, 'Игра не сохраняется — обновите страницу, чтобы начать заново', {
+      .text(CX, 344, taken
+        ? 'Сессия обслуживает одно окно. Обновите страницу, чтобы забрать её сюда'
+        : 'Обновите страницу — сохранённая игра продолжится с того же места', {
         fontFamily: 'monospace', fontSize: '15px', color: '#f4f4f4',
       })
       .setOrigin(0.5)
       .setDepth(101)
+  }
+
+  // «Пока вас не было»: итог офлайн-догона после реконнекта (ITGAME-8).
+  // Финал офлайн (банкротство/победа) не дублируется обычными экранами —
+  // его закрывает кнопка «В меню» прямо отсюда.
+  private showOfflineReport(r: OfflineReportMessage) {
+    playSfx(this, r.gameOver ? 'glitch' : r.victory ? 'confirmation' : 'bong')
+    this.offlineUI.forEach((o) => o.destroy())
+    const bankrupt = r.gameOver
+    const finalLine = bankrupt
+      ? 'Компания обанкротилась.'
+      : r.victory
+        ? 'Цель достигнута — победа!'
+        : ''
+    const body = [
+      `Прошло дней: ${r.days}`,
+      `Заработано: ${fmtMoney(r.income)}`,
+      `Расходы:    −${fmtMoney(r.payroll)}`,
+      `Баланс:      ${fmtMoney(r.balance)}`,
+      ...(finalLine ? ['', finalLine] : []),
+    ].join('\n')
+    const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(55).setInteractive()
+    const panel = this.add.rectangle(CX, 300, 440, 300, 0x14162b).setStrokeStyle(2, 0xffcd75).setDepth(56)
+    const title = this.add
+      .text(CX, 180, 'Пока вас не было', { fontFamily: 'monospace', fontSize: '22px', color: '#ffcd75' })
+      .setOrigin(0.5).setDepth(56)
+    const bodyText = this.add
+      .text(CX, 280, body, { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8 })
+      .setOrigin(0.5).setDepth(56)
+    const final = r.gameOver || r.victory
+    this.offlineUI = [overlay, panel, title, bodyText]
+    if (final) {
+      const btnBg = this.add
+        .rectangle(CX - 100, 392, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(56)
+        .setInteractive({ useHandCursor: true })
+      const btnText = this.add
+        .text(CX, 409, 'В меню', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
+        .setOrigin(0.5).setDepth(57)
+      btnBg.on('pointerdown', () => {
+        this.closeOfflineReport()
+        this.returnToMenu()
+      })
+      btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
+      btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
+      this.offlineUI.push(btnBg, btnText)
+    } else {
+      const btnBg = this.add
+        .rectangle(CX - 100, 392, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(56)
+        .setInteractive({ useHandCursor: true })
+      const btnText = this.add
+        .text(CX, 409, 'Продолжить →', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
+        .setOrigin(0.5).setDepth(57)
+      btnBg.on('pointerdown', () => this.closeOfflineReport())
+      btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
+      btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
+      this.offlineUI.push(btnBg, btnText)
+    }
+  }
+
+  private closeOfflineReport() {
+    this.offlineUI.forEach((o) => o.destroy())
+    this.offlineUI = []
   }
 
   // Панель навигации: значки офисов и серверной в колонке слева.
@@ -223,6 +308,9 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private refresh(s: StateMessage) {
+    // Живой снапшот = соединение восстановлено: баннер реконнекта долой.
+    this.reconnectUI.forEach((o) => o.destroy())
+    this.reconnectUI = []
     if (s.phase === 'running') {
       this.closeReport()
       this.closeGameOver()
@@ -518,6 +606,7 @@ export class HUDScene extends Phaser.Scene {
   }
 
   // Возврат в меню: намеренный разрыв WS (новая игра = новое подключение).
+  // Сейв живёт на сервере — с меню можно вернуться («Продолжить»).
   private returnToMenu() {
     client.disconnect()
     this.scene.stop('office')
@@ -525,11 +614,12 @@ export class HUDScene extends Phaser.Scene {
     this.scene.start('menu') // start глушит hud
   }
 
-  // Подтверждение выхода: игра без сейвов — «сдаться» должно быть
-  // осознанным, случайный клик по ⌂ не должен рвать партию.
+  // Выход в меню с сейвами (ITGAME-8): выход сохраняет прогресс, сдаться —
+  // осознанное удаление сейва. Случайный клик по ⌂ не должен стоить партию.
   private confirmExitToMenu() {
-    showModal(this, 'Выйти в меню?', ['Текущая игра не сохраняется —', 'новая начнётся с нуля.'], [
-      { label: 'Сдаться и выйти', onClick: () => this.returnToMenu() },
+    showModal(this, 'Выйти в меню?', ['Прогресс сохранится — продолжите', 'с главного меню в любое время.'], [
+      { label: 'Сохранить и выйти', onClick: () => this.returnToMenu() },
+      { label: 'Сдаться (удалить сейв)', onClick: () => { client.abandon(); this.returnToMenu() } },
       { label: 'Отмена', onClick: () => {} },
     ])
   }

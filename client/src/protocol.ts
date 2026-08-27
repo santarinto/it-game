@@ -100,6 +100,7 @@ export interface StateMessage {
   officeSlots: number
   phase: 'running' | 'day_report' | 'game_over' | 'won'
   speed: number // темп сессии: 0 — пауза, 1..3
+  resumed: boolean // снапшот восстановленной сессии (ITGAME-8)
   difficulty: DifficultyId
   winTarget: number // цель победы, $
   activeEvent: ActiveEventInfo | null // висящее событие Unseen Forces
@@ -149,7 +150,21 @@ export interface VictoryMessage {
   balance: number
 }
 
-export type ServerMessage = StateMessage | ErrorMessage | DayReportMessage | GameOverMessage | VictoryMessage
+// «Пока вас не было» (ITGAME-8): итог офлайн-догона после реконнекта.
+// gameOver/victory — финал случился офлайн, отдельного сообщения не будет.
+export interface OfflineReportMessage {
+  type: 'offline_report'
+  ticks: number
+  days: number
+  income: number
+  payroll: number
+  balance: number
+  gameOver: boolean
+  victory: boolean
+}
+
+export type ServerMessage =
+  | StateMessage | ErrorMessage | DayReportMessage | GameOverMessage | VictoryMessage | OfflineReportMessage
 
 export type CommandType =
   | 'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office'
@@ -157,3 +172,4 @@ export type CommandType =
   | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed'
   | 'upgrade_server' | 'upgrade_core'
   | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire'
+  | 'abandon'

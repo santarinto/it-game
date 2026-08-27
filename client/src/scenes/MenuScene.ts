@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import { GAME_H, GAME_W } from '../layout'
-import { client } from '../net'
+import { client, hasSavedSession, savedDifficulty } from '../net'
 import { fmtMoney } from '../format'
 import type { DifficultyId } from '../protocol'
 
@@ -28,12 +28,35 @@ export class MenuScene extends Phaser.Scene {
     this.add
       .text(CX, 90, 'IT DIRECTOR', { fontFamily: 'monospace', fontSize: '42px', color: '#ffcd75' })
       .setOrigin(0.5)
-    this.add
-      .text(CX, 140, 'Выберите сложность', { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4' })
-      .setOrigin(0.5)
+
+    let firstY = 200
+    // «Продолжить» (ITGAME-8): на сервере живёт сейв сессии — возвращаем
+    // игрока в его партию (сложность игнорируется, конфиг в сейве).
+    if (hasSavedSession()) {
+      const y = 150
+      const bg = this.add.rectangle(CX - 260, y, 520, 56, 0x253d2a)
+        .setOrigin(0).setStrokeStyle(2, 0x38b764).setInteractive({ useHandCursor: true })
+      this.add.text(CX - 240, y + 16, 'ПРОДОЛЖИТЬ', {
+        fontFamily: 'monospace', fontSize: '18px', color: '#38b764',
+      })
+      this.add.text(CX - 240, y + 38, 'сохранённая игра — день, баланс и офисы на месте', {
+        fontFamily: 'monospace', fontSize: '11px', color: '#5d7275',
+      })
+      bg.on('pointerover', () => bg.setStrokeStyle(2, 0xffcd75))
+      bg.on('pointerout', () => bg.setStrokeStyle(2, 0x38b764))
+      bg.on('pointerdown', () => this.startGame(savedDifficulty()))
+      firstY = 244
+      this.add
+        .text(CX, 224, 'или начните новую:', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
+        .setOrigin(0.5)
+    } else {
+      this.add
+        .text(CX, 140, 'Выберите сложность', { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4' })
+        .setOrigin(0.5)
+    }
 
     LEVELS.forEach((lvl, i) => {
-      const y = 200 + i * 96
+      const y = firstY + i * 96
       const bg = this.add.rectangle(CX - 260, y, 520, 80, 0x232640)
         .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true })
       this.add.text(CX - 240, y + 14, lvl.label, {
