@@ -6,6 +6,8 @@
 // Запуск из client/:
 //   npm run smoke-ui                      # собрать и проверить dist
 //   npm run smoke-ui -- https://…         # проверить живой URL (напр., прод)
+//   OFFICE=1 npm run smoke-ui [-- URL]    # + клик «НОРМА» и сцена office
+//                                          # (нужен живой WS за URL)
 // Браузер: CHROME_PATH, иначе /usr/bin/chromium, /usr/bin/google-chrome-stable.
 import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
@@ -106,6 +108,37 @@ try {
     process.exit(1)
   }
   console.log(`SMOKE-UI OK — ${url}: сцена menu стартовала, консоль чистая (скриншот client/smoke-menu.png)`)
+
+  // Режим OFFICE=1 (инцидент ITGAME-12): клик по «НОРМА», сцена office
+  // стартует, спрайты рисуются, консоль по-прежнему чистая. Нужен живой
+  // WS-сервер за проверяемым URL (локально: go run ./cmd/server + proxy).
+  if (process.env.OFFICE === '1') {
+    const box = await page.evaluate(() => {
+      const c = document.querySelector('canvas')
+      const r = c.getBoundingClientRect()
+      return { x: r.x, y: r.y }
+    })
+    // Кнопка «НОРМА» — вторая в колонке уровней, центр (640, 336) в координатах канваса.
+    await page.mouse.click(box.x + 640, box.y + 336)
+    try {
+      await page.waitForFunction(`window.__itd && window.__itd.scene.isActive('office')`, {
+        timeout: 20_000,
+      })
+    } catch {
+      await page.screenshot({ path: join(CLIENT_DIR, 'smoke-office.png') })
+      console.error('SMOKE-UI FAIL: сцена office не стартовала за 20с после клика')
+      for (const e of errors) console.error('  console:', e)
+      process.exit(1)
+    }
+    await delay(4000) // пара снапшотов — офис успевает отрисоваться
+    await page.screenshot({ path: join(CLIENT_DIR, 'smoke-office.png') })
+    if (errors.length > 0) {
+      console.error('SMOKE-UI FAIL: в игре консоль не чистая:')
+      for (const e of errors) console.error('  ', e)
+      process.exit(1)
+    }
+    console.log('SMOKE-UI OK — сцена office стартовала, консоль чистая (скриншот client/smoke-office.png)')
+  }
 } finally {
   await browser.close()
   if (preview?.pid) {

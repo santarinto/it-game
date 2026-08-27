@@ -5,9 +5,8 @@ import { client } from '../net'
 import { drawDebugFrames } from '../debug'
 import { showModal } from '../ui/modal'
 import { coreGain, serverGain } from '../network-preview'
+import { SPRITE_TARGET, spriteScale } from '../pixelart'
 import type { StateMessage } from '../protocol'
-
-const SCALE = 4 // 9 стоек + core + шлюз — мельче, чем прежние три
 
 export class ServerRoomScene extends Phaser.Scene {
   private objects: Phaser.GameObjects.GameObject[] = []
@@ -49,7 +48,7 @@ export class ServerRoomScene extends Phaser.Scene {
     this.objects.push(coreZone)
     if (s.core.level > 0) {
       this.objects.push(
-        this.add.image(cx, cy, 'rack_server').setScale(SCALE),
+        this.add.image(cx, cy, 'rack_server').setScale(spriteScale(this, 'rack_server', SPRITE_TARGET.rack)),
         this.add.text(cx, cy + 58, `ур.${s.core.level} · ${s.core.connected}/${s.core.capacity} мест`, {
           fontFamily: 'monospace', fontSize: '11px', color: '#41a6f6',
         }).setOrigin(0.5),
@@ -70,7 +69,8 @@ export class ServerRoomScene extends Phaser.Scene {
       for (let sl = 0; sl < o.serverSlots; sl++) {
         const x = 430 + sl * 150
         const srv = o.servers[sl]
-        const img = this.add.image(x, gy, srv ? 'rack_server' : 'rack_empty').setScale(SCALE)
+        const img = this.add.image(x, gy, srv ? 'rack_server' : 'rack_empty')
+          .setScale(spriteScale(this, srv ? 'rack_server' : 'rack_empty', SPRITE_TARGET.rack))
         this.objects.push(img)
         if (!o.unlocked) {
           img.setAlpha(0.3)
@@ -108,7 +108,7 @@ export class ServerRoomScene extends Phaser.Scene {
     )
     if (s.gateway) {
       this.objects.push(
-        this.add.image(gx, gy, 'router').setScale(4),
+        this.add.image(gx, gy, 'router').setScale(spriteScale(this, 'router', SPRITE_TARGET.rack)),
         this.add.text(gx, gy + 52, 'интернет ×1.2', { fontFamily: 'monospace', fontSize: '11px', color: '#38b764' }).setOrigin(0.5),
       )
     } else {

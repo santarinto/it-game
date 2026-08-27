@@ -8,8 +8,8 @@ import { drawDebugFrames } from '../debug'
 import { showModal } from '../ui/modal'
 import { coreFree, routerGain } from '../network-preview'
 import { playSfx } from '../audio'
+import { SPRITE_TARGET, spriteScale } from '../pixelart'
 
-const SCALE = 4 // 16px спрайт → 64px на экране
 const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
 const LUNCH_SHIFT = 24 // на обеде сотрудник отходит от стола
 
@@ -119,7 +119,8 @@ export class OfficeScene extends Phaser.Scene {
       this.add.text(rx, ry - 56, 'сеть', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
     )
     if (office.routerTier > 0) {
-      const routerImg = this.add.image(rx, ry, 'router').setScale(SCALE).setInteractive({ useHandCursor: true })
+      const routerImg = this.add.image(rx, ry, 'router')
+        .setScale(spriteScale(this, 'router', SPRITE_TARGET.rack)).setInteractive({ useHandCursor: true })
       routerImg.on('pointerdown', () => this.openRouterModal(office, s))
       this.objects.push(
         routerImg,
@@ -143,7 +144,8 @@ export class OfficeScene extends Phaser.Scene {
       this.add.text(bx, by - 56, 'начальник', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
     )
     if (office.boss !== '') {
-      const bossImg = this.add.image(bx, by, 'worker').setScale(5).setInteractive({ useHandCursor: true })
+      const bossImg = this.add.image(bx, by, 'worker')
+        .setScale(spriteScale(this, 'worker', SPRITE_TARGET.person)).setInteractive({ useHandCursor: true })
       bossImg.on('pointerover', () => this.showBossTooltip(office, s, bx, by))
       bossImg.on('pointerout', () => this.hideTooltip())
       this.objects.push(bossImg)
@@ -166,7 +168,8 @@ export class OfficeScene extends Phaser.Scene {
         )
         continue
       }
-      const desk = this.add.image(x, y, i < office.pcs ? 'desk_pc' : 'desk_empty').setScale(SCALE)
+      const desk = this.add.image(x, y, i < office.pcs ? 'desk_pc' : 'desk_empty')
+        .setScale(spriteScale(this, i < office.pcs ? 'desk_pc' : 'desk_empty', SPRITE_TARGET.desk))
       this.objects.push(desk)
       const e = office.employees[i]
       // Сломанный ПК: доход места 0; клики по столу чинят, мастер чинит за деньги.
@@ -200,7 +203,8 @@ export class OfficeScene extends Phaser.Scene {
         // На обеде сотрудник отходит от стола.
         const wx = s.isLunch ? x - 52 + LUNCH_SHIFT : x - 52
         const wy = s.isLunch ? y - 6 + LUNCH_SHIFT : y - 6
-        const worker = this.add.image(wx, wy, 'worker').setScale(SCALE).setInteractive({ useHandCursor: true })
+        const worker = this.add.image(wx, wy, 'worker')
+          .setScale(spriteScale(this, 'worker', SPRITE_TARGET.person)).setInteractive({ useHandCursor: true })
         // ЛКМ по сотруднику — мотивация: +25% на 3 часа с кулдауном.
         // ПКМ (правый клик) — модалка увольнения (итерация 15).
         worker.on('pointerdown', (p: Phaser.Input.Pointer) => {
@@ -273,7 +277,8 @@ export class OfficeScene extends Phaser.Scene {
         .setInteractive({ useHandCursor: !a.owned })
       this.objects.push(box)
       if (a.owned) {
-        const img = this.add.image(ax, ay, a.key).setScale(3).setInteractive({ useHandCursor: true })
+        const img = this.add.image(ax, ay, a.key)
+          .setScale(spriteScale(this, a.key, SPRITE_TARGET.amenity)).setInteractive({ useHandCursor: true })
         img.on('pointerover', () => this.showTextTooltip(`${a.label}\n${a.hint}`, ax, ay - 40))
         img.on('pointerout', () => this.hideTooltip())
         this.objects.push(img)

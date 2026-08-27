@@ -205,3 +205,22 @@ export function registerTextures(scene: Phaser.Scene): void {
     }
   }
 }
+
+// Целевые размеры спрайтов на экране, px (инцидент ITGAME-12): масштаб
+// считается от РЕАЛЬНОГО размера текстуры, а не магическим множителем —
+// 16px-плейсхолдер и 64px-PNG дают одну и ту же картинку, следующая
+// смена разрешения арта ничего не сдвинет.
+export const SPRITE_TARGET = {
+  desk: 64, // стол в слоте 80×64
+  person: 80, // сотрудник и начальник
+  rack: 64, // стойки, core, роутер, шлюз
+  amenity: 48, // быт-устройства на полке
+} as const
+
+// spriteScale — множитель для add.image(...).setScale(...): во сколько
+// раз текстуру растянуть до targetPx на экране.
+export function spriteScale(scene: Phaser.Scene, key: string, targetPx: number): number {
+  if (!scene.textures.exists(key)) return 1 // неизвестная текстура — как есть
+  const w = scene.textures.get(key).getSourceImage().width
+  return w > 0 ? targetPx / w : 1
+}
