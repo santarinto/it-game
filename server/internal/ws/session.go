@@ -16,27 +16,117 @@ import (
 	"itdirector/internal/store"
 )
 
-// Handler на каждое подключение создаёт свою игру и запускает актор-цикл.
-// С Saves != nil игра получает сейвы: переподключение с тем же sid в
-// течение TTL восстанавливает прогресс (мягкий деплой, ITGAME-8).
+// Handler держит сессии по sid: браузерное подключение (/ws) запускает
+// актор-цикл, WS-мост агента (/ws/agent, ITGAME-29) цепляется к живому
+// или поднимает headless-сессию. С Saves != nil игра получает сейвы:
+// переподключение с тем же sid в течение TTL восстанавливает прогресс
+// (мягкий деплой, ITGAME-8).
 type Handler struct {
 	Config       game.Config
 	TickInterval time.Duration
 	Saves        *store.Store // nil — stateless-режим без сейвов (старые тесты)
 
-	// Реестр живых акторов для /api/debug/* (ITGAME-26): sid → канал
-	// запросов. Регистрирует сам актор, выписывается на выходе.
+	// Реестр живых сессий (ITGAME-26/29): sid → актор с его каналами.
+	// Регистрирует сам актор, выписывается на выходе; агентские коннекты
+	// цепляются к найденной сессии без её отбирания.
 	debugMu sync.Mutex
-	live    map[string]chan debugRequest
+	live    map[string]*session
+}
+
+// session — живая сессия: актор плюс его каналы. Создаётся ДО запуска
+// актора (ITGAME-29): читатели (вкладка, агентские мосты) начинают слать
+// команды сразу, без гонки с регистрацией.
+type session struct {
+	debugC   chan debugRequest
+	commands chan clientCommand
+	hub      *connHub
+}
+
+// connHub — широковещатель сессии: снапшоты и отчёты получают ВСЕ
+// соединения (вкладка браузера, агентские мосты). Записи сериализуются
+// mu: актор рассылает снапшоты, агентские readLoop-ы отвечают на свои
+// команды — два писателя в один сокет запрещены протоколом WS.
+type connHub struct {
+	mu    sync.Mutex
+	conns map[*websocket.Conn]struct{}
+}
+
+func newConnHub() *connHub { return &connHub{conns: map[*websocket.Conn]struct{}{}} }
+
+func (hb *connHub) add(c *websocket.Conn) {
+	hb.mu.Lock()
+	hb.conns[c] = struct{}{}
+	hb.mu.Unlock()
+}
+
+func (hb *connHub) remove(c *websocket.Conn) {
+	hb.mu.Lock()
+	delete(hb.conns, c)
+	hb.mu.Unlock()
+}
+
+func (hb *connHub) count() int {
+	hb.mu.Lock()
+	defer hb.mu.Unlock()
+	return len(hb.conns)
+}
+
+// write — отправить сообщение всем соединениям под одним локом
+// (порядок сообщений в каждом сокете един). Мёртвые отсоединяются.
+func (hb *connHub) write(ctx context.Context, msg any) {
+	hb.mu.Lock()
+	defer hb.mu.Unlock()
+	var dead []*websocket.Conn
+	for c := range hb.conns {
+		if wsjson.Write(ctx, c, msg) != nil {
+			dead = append(dead, c)
+		}
+	}
+	for _, c := range dead {
+		delete(hb.conns, c)
+	}
+}
+
+// writeTo — адресное сообщение (ответ агенту на его команду); тоже под
+// mu, иначе гонка с параллельным снапшотом актора.
+func (hb *connHub) writeTo(ctx context.Context, to *websocket.Conn, msg any) {
+	hb.mu.Lock()
+	defer hb.mu.Unlock()
+	if _, live := hb.conns[to]; !live {
+		return
+	}
+	if wsjson.Write(ctx, to, msg) != nil {
+		delete(hb.conns, to)
+	}
+}
+
+// closeAll — конец сессии: разорвать все соединения одной причиной.
+// session_taken важнее вежливого кода — получатель не должен реконнектиться.
+func (hb *connHub) closeAll(evicted bool) {
+	hb.mu.Lock()
+	conns := make([]*websocket.Conn, 0, len(hb.conns))
+	for c := range hb.conns {
+		conns = append(conns, c)
+	}
+	hb.conns = map[*websocket.Conn]struct{}{}
+	hb.mu.Unlock()
+	for _, c := range conns {
+		if evicted {
+			c.Close(websocket.StatusPolicyViolation, "session_taken")
+		} else {
+			c.Close(websocket.StatusNormalClosure, "сессия завершена")
+		}
+	}
 }
 
 // clientCommand — команда игрока с адресатом-офисом.
 type clientCommand struct {
 	Cmd    game.Command
 	Office int
-	Slot   int    // стойка для upgrade_server
-	Speed  int    // параметр set_speed
-	SID    string // адресат abandon
+	Slot   int             // стойка для upgrade_server
+	Speed  int             // параметр set_speed
+	SID    string          // адресат abandon
+	From   *websocket.Conn // источник (ITGAME-29): для адресных ответов агенту
 }
 
 // cmdSetSpeed — команда сессии, не игры: меняет темп реального времени,
@@ -71,7 +161,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	commands := make(chan clientCommand)
+	hub := newConnHub()
+	hub.add(c)
 	go readLoop(ctx, cancel, c, commands)
+	sess := &session{
+		debugC:   make(chan debugRequest, 8),
+		commands: commands,
+		hub:      hub,
+	}
 
 	// Сложность применяется ТОЛЬКО при непустом query-параметре: иначе
 	// кастомные тестовые конфиги (например WinTarget) затирались бы нормой.
@@ -91,14 +188,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Scenario: r.URL.Query().Get("scenario"),
 	}
 
-	evicted := h.run(ctx, c, commands, cfg, sid, opts)
-	if evicted {
-		// Сессию забрал другой актор (дубликат вкладки): старому соединению
-		// причина важнее вежливого кода — клиент не должен реконнектиться.
-		c.Close(websocket.StatusPolicyViolation, "session_taken")
-		return
-	}
-	c.Close(websocket.StatusNormalClosure, "сессия завершена")
+	// Политика занятости (ITGAME-29): игрок всегда запускает свой актор —
+	// Begin() в run() отбирает сессию у headless-актора агента, его мосты
+	// закрываются с session_taken и переподключаются уже как наблюдатели.
+	evicted := h.run(ctx, sess, cfg, sid, opts)
+	hub.closeAll(evicted)
 }
 
 // readLoop — единственный читатель соединения: превращает входящие
@@ -111,7 +205,7 @@ func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn,
 			return
 		}
 		select {
-		case commands <- clientCommand{Cmd: game.Command(msg.Type), Office: msg.Office, Slot: msg.Slot, Speed: msg.Speed}:
+		case commands <- clientCommand{Cmd: game.Command(msg.Type), Office: msg.Office, Slot: msg.Slot, Speed: msg.Speed, From: c}:
 		case <-ctx.Done():
 			return
 		}
@@ -152,10 +246,13 @@ func offlineTicks(savedAt time.Time, speed int, interval time.Duration) int {
 }
 
 // run — актор: единственная горутина, владеющая состоянием игры.
-// Всё общение с миром — через канал команд и тикер; писем в сокет
-// из других горутин нет, поэтому мьютексы не нужны.
-// Возвращает true, если сессию забрал другой актор (eviction).
-func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan clientCommand, cfg game.Config, sid string, opts sessionOpts) bool {
+// Всё общение с миром — через каналы готовой сессии и тикер; в сокеты
+// пишет только актор (через hub — всем соединениям сессии), мьютексов
+// на игровом состоянии нет. Возвращает true, если сессию забрал другой
+// актор (eviction).
+func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid string, opts sessionOpts) bool {
+	commands := sess.commands
+	hub := sess.hub
 	// ── Старт: восстановление или новая игра ────────────────────────────
 	var (
 		g          *game.Game
@@ -214,29 +311,25 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 		ticker.Reset(h.TickInterval / time.Duration(speed))
 	}
 
-	// /api/debug/* (ITGAME-26): канал запросов к этому актору.
-	debugC := h.registerDebug(sid)
-	defer h.unregisterDebug(sid, debugC)
+	// Живая сессия в реестре (ITGAME-26/29): /api/debug/* и агентский
+	// мост находят актор по sid и цепляются к его каналам.
+	h.registerSession(sid, sess)
+	defer h.unregisterSession(sid, sess)
+	debugC := sess.debugC
 
-	if wsjson.Write(ctx, c, snapshot(g, speed, resumed, scenario)) != nil {
-		return false
-	}
+	hub.write(ctx, snapshot(g, speed, resumed, scenario))
 	// Отчёт «пока вас не было»: только когда было что симулировать
 	// (прошёл день / финал). Короткий разрыв (деплой) — тихий resume.
 	if resumed && offline != nil && (offline.Days > 0 || offline.GameOver || offline.Victory) {
-		if wsjson.Write(ctx, c, offlineReportMessage{
+		hub.write(ctx, offlineReportMessage{
 			Type: "offline_report", Ticks: offline.Ticks, Days: offline.Days,
 			Income: offline.Income, Payroll: offline.Payroll, Balance: offline.Balance,
 			GameOver: offline.GameOver, Victory: offline.Victory, Reason: offline.Reason,
-		}) != nil {
-			return false
-		}
+		})
 	}
 	// Разрыв в фазе отчёта дня: игрок не увидел отчёт — дошлём из сейва.
 	if resumed && g.Phase == game.PhaseDayReport && lastReport != nil {
-		if wsjson.Write(ctx, c, dayReportMsg(lastReport)) != nil {
-			return false
-		}
+		hub.write(ctx, dayReportMsg(lastReport))
 	}
 
 	for {
@@ -244,7 +337,7 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 		case <-kick:
 			return true
 		case req := <-debugC:
-			if h.applyDebug(ctx, c, req, sid, gen, withSaves,
+			if h.applyDebug(ctx, hub, req, sid, gen, withSaves,
 				&g, &speed, &lastReport, journal, &scenario) {
 				return true
 			}
@@ -289,8 +382,14 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 			if mutated && withSaves && !h.persist(sid, gen, g, speed, lastReport, scenario, journal.last(journal.cap)) {
 				return true
 			}
-			if wsjson.Write(ctx, c, out) != nil {
-				return false
+			// Ошибки — только отправителю (его промах, не общее событие),
+			// успешные снапшоты — всем соединениям сессии.
+			if _, isErr := out.(errorMessage); isErr {
+				if cmd.From != nil {
+					hub.writeTo(ctx, cmd.From, out)
+				}
+			} else {
+				hub.write(ctx, out)
 			}
 		case <-tickC:
 			wasRunning := g.Phase == game.PhaseRunning
@@ -315,13 +414,9 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 			}
 			if wasRunning && g.Phase == game.PhaseWon {
 				journal.add(fmt.Sprintf("д%d · цель достигнута: победа", g.Day))
-				if wsjson.Write(ctx, c, snapshot(g, speed, false, scenario)) != nil {
-					return false
-				}
-				if wsjson.Write(ctx, c, victoryMessage{Type: "victory",
-					Difficulty: string(g.Config().Difficulty), Day: g.Day, Balance: g.Money}) != nil {
-					return false
-				}
+				hub.write(ctx, snapshot(g, speed, false, scenario))
+				hub.write(ctx, victoryMessage{Type: "victory",
+					Difficulty: string(g.Config().Difficulty), Day: g.Day, Balance: g.Money})
 				continue
 			}
 			// На паузе фазы (отчёт/банкротство) тик — no-op: не шлём одинаковые
@@ -329,9 +424,7 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 			if report == nil && g.Phase != game.PhaseRunning {
 				continue
 			}
-			if wsjson.Write(ctx, c, snapshot(g, speed, false, scenario)) != nil {
-				return false
-			}
+			hub.write(ctx, snapshot(g, speed, false, scenario))
 			if report != nil {
 				var out any
 				if g.Phase == game.PhaseGameOver {
@@ -340,9 +433,7 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 				} else {
 					out = dayReportMsg(report)
 				}
-				if wsjson.Write(ctx, c, out) != nil {
-					return false
-				}
+				hub.write(ctx, out)
 			}
 		case <-ctx.Done():
 			return false

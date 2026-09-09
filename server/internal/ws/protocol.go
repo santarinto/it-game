@@ -12,12 +12,22 @@ type effectInfo struct {
 
 // clientMessage — сообщение клиента: {"type": "...", "office": N}.
 // office адресует офисные команды (hire, buy_pc, buy_router, hire_boss,
-// buy_office); остальные его игнорируют.
+// buy_office); остальные его игнорируют. Агентские поля (ITGAME-29)
+// читает только /ws/agent: дни/тики промотки, патч и сценарий.
 type clientMessage struct {
 	Type   string `json:"type"`
 	Office int    `json:"office"`
 	Slot   int    `json:"slot"`  // стойка для upgrade_server
 	Speed  int    `json:"speed"` // параметр set_speed: 0 — пауза, 1..3 — множитель темпа
+
+	// Агентский мост (ITGAME-29): типы status, debug_patch, debug_advance,
+	// debug_step, debug_scenario.
+	Days      int    `json:"days"`
+	Ticks     int    `json:"ticks"`
+	Money     *int   `json:"money"`
+	Day       *int   `json:"day"`
+	TickInDay *int   `json:"tickInDay"`
+	Scenario  string `json:"scenario"`
 }
 
 // stateMessage — полный снапшот состояния. Включает производные поля

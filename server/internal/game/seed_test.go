@@ -131,7 +131,11 @@ func TestFixtureScenarioStates(t *testing.T) {
 		t.Fatalf("soft_lock: найм должен быть невозможен, получили %v", err)
 	}
 
-	g, err = NewFixture(cfg, "pre_victory", "")
+	// Поломки ПК (2%/тик) могут сломать победу раньше времени — тест
+	// про победу, а не про инциденты: шанс зануляем.
+	g2cfg := cfg
+	g2cfg.BreakdownChancePct = 0
+	g, err = NewFixture(g2cfg, "pre_victory", "")
 	if err != nil {
 		t.Fatal(err)
 	}

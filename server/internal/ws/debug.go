@@ -9,9 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
-
 	"itdirector/internal/game"
 	"itdirector/internal/store"
 )
@@ -109,41 +106,45 @@ type debugReply struct {
 
 // ── Реестр живых сессий ────────────────────────────────────────────────────
 
-// registerDebug — актор заявляет свой канал; выписывается при выходе.
-func (h *Handler) registerDebug(sid string) chan debugRequest {
-	ch := make(chan debugRequest, 8)
+// registerSession — актор заявляет свою сессию; выписывается на выходе.
+func (h *Handler) registerSession(sid string, sess *session) {
 	h.debugMu.Lock()
 	if h.live == nil {
-		h.live = map[string]chan debugRequest{}
+		h.live = map[string]*session{}
 	}
-	h.live[sid] = ch
+	h.live[sid] = sess
 	h.debugMu.Unlock()
-	return ch
 }
 
-// unregisterDebug — только если в реестре наш канал: сессию мог забрать
-// другой актор, его канал трогать нельзя.
-func (h *Handler) unregisterDebug(sid string, ch chan debugRequest) {
+// unregisterSession — только если в реестре наша сессия: sid мог забрать
+// другой актор (eviction), его запись трогать нельзя.
+func (h *Handler) unregisterSession(sid string, sess *session) {
 	h.debugMu.Lock()
-	if h.live[sid] == ch {
+	if h.live[sid] == sess {
 		delete(h.live, sid)
 	}
 	h.debugMu.Unlock()
 }
 
-// callDebug — доставить запрос актору сессии. ok=false — живого актора нет.
-func (h *Handler) callDebug(sid string, req debugRequest) (debugReply, bool) {
+// lookupSession — живая сессия по sid или nil (для агентского моста).
+func (h *Handler) lookupSession(sid string) *session {
+	h.debugMu.Lock()
+	defer h.debugMu.Unlock()
+	return h.live[sid]
+}
+
+// sendDebug — доставить запрос актору сессии. ok=false — живого актора нет.
+func (h *Handler) sendDebug(sid string, req debugRequest) (debugReply, bool) {
 	if !store.ValidSID(sid) {
 		return debugReply{Code: http.StatusBadRequest, Err: "bad_sid"}, true
 	}
-	h.debugMu.Lock()
-	ch := h.live[sid]
-	h.debugMu.Unlock()
-	if ch == nil {
+	sess := h.lookupSession(sid)
+	if sess == nil {
 		return debugReply{Code: http.StatusNotFound,
 			Err: "session_not_live (откройте страницу игры с этим sid)"}, false
 	}
 	req.Reply = make(chan debugReply, 1)
+	ch := sess.debugC
 	select {
 	case ch <- req:
 		select {
@@ -200,7 +201,7 @@ func (h *Handler) ServeDebug(w http.ResponseWriter, r *http.Request) {
 
 // serveDebugStateGet — GET /api/debug/state?sid=: полный снапшот + сейв.
 func (h *Handler) serveDebugStateGet(w http.ResponseWriter, r *http.Request) {
-	rep, _ := h.callDebug(r.URL.Query().Get("sid"), debugRequest{kind: kindState})
+	rep, _ := h.sendDebug(r.URL.Query().Get("sid"), debugRequest{kind: kindState})
 	finishDebug(w, rep)
 }
 
@@ -247,7 +248,7 @@ func (h *Handler) serveDebugStatePost(w http.ResponseWriter, r *http.Request) {
 			"пустой запрос: нужен state, scenario или money/day/tickInDay")
 		return
 	}
-	rep, _ := h.callDebug(body.SID, req)
+	rep, _ := h.sendDebug(body.SID, req)
 	finishDebug(w, rep)
 }
 
@@ -272,7 +273,7 @@ func (h *Handler) serveDebugAdvance(w http.ResponseWriter, r *http.Request) {
 		writeDebugErr(w, http.StatusBadRequest, "проматывать можно 0–90 дней / 0–10000 тиков")
 		return
 	}
-	rep, _ := h.callDebug(body.SID, debugRequest{kind: kindAdvance, days: body.Days, ticks: body.Ticks})
+	rep, _ := h.sendDebug(body.SID, debugRequest{kind: kindAdvance, days: body.Days, ticks: body.Ticks})
 	finishDebug(w, rep)
 }
 
@@ -285,7 +286,7 @@ func (h *Handler) serveDebugEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	rep, _ := h.callDebug(r.URL.Query().Get("sid"), debugRequest{kind: kindEvents, n: n})
+	rep, _ := h.sendDebug(r.URL.Query().Get("sid"), debugRequest{kind: kindEvents, n: n})
 	finishDebug(w, rep)
 }
 
@@ -319,17 +320,17 @@ type stateReply struct {
 
 // applyDebug — обработка debug-запроса в актор-горутине. Меняет игру через
 // указатели (restore/фикстура заменяют её целиком), персистит сейв и
-// проталкивает снапшот в WS, чтобы UI отразил чит мгновенно.
-// Возвращает true, если сессию забрал другой актор (run завершается).
+// проталкивает снапшот всем соединениям сессии (ITGAME-29), чтобы UI
+// отразил чит мгновенно. Возвращает true, если сессию забрал другой актор.
 func (h *Handler) applyDebug(
-	ctx context.Context, c *websocket.Conn, req debugRequest,
+	ctx context.Context, hub *connHub, req debugRequest,
 	sid string, gen uint64, withSaves bool,
 	gp **game.Game, speed *int, last **game.DayReport,
 	jr *eventJournal, scenario *string,
 ) bool {
 	g := *gp
 	push := func() {
-		_ = wsjson.Write(ctx, c, snapshot(g, *speed, false, *scenario))
+		hub.write(ctx, snapshot(g, *speed, false, *scenario))
 	}
 	reply := func(rep debugReply) {
 		select {
@@ -442,10 +443,10 @@ func (h *Handler) applyDebug(
 		}
 		push()
 		if sum.GameOver {
-			_ = wsjson.Write(ctx, c, gameOverMessage{Type: "game_over", DaysSurvived: g.Day,
+			hub.write(ctx, gameOverMessage{Type: "game_over", DaysSurvived: g.Day,
 				PeakIncomePerTick: g.PeakIncomePerTick, Balance: g.Money, Reason: g.LoseReason})
 		} else if sum.Victory {
-			_ = wsjson.Write(ctx, c, victoryMessage{Type: "victory",
+			hub.write(ctx, victoryMessage{Type: "victory",
 				Difficulty: string(g.Config().Difficulty), Day: g.Day, Balance: g.Money})
 		}
 		reply(debugReply{Code: http.StatusOK, Body: map[string]any{

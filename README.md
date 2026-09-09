@@ -144,6 +144,20 @@ Sourcemaps: клиент собирается с `sourcemap: 'hidden'` (карт
 64×64, прозрачный фон, Sweetie-16, детектор запечённого чекерборда) —
 кривой ассет роняет `npm run build` и CI.
 
+### WS-мост агента /ws/agent (ITGAME-29)
+
+`ws://host/ws/agent?sid=…[&seed=][&scenario=][&difficulty=]` — управление
+сессией без браузера (wscat/скрипты). Протокол: те же сообщения, что
+вкладке (`state`, `day_report`, …) + агентские:
+`{"type":"status"}` → `agent_status` (role, phase, version=sha сервера,
+seed); `debug_patch`/`debug_advance`/`debug_step`/`debug_scenario` →
+`agent_result` (зеркало /api/debug/*); обычные команды (`buy_pc`, `hire`,
+`set_speed`, …) — как у клиента. Политика занятости: агент не отбирает
+сессию — к живой цепляется наблюдателем, без живой поднимает headless и
+владеет ею; игрок при подключении отбирает headless-сессию (агент получает
+`session_taken` и переподключается наблюдателем). Гейта нет до прода —
+как у /api/debug/*.
+
 ## Сейвы, реконнект и офлайн-прогресс (итерация 16)
 
 Сессия привязана к `sid` из localStorage клиента (query-параметр `/ws`).

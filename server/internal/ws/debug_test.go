@@ -23,13 +23,14 @@ func startDebugServer(t *testing.T, cfg game.Config, tick time.Duration) (string
 	h := &Handler{Config: cfg, TickInterval: tick}
 	mux := http.NewServeMux()
 	mux.Handle("GET /ws", h)
+	mux.Handle("GET /ws/agent", http.HandlerFunc(h.ServeAgent))
 	mux.Handle("/api/debug/", http.HandlerFunc(h.ServeDebug))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv.URL, h
 }
 
-func debugCall(t *testing.T, base, method, path, body string) (int, map[string]any) {
+func httpDebug(t *testing.T, base, method, path, body string) (int, map[string]any) {
 	t.Helper()
 	var resp *http.Response
 	var err error
@@ -70,7 +71,7 @@ func num(t *testing.T, v any) int {
 
 func TestDebugStateGetAndPatch(t *testing.T) {
 	cfg := game.DefaultConfig()
-	cfg.WinTarget = 1_000_000 // не мешают победы
+	cfg.WinTarget = 1_000_000                      // не мешают победы
 	base, _ := startDebugServer(t, cfg, time.Hour) // тики не мешают
 
 	sid := "debug-sid-0001"
@@ -88,7 +89,7 @@ func TestDebugStateGetAndPatch(t *testing.T) {
 	}
 
 	// GET state: сид из ?seed= виден и в снапшоте, и в сейве
-	code, out := debugCall(t, base, "GET", "/api/debug/state?sid="+sid, "")
+	code, out := httpDebug(t, base, "GET", "/api/debug/state?sid="+sid, "")
 	if code != 200 {
 		t.Fatalf("GET state: %d %v", code, out)
 	}
@@ -102,7 +103,7 @@ func TestDebugStateGetAndPatch(t *testing.T) {
 	}
 
 	// POST патч: деньги видны и в ответе, и в следующем WS-снапшоте
-	code, out = debugCall(t, base, "POST", "/api/debug/state",
+	code, out = httpDebug(t, base, "POST", "/api/debug/state",
 		fmt.Sprintf(`{"sid":%q,"money":50000}`, sid))
 	if code != 200 {
 		t.Fatalf("POST patch: %d %v", code, out)
@@ -116,12 +117,12 @@ func TestDebugStateGetAndPatch(t *testing.T) {
 	}
 
 	// патч с мусором отклоняется, игру не ломает
-	code, out = debugCall(t, base, "POST", "/api/debug/state",
+	code, out = httpDebug(t, base, "POST", "/api/debug/state",
 		fmt.Sprintf(`{"sid":%q,"tickInDay":99999}`, sid))
 	if code != 400 {
 		t.Fatalf("битый патч должен быть 400: %d %v", code, out)
 	}
-	code, out = debugCall(t, base, "POST", "/api/debug/state", fmt.Sprintf(`{"sid":%q}`, sid))
+	code, out = httpDebug(t, base, "POST", "/api/debug/state", fmt.Sprintf(`{"sid":%q}`, sid))
 	if code != 400 {
 		t.Fatalf("пустое тело должно быть 400: %d %v", code, out)
 	}
@@ -142,7 +143,7 @@ func TestDebugAdvanceMovesDays(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, out := debugCall(t, base, "POST", "/api/debug/advance",
+	code, out := httpDebug(t, base, "POST", "/api/debug/advance",
 		fmt.Sprintf(`{"sid":%q,"days":3}`, sid))
 	if code != 200 {
 		t.Fatalf("advance: %d %v", code, out)
@@ -157,7 +158,7 @@ func TestDebugAdvanceMovesDays(t *testing.T) {
 	}
 
 	// журнал событий помнит промотку
-	code, out = debugCall(t, base, "GET", "/api/debug/events?sid="+sid+"&n=10", "")
+	code, out = httpDebug(t, base, "GET", "/api/debug/events?sid="+sid+"&n=10", "")
 	if code != 200 {
 		t.Fatalf("events: %d %v", code, out)
 	}
@@ -190,13 +191,13 @@ func TestDebugScenarioSoftLock(t *testing.T) {
 		t.Fatalf("?scenario=soft_lock не применился: %+v", first)
 	}
 
-	code, out := debugCall(t, base, "GET", "/api/debug/state?sid="+sid, "")
+	code, out := httpDebug(t, base, "GET", "/api/debug/state?sid="+sid, "")
 	if code != 200 || num(t, stateOf(t, out["state"])["day"]) != 40 {
 		t.Fatalf("state после фикстуры: %d %v", code, out)
 	}
 
 	// POST scenario: пересоздать живую сессию другой фикстурой
-	code, out = debugCall(t, base, "POST", "/api/debug/state",
+	code, out = httpDebug(t, base, "POST", "/api/debug/state",
 		fmt.Sprintf(`{"sid":%q,"scenario":"mid_day10"}`, sid))
 	if code != 200 {
 		t.Fatalf("POST scenario: %d %v", code, out)
@@ -206,12 +207,12 @@ func TestDebugScenarioSoftLock(t *testing.T) {
 		t.Fatalf("после сценария mid_day10 день %v", st["day"])
 	}
 
-	code, out = debugCall(t, base, "GET", "/api/debug/fixtures", "")
+	code, out = httpDebug(t, base, "GET", "/api/debug/fixtures", "")
 	if code != 200 || len(out["fixtures"].([]any)) != 6 {
 		t.Fatalf("fixtures: %d %v", code, out)
 	}
 
-	code, out = debugCall(t, base, "POST", "/api/debug/state",
+	code, out = httpDebug(t, base, "POST", "/api/debug/state",
 		fmt.Sprintf(`{"sid":%q,"scenario":"nope"}`, sid))
 	if code != 400 {
 		t.Fatalf("неизвестный сценарий: %d %v", code, out)
@@ -235,13 +236,13 @@ func TestDebugRestoreRoundtrip(t *testing.T) {
 	}
 
 	// snapshot().save → restore(): состояние возвращается на место
-	_, out := debugCall(t, base, "GET", "/api/debug/state?sid="+sid, "")
+	_, out := httpDebug(t, base, "GET", "/api/debug/state?sid="+sid, "")
 	saveRaw, err := json.Marshal(out["save"])
 	if err != nil {
 		t.Fatal(err)
 	}
-	debugCall(t, base, "POST", "/api/debug/state", fmt.Sprintf(`{"sid":%q,"money":777}`, sid))
-	code, out := debugCall(t, base, "POST", "/api/debug/state",
+	httpDebug(t, base, "POST", "/api/debug/state", fmt.Sprintf(`{"sid":%q,"money":777}`, sid))
+	code, out := httpDebug(t, base, "POST", "/api/debug/state",
 		fmt.Sprintf(`{"sid":%q,"state":%s}`, sid, saveRaw))
 	if code != 200 {
 		t.Fatalf("restore: %d %v", code, out)
@@ -253,14 +254,14 @@ func TestDebugRestoreRoundtrip(t *testing.T) {
 
 func TestDebugSessionNotLive(t *testing.T) {
 	base, _ := startDebugServer(t, game.DefaultConfig(), time.Hour)
-	code, out := debugCall(t, base, "GET", "/api/debug/state?sid=never-exist-1", "")
+	code, out := httpDebug(t, base, "GET", "/api/debug/state?sid=never-exist-1", "")
 	if code != 404 {
 		t.Fatalf("нет сессии: %d %v", code, out)
 	}
 	if !strings.Contains(out["error"].(string), "session_not_live") {
 		t.Fatalf("текст ошибки: %v", out["error"])
 	}
-	code, _ = debugCall(t, base, "GET", "/api/debug/what?sid=x", "")
+	code, _ = httpDebug(t, base, "GET", "/api/debug/what?sid=x", "")
 	if code != 404 {
 		t.Fatalf("нет маршрута: %d", code)
 	}

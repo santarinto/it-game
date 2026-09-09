@@ -89,6 +89,9 @@ func newMux(cfg game.Config, database *db.DB, saves *store.Store, staticDir stri
 	mux := http.NewServeMux()
 	wsHandler := &ws.Handler{Config: cfg, TickInterval: time.Second, Saves: saves}
 	mux.Handle("GET /ws", wsHandler)
+	// WS-мост агента (ITGAME-29): та же сессия без браузера; гейта нет
+	// до прода — как у /api/debug/* (решение владельца).
+	mux.Handle("GET /ws/agent", http.HandlerFunc(wsHandler.ServeAgent))
 	// /api/debug/* без гейта до прода: dev-сервер локальный (решение
 	// владельца, ITGAME-26). Перед релизом закрыть админ-токеном/env-флагом.
 	mux.Handle("/api/debug/", http.HandlerFunc(wsHandler.ServeDebug))
