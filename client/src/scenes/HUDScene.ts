@@ -60,7 +60,7 @@ export class HUDScene extends Phaser.Scene {
   private eventUI: Phaser.GameObjects.GameObject[] = []
   private gameOverUI: Phaser.GameObjects.GameObject[] = []
   private victoryUI: Phaser.GameObjects.GameObject[] = []
-  private skipReports = localStorage.getItem('skipReports') === '1'
+  private skipReports = localStorage.getItem('itd.skipReports') === '1'
   private switching = false
   private speedBtns: { bg: Phaser.GameObjects.Rectangle; speed: number }[] = []
   private hudInteractive: Phaser.GameObjects.GameObject[] = []
@@ -565,9 +565,9 @@ export class HUDScene extends Phaser.Scene {
         text: 'Нанять не на что, а дохода нет — сдаться и начать заново: кнопка ⌂',
       },
     ]
-    const hint = hints.find((h) => h.when && !localStorage.getItem('hint:' + h.id))
+    const hint = hints.find((h) => h.when && !localStorage.getItem('itd.hint:' + h.id))
     if (hint) {
-      localStorage.setItem('hint:' + hint.id, '1')
+      localStorage.setItem('itd.hint:' + hint.id, '1')
       this.toast(hint.text, 2200)
     }
   }
@@ -610,7 +610,7 @@ export class HUDScene extends Phaser.Scene {
     )
     checkbox.on('pointerdown', () => {
       this.skipReports = !this.skipReports
-      localStorage.setItem('skipReports', this.skipReports ? '1' : '0')
+      localStorage.setItem('itd.skipReports', this.skipReports ? '1' : '0')
       checkbox.setText(this.checkboxLabel())
     })
     const btnBg = tag(

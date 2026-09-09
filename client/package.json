@@ -4,10 +4,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && node scripts/check-sprites.mjs",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
-    "smoke-ui": "node scripts/smoke-ui.mjs"
+    "smoke-ui": "node scripts/smoke-ui.mjs",
+    "check:sprites": "node scripts/check-sprites.mjs"
   },
   "dependencies": {
     "phaser": "^3.90.0"

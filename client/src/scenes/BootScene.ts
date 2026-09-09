@@ -7,7 +7,8 @@ import { GAME_W } from '../layout'
 // scripts/gen-sprites.sh (PixelLab + Sweetie-16). Загружаем ПОСЛЕ
 // кодогена: при наличии PNG ключ текстуры перезатирается — кодоген
 // остаётся фолбэком для всего, что ещё не перегенерено.
-const AI_SPRITES = [
+// Список экспортируется для itd.assetSet() (ITGAME-28).
+export const AI_SPRITES = [
   'desk_pc', 'desk_empty', 'worker', 'boss',
   'router', 'rack_server', 'rack_empty', 'gateway',
   'cooler', 'fridge', 'coffee_machine',

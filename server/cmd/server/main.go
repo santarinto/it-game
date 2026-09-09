@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"itdirector/internal/admin"
@@ -77,6 +78,14 @@ func main() {
 		log.Printf("сейвы отключены (-saves off): разрыв соединения = новая игра")
 	}
 
+	mux := newMux(cfg, database, saves, *static)
+	log.Printf("IT Director: слушаю %s", *addr)
+	log.Fatal(http.ListenAndServe(*addr, mux))
+}
+
+// newMux — маршруты сервера одним местом (тестируется без запуска main).
+// staticDir пуст — статику не раздаём (dev: её раздаёт Vite).
+func newMux(cfg game.Config, database *db.DB, saves *store.Store, staticDir string) *http.ServeMux {
 	mux := http.NewServeMux()
 	wsHandler := &ws.Handler{Config: cfg, TickInterval: time.Second, Saves: saves}
 	mux.Handle("GET /ws", wsHandler)
@@ -84,13 +93,24 @@ func main() {
 	// владельца, ITGAME-26). Перед релизом закрыть админ-токеном/env-флагом.
 	mux.Handle("/api/debug/", http.HandlerFunc(wsHandler.ServeDebug))
 	mux.Handle("GET /admin", &admin.Handler{Config: cfg, DB: database})
-	if *static != "" {
-		if _, err := os.Stat(*static); err != nil {
-			log.Fatalf("каталог статики: %v", err)
-		}
-		mux.Handle("/", http.FileServer(http.Dir(*static)))
+	if staticDir != "" {
+		files := http.FileServer(http.Dir(staticDir))
+		// Sourcemaps (ITGAME-28): бандл собирается с sourcemap:'hidden' —
+		// карты лежат рядом с ассетами, но наружу не отдаются. Гейт —
+		// ITGAME_SOURCEMAP_TOKEN: пустой токен = карты выключены совсем,
+		// иначе нужен ?token=. Ассеты без .map раздаются как раньше,
+		// отсутствующие — честный 404 FileServer'а (без SPA-фолбэка).
+		mux.Handle("/assets/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, ".map") {
+				tok := os.Getenv("ITGAME_SOURCEMAP_TOKEN")
+				if tok == "" || r.URL.Query().Get("token") != tok {
+					http.NotFound(w, r)
+					return
+				}
+			}
+			files.ServeHTTP(w, r)
+		}))
+		mux.Handle("/", files)
 	}
-
-	log.Printf("IT Director: слушаю %s", *addr)
-	log.Fatal(http.ListenAndServe(*addr, mux))
+	return mux
 }

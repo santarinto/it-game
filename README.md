@@ -118,6 +118,32 @@
 рвёт активные WS-сессии, но сейвы переживают рестарт (общий каталог
 `shared/saves`), клиент переподключается сам и продолжает партию.
 
+### Честные 404 и sourcemaps (ITGAME-28)
+
+Go-сервер раздаёт статику голым `http.FileServer` — отсутствующий ассет
+честно даёт 404. Но nginx бокса сейчас делает SPA-fallback (`try_files …
+/index.html`) на ВСЁ, включая `/assets/` — битая ссылка на спрайт
+возвращала 200 с HTML (поймано curl'ом: `curl -o /dev/null -w '%{code}'`
+`/assets/nope.png` → 200 text/html). Фикс на боксе (`/etc/nginx/…`,
+секция server itgame) — не трогать `/assets` фолбэком:
+
+```nginx
+location /assets/ {
+    try_files $uri =404;   # битые ассеты — честный 404, не index.html
+}
+```
+
+Sourcemaps: клиент собирается с `sourcemap: 'hidden'` (карты лежат в
+`dist/assets/*.map`, ссылок в бандле нет). Наружу Go-сервер их не отдаёт:
+нужен env `ITGAME_SOURCEMAP_TOKEN` на боксе, карта доступна как
+`/assets/app.js.map?token=…`. Без env — 404 даже с токеном.
+
+Штамп сборки: `<meta name="build" content="<sha> <время>">` в index.html
+и `itd.version` в консоли — проверка «доехала ли правка» без хэша в имени
+файла. Спрайты проверяются сборкой (`client/scripts/check-sprites.mjs`:
+64×64, прозрачный фон, Sweetie-16, детектор запечённого чекерборда) —
+кривой ассет роняет `npm run build` и CI.
+
 ## Сейвы, реконнект и офлайн-прогресс (итерация 16)
 
 Сессия привязана к `sid` из localStorage клиента (query-параметр `/ws`).

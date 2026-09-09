@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { client, sessionId } from '../net'
 import type { StateMessage } from '../protocol'
+import { AI_SPRITES } from '../scenes/BootScene'
 import { findLowContrast, findOffscreen, findOverlaps, findTiny } from './lint'
 import type { ContrastEntry, OffscreenEntry, OverlapEntry, TinyEntry } from './lint'
 import { startTelemetry } from './telemetry'
@@ -42,6 +43,103 @@ export interface DebugAdvanceResult {
     reason?: string
   }
   state: StateMessage
+}
+
+// ── Штамп версии и ассеты (ITGAME-28) ──────────────────────────────────────
+
+// Версия сборки: sha коммита и время билда (vite define; dev — HEAD на
+// момент старта vite). Плюс <meta name="build"> в index.html.
+export const BUILD = { sha: __BUILD_SHA__, builtAt: __BUILD_AT__ }
+
+// Sweetie-16 (GrafxKid) — палитра арт-пайплайна (scripts/sprites/remap.sh);
+// вне её цветов в спрайтах быть не должно.
+const SWEETIE16 = new Set([
+  '#1a1c2c', '#333c57', '#29366f', '#5d275d', '#257179', '#b13e53', '#ef7d57',
+  '#38b764', '#a7f070', '#ffcd75', '#566c86', '#3b5dc9', '#41a6f6', '#73eff7',
+  '#94b0c2', '#f4f4f4',
+])
+
+// Служебные текстуры Phaser — не ассеты: встроенные (__*) и растеризации
+// Text-объектов (Phaser 3.60+ даёт каждой UUID-ключ). Палитра на
+// антиалиас шрифтов не распространяется.
+const INTERNAL_TEXTURES = new Set(['__DEFAULT', '__MISSING', '__WHITE'])
+const UUID_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+export interface AssetReport {
+  key: string
+  source: 'png' | 'pixelart' // чем заполнен ключ: подменённый PNG или кодоген
+  w: number
+  h: number
+  transparentPct: number // доля прозрачных пикселей (alpha < 26)
+  f4Pct: number // доля #f4f4f4: детектор запечённого чекерборда/фона
+  offPalette: string[] // цвета вне Sweetie-16 (у кодогена пусто всегда)
+}
+
+export interface AssetSetEntry {
+  key: string
+  pngLoaded: boolean // ai:<key> приехал с сервера
+  active: 'png' | 'pixelart' // чем реально рисуют сцены
+}
+
+// Пиксельный анализ текстуры: любой источник (img/canvas) через drawImage.
+// sig — подпись пикселей (RGBA подряд) для поиска дублей ключей.
+function analyzeTexture(
+  game: Phaser.Game,
+  key: string,
+  source: AssetReport['source'],
+): { report: AssetReport; sig: string } | null {
+  if (!game.textures.exists(key)) return null
+  const src = game.textures.get(key).getSourceImage()
+  const w = src.width
+  const h = src.height
+  if (!w || !h) return null
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return null
+  ctx.drawImage(src as CanvasImageSource, 0, 0)
+  const data = ctx.getImageData(0, 0, w, h).data
+  let transparent = 0
+  let f4 = 0
+  const off = new Map<string, number>()
+  for (let i = 0; i < data.length; i += 4) {
+    const a = data[i + 3]
+    if (a < 26) {
+      transparent++
+      continue
+    }
+    const hex =
+      '#' + [data[i], data[i + 1], data[i + 2]].map((v) => v.toString(16).padStart(2, '0')).join('')
+    if (hex === '#f4f4f4') f4++
+    if (!SWEETIE16.has(hex)) off.set(hex, (off.get(hex) ?? 0) + 1)
+  }
+  const total = w * h
+  // Подпись контента (без ключа — для поиска дублей): бинарная строка
+  // кусками, spread на весь массив валит стек.
+  let bin = ''
+  const CHUNK = 8192
+  for (let i = 0; i < data.length; i += CHUNK) {
+    bin += String.fromCharCode(...data.subarray(i, Math.min(i + CHUNK, data.length)))
+  }
+  return {
+    report: {
+      key,
+      source,
+      w,
+      h,
+      transparentPct: Math.round((transparent / total) * 1000) / 10,
+      f4Pct: Math.round((f4 / total) * 1000) / 10,
+      offPalette: [...off.entries()].sort((a, b) => b[1] - a[1]).map(([hex]) => hex),
+    },
+    sig: `${w}x${h}:${bin}`,
+  }
+}
+
+// Один и тот же источник у двух ключей? (подмена PNG в BootScene)
+function sameSource(game: Phaser.Game, a: string, b: string): boolean {
+  if (!game.textures.exists(a) || !game.textures.exists(b)) return false
+  return game.textures.get(a).getSourceImage() === game.textures.get(b).getSourceImage()
 }
 
 async function debugFetch<T>(method: 'GET' | 'POST', path: string, body?: Record<string, unknown>): Promise<T> {
@@ -136,6 +234,8 @@ export interface AgentResult {
 }
 
 export interface ItdApi {
+  // Штамп сборки (ITGAME-28): {sha, builtAt} + <meta name="build">.
+  readonly version: { sha: string; builtAt: string }
   state(): AgentState
   server(): AgentServer
   nodes(): AgentNode[]
@@ -149,6 +249,13 @@ export interface ItdApi {
   offscreen(): OffscreenEntry[]
   contrast(): ContrastEntry[]
   tiny(): TinyEntry[]
+  assets(): {
+    textures: AssetReport[]
+    duplicates: { keys: string[]; expected: boolean }[]
+    textTextures: number // растеризации Text-объектов (UUID-ключи), вне аудита
+  }
+  assetSet(): AssetSetEntry[]
+  reset(): AgentResult & { removed: string[] }
   log(n?: number): LogEntry[]
   errors(): ErrorEntry[]
   net(n?: number): {
@@ -362,6 +469,10 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26)
   itd.log(50)                       — журнал переходов (кольцевой на 200, переживает чистку консоли)
   itd.errors()                      — ошибки страницы (window.onerror + unhandledrejection)
   itd.net(20)                       — последние сообщения WS в обе стороны + сокет/rtt/реконнекты
+  itd.version                       — {sha, builtAt} сборки (+ <meta name="build"> в html)
+  itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне Sweetie-16, дубли ключей
+  itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк)
+  itd.reset()                       — снести все ключи localStorage itd.* (sid, сложность, хинты, зум, отчёты)
   itd.pause() / resume() / speed(n) — темп сессии: set_speed 0/1/0..3 (серверный, живёт в сейве)
   itd.step(2000)                    — пауза + промотка 2с игровых тиков (2000мс = 2 тика) через /api/debug/advance
   itd.advanceDays(3)                — промотка дней офлайн-движком: день N → N+3, отчёты дней в itd.events()
@@ -376,6 +487,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26)
 function makeApi(game: Phaser.Game): ItdApi {
   const telemetry = startTelemetry(game)
   return {
+    version: BUILD,
     state: buildState,
     server: buildServer,
     nodes: () => activeNodes(game),
@@ -447,6 +559,59 @@ function makeApi(game: Phaser.Game): ItdApi {
     offscreen: () => findOffscreen(game),
     contrast: () => findLowContrast(game),
     tiny: () => findTiny(game),
+    assets() {
+      const textures: AssetReport[] = []
+      const bySig = new Map<string, string[]>()
+      let textTextures = 0
+      for (const key of game.textures.getTextureKeys()) {
+        if (INTERNAL_TEXTURES.has(key) || UUID_KEY.test(key)) {
+          if (UUID_KEY.test(key)) textTextures++
+          continue
+        }
+        // Источник: ai:<key> — сам PNG; <key> — PNG, если подменён
+        // источником ai:<key> в BootScene, иначе кодоген.
+        let source: AssetReport['source'] = 'pixelart'
+        if (key.startsWith('ai:')) source = 'png'
+        else if (sameSource(game, key, 'ai:' + key)) source = 'png'
+        const res = analyzeTexture(game, key, source)
+        if (!res) continue
+        textures.push(res.report)
+        bySig.set(res.sig, [...(bySig.get(res.sig) ?? []), key])
+      }
+      textures.sort((a, b) => a.key.localeCompare(b.key))
+      const duplicates = [...bySig.values()]
+        .filter((keys) => keys.length > 1)
+        .map((keys) => ({
+          keys: keys.sort(),
+          // «desk_empty + ai:desk_empty» — так устроена подмена PNG в
+          // BootScene; дубли без пары ai:* — находка.
+          expected: keys.every((k) => keys.includes(k.replace(/^ai:/, ''))),
+        }))
+      return { textures, duplicates, textTextures }
+    },
+    assetSet() {
+      return AI_SPRITES.map((key) => {
+        const pngLoaded = game.textures.exists('ai:' + key)
+        return {
+          key,
+          pngLoaded,
+          active: pngLoaded && sameSource(game, key, 'ai:' + key) ? 'png' : 'pixelart',
+        }
+      })
+    },
+    reset() {
+      // Единый namespace itd.* (ITGAME-28): снести всё разом — sid,
+      // сложность, хинты, зум, тумблеры. Страницу перезагружает агент.
+      const removed: string[] = []
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i)
+        if (k?.startsWith('itd.')) {
+          localStorage.removeItem(k)
+          removed.push(k)
+        }
+      }
+      return { ok: true, removed }
+    },
     log: (n = 50) => telemetry.log(n),
     errors: () => telemetry.errors(),
     net(n = 20) {
