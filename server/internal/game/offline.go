@@ -7,15 +7,17 @@ package game
 // чинятся ночим ИТ-шником — с полного дня работает как NextDay.
 
 // OfflineSummary — итог офлайн-догона для отчёта «пока вас не было».
+// Теги — для /api/debug/advance (ITGAME-26); offline_report собирает
+// своё сообщение с теми же именами.
 type OfflineSummary struct {
-	Ticks    int  // пропущено тиков всего
-	Days     int  // прошло полных дней
-	Income   int  // заработано офлайн
-	Payroll  int  // списано офлайн (ФОТ + опекс)
-	Balance  int  // итоговый баланс
-	GameOver bool // компания погибла офлайн
-	Victory  bool // цель достигнута офлайн
-	Reason   string // причина финала (bankrupt | time_up), Сложность 2.0
+	Ticks    int    `json:"ticks"`    // пропущено тиков всего
+	Days     int    `json:"days"`     // прошло полных дней
+	Income   int    `json:"income"`   // заработано офлайн
+	Payroll  int    `json:"payroll"`  // списано офлайн (ФОТ + опекс)
+	Balance  int    `json:"balance"`  // итоговый баланс
+	GameOver bool   `json:"gameOver"` // компания погибла офлайн
+	Victory  bool   `json:"victory"`  // цель достигнута офлайн
+	Reason   string `json:"reason"`   // причина финала (bankrupt | time_up), Сложность 2.0
 }
 
 // AdvanceOffline — досимулировать miss тиков вперёд. Меняет игру на месте;

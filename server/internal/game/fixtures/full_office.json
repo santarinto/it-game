@@ -1,0 +1,38 @@
+{
+  "_описание": "почти эндгейм: офис заполнен (12 мест, начальник), сеть максимальна (core ур.5 ×1.15, шлюз, три стойки по 3 уровню), $50000",
+  "day": 5,
+  "money": 50000,
+  "tickInDay": 20,
+  "dayIncome": 900,
+  "coreLevel": 5,
+  "gateway": true,
+  "offices": [
+    {
+      "Unlocked": true,
+      "PCs": 12,
+      "RouterTier": 3,
+      "Servers": [3, 3, 3],
+      "Boss": "Максим Орлов",
+      "Cooler": true,
+      "Fridge": true,
+      "CoffeeMachine": true,
+      "CoffeeEventTicks": [8, 38],
+      "Employees": [
+        { "Name": "Александр Иванов", "IncomePerTick": 9, "XP": 96 },
+        { "Name": "Екатерина Попова", "IncomePerTick": 10, "XP": 150 },
+        { "Name": "Илья Васильев", "IncomePerTick": 11, "XP": 200 },
+        { "Name": "Дарья Михайлова", "IncomePerTick": 11, "XP": 288 },
+        { "Name": "Михаил Новиков", "IncomePerTick": 12, "XP": 350 },
+        { "Name": "Полина Морозова", "IncomePerTick": 12, "XP": 400 },
+        { "Name": "Роман Волков", "IncomePerTick": 13, "XP": 450 },
+        { "Name": "Софья Алексеева", "IncomePerTick": 13, "XP": 500 },
+        { "Name": "Никита Егоров", "IncomePerTick": 14, "XP": 550 },
+        { "Name": "Вера Семёнова", "IncomePerTick": 14, "XP": 576 },
+        { "Name": "Денис Павлов ★", "IncomePerTick": 19, "Star": true, "XP": 600 },
+        { "Name": "Алина Степанова", "IncomePerTick": 9, "XP": 60 }
+      ]
+    },
+    { "Unlocked": false },
+    { "Unlocked": false }
+  ]
+}

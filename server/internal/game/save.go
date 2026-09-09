@@ -7,9 +7,10 @@ import (
 )
 
 // Сейвы сессии (ITGAME-8): игра сериализуется целиком — конфиг, с которым
-// она создана, и все поля состояния. Роллы RNG в сейв не входят: после
-// восстановления игра продолжает со свежим сидом (детерминизм NewWithSeed
-// нужен тестам, а не геймплею).
+// она создана, и все поля состояния. Сид входит в сейв (ITGAME-26):
+// восстановление ресивит RNG по нему — роллы воспроизводимы от старта
+// партии. Позицию в потоке math/rand/v2 прочитать нельзя, поэтому
+// реконнект начинает последовательность роллов заново с того же сида.
 
 // ErrBadSave — сейв повреждён или несовместим: восстановиться нельзя,
 // сессия начинается заново.
@@ -19,32 +20,33 @@ var ErrBadSave = errors.New("bad_save")
 // Поле в день отчёта (Phase=day_report) валидно: TickInDay при этом равен
 // длине дня, отчёт дошлёт ws-слой из LastReport.
 type Save struct {
-	Config            Config    `json:"config"`
-	Money             int       `json:"money"`
-	Offices           []Office  `json:"offices"`
-	CoreLevel         int       `json:"coreLevel"`
-	Gateway           bool      `json:"gateway"`
-	Phase             Phase     `json:"phase"`
-	Day               int       `json:"day"`
-	TickInDay         int       `json:"tickInDay"`
-	DayIncome         int       `json:"dayIncome"`
-	PeakIncomePerTick int       `json:"peakIncomePerTick"`
-	DayIncidents      int       `json:"dayIncidents"`
-	DayLostIncome     int       `json:"dayLostIncome"`
+	Config            Config     `json:"config"`
+	Seed              uint64     `json:"seed"` // сид RNG: восстанавливается при load (ITGAME-26)
+	Money             int        `json:"money"`
+	Offices           []Office   `json:"offices"`
+	CoreLevel         int        `json:"coreLevel"`
+	Gateway           bool       `json:"gateway"`
+	Phase             Phase      `json:"phase"`
+	Day               int        `json:"day"`
+	TickInDay         int        `json:"tickInDay"`
+	DayIncome         int        `json:"dayIncome"`
+	PeakIncomePerTick int        `json:"peakIncomePerTick"`
+	DayIncidents      int        `json:"dayIncidents"`
+	DayLostIncome     int        `json:"dayLostIncome"`
 	DayEvents         []DayEvent `json:"dayEvents"`
-	ActiveEvent       *DayEvent `json:"activeEvent"`
-	EventLog          []string  `json:"eventLog"`
-	DeadlineOn        bool      `json:"deadlineOn"`
-	DeadlineGot       int       `json:"deadlineGot"`
-	DeadlineGoal      int       `json:"deadlineGoal"`
-	MarketToday       int       `json:"marketToday"`    // рынок дня, % (Сложность 2.0)
-	MarketTomorrow    int       `json:"marketTomorrow"` // завтрашний ролл, виден заранее
+	ActiveEvent       *DayEvent  `json:"activeEvent"`
+	EventLog          []string   `json:"eventLog"`
+	DeadlineOn        bool       `json:"deadlineOn"`
+	DeadlineGot       int        `json:"deadlineGot"`
+	DeadlineGoal      int        `json:"deadlineGoal"`
+	MarketToday       int        `json:"marketToday"`    // рынок дня, % (Сложность 2.0)
+	MarketTomorrow    int        `json:"marketTomorrow"` // завтрашний ролл, виден заранее
 }
 
 // Export — слепок текущего состояния для сейва.
 func (g *Game) Export() Save {
-	return Save{
-		Config: g.cfg, Money: g.Money, Offices: g.Offices, CoreLevel: g.CoreLevel,
+	s := Save{
+		Config: g.cfg, Seed: g.Seed, Money: g.Money, Offices: g.Offices, CoreLevel: g.CoreLevel,
 		Gateway: g.Gateway, Phase: g.Phase, Day: g.Day, TickInDay: g.TickInDay,
 		DayIncome: g.DayIncome, PeakIncomePerTick: g.PeakIncomePerTick,
 		DayIncidents: g.DayIncidents, DayLostIncome: g.DayLostIncome,
@@ -52,6 +54,7 @@ func (g *Game) Export() Save {
 		DeadlineOn: g.DeadlineOn, DeadlineGot: g.DeadlineGot, DeadlineGoal: g.DeadlineGoal,
 		MarketToday: g.MarketToday, MarketTomorrow: g.MarketTomorrow,
 	}
+	return s
 }
 
 // Restore — игра из сейва. Ошибку возвращает ErrBadSave: битые сейвы
@@ -75,7 +78,7 @@ func Restore(s Save) (*Game, error) {
 		return nil, fmt.Errorf("%w: фаза %q не восстанавливается", ErrBadSave, s.Phase)
 	}
 	g := &Game{
-		cfg: s.Config, rng: rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
+		cfg: s.Config, Seed: s.Seed,
 		Money: s.Money, Offices: s.Offices, CoreLevel: s.CoreLevel, Gateway: s.Gateway,
 		Phase: s.Phase, Day: s.Day, TickInDay: s.TickInDay,
 		DayIncome: s.DayIncome, PeakIncomePerTick: s.PeakIncomePerTick,
@@ -83,6 +86,15 @@ func Restore(s Save) (*Game, error) {
 		DayEvents: s.DayEvents, ActiveEvent: s.ActiveEvent, EventLog: s.EventLog,
 		DeadlineOn: s.DeadlineOn, DeadlineGot: s.DeadlineGot, DeadlineGoal: s.DeadlineGoal,
 		MarketToday: s.MarketToday, MarketTomorrow: s.MarketTomorrow,
+	}
+	// RNG ресивится по сиду из сейва (ITGAME-26): та же последовательность
+	// роллов, что с начала партии. Старые сейвы без сида — свежий
+	// случайный, как до ITGAME-26.
+	switch {
+	case s.Seed != 0:
+		g.rng = rand.New(rand.NewPCG(s.Seed, mixSeed(s.Seed)))
+	default:
+		g.rng = rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
 	}
 	return g, nil
 }

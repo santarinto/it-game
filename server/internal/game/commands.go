@@ -443,11 +443,12 @@ func (g *Game) NextDay() error {
 }
 
 // Restart начинает новую игру с нуля. Работает только после банкротства.
+// Сид сохраняется: рестарт воспроизводим для отладки (?seed= даёт те же роллы).
 func (g *Game) Restart() error {
 	if g.Phase != PhaseGameOver {
 		return ErrWrongPhase
 	}
-	*g = *New(g.cfg)
+	*g = *NewSeeded(g.cfg, g.Seed)
 	return nil
 }
 

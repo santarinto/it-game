@@ -101,6 +101,10 @@ export interface StateMessage {
   phase: 'running' | 'day_report' | 'game_over' | 'won'
   speed: number // темп сессии: 0 — пауза, 1..3
   resumed: boolean // снапшот восстановленной сессии (ITGAME-8)
+  seed: string // сид RNG партии, десятичная строка (ITGAME-26)
+  scenario: string // фикстура старта (ITGAME-26); '' — обычная партия
+  tickInDay: number // тик текущего дня (ITGAME-26)
+  dayIncome: number // доход, накопленный за текущий день (ITGAME-26)
   difficulty: DifficultyId
   winTarget: number // денежная часть цели, $
   winStaff: number // комбо-цель: сотрудников (0 — нет; сложность 2.0)

@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { client } from '../net'
+import { client, sessionId } from '../net'
 import type { StateMessage } from '../protocol'
 import { findLowContrast, findOffscreen, findOverlaps, findTiny } from './lint'
 import type { ContrastEntry, OffscreenEntry, OverlapEntry, TinyEntry } from './lint'
@@ -16,6 +16,50 @@ import type { ErrorEntry, LogEntry } from './telemetry'
 export function tag<T extends Phaser.GameObjects.GameObject>(obj: T, id: string): T {
   obj.setData('id', id)
   return obj
+}
+
+// ── /api/debug/* (ITGAME-26) ───────────────────────────────────────────────
+
+// Ответ GET /api/debug/state и POST-мутаций: свежий снапшот + сейв.
+export interface DebugState {
+  sid: string
+  state: StateMessage
+  save: Record<string, unknown>
+  events?: string[]
+}
+
+// Ответ POST /api/debug/advance: итог офлайн-промотки + снапшот после неё.
+export interface DebugAdvanceResult {
+  sid: string
+  advance: {
+    ticks: number
+    days: number
+    income: number
+    payroll: number
+    balance: number
+    gameOver: boolean
+    victory: boolean
+    reason?: string
+  }
+  state: StateMessage
+}
+
+async function debugFetch<T>(method: 'GET' | 'POST', path: string, body?: Record<string, unknown>): Promise<T> {
+  let url = `/api/debug${path}`
+  if (method === 'GET') {
+    // sid — query-параметр: GET без тела
+    url += `${path.includes('?') ? '&' : '?'}sid=${encodeURIComponent(sessionId())}`
+  }
+  const res = await fetch(url, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify({ sid: sessionId(), ...body }) : undefined,
+  })
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
+  if (!res.ok) {
+    throw new Error((data.error as string) ?? `HTTP ${res.status}`)
+  }
+  return data as T
 }
 
 // ── Представления ─────────────────────────────────────────────────────────
@@ -52,6 +96,11 @@ export interface AgentState {
   winCore: number | null
   winDayLimit: number | null
   activeEvent: string | null
+  // ITGAME-26: детерминизм и сценарии
+  seed: string | null
+  scenario: string | null
+  tickInDay: number | null
+  dayIncome: number | null
 }
 
 // server(): последний снапшот целиком + телеметрия сокета.
@@ -108,6 +157,17 @@ export interface ItdApi {
     rtt: number | null
     last: { dir: 'in' | 'out'; at: number; type: string; info: Record<string, unknown> }[]
   }
+  // ITGAME-26: управление временем и состоянием через /api/debug/*.
+  pause(): AgentResult
+  resume(): AgentResult
+  speed(n: number): AgentResult
+  step(ms: number): Promise<DebugAdvanceResult>
+  advanceDays(n: number): Promise<DebugAdvanceResult>
+  set(patch: { money?: number; day?: number; tickInDay?: number }): Promise<DebugState>
+  scenario(name: string): Promise<DebugState>
+  snapshot(): Promise<DebugState>
+  restore(save: Record<string, unknown>): Promise<DebugState>
+  quiet(): AgentResult
   help(): string
 }
 
@@ -129,8 +189,9 @@ function buildState(): AgentState {
       staffConnected: null, staffLimit: null, officesUnlocked: null,
       officesTotal: null, servers: null, coreLevel: null, coreConnected: null,
       coreCapacity: null, gateway: null, debt: null, creditLimit: null,
-      creditRatePct: null, winTarget: null, winStaff: null, winCore: null,
+      creditRatePct: null,       winTarget: null, winStaff: null, winCore: null,
       winDayLimit: null, activeEvent: null,
+      seed: null, scenario: null, tickInDay: null, dayIncome: null,
     }
   }
   const staff = s.offices.reduce((n, o) => n + o.employees.length, 0)
@@ -164,6 +225,10 @@ function buildState(): AgentState {
     winCore: s.winCore,
     winDayLimit: s.winDayLimit,
     activeEvent: s.activeEvent?.id ?? null,
+    seed: s.seed,
+    scenario: s.scenario || null,
+    tickInDay: s.tickInDay,
+    dayIncome: s.dayIncome,
   }
 }
 
@@ -280,8 +345,8 @@ const KEYMAP: Record<string, { code: string; keyCode: number; key: string }> = {
   4: { code: 'FOUR', keyCode: 52, key: '4' },
 }
 
-const HELP = `itd — агентский API игры (ITGAME-24/25)
-  itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель (null до первого снапшота)
+const HELP = `itd — агентский API игры (ITGAME-24/25/26)
+  itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота)
   itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt, reconnects
   itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, visible, alpha, interactive, depth}
   itd.text()                        — nodes() с непустым текстом
@@ -297,7 +362,16 @@ const HELP = `itd — агентский API игры (ITGAME-24/25)
   itd.log(50)                       — журнал переходов (кольцевой на 200, переживает чистку консоли)
   itd.errors()                      — ошибки страницы (window.onerror + unhandledrejection)
   itd.net(20)                       — последние сообщения WS в обе стороны + сокет/rtt/реконнекты
-Пример: itd.click('menu.diff.normal'); await itd.wait(s => s.connected); itd.click('btn.hire')`
+  itd.pause() / resume() / speed(n) — темп сессии: set_speed 0/1/0..3 (серверный, живёт в сейве)
+  itd.step(2000)                    — пауза + промотка 2с игровых тиков (2000мс = 2 тика) через /api/debug/advance
+  itd.advanceDays(3)                — промотка дней офлайн-движком: день N → N+3, отчёты дней в itd.events()
+  itd.set({money: 50000})           — читы живой сессии: {money, day, tickInDay}
+  itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory
+  itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы
+  itd.restore(save)                 — вернуть состояние из snapshot().save (дельта над текущим)
+  itd.quiet()                       — стоп твитов/миганий для стабильных скриншотов
+Пример: await itd.scenario('soft_lock'); itd.state().day
+Пример: itd.set({money: 50000}); await itd.wait(s => s.balance === 50000)`
 
 function makeApi(game: Phaser.Game): ItdApi {
   const telemetry = startTelemetry(game)
@@ -382,6 +456,54 @@ function makeApi(game: Phaser.Game): ItdApi {
         rtt: client.stats.rtt,
         last: client.wire.slice(-n),
       }
+    },
+    pause() {
+      client.send('set_speed', 0, { speed: 0 })
+      return { ok: true }
+    },
+    resume() {
+      client.send('set_speed', 0, { speed: 1 })
+      return { ok: true }
+    },
+    speed(n) {
+      if (!Number.isInteger(n) || n < 0 || n > 3) {
+        return { ok: false, error: 'скорость — целое 0..3 (0 — пауза)' }
+      }
+      client.send('set_speed', 0, { speed: n })
+      return { ok: true }
+    },
+    async step(ms) {
+      if (ms <= 0 || ms > 10000) throw new Error('step: мс — 1..10000')
+      client.send('set_speed', 0, { speed: 0 }) // степпинг только на паузе
+      return debugFetch<DebugAdvanceResult>('POST', '/advance', { ticks: Math.round(ms / 1000) })
+    },
+    advanceDays(n) {
+      if (!Number.isInteger(n) || n < 1 || n > 90) {
+        return Promise.reject(new Error('advanceDays: целое 1..90'))
+      }
+      return debugFetch<DebugAdvanceResult>('POST', '/advance', { days: n })
+    },
+    set(patch) {
+      if (!patch.money && !patch.day && !patch.tickInDay) {
+        return Promise.reject(new Error('set: нужен хотя бы один из money/day/tickInDay'))
+      }
+      return debugFetch<DebugState>('POST', '/state', { ...patch })
+    },
+    scenario(name) {
+      return debugFetch<DebugState>('POST', '/state', { scenario: name })
+    },
+    snapshot() {
+      return debugFetch<DebugState>('GET', '/state')
+    },
+    restore(save) {
+      return debugFetch<DebugState>('POST', '/state', { state: save })
+    },
+    quiet() {
+      // Заморозка визуального шума: мигание поломок, всплывающие циферки.
+      // TweenManager живёт на сценах, не на игре. Игровое время не трогаем —
+      // пауза отдельно через itd.pause().
+      for (const scene of game.scene.getScenes(true)) scene.tweens.pauseAll()
+      return { ok: true }
     },
     help() {
       console.log(HELP)

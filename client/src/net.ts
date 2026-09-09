@@ -116,7 +116,19 @@ export class GameClient {
   private openSocket(): void {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
     const sid = encodeURIComponent(sessionId())
-    this.ws = new WebSocket(`${proto}://${location.host}/ws?difficulty=${this.difficulty}&sid=${sid}`)
+    // Отладочные параметры страницы (ITGAME-26) пробрасываются в WS:
+    // ?seed= задаёт сид НОВОЙ партии, ?scenario= — её фиксуру. Сервер
+    // применяет их только к новой партии: живой сейв важнее параметров.
+    const page = new URLSearchParams(location.search)
+    const extra = new URLSearchParams()
+    const seed = page.get('seed')
+    const scenario = page.get('scenario')
+    if (seed) extra.set('seed', seed)
+    if (scenario) extra.set('scenario', scenario)
+    const qs = extra.toString()
+    this.ws = new WebSocket(
+      `${proto}://${location.host}/ws?difficulty=${this.difficulty}&sid=${sid}${qs ? `&${qs}` : ''}`,
+    )
     this.ws.onmessage = (ev) => {
       this.stats.messages++
       this.stats.lastMessageAt = Date.now()

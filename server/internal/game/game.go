@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"strconv"
 )
 
 // Phase — фаза игры; значения совпадают с полем phase протокола.
@@ -43,6 +44,10 @@ type Employee struct {
 type Game struct {
 	cfg Config
 	rng *rand.Rand
+	// Seed — видимый сид RNG (ITGAME-26): генерится при создании партии,
+	// хранится в сейве, задаётся через ?seed=. Детерминизм — роллы
+	// событий/найма при одинаковых действиях, не тик-в-тик во времени.
+	Seed uint64
 
 	Money     int
 	Offices   []Office
@@ -73,8 +78,8 @@ type Game struct {
 	// Рынок (Сложность 2.0, ITGAME-9): модификатор выработки дня, %.
 	// Завтрашний ролл виден заранее — решение «нанять сейчас или ждать».
 	// День 1 без рынка (онбординг), дальше качели ±MarketSwingPct.
-	MarketToday     int
-	MarketTomorrow  int
+	MarketToday    int
+	MarketTomorrow int
 }
 
 // Причины проигрыша — значения поля reason протокола.
@@ -84,14 +89,38 @@ const (
 )
 
 func New(cfg Config) *Game {
-	return NewWithSeed(cfg, rand.Uint64(), rand.Uint64())
+	return NewSeeded(cfg, rand.Uint64())
 }
 
+// NewSeeded — игра с сидом из одного числа (агентский ?seed=): второй
+// параметр PCG выводится из него детерминированно (splitmix64-финализатор),
+// чтобы ?seed=1234 всегда давал одну и ту же пару состояний.
+func NewSeeded(cfg Config, seed uint64) *Game {
+	return NewWithSeed(cfg, seed, mixSeed(seed))
+}
+
+// mixSeed — детерминированный второй параметр PCG из единственного сида.
+func mixSeed(seed uint64) uint64 {
+	x := seed + 0x9E3779B97F4A7C15
+	x ^= x >> 30
+	x *= 0xBF58476D1CE4E5B9
+	x ^= x >> 27
+	x *= 0x94D049BB133111EB
+	x ^= x >> 31
+	return x
+}
+
+// SeedString — сид для снапшотов протокола: uint64 не влезает в JSON-число
+// JS без потери точности, поэтому строка (десятичная).
+func (g *Game) SeedString() string { return strconv.FormatUint(g.Seed, 10) }
+
 // NewWithSeed — игра с фиксированным сидом: детерминированные роллы для тестов.
+// Видимый сид игры — s1.
 func NewWithSeed(cfg Config, s1, s2 uint64) *Game {
 	g := &Game{
 		cfg:   cfg,
 		rng:   rand.New(rand.NewPCG(s1, s2)),
+		Seed:  s1,
 		Money: cfg.StartMoney, Phase: PhaseRunning, Day: 1,
 		Offices: make([]Office, 3),
 	}

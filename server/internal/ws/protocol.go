@@ -39,18 +39,22 @@ type stateMessage struct {
 	ForecastEndOfDay int              `json:"forecastEndOfDay"`
 	StaffLimit       int              `json:"staffLimit"`
 	OfficeSlots      int              `json:"officeSlots"`
-	Phase            string           `json:"phase"`      // running | day_report | game_over
-	Speed            int              `json:"speed"`      // темп сессии: 0 — пауза, 1..3
-	Resumed          bool             `json:"resumed"`    // снапшот восстановленной сессии (ITGAME-8)
-	Difficulty       string           `json:"difficulty"` // easy | normal | hard | hardcore
-	WinTarget        int              `json:"winTarget"`  // денежная часть цели, $
-	WinStaff         int              `json:"winStaff"`   // комбо-цель: сотрудников (0 — нет; Сложность 2.0)
-	WinCore          int              `json:"winCore"`    // комбо-цель: уровень core (0 — нет)
-	WinDayLimit      int              `json:"winDayLimit"` // дедлайн цели: дней (0 — нет)
-	MarketToday      int              `json:"marketToday"`   // рынок: % выработки сегодня (0 — нет)
+	Phase            string           `json:"phase"`          // running | day_report | game_over
+	Speed            int              `json:"speed"`          // темп сессии: 0 — пауза, 1..3
+	Resumed          bool             `json:"resumed"`        // снапшот восстановленной сессии (ITGAME-8)
+	Seed             string           `json:"seed"`           // сид RNG партии, десятичная строка (ITGAME-26)
+	Scenario         string           `json:"scenario"`       // фикстура старта (ITGAME-26); "" — обычная партия
+	TickInDay        int              `json:"tickInDay"`      // тик текущего дня (ITGAME-26: степпинг/отладка)
+	DayIncome        int              `json:"dayIncome"`      // доход, накопленный за текущий день
+	Difficulty       string           `json:"difficulty"`     // easy | normal | hard | hardcore
+	WinTarget        int              `json:"winTarget"`      // денежная часть цели, $
+	WinStaff         int              `json:"winStaff"`       // комбо-цель: сотрудников (0 — нет; Сложность 2.0)
+	WinCore          int              `json:"winCore"`        // комбо-цель: уровень core (0 — нет)
+	WinDayLimit      int              `json:"winDayLimit"`    // дедлайн цели: дней (0 — нет)
+	MarketToday      int              `json:"marketToday"`    // рынок: % выработки сегодня (0 — нет)
 	MarketTomorrow   int              `json:"marketTomorrow"` // завтрашний рынок, виден заранее
-	CreditLimit      int              `json:"creditLimit"`  // кредитный порог, $ (0 — кредита нет)
-	CreditRatePct    int              `json:"creditRatePct"` // процент за день на долг
+	CreditLimit      int              `json:"creditLimit"`    // кредитный порог, $ (0 — кредита нет)
+	CreditRatePct    int              `json:"creditRatePct"`  // процент за день на долг
 	ActiveEvent      *activeEventInfo `json:"activeEvent"`
 	Prices           prices           `json:"prices"`
 }
@@ -184,7 +188,7 @@ type gameOverMessage struct {
 	DaysSurvived      int    `json:"daysSurvived"`
 	PeakIncomePerTick int    `json:"peakIncomePerTick"`
 	Balance           int    `json:"balance"` // отрицательный: сколько не хватило
-	Reason            string `json:"reason"` // bankrupt | time_up (Сложность 2.0)
+	Reason            string `json:"reason"`  // bankrupt | time_up (Сложность 2.0)
 }
 
 // victoryMessage — итоги победы; шлётся сразу после снапшота с phase=won.
@@ -210,7 +214,7 @@ type offlineReportMessage struct {
 	Reason   string `json:"reason"` // причина финала: bankrupt | time_up
 }
 
-func snapshot(g *game.Game, speed int, resumed bool) stateMessage {
+func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessage {
 	cfg := g.Config()
 	net := g.Network()
 	offices := make([]officeInfo, len(g.Offices))
@@ -322,7 +326,8 @@ func snapshot(g *game.Game, speed int, resumed bool) stateMessage {
 		WinStaff: cfg.WinStaff, WinCore: cfg.WinCore, WinDayLimit: cfg.WinDayLimit,
 		MarketToday: g.MarketToday, MarketTomorrow: g.MarketTomorrow,
 		CreditLimit: cfg.CreditLimit, CreditRatePct: int(cfg.CreditRate * 100),
-		ActiveEvent: active,
+		ActiveEvent: active, Seed: g.SeedString(), Scenario: scenario,
+		TickInDay: g.TickInDay, DayIncome: g.DayIncome,
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice,
 			Boss: cfg.BossPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,
 			Fridge: cfg.FridgePrice, CoffeeMachine: cfg.CoffeeMachinePrice, Repair: cfg.MasterCallPrice,

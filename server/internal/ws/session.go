@@ -3,7 +3,10 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -20,6 +23,11 @@ type Handler struct {
 	Config       game.Config
 	TickInterval time.Duration
 	Saves        *store.Store // nil — stateless-режим без сейвов (старые тесты)
+
+	// Реестр живых акторов для /api/debug/* (ITGAME-26): sid → канал
+	// запросов. Регистрирует сам актор, выписывается на выходе.
+	debugMu sync.Mutex
+	live    map[string]chan debugRequest
 }
 
 // clientCommand — команда игрока с адресатом-офисом.
@@ -45,6 +53,8 @@ type sessionSave struct {
 	SavedAt    time.Time       `json:"savedAt"`
 	Game       game.Save       `json:"game"`
 	LastReport *game.DayReport `json:"lastReport"` // отчёт для ресенда в фазе day_report
+	Scenario   string          `json:"scenario"`   // фикстура старта (ITGAME-26)
+	Events     []string        `json:"events"`     // журнал событий сессии (ITGAME-26)
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -72,7 +82,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	sid := r.URL.Query().Get("sid")
 
-	evicted := h.run(ctx, c, commands, cfg, sid)
+	// Отладочные параметры (ITGAME-26): ?seed= задаёт сид НОВОЙ партии
+	// (у сейва сид свой), ?scenario= стартует её в состоянии фикстуры.
+	// Действуют только когда сейва нет: переподключение к живой партии
+	// параметры игнорирует, иначе прогресс терялся бы на каждом реконнекте.
+	opts := sessionOpts{
+		Seed:     r.URL.Query().Get("seed"),
+		Scenario: r.URL.Query().Get("scenario"),
+	}
+
+	evicted := h.run(ctx, c, commands, cfg, sid, opts)
 	if evicted {
 		// Сессию забрал другой актор (дубликат вкладки): старому соединению
 		// причина важнее вежливого кода — клиент не должен реконнектиться.
@@ -99,11 +118,18 @@ func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn,
 	}
 }
 
+// sessionOpts — отладочные параметры подключения (ITGAME-26).
+type sessionOpts struct {
+	Seed     string // ?seed=1234: сид новой партии; пусто — случайный
+	Scenario string // ?scenario=soft_lock: фиксура старта новой партии
+}
+
 // persist — записать сейв сессии. false — сессию забрал другой актор.
-func (h *Handler) persist(sid string, gen uint64, g *game.Game, speed int, last *game.DayReport) bool {
+func (h *Handler) persist(sid string, gen uint64, g *game.Game, speed int, last *game.DayReport, scenario string, events []string) bool {
 	at := time.Now()
 	data, err := json.Marshal(sessionSave{
 		SID: sid, Speed: speed, SavedAt: at, Game: g.Export(), LastReport: last,
+		Scenario: scenario, Events: events,
 	})
 	if err != nil {
 		// сериализация падает только на баге — игру не рвём
@@ -129,7 +155,7 @@ func offlineTicks(savedAt time.Time, speed int, interval time.Duration) int {
 // Всё общение с миром — через канал команд и тикер; писем в сокет
 // из других горутин нет, поэтому мьютексы не нужны.
 // Возвращает true, если сессию забрал другой актор (eviction).
-func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan clientCommand, cfg game.Config, sid string) bool {
+func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan clientCommand, cfg game.Config, sid string, opts sessionOpts) bool {
 	// ── Старт: восстановление или новая игра ────────────────────────────
 	var (
 		g          *game.Game
@@ -139,25 +165,40 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 		resumed    bool
 		gen        uint64
 		kick       <-chan struct{}
+		journal    = newEventJournal(500)
+		scenario   string // применённая фиксура (только новой партии)
 	)
 	withSaves := h.Saves != nil && store.ValidSID(sid)
 	if withSaves {
-		g, speed, lastReport, offline, resumed = h.resume(sid)
+		g, speed, lastReport, offline, resumed, scenario, journal = h.resume(sid)
 		// владение сессией (+пинок старому актору)
 		gen, kick = h.Saves.Begin(sid)
 		if resumed {
 			if g.Phase == game.PhaseGameOver || g.Phase == game.PhaseWon {
 				// Офлайн привёл к финалу: сейв не нужен, доигрывают без него.
 				h.Saves.Delete(sid)
-			} else if !h.persist(sid, gen, g, speed, lastReport) {
+			} else if !h.persist(sid, gen, g, speed, lastReport, scenario, journal.last(journal.cap)) {
 				// нас обогнали между Load и Begin
 				return true
 			}
 		}
 	}
 	if g == nil {
-		g = game.New(cfg)
-		if withSaves && !h.persist(sid, gen, g, speed, nil) {
+		switch {
+		case opts.Scenario != "":
+			// Неизвестный сценарий — шумим в лог и стартуем обычную
+			// партию: реконнект-цикл клиента хуже тихого отката.
+			fg, err := game.NewFixture(cfg, opts.Scenario, opts.Seed)
+			if err != nil {
+				log.Printf("сессия %s: %v — стартую обычную партию", sid, err)
+				g = newGame(cfg, opts.Seed)
+			} else {
+				g, scenario = fg, opts.Scenario
+			}
+		default:
+			g = newGame(cfg, opts.Seed)
+		}
+		if withSaves && !h.persist(sid, gen, g, speed, lastReport, scenario, journal.last(journal.cap)) {
 			return true
 		}
 	}
@@ -173,7 +214,11 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 		ticker.Reset(h.TickInterval / time.Duration(speed))
 	}
 
-	if wsjson.Write(ctx, c, snapshot(g, speed, resumed)) != nil {
+	// /api/debug/* (ITGAME-26): канал запросов к этому актору.
+	debugC := h.registerDebug(sid)
+	defer h.unregisterDebug(sid, debugC)
+
+	if wsjson.Write(ctx, c, snapshot(g, speed, resumed, scenario)) != nil {
 		return false
 	}
 	// Отчёт «пока вас не было»: только когда было что симулировать
@@ -198,6 +243,11 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 		select {
 		case <-kick:
 			return true
+		case req := <-debugC:
+			if h.applyDebug(ctx, c, req, sid, gen, withSaves,
+				&g, &speed, &lastReport, journal, &scenario) {
+				return true
+			}
 		case cmd := <-commands:
 			if cmd.Cmd == cmdAbandon {
 				if withSaves {
@@ -225,18 +275,18 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 						ticker.Reset(h.TickInterval / time.Duration(speed))
 						tickC = ticker.C
 					}
-					out = snapshot(g, speed, false)
+					out = snapshot(g, speed, false, scenario)
 					mutated = true
 				}
 			} else if err := g.Apply(cmd.Cmd, cmd.Office, cmd.Slot); err != nil {
 				out = errorMessage{Type: "error", Code: err.Error()}
 			} else {
-				out = snapshot(g, speed, false)
+				out = snapshot(g, speed, false, scenario)
 				mutated = true
 			}
 			// Успешная команда — точка сейва: покупки и переходы дней
 			// не должны теряться даже при жёстком kill -9.
-			if mutated && withSaves && !h.persist(sid, gen, g, speed, lastReport) {
+			if mutated && withSaves && !h.persist(sid, gen, g, speed, lastReport, scenario, journal.last(journal.cap)) {
 				return true
 			}
 			if wsjson.Write(ctx, c, out) != nil {
@@ -247,6 +297,10 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 			report := g.Tick()
 			if report != nil {
 				lastReport = report
+				journal.addReport(report)
+			}
+			if g.Phase == game.PhaseGameOver {
+				journal.add(fmt.Sprintf("д%d · партия проиграна: %s", g.Day, g.LoseReason))
 			}
 			// Сейв/удаление ДО записи в сокет: клиент, прочитавший сообщение,
 			// может реконнектнуться быстрее, чем сейв дотянется до стора —
@@ -255,12 +309,13 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 				if g.Phase == game.PhaseGameOver || g.Phase == game.PhaseWon {
 					// финал: сейв больше не нужен
 					h.Saves.Delete(sid)
-				} else if !h.persist(sid, gen, g, speed, lastReport) {
+				} else if !h.persist(sid, gen, g, speed, lastReport, scenario, journal.last(journal.cap)) {
 					return true
 				}
 			}
 			if wasRunning && g.Phase == game.PhaseWon {
-				if wsjson.Write(ctx, c, snapshot(g, speed, false)) != nil {
+				journal.add(fmt.Sprintf("д%d · цель достигнута: победа", g.Day))
+				if wsjson.Write(ctx, c, snapshot(g, speed, false, scenario)) != nil {
 					return false
 				}
 				if wsjson.Write(ctx, c, victoryMessage{Type: "victory",
@@ -274,15 +329,15 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 			if report == nil && g.Phase != game.PhaseRunning {
 				continue
 			}
-			if wsjson.Write(ctx, c, snapshot(g, speed, false)) != nil {
+			if wsjson.Write(ctx, c, snapshot(g, speed, false, scenario)) != nil {
 				return false
 			}
 			if report != nil {
 				var out any
-			if g.Phase == game.PhaseGameOver {
-				out = gameOverMessage{Type: "game_over", DaysSurvived: g.Day,
-					PeakIncomePerTick: g.PeakIncomePerTick, Balance: g.Money, Reason: g.LoseReason}
-			} else {
+				if g.Phase == game.PhaseGameOver {
+					out = gameOverMessage{Type: "game_over", DaysSurvived: g.Day,
+						PeakIncomePerTick: g.PeakIncomePerTick, Balance: g.Money, Reason: g.LoseReason}
+				} else {
 					out = dayReportMsg(report)
 				}
 				if wsjson.Write(ctx, c, out) != nil {
@@ -297,24 +352,41 @@ func (h *Handler) run(ctx context.Context, c *websocket.Conn, commands <-chan cl
 
 // resume — восстановить игру из сейва (если есть и валиден). Невалидный
 // или терминальный сейв удаляется — сессия начнётся заново.
-func (h *Handler) resume(sid string) (g *game.Game, speed int, last *game.DayReport, offline *game.OfflineSummary, ok bool) {
+func (h *Handler) resume(sid string) (g *game.Game, speed int, last *game.DayReport, offline *game.OfflineSummary, ok bool, scenario string, journal *eventJournal) {
+	journal = newEventJournal(500) // даже без сейва журнал валиден
 	raw, found := h.Saves.Load(sid)
 	if !found {
-		return nil, 1, nil, nil, false
+		return nil, 1, nil, nil, false, "", journal
 	}
 	var ss sessionSave
 	if json.Unmarshal(raw, &ss) != nil || ss.SID != sid {
 		h.Saves.Delete(sid)
-		return nil, 1, nil, nil, false
+		return nil, 1, nil, nil, false, "", journal
 	}
 	g, err := game.Restore(ss.Game)
 	if err != nil {
 		h.Saves.Delete(sid)
-		return nil, 1, nil, nil, false
+		return nil, 1, nil, nil, false, "", journal
 	}
 	speed = min(max(ss.Speed, 0), 3)
 	offline = g.AdvanceOffline(offlineTicks(ss.SavedAt, speed, h.TickInterval))
-	return g, speed, ss.LastReport, offline, true
+	if offline != nil && offline.Ticks > 0 {
+		journal.add(fmt.Sprintf("офлайн-догон: %d тиков, %d дней, баланс $%d",
+			offline.Ticks, offline.Days, offline.Balance))
+	}
+	for _, ev := range ss.Events {
+		journal.add(ev)
+	}
+	return g, speed, ss.LastReport, offline, true, ss.Scenario, journal
+}
+
+// newGame — новая партия: ?seed= задаёт сид, иначе случайный. Битая строка
+// сида тихо игнорируется (game.ParseSeed), чтобы не рвать подключение.
+func newGame(cfg game.Config, seedStr string) *game.Game {
+	if seed, ok := game.ParseSeed(seedStr); ok {
+		return game.NewSeeded(cfg, seed)
+	}
+	return game.New(cfg)
 }
 
 func dayReportMsg(r *game.DayReport) dayReportMessage {

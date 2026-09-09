@@ -78,7 +78,11 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("GET /ws", &ws.Handler{Config: cfg, TickInterval: time.Second, Saves: saves})
+	wsHandler := &ws.Handler{Config: cfg, TickInterval: time.Second, Saves: saves}
+	mux.Handle("GET /ws", wsHandler)
+	// /api/debug/* без гейта до прода: dev-сервер локальный (решение
+	// владельца, ITGAME-26). Перед релизом закрыть админ-токеном/env-флагом.
+	mux.Handle("/api/debug/", http.HandlerFunc(wsHandler.ServeDebug))
 	mux.Handle("GET /admin", &admin.Handler{Config: cfg, DB: database})
 	if *static != "" {
 		if _, err := os.Stat(*static); err != nil {
