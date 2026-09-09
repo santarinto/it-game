@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { GAME_H, GAME_W, HUD_H, NAV_W } from '../layout'
+import { GAME_H, GAME_W, HUD_H, NAV_W, layoutRow } from '../layout'
 import { client } from '../net'
 import type { DayReportMessage, GameOverMessage, OfflineReportMessage, StateMessage, VictoryMessage } from '../protocol'
 import { fmtMoney } from '../format'
@@ -96,12 +96,14 @@ export class HUDScene extends Phaser.Scene {
     this.marketText = this.add
       .text(GAME_W - 16, 86, '', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
       .setOrigin(1, 0)
-    // Долг по кредиту (сложность 2.0): виден только в минусе.
-    this.debtText = this.add.text(16, 84, '', {
+    // Долг по кредиту (сложность 2.0): виден только в минусе. Строки нижних
+    // рядов раскладываются по ширинам в refresh() (ITGAME-16) — стартовые
+    // x здесь косметические, до первого снапшота.
+    this.debtText = this.add.text(170, 84, '', {
       fontFamily: 'monospace', fontSize: '12px', color: '#b13e53',
     })
     // Темп дня одним взглядом: прогноз прибыли «сейчас до вечера».
-    this.dayProfitText = this.add.text(200, 66, '', {
+    this.dayProfitText = this.add.text(16, 84, '', {
       fontFamily: 'monospace', fontSize: '15px', color: '#38b764',
     })
 
@@ -384,6 +386,11 @@ export class HUDScene extends Phaser.Scene {
     this.dayProfitText.setText(`${dayProfit >= 0 ? '+' : ''}${fmtMoney(dayProfit)}/день`)
     this.dayProfitText.setColor(dayProfit >= 0 ? '#38b764' : '#b13e53')
     this.netText.setText(`Сотрудники: ${employees.length} · в сети ${s.core.connected}/${employees.length}`)
+    // Раскладка строк по фактическим ширинам (ITGAME-16): «Сотрудники…»
+    // наезжала на «+/день» при магических x. Кнопки панели начинаются
+    // с x=420 — дальше строки не заходят (layoutRow сжимает gap).
+    layoutRow(16, 16, [this.incomeText, this.payrollText], 416)
+    layoutRow(16, 12, [this.dayProfitText, this.debtText], 416)
     this.pcBtn.setLabel(active.nextPC > 0 ? `Купить ПК  ${fmtMoney(active.nextPC)}` : 'Купить ПК — мест нет')
     this.hireBtn.setLabel(`Нанять  ${fmtMoney(s.prices.hire)}`)
     this.bossBtn.setLabel(active.boss === '' ? `Начальник  ${fmtMoney(s.prices.boss)}` : 'Начальник ✓')
