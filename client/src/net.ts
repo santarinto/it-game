@@ -60,6 +60,8 @@ export class GameClient {
     lastMessageAt: 0, // epoch ms последнего сообщения
     rtt: null as number | null, // мс от последней команды до ответа
   }
+  // Эфир WS для itd.net(): последние сообщения в обе стороны (ITGAME-25).
+  readonly wire: { dir: 'in' | 'out'; at: number; type: string; info: Record<string, unknown> }[] = []
   private commandSentAt: number | null = null
   private ws!: WebSocket
   private listeners: Listener[] = []
@@ -76,6 +78,30 @@ export class GameClient {
     if (rs === WebSocket.OPEN) return 'open'
     if (rs === WebSocket.CONNECTING || this.reconnectTimer) return 'reconnecting'
     return 'closed'
+  }
+
+  // Краткая выжимка сообщения для itd.net(): без массивов сотрудников.
+  private logWire(dir: 'in' | 'out', type: string, m: Record<string, unknown>): void {
+    const brief: Record<string, unknown> = {}
+    if (m.type === 'state') {
+      brief.day = m.day
+      brief.clock = m.clock
+      brief.phase = m.phase
+      brief.money = m.money
+    } else if (m.type === 'day_report') {
+      brief.day = m.day
+      brief.profit = m.profit
+    } else if (m.type === 'game_over' || m.type === 'victory') {
+      brief.day = m.day
+      brief.reason = m.reason
+    } else if (dir === 'out') {
+      brief.office = m.office
+      Object.assign(brief, m.speed !== undefined ? { speed: m.speed } : m.slot !== undefined ? { slot: m.slot } : {})
+    } else {
+      brief.code = m.code
+    }
+    this.wire.push({ dir, at: Date.now(), type, info: brief })
+    if (this.wire.length > 100) this.wire.splice(0, this.wire.length - 100)
   }
 
   connect(difficulty: DifficultyId): void {
@@ -105,6 +131,7 @@ export class GameClient {
         console.error('битое сообщение от сервера', ev.data)
         return
       }
+      this.logWire('in', msg.type, msg as unknown as Record<string, unknown>)
       if (msg.type === 'state') {
         // соединение живое: банк экспоненты сброс
         this.reconnectAttempt = 0
@@ -186,6 +213,7 @@ export class GameClient {
     if (this.ws.readyState !== WebSocket.OPEN) return
     this.commandSentAt = Date.now()
     this.ws.send(JSON.stringify({ type: cmd, office, ...extra }))
+    this.logWire('out', cmd, { type: cmd, office, ...extra })
   }
 
   // Повторно раздаёт последний снапшот — перерисовка сцен без сервера

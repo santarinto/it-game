@@ -1,0 +1,89 @@
+import type Phaser from 'phaser'
+import { client } from '../net'
+
+// Журнал переходов и ошибки страницы (ITGAME-25): кольцевой буфер на 200
+// записей переживает чистку консоли — свежая сессия агента видит историю.
+// Каждая запись дублируется console.debug('[itd]', …) для живого наблюдения.
+
+export interface LogEntry {
+  t: number // epoch ms
+  type: string
+  [k: string]: unknown
+}
+
+export interface ErrorEntry {
+  t: number
+  kind: 'error' | 'unhandledrejection'
+  message: string
+}
+
+const RING = 200
+
+export interface Telemetry {
+  log(n?: number): LogEntry[]
+  errors(): ErrorEntry[]
+}
+
+export function startTelemetry(game: Phaser.Game): Telemetry {
+  const ring: LogEntry[] = []
+  const errors: ErrorEntry[] = []
+
+  const add = (type: string, payload: Record<string, unknown> = {}) => {
+    const entry: LogEntry = { t: Date.now(), type, ...payload }
+    ring.push(entry)
+    if (ring.length > RING) ring.splice(0, ring.length - RING)
+    console.debug('[itd]', entry)
+  }
+
+  // Ошибки страницы: и всплывшие, и отвергнутые промисы.
+  addEventListener('error', (ev) => {
+    errors.push({ t: Date.now(), kind: 'error', message: ev.message })
+    add('page_error', { message: ev.message })
+  })
+  addEventListener('unhandledrejection', (ev) => {
+    const reason = (ev as PromiseRejectionEvent).reason
+    const message = reason instanceof Error ? reason.message : String(reason)
+    errors.push({ t: Date.now(), kind: 'unhandledrejection', message })
+    add('unhandledrejection', { message })
+  })
+
+  // Переходы игрового состояния: диф последнего снапшота.
+  let prev: { connected: boolean; day: number; phase: string; speed: number; staff: number } | null = null
+  client.subscribe({
+    onState: (s) => {
+      const now = { connected: true, day: s.day, phase: s.phase, speed: s.speed, staff: s.offices.reduce((n, o) => n + o.employees.length, 0) }
+      if (!prev) {
+        add('state', { day: now.day, clock: s.clock, phase: now.phase, speed: now.speed, staff: now.staff })
+      } else {
+        if (now.day !== prev.day) add('day', { day: now.day, clock: s.clock })
+        if (now.phase !== prev.phase) add('phase', { from: prev.phase, to: now.phase, day: now.day })
+        if (now.speed !== prev.speed) add('speed', { from: prev.speed, to: now.speed })
+        if (now.staff !== prev.staff) add('staff', { from: prev.staff, to: now.staff })
+      }
+      prev = now
+    },
+    onError: (code) => add('cmd_error', { code }),
+    onDayReport: (r) => add('day_report', { day: r.day, profit: r.profit, balance: r.balance }),
+    onGameOver: (o) => add('game_over', { reason: o.reason, days: o.daysSurvived }),
+    onVictory: (v) => add('victory', { day: v.day, balance: v.balance }),
+    onOfflineReport: (r) => add('offline_report', { days: r.days, ticks: r.ticks }),
+    onDisconnect: (reason) => add('disconnect', { reason: reason ?? 'unknown' }),
+    onReconnecting: (attempt) => add('reconnecting', { attempt }),
+  })
+
+  // Переключения сцен: диф списка активных сцен раз в 500мс — ловит и
+  // launch/stop, и возвраты в меню без хуков в сами сцены.
+  let prevScenes = ''
+  setInterval(() => {
+    const active = game.scene.getScenes(true).map((sc) => sc.scene.key).join(',')
+    if (active !== prevScenes) {
+      add('scenes', { from: prevScenes || null, to: active })
+      prevScenes = active
+    }
+  }, 500)
+
+  return {
+    log: (n = 50) => ring.slice(-n),
+    errors: () => [...errors],
+  }
+}

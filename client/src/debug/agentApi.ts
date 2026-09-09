@@ -1,6 +1,10 @@
 import Phaser from 'phaser'
 import { client } from '../net'
 import type { StateMessage } from '../protocol'
+import { findLowContrast, findOffscreen, findOverlaps, findTiny } from './lint'
+import type { ContrastEntry, OffscreenEntry, OverlapEntry, TinyEntry } from './lint'
+import { startTelemetry } from './telemetry'
+import type { ErrorEntry, LogEntry } from './telemetry'
 
 // Агентский фасад window.itd (ITGAME-23, шаг ITGAME-24): консольный API,
 // которым агент видит игру и действует в ней без input-слоя и скриншотов.
@@ -92,6 +96,18 @@ export interface ItdApi {
   hover(id: string): AgentResult & { id?: string; scene?: string }
   key(k: string): AgentResult & { key?: string; scenes?: string[] }
   wait(cond: (s: AgentState, srv: AgentServer) => boolean, timeoutMs?: number): Promise<AgentState>
+  overlaps(): OverlapEntry[]
+  offscreen(): OffscreenEntry[]
+  contrast(): ContrastEntry[]
+  tiny(): TinyEntry[]
+  log(n?: number): LogEntry[]
+  errors(): ErrorEntry[]
+  net(n?: number): {
+    socket: AgentServer['socket']
+    reconnects: number
+    rtt: number | null
+    last: { dir: 'in' | 'out'; at: number; type: string; info: Record<string, unknown> }[]
+  }
   help(): string
 }
 
@@ -264,7 +280,7 @@ const KEYMAP: Record<string, { code: string; keyCode: number; key: string }> = {
   4: { code: 'FOUR', keyCode: 52, key: '4' },
 }
 
-const HELP = `itd — агентский API игры (ITGAME-24)
+const HELP = `itd — агентский API игры (ITGAME-24/25)
   itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель (null до первого снапшота)
   itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt, reconnects
   itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, visible, alpha, interactive, depth}
@@ -274,9 +290,17 @@ const HELP = `itd — агентский API игры (ITGAME-24)
   itd.hover('office.worker.0')      — наведение по id (тултипы)
   itd.key('1'|'enter'|'space'|'esc')— клавиша: 1-4 сложность в меню, enter/space/esc — отчёт дня
   itd.wait(s => s.day === 2)        — промис: поллинг state()/server() до условия (таймаут 5с, второй аргумент — свой)
+  itd.overlaps()                    — линтер вёрстки: пересечения видимых текстов одного depth
+  itd.offscreen()                   — линтер: вылезание за канвас 1280×720
+  itd.contrast()                    — линтер: контраст текста к фону ниже 3:1
+  itd.tiny()                        — линтер: шрифт мельче 12px
+  itd.log(50)                       — журнал переходов (кольцевой на 200, переживает чистку консоли)
+  itd.errors()                      — ошибки страницы (window.onerror + unhandledrejection)
+  itd.net(20)                       — последние сообщения WS в обе стороны + сокет/rtt/реконнекты
 Пример: itd.click('menu.diff.normal'); await itd.wait(s => s.connected); itd.click('btn.hire')`
 
 function makeApi(game: Phaser.Game): ItdApi {
+  const telemetry = startTelemetry(game)
   return {
     state: buildState,
     server: buildServer,
@@ -344,6 +368,20 @@ function makeApi(game: Phaser.Game): ItdApi {
         const timer = setInterval(tick, 100)
         tick()
       })
+    },
+    overlaps: () => findOverlaps(game),
+    offscreen: () => findOffscreen(game),
+    contrast: () => findLowContrast(game),
+    tiny: () => findTiny(game),
+    log: (n = 50) => telemetry.log(n),
+    errors: () => telemetry.errors(),
+    net(n = 20) {
+      return {
+        socket: client.socketStatus(),
+        reconnects: client.stats.reconnects,
+        rtt: client.stats.rtt,
+        last: client.wire.slice(-n),
+      }
     },
     help() {
       console.log(HELP)
