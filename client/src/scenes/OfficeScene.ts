@@ -5,6 +5,7 @@ import { client } from '../net'
 import { nav } from '../rooms'
 import type { CommandType, EmployeeInfo, OfficeInfo, StateMessage } from '../protocol'
 import { drawDebugFrames } from '../debug'
+import { tag } from '../debug/agentApi'
 import { showModal } from '../ui/modal'
 import { coreFree, routerGain } from '../network-preview'
 import { playSfx } from '../audio'
@@ -94,7 +95,10 @@ export class OfficeScene extends Phaser.Scene {
       // Открывать офисы можно только по порядку — если предыдущий ещё
       // не куплен, кнопка неактивна и подсказывает, что делать сначала.
       const canBuy = !(nav.activeOffice > 0 && !s.offices[nav.activeOffice - 1].unlocked)
-      const btn = this.add.rectangle(GAME_W / 2 - 130, 360, 260, 40, 0x3b5dc9).setOrigin(0, 0)
+      const btn = tag(
+        this.add.rectangle(GAME_W / 2 - 130, 360, 260, 40, 0x3b5dc9).setOrigin(0, 0),
+        'office.buy',
+      )
       if (canBuy) btn.setInteractive({ useHandCursor: true })
       const txt = this.add.text(GAME_W / 2, 380, canBuy ? `Купить офис — ${fmtMoney(office.price)}` : 'Сначала купите предыдущий', {
         fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4',
@@ -111,8 +115,11 @@ export class OfficeScene extends Phaser.Scene {
     // Специальный слот роутера: рабочее место сюда не поставить.
     const rx = GAME_W - 130
     const ry = 170
-    const routerZone = this.add.rectangle(rx, ry, 84, 84, 0x232640)
-      .setStrokeStyle(2, 0x5d7275).setInteractive({ useHandCursor: true })
+    const routerZone = tag(
+      this.add.rectangle(rx, ry, 84, 84, 0x232640)
+        .setStrokeStyle(2, 0x5d7275).setInteractive({ useHandCursor: true }),
+      'office.router',
+    )
     routerZone.on('pointerdown', () => this.openRouterModal(office, s))
     this.objects.push(
       routerZone,
@@ -144,8 +151,11 @@ export class OfficeScene extends Phaser.Scene {
       this.add.text(bx, by - 56, 'начальник', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
     )
     if (office.boss !== '') {
-      const bossImg = this.add.image(bx, by, 'worker')
-        .setScale(spriteScale(this, 'worker', SPRITE_TARGET.person)).setInteractive({ useHandCursor: true })
+      const bossImg = tag(
+        this.add.image(bx, by, 'worker')
+          .setScale(spriteScale(this, 'worker', SPRITE_TARGET.person)).setInteractive({ useHandCursor: true }),
+        'office.boss',
+      )
       bossImg.on('pointerover', () => this.showBossTooltip(office, s, bx, by))
       bossImg.on('pointerout', () => this.hideTooltip())
       this.objects.push(bossImg)
@@ -174,8 +184,11 @@ export class OfficeScene extends Phaser.Scene {
       const e = office.employees[i]
       // Сломанный ПК: доход места 0; клики по столу чинят, мастер чинит за деньги.
       if (e?.pcBroken) {
-        const overlay = this.add.rectangle(x, y - 8, 76, 56, 0xb13e53, 0.3)
-          .setInteractive({ useHandCursor: true })
+        const overlay = tag(
+          this.add.rectangle(x, y - 8, 76, 56, 0xb13e53, 0.3)
+            .setInteractive({ useHandCursor: true }),
+          `office.repair.${i}`,
+        )
         overlay.on('pointerdown', () => {
           playSfx(this, 'click')
           client.send('repair_click', nav.activeOffice, { slot: i })
@@ -183,8 +196,11 @@ export class OfficeScene extends Phaser.Scene {
         this.tweens.add({
           targets: overlay, alpha: { from: 0.65, to: 0.15 }, duration: 420, yoyo: true, repeat: -1,
         })
-        const masterBg = this.add.rectangle(x, y + 46, 108, 22, 0x3b5dc9)
-          .setOrigin(0.5).setInteractive({ useHandCursor: true })
+        const masterBg = tag(
+          this.add.rectangle(x, y + 46, 108, 22, 0x3b5dc9)
+            .setOrigin(0.5).setInteractive({ useHandCursor: true }),
+          `office.master.${i}`,
+        )
         const masterTxt = this.add.text(x, y + 46, `мастер ${fmtMoney(s.prices.repair)}`, {
           fontFamily: 'monospace', fontSize: '10px', color: '#f4f4f4',
         }).setOrigin(0.5)
@@ -203,8 +219,11 @@ export class OfficeScene extends Phaser.Scene {
         // На обеде сотрудник отходит от стола.
         const wx = s.isLunch ? x - 52 + LUNCH_SHIFT : x - 52
         const wy = s.isLunch ? y - 6 + LUNCH_SHIFT : y - 6
-        const worker = this.add.image(wx, wy, 'worker')
-          .setScale(spriteScale(this, 'worker', SPRITE_TARGET.person)).setInteractive({ useHandCursor: true })
+        const worker = tag(
+          this.add.image(wx, wy, 'worker')
+            .setScale(spriteScale(this, 'worker', SPRITE_TARGET.person)).setInteractive({ useHandCursor: true }),
+          `office.worker.${i}`,
+        )
         // ЛКМ по сотруднику — мотивация: +25% на 3 часа с кулдауном.
         // ПКМ (правый клик) — модалка увольнения (итерация 15).
         worker.on('pointerdown', (p: Phaser.Input.Pointer) => {
@@ -277,12 +296,16 @@ export class OfficeScene extends Phaser.Scene {
         .setInteractive({ useHandCursor: !a.owned })
       this.objects.push(box)
       if (a.owned) {
-        const img = this.add.image(ax, ay, a.key)
-          .setScale(spriteScale(this, a.key, SPRITE_TARGET.amenity)).setInteractive({ useHandCursor: true })
+        const img = tag(
+          this.add.image(ax, ay, a.key)
+            .setScale(spriteScale(this, a.key, SPRITE_TARGET.amenity)).setInteractive({ useHandCursor: true }),
+          `office.amenity.${a.key}`,
+        )
         img.on('pointerover', () => this.showTextTooltip(`${a.label}\n${a.hint}`, ax, ay - 40))
         img.on('pointerout', () => this.hideTooltip())
         this.objects.push(img)
       } else {
+        tag(box, `office.amenity.${a.key}`)
         this.objects.push(this.add.text(ax, ay, `${a.label}\n${fmtMoney(a.price)}`, {
           fontFamily: 'monospace', fontSize: '10px', color: '#5d7275', align: 'center',
         }).setOrigin(0.5))

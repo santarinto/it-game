@@ -5,6 +5,7 @@ import type { DayReportMessage, GameOverMessage, OfflineReportMessage, StateMess
 import { fmtMoney } from '../format'
 import { nav } from '../rooms'
 import { debug, drawDebugFrames, setDebug } from '../debug'
+import { tag } from '../debug/agentApi'
 import { showModal } from '../ui/modal'
 import { playSfx } from '../audio'
 import { activeZoom, applyZoom, ZOOM_OPTIONS, zoomLabel } from '../uiscale'
@@ -107,19 +108,19 @@ export class HUDScene extends Phaser.Scene {
       fontFamily: 'monospace', fontSize: '15px', color: '#38b764',
     })
 
-    this.pcBtn = this.makeButton(420, 10, () => {
+    this.pcBtn = this.makeButton(420, 10, 'btn.pc', () => {
       playSfx(this, 'select')
       client.send('buy_pc', nav.activeOffice)
     })
-    this.hireBtn = this.makeButton(420, 52, () => {
+    this.hireBtn = this.makeButton(420, 52, 'btn.hire', () => {
       playSfx(this, 'select')
       client.send('hire', nav.activeOffice)
     })
-    this.bossBtn = this.makeButton(640, 10, () => {
+    this.bossBtn = this.makeButton(640, 10, 'btn.boss', () => {
       playSfx(this, 'select')
       client.send('hire_boss', nav.activeOffice)
     })
-    this.gatewayBtn = this.makeButton(640, 52, () => {
+    this.gatewayBtn = this.makeButton(640, 52, 'btn.gateway', () => {
       playSfx(this, 'select')
       client.send('buy_gateway')
     })
@@ -131,16 +132,22 @@ export class HUDScene extends Phaser.Scene {
     ]
     speeds.forEach((sp, i) => {
       const x = GAME_W - 176 + i * 40
-      const bg = this.add.rectangle(x, 10, 36, 28, 0x232640)
-        .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true })
+      const bg = tag(
+        this.add.rectangle(x, 10, 36, 28, 0x232640)
+          .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true }),
+        `btn.speed.${sp.s}`,
+      )
       this.add.text(x + 18, 24, sp.label, { fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4' }).setOrigin(0.5)
       bg.on('pointerdown', () => client.send('set_speed', 0, { speed: sp.s }))
       this.speedBtns.push({ bg, speed: sp.s })
       this.hudInteractive.push(bg)
     })
     // Выход в меню из игры (анти-софтлок + «сдаться»): с подтверждением.
-    const menuBg = this.add.rectangle(GAME_W - 220, 10, 36, 28, 0x232640)
-      .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true })
+    const menuBg = tag(
+      this.add.rectangle(GAME_W - 220, 10, 36, 28, 0x232640)
+        .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true }),
+      'btn.menu',
+    )
     this.add.text(GAME_W - 202, 24, '⌂', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' }).setOrigin(0.5)
     menuBg.on('pointerdown', () => this.confirmExitToMenu())
     menuBg.on('pointerover', () => menuBg.setStrokeStyle(2, 0xb13e53))
@@ -152,8 +159,11 @@ export class HUDScene extends Phaser.Scene {
     this.add
       .text(922, 24, 'масштаб', { fontFamily: 'monospace', fontSize: '11px', color: '#5d7275' })
       .setOrigin(1, 0.5)
-    const zoomBg = this.add.rectangle(928, 10, 64, 28, 0x232640)
-      .setOrigin(0).setStrokeStyle(2, 0x41a6f6).setInteractive({ useHandCursor: true })
+    const zoomBg = tag(
+      this.add.rectangle(928, 10, 64, 28, 0x232640)
+        .setOrigin(0).setStrokeStyle(2, 0x41a6f6).setInteractive({ useHandCursor: true }),
+      'btn.zoom',
+    )
     const zoomTxt = this.add
       .text(960, 24, zoomLabel(activeZoom()), { fontFamily: 'monospace', fontSize: '12px', color: '#f4f4f4' })
       .setOrigin(0.5)
@@ -164,9 +174,12 @@ export class HUDScene extends Phaser.Scene {
     })
     this.hudInteractive.push(zoomBg)
     // Тумблер debug: рамки интерактивных зон во всех сценах.
-    const dbg = this.add
-      .text(GAME_W - 280, 17, this.debugLabel(), { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
-      .setInteractive({ useHandCursor: true })
+    const dbg = tag(
+      this.add
+        .text(GAME_W - 280, 17, this.debugLabel(), { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
+        .setInteractive({ useHandCursor: true }),
+      'btn.debug',
+    )
     dbg.on('pointerdown', () => {
       setDebug(!debug.enabled)
       dbg.setText(this.debugLabel())
@@ -190,6 +203,21 @@ export class HUDScene extends Phaser.Scene {
       onReconnecting: (n) => this.showReconnecting(n),
     })
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, unsub)
+
+    // Клавиатура отчёта дня (ITGAME-24): Enter/Space/Esc — следующий день,
+    // пока отчёт открыт. itd.key('enter') дергает те же обработчики.
+    const kb = this.input.keyboard
+    if (kb) {
+      const nextDay = () => {
+        if (this.reportUI.length === 0) return
+        client.send('next_day')
+        this.closeReport()
+      }
+      kb.on('keydown-ENTER', nextDay)
+      kb.on('keydown-SPACE', nextDay)
+      kb.on('keydown-ESC', nextDay)
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => kb.removeAllListeners())
+    }
   }
 
   // Баннер реконнекта: деплой/сеть рвут WS — клиент возвращается сам,
@@ -259,9 +287,12 @@ export class HUDScene extends Phaser.Scene {
     const final = r.gameOver || r.victory
     this.offlineUI = [overlay, panel, title, bodyText]
     if (final) {
-      const btnBg = this.add
-        .rectangle(CX - 100, 392, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(56)
-        .setInteractive({ useHandCursor: true })
+      const btnBg = tag(
+        this.add
+          .rectangle(CX - 100, 392, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(56)
+          .setInteractive({ useHandCursor: true }),
+        'btn.offline.menu',
+      )
       const btnText = this.add
         .text(CX, 409, 'В меню', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
         .setOrigin(0.5).setDepth(57)
@@ -273,9 +304,12 @@ export class HUDScene extends Phaser.Scene {
       btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
       this.offlineUI.push(btnBg, btnText)
     } else {
-      const btnBg = this.add
-        .rectangle(CX - 100, 392, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(56)
-        .setInteractive({ useHandCursor: true })
+      const btnBg = tag(
+        this.add
+          .rectangle(CX - 100, 392, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(56)
+          .setInteractive({ useHandCursor: true }),
+        'btn.offline.continue',
+      )
       const btnText = this.add
         .text(CX, 409, 'Продолжить →', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
         .setOrigin(0.5).setDepth(57)
@@ -302,8 +336,11 @@ export class HUDScene extends Phaser.Scene {
     ]
     rooms.forEach((r, idx) => {
       const y = HUD_H + 24 + idx * 76
-      const bg = this.add.rectangle(8, y, NAV_W - 16, 48, 0x232640)
-        .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true })
+      const bg = tag(
+        this.add.rectangle(8, y, NAV_W - 16, 48, 0x232640)
+          .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true }),
+        r.key === 'office' ? `nav.office${r.office}` : 'nav.serverRoom',
+      )
       const label = this.add
         .text(NAV_W / 2, y + 18, r.label, { fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4' })
         .setOrigin(0.5)
@@ -437,8 +474,11 @@ export class HUDScene extends Phaser.Scene {
     ev.options.forEach((label, i) => {
       const w = n > 1 ? 226 : 300
       const x = n > 1 ? CX - 232 + i * 238 : CX - w / 2
-      const bg = this.add.rectangle(x, 196, w, 32, 0x3b5dc9).setOrigin(0, 0)
-        .setDepth(41).setInteractive({ useHandCursor: true })
+      const bg = tag(
+        this.add.rectangle(x, 196, w, 32, 0x3b5dc9).setOrigin(0, 0)
+          .setDepth(41).setInteractive({ useHandCursor: true }),
+        `btn.event.${i}`,
+      )
       const txt = this.add
         .text(x + w / 2, 212, label, { fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4' })
         .setOrigin(0.5).setDepth(42)
@@ -454,11 +494,14 @@ export class HUDScene extends Phaser.Scene {
     this.eventUI = []
   }
 
-  private makeButton(x: number, y: number, onClick: () => void): Button {
-    const bg = this.add
-      .rectangle(x, y, 200, 34, 0x3b5dc9)
-      .setOrigin(0, 0)
-      .setInteractive({ useHandCursor: true })
+  private makeButton(x: number, y: number, id: string, onClick: () => void): Button {
+    const bg = tag(
+      this.add
+        .rectangle(x, y, 200, 34, 0x3b5dc9)
+        .setOrigin(0, 0)
+        .setInteractive({ useHandCursor: true }),
+      id,
+    )
     const txt = this.add
       .text(x + 100, y + 17, '…', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
       .setOrigin(0.5)
@@ -559,17 +602,23 @@ export class HUDScene extends Phaser.Scene {
     const bodyText = this.add
       .text(CX, 280, body, { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8 })
       .setOrigin(0.5).setDepth(51)
-    const checkbox = this.add
-      .text(CX, 366, this.checkboxLabel(), { fontFamily: 'monospace', fontSize: '14px', color: '#5d7275' })
-      .setOrigin(0.5).setDepth(51).setInteractive({ useHandCursor: true })
+    const checkbox = tag(
+      this.add
+        .text(CX, 366, this.checkboxLabel(), { fontFamily: 'monospace', fontSize: '14px', color: '#5d7275' })
+        .setOrigin(0.5).setDepth(51).setInteractive({ useHandCursor: true }),
+      'btn.skip_reports',
+    )
     checkbox.on('pointerdown', () => {
       this.skipReports = !this.skipReports
       localStorage.setItem('skipReports', this.skipReports ? '1' : '0')
       checkbox.setText(this.checkboxLabel())
     })
-    const btnBg = this.add
-      .rectangle(CX - 100, 400, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(51)
-      .setInteractive({ useHandCursor: true })
+    const btnBg = tag(
+      this.add
+        .rectangle(CX - 100, 400, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(51)
+        .setInteractive({ useHandCursor: true }),
+      'btn.next_day',
+    )
     const btnText = this.add
       .text(CX, 417, 'Следующий день →', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
       .setOrigin(0.5).setDepth(52)
@@ -654,9 +703,12 @@ export class HUDScene extends Phaser.Scene {
         `Баланс: ${fmtMoney(v.balance)}`,
       ].join('\n'), { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8, align: 'center' })
       .setOrigin(0.5).setDepth(61)
-    const btnBg = this.add
-      .rectangle(CX - 100, 380, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(61)
-      .setInteractive({ useHandCursor: true })
+    const btnBg = tag(
+      this.add
+        .rectangle(CX - 100, 380, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(61)
+        .setInteractive({ useHandCursor: true }),
+      'btn.victory.menu',
+    )
     const btnText = this.add
       .text(CX, 397, 'В меню', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
       .setOrigin(0.5).setDepth(62)

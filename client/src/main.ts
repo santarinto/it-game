@@ -6,6 +6,7 @@ import { MenuScene } from './scenes/MenuScene'
 import { HUDScene } from './scenes/HUDScene'
 import { OfficeScene } from './scenes/OfficeScene'
 import { ServerRoomScene } from './scenes/ServerRoomScene'
+import { installAgentApi } from './debug/agentApi'
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -27,3 +28,6 @@ watchFit(game)
 // Хук смоук-теста/отладки (client/scripts/smoke-ui.mjs ждёт старта menu):
 // без него на странице нет DOM-следа того, что игра жива (инцидент ITGAME-11).
 ;(window as unknown as { __itd: Phaser.Game }).__itd = game
+
+// Агентский фасад window.itd (ITGAME-24): dev всегда, прод — ?debug=1.
+installAgentApi(game)

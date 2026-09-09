@@ -3,6 +3,7 @@ import { fmtMoney } from '../format'
 import { GAME_H, GAME_W, HUD_H, NAV_W } from '../layout'
 import { client } from '../net'
 import { drawDebugFrames } from '../debug'
+import { tag } from '../debug/agentApi'
 import { showModal } from '../ui/modal'
 import { coreGain, serverGain } from '../network-preview'
 import { SPRITE_TARGET, spriteScale } from '../pixelart'
@@ -43,7 +44,10 @@ export class ServerRoomScene extends Phaser.Scene {
       this.add.rectangle(cx, cy, 92, 92, 0x232640).setStrokeStyle(2, 0x5d7275),
       this.add.text(cx, cy - 60, 'стойка роутеров', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
     )
-    const coreZone = this.add.rectangle(cx, cy, 92, 92, 0x000000, 0.001).setInteractive({ useHandCursor: true })
+    const coreZone = tag(
+      this.add.rectangle(cx, cy, 92, 92, 0x000000, 0.001).setInteractive({ useHandCursor: true }),
+      'room.core',
+    )
     coreZone.on('pointerdown', () => this.openCoreModal(s))
     this.objects.push(coreZone)
     if (s.core.level > 0) {
@@ -77,6 +81,7 @@ export class ServerRoomScene extends Phaser.Scene {
           continue
         }
         img.setInteractive({ useHandCursor: true })
+        tag(img, `room.rack.${oi}.${sl}`)
         img.on('pointerdown', () => this.openServerModal(s, oi, sl))
         if (srv) {
           this.objects.push(this.add.text(x, gy + 44, `ур.${srv.level} ×${srv.mult.toFixed(1)}`, {

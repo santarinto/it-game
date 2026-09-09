@@ -52,6 +52,15 @@ export function clearSession(): void {
 // автопереподключением с тем же sid: сервер восстанавливает прогресс.
 export class GameClient {
   latest: StateMessage | null = null
+  // Телеметрия сокета для агентского фасада window.itd (ITGAME-24):
+  // единственный честный источник — сам клиент, сцены ничего не знают.
+  readonly stats = {
+    messages: 0, // счётчик принятых сообщений = lastEventId
+    reconnects: 0, // сколько раз рвалось и чинилось
+    lastMessageAt: 0, // epoch ms последнего сообщения
+    rtt: null as number | null, // мс от последней команды до ответа
+  }
+  private commandSentAt: number | null = null
   private ws!: WebSocket
   private listeners: Listener[] = []
   private intentionalClose = false
@@ -59,6 +68,15 @@ export class GameClient {
   private reconnectAttempt = 0
   private takenOver = false
   private difficulty: DifficultyId = 'normal'
+
+  // Статус сокета одним словом — для itd.server() и баннеров.
+  socketStatus(): 'open' | 'reconnecting' | 'closed' {
+    if (this.takenOver || this.intentionalClose) return 'closed'
+    const rs = this.ws?.readyState
+    if (rs === WebSocket.OPEN) return 'open'
+    if (rs === WebSocket.CONNECTING || this.reconnectTimer) return 'reconnecting'
+    return 'closed'
+  }
 
   connect(difficulty: DifficultyId): void {
     this.latest = null
@@ -74,6 +92,12 @@ export class GameClient {
     const sid = encodeURIComponent(sessionId())
     this.ws = new WebSocket(`${proto}://${location.host}/ws?difficulty=${this.difficulty}&sid=${sid}`)
     this.ws.onmessage = (ev) => {
+      this.stats.messages++
+      this.stats.lastMessageAt = Date.now()
+      if (this.commandSentAt !== null) {
+        this.stats.rtt = Date.now() - this.commandSentAt
+        this.commandSentAt = null
+      }
       let msg: ServerMessage
       try {
         msg = JSON.parse(ev.data as string) as ServerMessage
@@ -128,6 +152,7 @@ export class GameClient {
   // но и долгий простой не должен сдаваться.
   private scheduleReconnect(): void {
     this.reconnectAttempt++
+    this.stats.reconnects++
     const delay = Math.min(1000 * 2 ** (this.reconnectAttempt - 1), 15_000)
     this.listeners.forEach((l) => l.onReconnecting?.(this.reconnectAttempt))
     this.reconnectTimer = setTimeout(() => this.openSocket(), delay)
@@ -159,6 +184,7 @@ export class GameClient {
     // Соединение ещё не открыто или уже потеряно — команду безопасно игнорируем,
     // сервер всё равно источник истины.
     if (this.ws.readyState !== WebSocket.OPEN) return
+    this.commandSentAt = Date.now()
     this.ws.send(JSON.stringify({ type: cmd, office, ...extra }))
   }
 

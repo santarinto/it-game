@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { GAME_H, GAME_W } from '../layout'
 import { drawDebugFrames } from '../debug'
+import { tag } from '../debug/agentApi'
 
 export interface ModalButton {
   label: string
@@ -50,6 +51,7 @@ export function showModal(
   const closeX = scene.add
     .text(cx + panelW / 2 - 20, cy - panelH / 2 + 26, '✕', { fontFamily: 'monospace', fontSize: '16px', color: '#5d7275' })
     .setOrigin(0.5).setDepth(72).setInteractive({ useHandCursor: true })
+  tag(closeX, 'modal.close')
   closeX.on('pointerdown', close)
   const body = scene.add
     .text(cx + shift, cy - panelH / 2 + 56, lines.join('\n'), {
@@ -88,8 +90,11 @@ export function showModal(
   }
   buttons.forEach((b, i) => {
     const by = cy + panelH / 2 - 26 - (buttons.length - 1 - i) * 46
-    const bg = scene.add.rectangle(cx + shift - 110, by - 17, 220, 34, 0x3b5dc9).setOrigin(0).setDepth(72)
-      .setInteractive({ useHandCursor: true })
+    const bg = tag(
+      scene.add.rectangle(cx + shift - 110, by - 17, 220, 34, 0x3b5dc9).setOrigin(0).setDepth(72)
+        .setInteractive({ useHandCursor: true }),
+      `modal.btn.${i}`,
+    )
     const txt = scene.add
       .text(cx + shift, by, b.label, { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
       .setOrigin(0.5).setDepth(73)

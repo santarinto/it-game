@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { GAME_H, GAME_W } from '../layout'
 import { client, hasSavedSession, savedDifficulty } from '../net'
 import { activeZoom, applyZoom, ZOOM_OPTIONS } from '../uiscale'
+import { tag } from '../debug/agentApi'
 import type { DifficultyId } from '../protocol'
 
 const CX = GAME_W / 2
@@ -34,8 +35,11 @@ export class MenuScene extends Phaser.Scene {
     // игрока в его партию (сложность игнорируется, конфиг в сейве).
     if (hasSavedSession()) {
       const y = 150
-      const bg = this.add.rectangle(CX - 260, y, 520, 56, 0x253d2a)
-        .setOrigin(0).setStrokeStyle(2, 0x38b764).setInteractive({ useHandCursor: true })
+      const bg = tag(
+        this.add.rectangle(CX - 260, y, 520, 56, 0x253d2a)
+          .setOrigin(0).setStrokeStyle(2, 0x38b764).setInteractive({ useHandCursor: true }),
+        'menu.continue',
+      )
       this.add.text(CX - 240, y + 16, 'ПРОДОЛЖИТЬ', {
         fontFamily: 'monospace', fontSize: '18px', color: '#38b764',
       })
@@ -57,8 +61,11 @@ export class MenuScene extends Phaser.Scene {
 
     LEVELS.forEach((lvl, i) => {
       const y = firstY + i * 96
-      const bg = this.add.rectangle(CX - 260, y, 520, 80, 0x232640)
-        .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true })
+      const bg = tag(
+        this.add.rectangle(CX - 260, y, 520, 80, 0x232640)
+          .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true }),
+        `menu.diff.${lvl.id}`,
+      )
       this.add.text(CX - 240, y + 14, lvl.label, {
         fontFamily: 'monospace', fontSize: '20px',
         color: '#' + lvl.color.toString(16).padStart(6, '0'),
@@ -78,8 +85,11 @@ export class MenuScene extends Phaser.Scene {
     const zoomBtns: { bg: Phaser.GameObjects.Rectangle; value: (typeof ZOOM_OPTIONS)[number]['value'] }[] = []
     ZOOM_OPTIONS.forEach((o, i) => {
       const x = 519 + i * 80
-      const bg = this.add.rectangle(x, 650, 72, 30, 0x232640)
-        .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true })
+      const bg = tag(
+        this.add.rectangle(x, 650, 72, 30, 0x232640)
+          .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true }),
+        `menu.zoom.${o.value}`,
+      )
       this.add
         .text(x + 36, 665, o.label, { fontFamily: 'monospace', fontSize: '12px', color: '#f4f4f4' })
         .setOrigin(0.5)
@@ -93,13 +103,45 @@ export class MenuScene extends Phaser.Scene {
       bg.on('pointerout', highlight)
       zoomBtns.push({ bg, value: o.value })
     })
+
+    this.registerKeys()
+  }
+
+  // Клавиатура меню (ITGAME-24): 1-4 — сложность, Enter — «Продолжить»
+  // (или «НОРМА», если сейва нет). itd.key() дергает те же обработчики.
+  private registerKeys() {
+    const kb = this.input.keyboard
+    if (!kb) return
+    kb.on('keydown-ONE', () => this.startGame('easy'))
+    kb.on('keydown-TWO', () => this.startGame('normal'))
+    kb.on('keydown-THREE', () => this.startGame('hard'))
+    kb.on('keydown-FOUR', () => this.startGame('hardcore'))
+    kb.on('keydown-ENTER', () => this.startGame(hasSavedSession() ? savedDifficulty() : 'normal'))
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => kb.removeAllListeners())
   }
 
   private startGame(d: DifficultyId) {
     if (this.started) return
-    this.started = true
-    client.connect(d)
-    this.scene.start('office') // start глушит menu
-    this.scene.launch('hud')
+    // Флаг — только после фактического старта (ITGAME-24): ошибка старта
+    // раньше молча залипала меню, кнопки переставали отвечать.
+    try {
+      client.connect(d)
+      this.scene.start('office') // start глушит menu
+      this.scene.launch('hud')
+      this.started = true
+    } catch (e) {
+      console.error('не удалось начать игру', e)
+      this.toastStartError()
+    }
+  }
+
+  private toastStartError() {
+    const t = this.add
+      .text(CX, 700, 'Не удалось начать игру — попробуйте ещё раз', {
+        fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4',
+        backgroundColor: '#b13e53', padding: { x: 12, y: 6 },
+      })
+      .setOrigin(0.5)
+    this.time.delayedCall(3000, () => t.destroy())
   }
 }
