@@ -20,6 +20,7 @@ type testMessage struct {
 	Code    string `json:"code"`
 	Money   int    `json:"money"`
 	Offices []struct {
+		PCs       int `json:"pcs"`
 		Employees []struct {
 			Name            string `json:"name"`
 			IncomePerTick   int    `json:"incomePerTick"`

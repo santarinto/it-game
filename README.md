@@ -186,12 +186,40 @@ seed); `debug_patch`/`debug_advance`/`debug_step`/`debug_scenario` →
     make typecheck   # клиент: проверка типов
     make smoke-ui    # клиент: headless-Chromium открывает билд — меню
                      # стартует, консоль чистая (или FAIL)
+    make sim         # сервер: headless-прогоны баланса
+                     # ARGS="--diff hard --seed 1..50 --days 30 --policy all"
 
 UI-смоук (ITGAME-11) — часть релизного пути: CI гоняет его после сборки
 до вебхука деплоя, так что «молчаливый чёрный экран» до прода больше
 не доедет. Локально можно проверить любой URL:
 `cd client && npm run smoke-ui -- https://itgame.santarinto.ru`.
 `OFFICE=1` — плюс клик «НОРМА» и проверка сцены офиса (нужен живой
+
+### sim — прогоны баланса (ITGAME-27)
+
+`server/cmd/sim` — партии без браузера, ядром и честными тиками:
+`make sim ARGS="--diff hardcore --seed 1..50 --days 30 --policy all --out runs.csv"`.
+Политики: greedy (покупает/ремонтирует/мотивирует всё доступное с резервом
+на ФОТ), idle (контроль выживаемости), random (разброс между ними). CSV
+`policy,seed,day,money,income,payroll,events,outcome` — строка на день,
+финал в последней (bankrupt | victory | time_up | timeout). В CI —
+отчётом в test-server (джобу не роняет). Эталоны инсайтов: normal+greedy
+≈ 70% банкротств к 30-му дню (аудит-качели при тонком резерве),
+easy+greedy ≈ 2/3 побед.
+
+### visreg — регрессии скриншотов и вёрстки (ITGAME-27)
+
+`cd client && npm run visreg` — по каждому сценарию-фикстуре
+(`?scenario=X&seed=1&debug=1` + меню): пауза → quiet() → скриншот канваса
+→ пиксельный diff с эталоном (pixelmatch, >0.5% отличается = FAIL) +
+линтер вёрстки itd.overlaps/offscreen/contrast/tiny не хуже бейзлайна
+(известные находки ITGAME-16 живут в бейзлайне до отдельного фикса).
+Эталоны: `client/scripts/visreg/{baseline.json,shots/*.png}`; обновление
+после осознанных правок UI: `npm run visreg -- --update` и закоммитить.
+Self-serve: без BASE_URL поднимает Go-сервер на :4173 (static+ws+api
+одним процессом — как прод). В CI — обязательная джоба visreg.
+Грабли: перед прогоном убедиться, что не осталось зомби-хромов
+(`pgrep -x chromium | wc -l` → 0) — они душат software-WebGL.
 сервер). Boot проверяет контракт арт-пайплайна (64×64 + прозрачность,
 ITGAME-12) — нарушение падает ошибкой консоли и ловится смоуком.
 Скриншоты проверок — client/smoke-menu.png / smoke-office.png

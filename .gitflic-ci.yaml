@@ -33,6 +33,8 @@ test-server:
     - cd server
     - 'timeout 600 go vet ./... || { echo "go vet FAILED или таймаут 600с"; exit 1; }'
     - 'timeout 600 go test ./... || { echo "go test FAILED или таймаут 600с"; exit 1; }'
+    # sim (ITGAME-27): headless-прогоны баланса — отчётом, джобу не роняет
+    - 'timeout 300 go run ./cmd/sim --diff hard --seed 1..10 --days 20 --policy all --out /tmp/sim.csv > /tmp/sim.log 2>&1 && { echo "sim-отчёт (первые строки):"; head -4 /tmp/sim.csv; tail -1 /tmp/sim.log; } || echo "sim упал — не блокирует, смотреть /tmp/sim.log"'
 
 # ── Клиент: typecheck + сборка + UI-смоук ────────────────────────────────────
 test-client:
@@ -51,6 +53,25 @@ test-client:
     # релиз с молчаливым чёрным экраном до деплоя больше не доедет.
     - 'apt-get update -qq > /tmp/apt.log 2>&1 && apt-get install -qq -y chromium >> /tmp/apt.log 2>&1 || { echo "chromium install FAILED:"; tail -20 /tmp/apt.log; exit 1; }'
     - 'CHROME_PATH=/usr/bin/chromium timeout 300 npm run smoke-ui > /tmp/smoke.log 2>&1 || { echo "SMOKE-UI FAILED (страница/консоль):"; cat /tmp/smoke.log; exit 1; }'
+
+# ── Клиент: visreg — скриншот- и вёрстка-регрессии (ITGAME-27) ─────────────
+# Обязательный гейт: пиксельный diff с эталонами + линтер вёрстки не хуже
+# бейзлайна по каждому сценарию-фикстуре. Self-serve: собирает Go-бинарь
+# (static+ws+api одним процессом на :4173, как прод) — Go тащим тарболлом.
+visreg:
+  stage: test
+  image: node:20
+  tags:
+    - docker
+  before_script:
+    - cd client
+    - 'timeout 600 npm ci --no-audit --no-fund > /tmp/npmci.log 2>&1 || { echo "npm ci FAILED, хвост:"; tail -40 /tmp/npmci.log; exit 1; }'
+    - 'timeout 300 curl -sL https://go.dev/dl/go1.26.5.linux-amd64.tar.gz | tar -C /usr/local -xz || { echo "go tarball FAILED"; exit 1; }'
+    - export PATH=$PATH:/usr/local/go/bin
+    - 'apt-get update -qq > /tmp/apt.log 2>&1 && apt-get install -qq -y chromium >> /tmp/apt.log 2>&1 || { echo "chromium install FAILED:"; tail -20 /tmp/apt.log; exit 1; }'
+  script:
+    - 'npm run build > /tmp/build.log 2>&1 || { echo "build FAILED:"; tail -40 /tmp/build.log; exit 1; }'
+    - 'CHROME_PATH=/usr/bin/chromium timeout 900 npm run visreg > /tmp/visreg.log 2>&1 || { echo "VISREG FAILED (скриншот/вёрстка-регрессия):"; cat /tmp/visreg.log; exit 1; }'
 
 # ── Деплой: КАЖДЫЙ пуш в main, ПОСЛЕ тестов ──────────────────────────────────
 # Красные тесты на прод не поедут: deploy идёт стадией после test.

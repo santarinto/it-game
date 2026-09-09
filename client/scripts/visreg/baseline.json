@@ -1,0 +1,58 @@
+{
+  "menu": {
+    "lint": {
+      "overlaps": 0,
+      "offscreen": 0,
+      "contrast": 5,
+      "tiny": 0
+    }
+  },
+  "fresh": {
+    "lint": {
+      "overlaps": 0,
+      "offscreen": 0,
+      "contrast": 15,
+      "tiny": 13
+    }
+  },
+  "broke_day3": {
+    "lint": {
+      "overlaps": 1,
+      "offscreen": 0,
+      "contrast": 16,
+      "tiny": 15
+    }
+  },
+  "mid_day10": {
+    "lint": {
+      "overlaps": 0,
+      "offscreen": 0,
+      "contrast": 7,
+      "tiny": 6
+    }
+  },
+  "full_office": {
+    "lint": {
+      "overlaps": 0,
+      "offscreen": 0,
+      "contrast": 7,
+      "tiny": 6
+    }
+  },
+  "soft_lock": {
+    "lint": {
+      "overlaps": 0,
+      "offscreen": 0,
+      "contrast": 15,
+      "tiny": 13
+    }
+  },
+  "pre_victory": {
+    "lint": {
+      "overlaps": 0,
+      "offscreen": 0,
+      "contrast": 16,
+      "tiny": 14
+    }
+  }
+}
