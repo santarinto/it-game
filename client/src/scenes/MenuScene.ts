@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { GAME_H, GAME_W } from '../layout'
 import { client, hasSavedSession, savedDifficulty } from '../net'
+import { activeZoom, applyZoom, ZOOM_OPTIONS } from '../uiscale'
 import type { DifficultyId } from '../protocol'
 
 const CX = GAME_W / 2
@@ -67,6 +68,30 @@ export class MenuScene extends Phaser.Scene {
       bg.on('pointerover', () => bg.setStrokeStyle(2, lvl.color))
       bg.on('pointerout', () => bg.setStrokeStyle(2, 0x3a3f5c))
       bg.on('pointerdown', () => this.startGame(lvl.id))
+    })
+
+    // Масштаб UI (ITGAME-15): стартовый экран — единственное место, где все
+    // варианты видны рядом; применяется на лету, переживает перезагрузку.
+    this.add
+      .text(449, 665, 'Масштаб:', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
+      .setOrigin(0, 0.5)
+    const zoomBtns: { bg: Phaser.GameObjects.Rectangle; value: (typeof ZOOM_OPTIONS)[number]['value'] }[] = []
+    ZOOM_OPTIONS.forEach((o, i) => {
+      const x = 519 + i * 80
+      const bg = this.add.rectangle(x, 650, 72, 30, 0x232640)
+        .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true })
+      this.add
+        .text(x + 36, 665, o.label, { fontFamily: 'monospace', fontSize: '12px', color: '#f4f4f4' })
+        .setOrigin(0.5)
+      const highlight = () => bg.setStrokeStyle(2, activeZoom() === o.value ? 0x41a6f6 : 0x3a3f5c)
+      highlight()
+      bg.on('pointerdown', () => {
+        applyZoom(this.game, o.value)
+        zoomBtns.forEach((b) => b.bg.setStrokeStyle(2, activeZoom() === b.value ? 0x41a6f6 : 0x3a3f5c))
+      })
+      bg.on('pointerover', highlight)
+      bg.on('pointerout', highlight)
+      zoomBtns.push({ bg, value: o.value })
     })
   }
 

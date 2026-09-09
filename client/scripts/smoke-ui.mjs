@@ -64,7 +64,9 @@ try {
   if (url === DEFAULT_URL && !process.argv[2]) await selfServe()
 
   const page = await browser.newPage()
-  await page.setViewport({ width: 1280, height: 720 })
+  // Вьюпорт больше канваса: дефолтный зум UI 1.4× (ITGAME-15) разворачивает
+  // канвас до 1792×1008 и на 1280×720 не влезает.
+  await page.setViewport({ width: 1920, height: 1080 })
   const errors = []
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(m.text())
@@ -116,10 +118,10 @@ try {
     const box = await page.evaluate(() => {
       const c = document.querySelector('canvas')
       const r = c.getBoundingClientRect()
-      return { x: r.x, y: r.y }
+      return { x: r.x, y: r.y, k: r.width / 1280 } // k: CSS-зум канваса (ITGAME-15)
     })
     // Кнопка «НОРМА» — вторая в колонке уровней, центр (640, 336) в координатах канваса.
-    await page.mouse.click(box.x + 640, box.y + 336)
+    await page.mouse.click(box.x + 640 * box.k, box.y + 336 * box.k)
     try {
       await page.waitForFunction(`window.__itd && window.__itd.scene.isActive('office')`, {
         timeout: 20_000,

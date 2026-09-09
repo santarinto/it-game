@@ -7,6 +7,7 @@ import { nav } from '../rooms'
 import { debug, drawDebugFrames, setDebug } from '../debug'
 import { showModal } from '../ui/modal'
 import { playSfx } from '../audio'
+import { activeZoom, applyZoom, ZOOM_OPTIONS, zoomLabel } from '../uiscale'
 
 const CX = GAME_W / 2 // центр поля — якорь модалок и тостов
 
@@ -143,6 +144,23 @@ export class HUDScene extends Phaser.Scene {
     menuBg.on('pointerover', () => menuBg.setStrokeStyle(2, 0xb13e53))
     menuBg.on('pointerout', () => menuBg.setStrokeStyle(2, 0x3a3f5c))
     this.hudInteractive.push(menuBg)
+    // Масштаб UI (ITGAME-15): компактный циклический переключатель рядом с
+    // кнопками скорости. Полный ряд — на стартовом экране; тут панель тесная
+    // (ITGAME-16 пересоберёт раскладку — тогда развернуть в ряд).
+    this.add
+      .text(922, 24, 'масштаб', { fontFamily: 'monospace', fontSize: '11px', color: '#5d7275' })
+      .setOrigin(1, 0.5)
+    const zoomBg = this.add.rectangle(928, 10, 64, 28, 0x232640)
+      .setOrigin(0).setStrokeStyle(2, 0x41a6f6).setInteractive({ useHandCursor: true })
+    const zoomTxt = this.add
+      .text(960, 24, zoomLabel(activeZoom()), { fontFamily: 'monospace', fontSize: '12px', color: '#f4f4f4' })
+      .setOrigin(0.5)
+    zoomBg.on('pointerdown', () => {
+      const order = ZOOM_OPTIONS.map((o) => o.value)
+      applyZoom(this.game, order[(order.indexOf(activeZoom()) + 1) % order.length])
+      zoomTxt.setText(zoomLabel(activeZoom()))
+    })
+    this.hudInteractive.push(zoomBg)
     // Тумблер debug: рамки интерактивных зон во всех сценах.
     const dbg = this.add
       .text(GAME_W - 280, 17, this.debugLabel(), { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })

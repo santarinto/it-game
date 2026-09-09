@@ -5,8 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>IT Director</title>
     <style>
-      html, body { margin: 0; background: #1a1c2c; }
-      #app { display: flex; justify-content: center; padding-top: 8px; }
+      html, body { margin: 0; background: #1a1c2c; height: 100%; }
+      /* Центрирование канваса — флексом, не Phaser autoCenter (он про margin).
+         safe center: канвас шире окна не прячет левый край, а скроллится. */
+      #app {
+        display: flex;
+        justify-content: center;
+        justify-content: safe center;
+        align-items: flex-start;
+        min-height: 100vh;
+        box-sizing: border-box;
+        padding-top: 8px;
+        overflow-x: auto;
+      }
+      #app canvas { flex-shrink: 0; }
       #topbar { text-align: right; padding: 4px 16px; }
       #topbar a {
         display: inline-block;
