@@ -431,7 +431,7 @@ export function recordGameOver(
     d.runs++
     if (o.reason === 'time_up') {
       d.timeUps++
-    } else {
+    } else if (o.reason === 'bankrupt') {
       d.bankruptcies++
     }
     if (o.daysSurvived > d.bestDay) d.bestDay = o.daysSurvived

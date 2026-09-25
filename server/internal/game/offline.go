@@ -17,7 +17,14 @@ type OfflineSummary struct {
 	Balance  int    `json:"balance"`  // итоговый баланс
 	GameOver bool   `json:"gameOver"` // компания погибла офлайн
 	Victory  bool   `json:"victory"`  // цель достигнута офлайн
-	Reason   string `json:"reason"`   // причина финала (bankrupt | time_up), Сложность 2.0
+	Reason   string `json:"reason"`   // причина финала (bankrupt | time_up | deadlock), Сложность 2.0
+}
+
+// loseOffline переводит игру и сводку офлайна в терминальное состояние поражения.
+func (g *Game) loseOffline(s *OfflineSummary, reason string) {
+	g.Phase = PhaseGameOver
+	g.LoseReason = reason
+	s.GameOver, s.Reason, s.Balance = true, reason, g.Money
 }
 
 // AdvanceOffline — досимулировать miss тиков вперёд. Меняет игру на месте;
@@ -39,12 +46,6 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 		g.TickInDay += miss
 		s.Income, s.Balance = inc, g.Money
 		if g.checkOfflineWin(s) {
-			return s
-		}
-		if g.IsDeadlocked() {
-			g.Phase = PhaseGameOver
-			g.LoseReason = LoseDeadlock
-			s.GameOver, s.Reason, s.Balance = true, LoseDeadlock, g.Money
 			return s
 		}
 		return s
@@ -92,12 +93,6 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	if g.checkOfflineWin(s) {
 		return s
 	}
-	if g.IsDeadlocked() {
-		g.Phase = PhaseGameOver
-		g.LoseReason = LoseDeadlock
-		s.GameOver, s.Reason, s.Balance = true, LoseDeadlock, g.Money
-		return s
-	}
 	return s
 }
 
@@ -107,24 +102,18 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 // в последний день, сильнее таймера.
 func (g *Game) closeOfflineDay(s *OfflineSummary) bool {
 	if g.settleDebt() {
-		g.Phase = PhaseGameOver
-		g.LoseReason = LoseBankrupt
-		s.GameOver, s.Reason, s.Balance = true, LoseBankrupt, g.Money
+		g.loseOffline(s, LoseBankrupt)
 		return true
 	}
 	if g.checkOfflineWin(s) {
 		return true
 	}
 	if g.cfg.WinDayLimit > 0 && g.Day >= g.cfg.WinDayLimit {
-		g.Phase = PhaseGameOver
-		g.LoseReason = LoseTimeUp
-		s.GameOver, s.Reason, s.Balance = true, LoseTimeUp, g.Money
+		g.loseOffline(s, LoseTimeUp)
 		return true
 	}
 	if g.IsDeadlocked() {
-		g.Phase = PhaseGameOver
-		g.LoseReason = LoseDeadlock
-		s.GameOver, s.Reason, s.Balance = true, LoseDeadlock, g.Money
+		g.loseOffline(s, LoseDeadlock)
 		return true
 	}
 	s.Balance = g.Money

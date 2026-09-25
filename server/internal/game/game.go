@@ -246,10 +246,12 @@ func (g *Game) TotalEmployees() int {
 	return g.staffCount()
 }
 
-// AvailableFunds — доступные средства с учётом кредитного лимита
-// (на сложностях Hard/Hardcore лимит расширяет порог выживания).
+// AvailableFunds — средства, доступные для покупок и найма.
+// Так как ни одна команда игры не позволяет уходить в отрицательный баланс
+// (все покупки и найм требуют Money >= price, а кредит в settleDebt регулирует
+// лишь выживание при ночном списании ФОТ), покупательная способность равна Money.
 func (g *Game) AvailableFunds() int {
-	return g.Money + g.cfg.CreditLimit
+	return g.Money
 }
 
 // MinCostToEarn — минимальная стоимость создания хотя бы одного источника дохода
@@ -276,9 +278,11 @@ func (g *Game) MinCostToEarn() int {
 			}
 		} else {
 			// Офис закрыт — разблокировка + ПК + найм
-			cost := g.cfg.OfficePrices[oi-1] + g.cfg.PCPrice + g.cfg.HirePrice
-			if cost < minCost {
-				minCost = cost
+			if oi > 0 && oi-1 < len(g.cfg.OfficePrices) {
+				cost := g.cfg.OfficePrices[oi-1] + g.cfg.PCPrice + g.cfg.HirePrice
+				if cost < minCost {
+					minCost = cost
+				}
 			}
 		}
 	}
@@ -286,15 +290,15 @@ func (g *Game) MinCostToEarn() int {
 }
 
 // IsDeadlocked возвращает true, если компания оказалась в софт-локе:
-// положительный (или нулевой) баланс при пустом штате (нет источников дохода),
-// при этом доступных средств (с учётом кредита) не хватает даже на самое
-// дешёвое действие для получения дохода. Отрицательный баланс тупиком не является —
-// он регулируется кредитом и ведёт к банкротству (settleDebt).
+// неотрицательный баланс при пустом штате (нет источников дохода),
+// при этом денег не хватает даже на самое дешёвое действие для получения дохода.
+// Отрицательный баланс тупиком не является — он регулируется кредитом и ведёт к
+// банкротству (settleDebt).
 func (g *Game) IsDeadlocked() bool {
 	if g.Money < 0 || g.TotalEmployees() > 0 {
 		return false
 	}
-	return g.AvailableFunds() < g.MinCostToEarn()
+	return g.Money < g.MinCostToEarn()
 }
 
 // closeDay — конец дня после списания ФОТ: кредит или банкротство,
@@ -428,11 +432,6 @@ type DayReport struct {
 // (day_report, при балансе < 0 — game_over) и возвращает отчёт.
 func (g *Game) Tick() *DayReport {
 	if g.Phase != PhaseRunning {
-		return nil
-	}
-	if g.IsDeadlocked() {
-		g.Phase = PhaseGameOver
-		g.LoseReason = LoseDeadlock
 		return nil
 	}
 	for oi := range g.Offices {

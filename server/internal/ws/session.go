@@ -398,18 +398,20 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 				lastReport = report
 				journal.addReport(report)
 			}
-			if g.Phase == game.PhaseGameOver {
+			if wasRunning && g.Phase == game.PhaseGameOver {
 				journal.add(fmt.Sprintf("д%d · партия проиграна: %s", g.Day, g.LoseReason))
 			}
 			// Сейв/удаление ДО записи в сокет: клиент, прочитавший сообщение,
 			// может реконнектнуться быстрее, чем сейв дотянется до стора —
 			// тогда рестарт забрал бы устаревшее состояние.
 			if withSaves {
-				if g.Phase == game.PhaseGameOver || g.Phase == game.PhaseWon {
+				if wasRunning && (g.Phase == game.PhaseGameOver || g.Phase == game.PhaseWon) {
 					// финал: сейв больше не нужен
 					h.Saves.Delete(sid)
-				} else if !h.persist(sid, gen, g, speed, lastReport, scenario, journal.last(journal.cap)) {
-					return true
+				} else if g.Phase != game.PhaseGameOver && g.Phase != game.PhaseWon {
+					if !h.persist(sid, gen, g, speed, lastReport, scenario, journal.last(journal.cap)) {
+						return true
+					}
 				}
 			}
 			if wasRunning && g.Phase == game.PhaseWon {

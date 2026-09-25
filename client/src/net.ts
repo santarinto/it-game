@@ -142,7 +142,7 @@ export interface NeighborSessionInfo {
 // checkActiveNeighbor (ITGAME-35): опрашивает соседние вкладки через BroadcastChannel('itd').
 // Возвращает { active: true, day?: number } если живая соседняя вкладка ответила,
 // либо { active: false } если за timeoutMs ответа не поступило.
-export function checkActiveNeighbor(sid: string, timeoutMs = 120): Promise<NeighborSessionInfo> {
+export function checkActiveNeighbor(sid: string, timeoutMs = 250): Promise<NeighborSessionInfo> {
   if (typeof BroadcastChannel === 'undefined' || !sid) {
     return Promise.resolve({ active: false })
   }

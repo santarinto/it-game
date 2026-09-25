@@ -309,10 +309,9 @@ export class MenuScene extends Phaser.Scene {
           this.startGame('normal', true)
         }
       } else {
-        const takeoverBtn = this.modalUI.find((o) => o.getData('id') === 'modal.btn.takeover')
-        if (takeoverBtn) {
-          takeoverBtn.emit('pointerdown')
-        }
+        // Если модалка открыта, Enter безопасно закрывает её (отмена).
+        // Деструктивный перехват чужой сессии (takeover) доступен только по клику.
+        this.closeModal()
       }
     })
     kb.on('keydown-ESC', () => this.closeModal())
@@ -333,6 +332,7 @@ export class MenuScene extends Phaser.Scene {
     this.checkingNeighbor = true
     try {
       const neighbor = await checkActiveNeighbor(sid)
+      if (this.started) return
       if (neighbor.active) {
         this.showSessionConflictModal(neighbor.day)
         return

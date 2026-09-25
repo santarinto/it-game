@@ -557,7 +557,7 @@ export class HUDScene extends Phaser.Scene {
       this.pcBtn.setEnabled(false, 'В офисе нет свободных мест')
     } else if (active.pcs >= staffCap) {
       this.pcBtn.setLabel(`Купить ПК  ${fmtMoney(active.nextPC)}`)
-      this.pcBtn.setEnabled(false, 'Нужен начальник для расширения свыше 9 мест')
+      this.pcBtn.setEnabled(false, `Нужен начальник для расширения свыше ${s.staffLimit} мест`)
     } else if (s.money < active.nextPC) {
       this.pcBtn.setLabel(`Купить ПК  ${fmtMoney(active.nextPC)}`)
       this.pcBtn.setEnabled(false, `не хватает ${fmtMoney(active.nextPC - s.money)}`)
@@ -571,7 +571,7 @@ export class HUDScene extends Phaser.Scene {
     if (active.employees.length >= staffCap) {
       this.hireBtn.setLabel(`Нанять  ${fmtMoney(hirePrice)}`)
       const reason = active.boss === '' && active.employees.length >= s.staffLimit
-        ? 'Нужен начальник для найма свыше 9 сотрудников'
+        ? `Нужен начальник для найма свыше ${s.staffLimit} сотрудников`
         : 'Штат офиса укомплектован'
       this.hireBtn.setEnabled(false, reason)
     } else if (active.employees.length >= active.pcs) {
@@ -766,7 +766,7 @@ export class HUDScene extends Phaser.Scene {
         enabled = e
         tooltipText = tooltip
         applyState()
-        if (this.hoveredButtonId === id && this.buttonTooltip && this.buttonTooltip.visible) {
+        if (this.hoveredButtonId === id) {
           if (!enabled && tooltipText) {
             this.showButtonTooltip(tooltipText, x, y)
           } else {
