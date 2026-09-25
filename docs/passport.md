@@ -41,7 +41,7 @@ Intel «IT Manager 3: Unseen Forces» в pixel style. Игрок покупае�
   зелёных тестов на `main`, включается секретом `DEPLOY_HOOK_SECRET`;
   пока секрета нет — вручную.
 - Схема деплоя — плейбук атомарного деплоя (репо my-santarinto);
-  детали игры — раздел «Прод» в README.
+  детали игры — раздел «Прод» в `docs/development.md`.
 - `/admin` на проде закрыт basic auth (доступы — вне репозитория).
 - Деплой рвёт активные WS-сессии, но сейвы переживают рестарт —
   клиент переподключается и продолжает партию (итерация 16).
@@ -57,6 +57,7 @@ Intel «IT Manager 3: Unseen Forces» в pixel style. Игрок покупае�
 вручную, `bin/trigger-deploy.sh`).
 
 - Геймдизайн (живой документ): `docs/design/gdd.md`
+- Разработка и эксплуатация (запуск, деплой, тесты, CI): `docs/development.md`
 - Спеки: `docs/superpowers/specs/`
 - Планы реализации: `docs/superpowers/plans/`
 - Журнал выполнения (ledger, git-ignored): `.superpowers/sdd/progress.md`

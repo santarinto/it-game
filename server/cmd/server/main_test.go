@@ -44,7 +44,7 @@ func TestStaticHonest404(t *testing.T) {
 
 	// отсутствующий ассет — честный 404, не HTML-фолбэк: агент отличает
 	// битую ссылку от рабочей (nginx бокса сейчас отдаёт index.html —
-	// фикс в README, «Деплой»).
+	// фикс в docs/development.md, «Честные 404 и sourcemaps»).
 	resp, _ = http.Get(srv.URL + "/assets/nope-xyz.png")
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
