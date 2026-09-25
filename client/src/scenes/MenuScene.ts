@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import { GAME_H, GAME_W } from '../layout'
-import { client, hasSavedSession, prepareNewGame, savedDifficulty } from '../net'
+import { checkActiveNeighbor, client, hasSavedSession, prepareNewGame, savedDifficulty, sessionId } from '../net'
 import { activeZoom, applyZoom, ZOOM_OPTIONS } from '../uiscale'
 import { tag } from '../debug/agentApi'
 import { fmtMoney } from '../format'
@@ -56,7 +56,7 @@ export class MenuScene extends Phaser.Scene {
       })
       continueBg.on('pointerover', () => continueBg.setStrokeStyle(2, 0xffcd75))
       continueBg.on('pointerout', () => continueBg.setStrokeStyle(2, 0x38b764))
-      continueBg.on('pointerdown', () => this.startGame(savedDifficulty()))
+      continueBg.on('pointerdown', () => this.onContinueClick())
       firstY = 244
       const orNew = this.add
         .text(CX, 224, 'или начните новую:', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
@@ -157,7 +157,7 @@ export class MenuScene extends Phaser.Scene {
     this.menuUI.forEach((o) => o.setVisible(true))
   }
 
-  private createModalFrame(pw: number, ph: number, titleText: string, strokeColor = 0x41a6f6) {
+  private createModalFrame(pw: number, ph: number, titleText: string, strokeColor = 0x41a6f6, withDefaultCloseBtn = true) {
     const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.85).setOrigin(0).setDepth(80).setInteractive()
     overlay.on('pointerdown', () => this.closeModal())
 
@@ -174,18 +174,23 @@ export class MenuScene extends Phaser.Scene {
     closeX.on('pointerover', () => closeX.setColor('#f4f4f4'))
     closeX.on('pointerout', () => closeX.setColor('#94b0c2'))
 
-    const btnCloseBg = tag(this.add.rectangle(CX, GAME_H / 2 + ph / 2 - 28, 140, 32, 0x3b5dc9)
-      .setDepth(82).setInteractive({ useHandCursor: true }), 'modal.btn.close')
-    const btnCloseTxt = this.add.text(CX, GAME_H / 2 + ph / 2 - 28, 'Закрыть', {
-      fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4',
-    }).setOrigin(0.5).setDepth(83)
+    const frameUI: Phaser.GameObjects.GameObject[] = [overlay, panel, title, closeX]
 
-    btnCloseBg.on('pointerdown', () => this.closeModal())
-    btnCloseBg.on('pointerover', () => btnCloseBg.setFillStyle(0x41a6f6))
-    btnCloseBg.on('pointerout', () => btnCloseBg.setFillStyle(0x3b5dc9))
+    if (withDefaultCloseBtn) {
+      const btnCloseBg = tag(this.add.rectangle(CX, GAME_H / 2 + ph / 2 - 28, 140, 32, 0x3b5dc9)
+        .setDepth(82).setInteractive({ useHandCursor: true }), 'modal.btn.close')
+      const btnCloseTxt = this.add.text(CX, GAME_H / 2 + ph / 2 - 28, 'Закрыть', {
+        fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4',
+      }).setOrigin(0.5).setDepth(83)
+
+      btnCloseBg.on('pointerdown', () => this.closeModal())
+      btnCloseBg.on('pointerover', () => btnCloseBg.setFillStyle(0x41a6f6))
+      btnCloseBg.on('pointerout', () => btnCloseBg.setFillStyle(0x3b5dc9))
+      frameUI.push(btnCloseBg, btnCloseTxt)
+    }
 
     return {
-      frameUI: [overlay, panel, title, closeX, btnCloseBg, btnCloseTxt],
+      frameUI,
       topY: GAME_H / 2 - ph / 2,
     }
   }
@@ -297,13 +302,103 @@ export class MenuScene extends Phaser.Scene {
     kb.on('keydown-THREE', () => { if (this.modalUI.length === 0) this.startGame('hard', true) })
     kb.on('keydown-FOUR', () => { if (this.modalUI.length === 0) this.startGame('hardcore', true) })
     kb.on('keydown-ENTER', () => {
-      if (this.modalUI.length === 0) this.startGame(hasSavedSession() ? savedDifficulty() : 'normal')
+      if (this.modalUI.length === 0) {
+        if (hasSavedSession()) {
+          this.onContinueClick()
+        } else {
+          this.startGame('normal', true)
+        }
+      } else {
+        const takeoverBtn = this.modalUI.find((o) => o.getData('id') === 'modal.btn.takeover')
+        if (takeoverBtn) {
+          takeoverBtn.emit('pointerdown')
+        }
+      }
     })
     kb.on('keydown-ESC', () => this.closeModal())
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.closeModal()
       kb.removeAllListeners()
     })
+  }
+
+  private checkingNeighbor = false
+
+  // «Продолжить» (ITGAME-8, ITGAME-35): проверяем, не играет ли соседняя
+  // вкладка эту партию прямо сейчас (через BroadcastChannel), чтобы не устраивать
+  // войну session_taken без ведома игрока.
+  private async onContinueClick() {
+    if (this.started || this.checkingNeighbor) return
+    const sid = sessionId()
+    this.checkingNeighbor = true
+    try {
+      const neighbor = await checkActiveNeighbor(sid)
+      if (neighbor.active) {
+        this.showSessionConflictModal(neighbor.day)
+        return
+      }
+      this.startGame(savedDifficulty(), false)
+    } catch (e) {
+      console.error('ошибка проверки соседней вкладки', e)
+      this.startGame(savedDifficulty(), false)
+    } finally {
+      this.checkingNeighbor = false
+    }
+  }
+
+  // Модалка подтверждения перехвата сессии (ITGAME-35).
+  private showSessionConflictModal(day?: number) {
+    this.closeModal()
+    this.menuUI.forEach((o) => {
+      if (o !== this.bg) o.setVisible(false)
+    })
+    const pw = 620
+    const ph = 260
+    const { frameUI, topY } = this.createModalFrame(pw, ph, '⚠️ ПАРТИЯ В ДРУГОЙ ВКЛАДКЕ', 0xffcd75, false)
+
+    const textLines = [
+      `Эта партия прямо сейчас открыта в другой вкладке браузера${day ? ` (день ${day})` : ''}.`,
+      'Если продолжить здесь, сервер отключит ту вкладку (session_taken).',
+      '',
+      'Забрать управление в эту вкладку?',
+    ]
+
+    const body = this.add.text(CX, topY + 70, textLines.join('\n'), {
+      fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4', align: 'center', lineSpacing: 6,
+    }).setOrigin(0.5, 0).setDepth(82)
+
+    const btnY = topY + ph - 42
+
+    // Кнопка «Остаться в меню»
+    const btnCancelBg = tag(
+      this.add.rectangle(CX - 120, btnY, 180, 36, 0x232640)
+        .setStrokeStyle(2, 0x3a3f5c).setDepth(82).setInteractive({ useHandCursor: true }),
+      'modal.btn.cancel',
+    )
+    const btnCancelTxt = this.add.text(CX - 120, btnY, 'Остаться в меню', {
+      fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4',
+    }).setOrigin(0.5).setDepth(83)
+    btnCancelBg.on('pointerdown', () => this.closeModal())
+    btnCancelBg.on('pointerover', () => btnCancelBg.setStrokeStyle(2, 0x41a6f6))
+    btnCancelBg.on('pointerout', () => btnCancelBg.setStrokeStyle(2, 0x3a3f5c))
+
+    // Кнопка «Забрать управление»
+    const btnTakeoverBg = tag(
+      this.add.rectangle(CX + 120, btnY, 200, 36, 0xb13e53)
+        .setDepth(82).setInteractive({ useHandCursor: true }),
+      'modal.btn.takeover',
+    )
+    const btnTakeoverTxt = this.add.text(CX + 120, btnY, 'Забрать управление', {
+      fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4',
+    }).setOrigin(0.5).setDepth(83)
+    btnTakeoverBg.on('pointerdown', () => {
+      this.closeModal()
+      this.startGame(savedDifficulty(), false)
+    })
+    btnTakeoverBg.on('pointerover', () => btnTakeoverBg.setFillStyle(0xef7d57))
+    btnTakeoverBg.on('pointerout', () => btnTakeoverBg.setFillStyle(0xb13e53))
+
+    this.modalUI = [...frameUI, body, btnCancelBg, btnCancelTxt, btnTakeoverBg, btnTakeoverTxt]
   }
 
   // fresh=true — игрок ЯВНО выбрал новую партию (кнопка сложности, 1-4):

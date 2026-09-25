@@ -75,8 +75,9 @@ try {
   )
   await delay(300)
 
-  // 2. Устанавливаем малый баланс ($100), когда ни на что не хватает
+  // 2. Устанавливаем паузу и малый баланс ($100), когда ни на что не хватает
   await page.evaluate(() => {
+    window.itd.pause()
     window.itd.set({ money: 100 })
   })
   await delay(150)
@@ -147,9 +148,10 @@ try {
   })
   check('Тултип btn.gateway показывает нехватку денег', gwTooltip.text?.includes('не хватает $'), `text="${gwTooltip.text}"`)
 
-  // 5. Увеличиваем баланс ($50000) — кнопки становятся доступными
+  // 5. Увеличиваем баланс ($50000) и снимаем паузу — кнопки становятся доступными
   await page.evaluate(() => {
     window.itd.set({ money: 50000 })
+    window.itd.resume()
   })
   await delay(200)
 

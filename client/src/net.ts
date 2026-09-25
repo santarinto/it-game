@@ -128,6 +128,67 @@ export function clearSession(): void {
   localStorage.removeItem(DIFF_KEY)
 }
 
+interface ItdChannelMessage {
+  type: 'ping_sid' | 'pong_sid'
+  sid: string
+  day?: number
+}
+
+export interface NeighborSessionInfo {
+  active: boolean
+  day?: number
+}
+
+// checkActiveNeighbor (ITGAME-35): опрашивает соседние вкладки через BroadcastChannel('itd').
+// Возвращает { active: true, day?: number } если живая соседняя вкладка ответила,
+// либо { active: false } если за timeoutMs ответа не поступило.
+export function checkActiveNeighbor(sid: string, timeoutMs = 120): Promise<NeighborSessionInfo> {
+  if (typeof BroadcastChannel === 'undefined' || !sid) {
+    return Promise.resolve({ active: false })
+  }
+  return new Promise((resolve) => {
+    let resolved = false
+    let ch: BroadcastChannel | null = null
+    try {
+      ch = new BroadcastChannel('itd')
+    } catch {
+      resolve({ active: false })
+      return
+    }
+
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true
+        try { ch?.close() } catch {}
+        resolve({ active: false })
+      }
+    }, timeoutMs)
+
+    ch.onmessage = (ev) => {
+      const data = ev.data as ItdChannelMessage
+      if (data && data.type === 'pong_sid' && data.sid === sid) {
+        if (!resolved) {
+          resolved = true
+          clearTimeout(timer)
+          try { ch?.close() } catch {}
+          resolve({ active: true, day: data.day })
+        }
+      }
+    }
+
+    try {
+      ch.postMessage({ type: 'ping_sid', sid } satisfies ItdChannelMessage)
+    } catch {
+      if (!resolved) {
+        resolved = true
+        clearTimeout(timer)
+        try { ch?.close() } catch {}
+        resolve({ active: false })
+      }
+    }
+  })
+}
+
 // GameClient — единственная точка общения с сервером.
 // Сцены подписываются и получают снапшоты; игровой логики здесь нет.
 // Разрыв соединения (кроме намеренного и session_taken) лечится
@@ -154,6 +215,7 @@ export class GameClient {
   private reconnectAttempt = 0
   private takenOver = false
   private difficulty: DifficultyId = 'normal'
+  private broadcastChannel: BroadcastChannel | null = null
 
   constructor() {
     // Гарда общего ключа (ITGAME-30): чужой game_over в соседней вкладке
@@ -166,6 +228,31 @@ export class GameClient {
       const sid = sessionId()
       if (localStorage.getItem(SID_KEY) !== sid) localStorage.setItem(SID_KEY, sid)
     })
+
+    // Канал межвкладочной координации (ITGAME-35):
+    // живые вкладки отвечают на пинг соседних вкладок, чтобы «ПРОДОЛЖИТЬ» в новой
+    // вкладке не выбивало тихо сессию из живой (session_taken).
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        this.broadcastChannel = new BroadcastChannel('itd')
+        this.broadcastChannel.onmessage = (ev) => {
+          const data = ev.data as ItdChannelMessage
+          if (data && data.type === 'ping_sid' && data.sid) {
+            const sid = this.sessionSid
+            const status = this.socketStatus()
+            if (sid && sid === data.sid && (status === 'open' || status === 'reconnecting')) {
+              this.broadcastChannel?.postMessage({
+                type: 'pong_sid',
+                sid,
+                day: this.latest?.day,
+              } satisfies ItdChannelMessage)
+            }
+          }
+        }
+      } catch {
+        // BroadcastChannel недоступен
+      }
+    }
   }
   // Квитанции команд (ITGAME-30): FIFO — каждый state|error после отправки
   // закрывает ОДНУ самую старую ждущую квитанцию, порядок команд сохраняется.
@@ -303,6 +390,7 @@ export class GameClient {
       if (reason.includes('session_taken')) {
         // Другая вкладка забрала сессию: реконнект устроит войну вкладок.
         this.takenOver = true
+        this.sessionSid = null
         this.listeners.forEach((l) => l.onDisconnect('session_taken'))
 
         return
@@ -326,6 +414,7 @@ export class GameClient {
   // Намеренный разрыв: onDisconnect не дёргаем, реконнект не планируем.
   disconnect(): void {
     this.intentionalClose = true
+    this.sessionSid = null
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = null
     this.failReceipts('disconnected')
