@@ -112,7 +112,7 @@ try {
     const hasFirstMillion = texts.some((t) => t && t.includes('Первый миллион'))
     const hasFullStaff = texts.some((t) => t && t.includes('Полный штат'))
     const hasNetwork36 = texts.some((t) => t && t.includes('36/36 в сети'))
-    const hasCleanWin = texts.some((t) => t && t.includes('Победа без аментий'))
+    const hasCleanWin = texts.some((t) => t && t.includes('Победа без аменити'))
     const hasSurvivor10 = texts.some((t) => t && t.includes('10 дней без банкротства'))
     const overlaps = window.itd.overlaps()
     return { hasTitle, hasFirstMillion, hasFullStaff, hasNetwork36, hasCleanWin, hasSurvivor10, overlapsCount: overlaps.length }
@@ -121,7 +121,7 @@ try {
   check('Достижение «Первый миллион» отображено', achModalOpen.hasFirstMillion, 'найдено')
   check('Достижение «Полный штат» отображено', achModalOpen.hasFullStaff, 'найдено')
   check('Достижение «36/36 в сети» отображено', achModalOpen.hasNetwork36, 'найдено')
-  check('Достижение «Победа без аментий» отображено', achModalOpen.hasCleanWin, 'найдено')
+  check('Достижение «Победа без аменити» отображено', achModalOpen.hasCleanWin, 'найдено')
   check('Достижение «10 дней без банкротства» отображено', achModalOpen.hasSurvivor10, 'найдено')
   check('Нет оверлапов в модалке достижений', achModalOpen.overlapsCount === 0, `overlaps=${achModalOpen.overlapsCount}`)
 
@@ -133,7 +133,10 @@ try {
   })
   check('Модалка достижений закрылась по кнопке «Закрыть»', achModalClosed, `closed=${achModalClosed}`)
 
-  // 5. Тестирование разблокировки ачивки программно
+  // 5. Тестирование разблокировки ачивки программно и обработка ошибок
+  const unknownRes = await page.evaluate(() => window.itd.unlockAchievement('unknown_achievement_xyz'))
+  check('Неизвестная ачивка отдаёт unknown_achievement', !unknownRes.ok && unknownRes.code === 'unknown_achievement', `code=${unknownRes.code}`)
+
   const unlockRes = await page.evaluate(() => {
     const res = window.itd.unlockAchievement('first_hire')
     const meta = window.itd.meta()
@@ -142,9 +145,24 @@ try {
   check('Разблокировка first_hire успешна', unlockRes.res.ok, `title=${unlockRes.res.achievement?.title}`)
   check('Счётчик достижений увеличился до 1', unlockRes.unlockedCount === 1, `count=${unlockRes.unlockedCount}`)
 
-  // Повторная попытка разблокировать то же достижение возвращает ok: false
+  // Повторная попытка разблокировать то же достижение возвращает ok: false, code: already_unlocked
   const unlockDuplicate = await page.evaluate(() => window.itd.unlockAchievement('first_hire'))
-  check('Повторная разблокировка игнорируется', !unlockDuplicate.ok, 'дубликат отсечён')
+  check('Повторная разблокировка отдаёт already_unlocked', !unlockDuplicate.ok && unlockDuplicate.code === 'already_unlocked', `code=${unlockDuplicate.code}`)
+
+  // Проверка устойчивости к битому JSON (примитивы '42', 'true')
+  const corruptRes = await page.evaluate(() => {
+    localStorage.setItem('itd.meta_achievements', '42')
+    localStorage.setItem('itd.meta_stats', '"primitive_string"')
+    const meta = window.itd.meta()
+    return {
+      totalRuns: meta.stats.totalRuns,
+      unlockedCount: meta.achievements.unlockedCount,
+    }
+  })
+  check('Примитив в localStorage не роняет систему', corruptRes.totalRuns === 0 && corruptRes.unlockedCount === 0, 'дефолты возвращены')
+
+  // Восстанавливаем first_hire для следующего теста
+  await page.evaluate(() => window.itd.unlockAchievement('first_hire'))
 
   // 6. Проверка персистентности после перезагрузки страницы
   await page.reload({ waitUntil: 'domcontentloaded' })
@@ -157,7 +175,13 @@ try {
   // 7. Проверка обновления и отображения статистики прогонов
   await page.evaluate(() => {
     const raw = localStorage.getItem('itd.meta_stats')
-    const stats = raw ? JSON.parse(raw) : { totalRuns: 0, totalWins: 0, totalLosses: 0, peakBalance: 0, peakDay: 0, byDifficulty: {} }
+    let stats
+    try {
+      stats = JSON.parse(raw)
+      if (!stats || typeof stats !== 'object' || Array.isArray(stats)) throw 0
+    } catch {
+      stats = { totalRuns: 0, totalWins: 0, totalLosses: 0, peakBalance: 0, peakDay: 0, byDifficulty: {} }
+    }
     stats.totalRuns = 3
     stats.totalWins = 2
     stats.totalLosses = 1

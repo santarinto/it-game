@@ -97,7 +97,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   },
   {
     id: 'clean_win',
-    title: 'Победа без аментий',
+    title: 'Победа без аменити',
     desc: 'Одержать победу без кулеров, холодильников и кофе',
     icon: '🛡️',
   },
@@ -144,21 +144,28 @@ export function loadStats(): MetaStats {
   try {
     const raw = localStorage.getItem(STATS_KEY)
     if (!raw) return defaultStats()
-    const parsed = JSON.parse(raw) as Partial<MetaStats>
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return defaultStats()
+    const obj = parsed as Partial<MetaStats>
     const res = defaultStats()
-    if (typeof parsed.totalRuns === 'number') res.totalRuns = parsed.totalRuns
-    if (typeof parsed.totalWins === 'number') res.totalWins = parsed.totalWins
-    if (typeof parsed.totalLosses === 'number') res.totalLosses = parsed.totalLosses
-    if (typeof parsed.peakBalance === 'number') res.peakBalance = parsed.peakBalance
-    if (typeof parsed.peakDay === 'number') res.peakDay = parsed.peakDay
+    if (typeof obj.totalRuns === 'number' && Number.isFinite(obj.totalRuns)) res.totalRuns = obj.totalRuns
+    if (typeof obj.totalWins === 'number' && Number.isFinite(obj.totalWins)) res.totalWins = obj.totalWins
+    if (typeof obj.totalLosses === 'number' && Number.isFinite(obj.totalLosses)) res.totalLosses = obj.totalLosses
+    if (typeof obj.peakBalance === 'number' && Number.isFinite(obj.peakBalance)) res.peakBalance = obj.peakBalance
+    if (typeof obj.peakDay === 'number' && Number.isFinite(obj.peakDay)) res.peakDay = obj.peakDay
 
     const diffs: DifficultyId[] = ['easy', 'normal', 'hard', 'hardcore']
     for (const d of diffs) {
-      if (parsed.byDifficulty?.[d]) {
-        res.byDifficulty[d] = {
-          ...defaultDiffStats(),
-          ...parsed.byDifficulty[d],
-        }
+      const dObj = obj.byDifficulty?.[d]
+      if (dObj && typeof dObj === 'object' && !Array.isArray(dObj)) {
+        const target = res.byDifficulty[d]
+        if (typeof dObj.runs === 'number' && Number.isFinite(dObj.runs)) target.runs = dObj.runs
+        if (typeof dObj.wins === 'number' && Number.isFinite(dObj.wins)) target.wins = dObj.wins
+        if (typeof dObj.bankruptcies === 'number' && Number.isFinite(dObj.bankruptcies)) target.bankruptcies = dObj.bankruptcies
+        if (typeof dObj.timeUps === 'number' && Number.isFinite(dObj.timeUps)) target.timeUps = dObj.timeUps
+        if (typeof dObj.bestDay === 'number' && Number.isFinite(dObj.bestDay)) target.bestDay = dObj.bestDay
+        if (typeof dObj.bestWinDay === 'number' && Number.isFinite(dObj.bestWinDay)) target.bestWinDay = dObj.bestWinDay
+        if (typeof dObj.bestBalance === 'number' && Number.isFinite(dObj.bestBalance)) target.bestBalance = dObj.bestBalance
       }
     }
     return res
@@ -180,7 +187,19 @@ export function loadAchievements(): Record<string, AchievementState> {
   try {
     const raw = localStorage.getItem(ACHIEVEMENTS_KEY)
     if (!raw) return {}
-    return (JSON.parse(raw) as Record<string, AchievementState>) || {}
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const res: Record<string, AchievementState> = {}
+    for (const def of ACHIEVEMENTS) {
+      const st = (parsed as Record<string, unknown>)[def.id]
+      if (st && typeof st === 'object' && !Array.isArray(st)) {
+        const at = (st as AchievementState).unlockedAt
+        if (typeof at === 'number' && Number.isFinite(at)) {
+          res[def.id] = { id: def.id, unlockedAt: at }
+        }
+      }
+    }
+    return res
   } catch (e) {
     console.error('Ошибка загрузки достижений:', e)
     return {}
@@ -274,25 +293,26 @@ export function checkAchievements(
   // 4. Охотник за звёздами: есть хотя бы один звёздный сотрудник
   tryUnlock('star_hunter', state.offices.some((o) => o.employees.some((e) => e.star)))
 
-  // 5. 10 дней без банкротства
-  tryUnlock('survivor_10', state.day >= 10)
+  // 5. 10 дней без банкротства: день > 10 (прожито 10 полных дней)
+  tryUnlock('survivor_10', state.day > 10)
 
   // 6. Корпорация: все 3 офиса разблокированы
   tryUnlock('three_offices', state.offices.length >= 3 && state.offices.every((o) => o.unlocked))
 
-  // 7. Полный штат: все 36 сотрудников
-  tryUnlock('full_staff', staff >= 36)
+  // 7. Полный штат: все сотрудники наняты (все слоты заняты)
+  const totalSlots = (state.officeSlots || 12) * state.offices.length
+  tryUnlock('full_staff', staff >= totalSlots)
 
   // 8. Ядро системы: Core прокачан на максимум
   tryUnlock('core_max', Boolean(state.core?.maxed))
 
-  // 9. 36/36 в сети
-  tryUnlock('network_36', connectedStaff >= 36)
+  // 9. 36/36 в сети: все сотрудники подключены
+  tryUnlock('network_36', connectedStaff >= totalSlots)
 
   // 10. Первый миллион
   tryUnlock('millionaire', state.money >= 1_000_000)
 
-  // 11. Победа без аментий
+  // 11. Победа без аменити
   if (isVictory) {
     const noAmenities = state.offices.every(
       (o) => !o.cooler && !o.fridge && !o.coffeeMachine,
@@ -313,6 +333,9 @@ export function checkAchievements(
   return newlyUnlocked
 }
 
+let lastSavedDay = 0
+let lastSavedMoney = 0
+
 export function updateOngoingStats(state: StateMessage): void {
   const stats = loadStats()
   let changed = false
@@ -332,14 +355,18 @@ export function updateOngoingStats(state: StateMessage): void {
       d.bestDay = state.day
       changed = true
     }
-    if (state.money > d.bestBalance) {
-      d.bestBalance = state.money
-      changed = true
-    }
+    // d.bestBalance намеренно не обновляется здесь — это рекорд финального баланса ПОБЕДЫ,
+    // он фиксируется только в recordVictory.
   }
 
   if (changed) {
-    saveStats(stats)
+    const dayChanged = state.day !== lastSavedDay
+    const bigMoneyJump = Math.abs(state.money - lastSavedMoney) >= 10000
+    if (dayChanged || bigMoneyJump) {
+      saveStats(stats)
+      lastSavedDay = state.day
+      lastSavedMoney = state.money
+    }
   }
 }
 
@@ -366,13 +393,14 @@ export function recordVictory(
 
   if (v.balance > stats.peakBalance) {
     stats.peakBalance = v.balance
-    isRecord = true
   }
   if (v.day > stats.peakDay) {
     stats.peakDay = v.day
   }
 
   saveStats(stats)
+  lastSavedDay = v.day
+  lastSavedMoney = v.balance
 
   let newAchievements: AchievementDef[] = []
   if (state) {

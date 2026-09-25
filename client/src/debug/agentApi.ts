@@ -7,6 +7,7 @@ import type { ContrastEntry, OffscreenEntry, OverlapEntry, TinyEntry } from './l
 import { startTelemetry } from './telemetry'
 import type { ErrorEntry, LogEntry } from './telemetry'
 import {
+  ACHIEVEMENTS,
   getAchievementsSummary,
   loadStats,
   resetMeta,
@@ -244,6 +245,7 @@ export interface AgentNode {
 export interface AgentResult {
   ok: boolean
   error?: string
+  code?: string
 }
 
 // Квитанция команды (ITGAME-30): ok=true — сервер принял (state за ней),
@@ -543,6 +545,9 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30)
   itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы
   itd.restore(save)                 — вернуть состояние из snapshot().save (дельта над текущим)
   itd.quiet()                       — стоп твитов/миганий для стабильных скриншотов
+  itd.meta()                        — статистика прогонов и состояние достижений (localStorage)
+  itd.resetMeta()                   — сбросить мета-статистику и достижения
+  itd.unlockAchievement('id')       — принудительно открыть ачивку: {ok:true, achievement} | {ok:false, code}
 Фоновая вкладка: RAF стоит, но itd сам ведёт луп (пульс 300мс + прогрев в каждом вызове) — ids()/nodes()/click() живут без скриншотов и без «принудительного кадра».
 Параллельные вкладки: sid берётся из sessionStorage РАНЬШЕ localStorage; в хранилища ключ попадает ТОЛЬКО с реальной партиёй (чтение его не пишет — «ПРОДОЛЖИТЬ» не врёт). Одна партия = один sid: агрессивным прогонам — sessionStorage.setItem('itd.sid', 'a-<имя>-'+Date.now()) (виден только вкладке, общий ключ не трогает; ЯВНО выставленный sid чтится и для новой партии), игроку достаётся localStorage + зеркало вкладки. Кнопка сложности/1-4 = НОВАЯ партия: без явного sessionStorage-sid берётся свежий sid, чужой сейв из общего ключа НЕ продолжается молча; «ПРОДОЛЖИТЬ»/Enter = восстановление текущего sid. server().sidSwitches > 0 — общий ключ перезаписала соседняя вкладка, реконнект ушёл бы в её партию.
 Пример: await itd.scenario('soft_lock'); itd.state().day
@@ -795,8 +800,13 @@ function makeApi(game: Phaser.Game): ItdApi {
       return { ok: true }
     },
     unlockAchievement: (id: string) => {
+      if (!ACHIEVEMENTS.some((a) => a.id === id)) {
+        return { ok: false, code: 'unknown_achievement', error: `Неизвестное достижение: ${id}` }
+      }
       const ach = unlockAchievement(id)
-      return { ok: Boolean(ach), achievement: ach ?? undefined }
+      return ach
+        ? { ok: true, achievement: ach }
+        : { ok: false, code: 'already_unlocked', error: `Достижение ${id} уже разблокировано` }
     },
     help() {
       console.log(HELP)

@@ -16,6 +16,7 @@ import {
   recordVictory,
   updateOngoingStats,
 } from '../meta'
+import type { AchievementDef } from '../meta'
 
 const CX = GAME_W / 2 // центр поля — якорь модалок и тостов
 const SPEED_BEFORE_REPORT_KEY = 'itd.speedBeforeReport'
@@ -294,10 +295,21 @@ export class HUDScene extends Phaser.Scene {
     playSfx(this, r.gameOver ? 'glitch' : r.victory ? 'confirmation' : 'bong')
     this.offlineUI.forEach((o) => o.destroy())
     const bankrupt = r.gameOver
-    if (r.victory && client.latest) {
-      recordVictory({ type: 'victory', difficulty: client.latest.difficulty, day: r.days, balance: r.balance }, client.latest)
-    } else if (bankrupt && client.latest) {
-      recordGameOver({ type: 'game_over', daysSurvived: r.days, balance: r.balance, peakIncomePerTick: 0, reason: r.reason ?? 'bankrupt' }, client.latest.difficulty, client.latest)
+    const s = client.latest
+    const currentDay = s ? s.day : r.days
+    let offlineAchs: AchievementDef[] = []
+
+    if (r.victory && s) {
+      offlineAchs = recordVictory(
+        { type: 'victory', difficulty: s.difficulty, day: currentDay, balance: r.balance },
+        s,
+      ).newAchievements
+    } else if (bankrupt && s) {
+      offlineAchs = recordGameOver(
+        { type: 'game_over', daysSurvived: currentDay, balance: r.balance, peakIncomePerTick: 0, reason: r.reason ?? 'bankrupt' },
+        s.difficulty,
+        s,
+      ).newAchievements
     }
     const finalLine = bankrupt
       ? r.reason === 'time_up'
@@ -312,14 +324,15 @@ export class HUDScene extends Phaser.Scene {
       `Расходы:    −${fmtMoney(r.payroll)}`,
       `Баланс:      ${fmtMoney(r.balance)}`,
       ...(finalLine ? ['', finalLine] : []),
+      ...(offlineAchs.length > 0 ? ['', `🏆 Достижение: ${offlineAchs.map((a) => `${a.icon} ${a.title}`).join(', ')}`] : []),
     ].join('\n')
     const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(55).setInteractive()
-    const panel = this.add.rectangle(CX, 300, 440, 300, 0x14162b).setStrokeStyle(2, 0xffcd75).setDepth(56)
+    const panel = this.add.rectangle(CX, 300, 460, 320, 0x14162b).setStrokeStyle(2, 0xffcd75).setDepth(56)
     const title = this.add
-      .text(CX, 180, 'Пока вас не было', { fontFamily: 'monospace', fontSize: '22px', color: '#ffcd75' })
+      .text(CX, 170, 'Пока вас не было', { fontFamily: 'monospace', fontSize: '22px', color: '#ffcd75' })
       .setOrigin(0.5).setDepth(56)
     const bodyText = this.add
-      .text(CX, 280, body, { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8 })
+      .text(CX, 275, body, { fontFamily: 'monospace', fontSize: '15px', color: '#f4f4f4', lineSpacing: 7, align: 'center' })
       .setOrigin(0.5).setDepth(56)
     const final = r.gameOver || r.victory
     this.offlineUI = [overlay, panel, title, bodyText]
@@ -423,12 +436,19 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private refresh(s: StateMessage) {
-    updateOngoingStats(s)
-    const newAchs = checkAchievements(s)
-    if (newAchs.length > 0) {
-      playSfx(this, 'confirmation')
-      for (const a of newAchs) {
-        this.toast(`🏆 Достижение: ${a.icon} «${a.title}»!`, 4000)
+    if (s.phase === 'running') {
+      try {
+        updateOngoingStats(s)
+        const newAchs = checkAchievements(s)
+        if (newAchs.length > 0) {
+          playSfx(this, 'confirmation')
+          const msg = newAchs.length === 1
+            ? `🏆 Достижение: ${newAchs[0].icon} «${newAchs[0].title}»!`
+            : `🏆 Достижения: ${newAchs.map((a) => `${a.icon} ${a.title}`).join(', ')}`
+          this.toast(msg, 4000, { bg: '#2a6b3f' })
+        }
+      } catch (err) {
+        console.error('Ошибка обновления мета-прогресса в HUD:', err)
       }
     }
 

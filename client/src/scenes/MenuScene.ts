@@ -21,7 +21,7 @@ const LEVELS: { id: DifficultyId; label: string; desc: string; goal: string; col
 export class MenuScene extends Phaser.Scene {
   private started = false
   private bg?: Phaser.GameObjects.Rectangle
-  private menuUI: Phaser.GameObjects.GameObject[] = []
+  private menuUI: (Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible)[] = []
   private modalUI: Phaser.GameObjects.GameObject[] = []
 
   constructor() {
@@ -154,23 +154,16 @@ export class MenuScene extends Phaser.Scene {
   private closeModal() {
     this.modalUI.forEach((o) => o.destroy())
     this.modalUI = []
-    this.menuUI.forEach((o) => (o as any).setVisible?.(true))
+    this.menuUI.forEach((o) => o.setVisible(true))
   }
 
-  private showStatsModal() {
-    this.closeModal()
-    this.menuUI.forEach((o) => {
-      if (o !== this.bg) (o as any).setVisible?.(false)
-    })
-    const stats = loadStats()
+  private createModalFrame(pw: number, ph: number, titleText: string, strokeColor = 0x41a6f6) {
     const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.85).setOrigin(0).setDepth(80).setInteractive()
     overlay.on('pointerdown', () => this.closeModal())
 
-    const pw = 740
-    const ph = 470
-    const panel = this.add.rectangle(CX, GAME_H / 2, pw, ph, 0x14162b).setStrokeStyle(2, 0x41a6f6).setDepth(81).setInteractive()
+    const panel = this.add.rectangle(CX, GAME_H / 2, pw, ph, 0x14162b).setStrokeStyle(2, strokeColor).setDepth(81).setInteractive()
 
-    const title = this.add.text(CX, GAME_H / 2 - ph / 2 + 28, '📊 СТАТИСТИКА ПРОГОНОВ', {
+    const title = this.add.text(CX, GAME_H / 2 - ph / 2 + 28, titleText, {
       fontFamily: 'monospace', fontSize: '20px', color: '#ffcd75',
     }).setOrigin(0.5).setDepth(82)
 
@@ -181,33 +174,53 @@ export class MenuScene extends Phaser.Scene {
     closeX.on('pointerover', () => closeX.setColor('#f4f4f4'))
     closeX.on('pointerout', () => closeX.setColor('#94b0c2'))
 
-    const topSummary = this.add.text(CX, GAME_H / 2 - ph / 2 + 65, [
+    const btnCloseBg = tag(this.add.rectangle(CX, GAME_H / 2 + ph / 2 - 28, 140, 32, 0x3b5dc9)
+      .setDepth(82).setInteractive({ useHandCursor: true }), 'modal.btn.close')
+    const btnCloseTxt = this.add.text(CX, GAME_H / 2 + ph / 2 - 28, 'Закрыть', {
+      fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4',
+    }).setOrigin(0.5).setDepth(83)
+
+    btnCloseBg.on('pointerdown', () => this.closeModal())
+    btnCloseBg.on('pointerover', () => btnCloseBg.setFillStyle(0x41a6f6))
+    btnCloseBg.on('pointerout', () => btnCloseBg.setFillStyle(0x3b5dc9))
+
+    return {
+      frameUI: [overlay, panel, title, closeX, btnCloseBg, btnCloseTxt],
+      topY: GAME_H / 2 - ph / 2,
+    }
+  }
+
+  private showStatsModal() {
+    this.closeModal()
+    this.menuUI.forEach((o) => {
+      if (o !== this.bg) o.setVisible(false)
+    })
+    const stats = loadStats()
+    const pw = 740
+    const ph = 470
+    const { frameUI, topY } = this.createModalFrame(pw, ph, '📊 СТАТИСТИКА ПРОГОНОВ', 0x41a6f6)
+
+    const topSummary = this.add.text(CX, topY + 65, [
       `Всего игр: ${stats.totalRuns}   ·   Побед: ${stats.totalWins}   ·   Поражений: ${stats.totalLosses}`,
       `Рекордный баланс: ${fmtMoney(stats.peakBalance)}   ·   Максимальный день: ${stats.peakDay}`,
     ].join('\n'), {
       fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4', align: 'center', lineSpacing: 6,
     }).setOrigin(0.5, 0).setDepth(82)
 
-    const diffList: { id: DifficultyId; label: string; color: string }[] = [
-      { id: 'easy', label: 'ЛЕГКО', color: '#38b764' },
-      { id: 'normal', label: 'НОРМА', color: '#41a6f6' },
-      { id: 'hard', label: 'СЛОЖНО', color: '#ffcd75' },
-      { id: 'hardcore', label: 'ХАРДКОР', color: '#b13e53' },
-    ]
-
-    const cardYStart = GAME_H / 2 - ph / 2 + 130
+    const cardYStart = topY + 130
     const cardH = 58
     const cardW = pw - 60
 
     const diffCards: Phaser.GameObjects.GameObject[] = []
-    diffList.forEach((df, i) => {
+    LEVELS.forEach((df, i) => {
       const cy = cardYStart + i * (cardH + 10)
       const d = stats.byDifficulty[df.id]
       const bg = this.add.rectangle(CX, cy + cardH / 2, cardW, cardH, 0x232640)
         .setStrokeStyle(1, 0x3a3f5c).setDepth(82)
 
+      const hexColor = `#${df.color.toString(16).padStart(6, '0')}`
       const lbl = this.add.text(CX - cardW / 2 + 16, cy + 12, df.label, {
-        fontFamily: 'monospace', fontSize: '16px', color: df.color,
+        fontFamily: 'monospace', fontSize: '16px', color: hexColor,
       }).setDepth(83)
 
       const winDayText = d.bestWinDay ? ` · Победа: день ${d.bestWinDay}` : ''
@@ -224,56 +237,32 @@ export class MenuScene extends Phaser.Scene {
       diffCards.push(bg, lbl, details, records)
     })
 
-    const btnCloseBg = tag(this.add.rectangle(CX, GAME_H / 2 + ph / 2 - 30, 140, 32, 0x3b5dc9)
-      .setDepth(82).setInteractive({ useHandCursor: true }), 'modal.btn.close')
-    const btnCloseTxt = this.add.text(CX, GAME_H / 2 + ph / 2 - 30, 'Закрыть', {
-      fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4',
-    }).setOrigin(0.5).setDepth(83)
-
-    btnCloseBg.on('pointerdown', () => this.closeModal())
-    btnCloseBg.on('pointerover', () => btnCloseBg.setFillStyle(0x41a6f6))
-    btnCloseBg.on('pointerout', () => btnCloseBg.setFillStyle(0x3b5dc9))
-
-    this.modalUI = [overlay, panel, title, closeX, topSummary, ...diffCards, btnCloseBg, btnCloseTxt]
+    this.modalUI = [...frameUI, topSummary, ...diffCards]
   }
 
   private showAchievementsModal() {
     this.closeModal()
     this.menuUI.forEach((o) => {
-      if (o !== this.bg) (o as any).setVisible?.(false)
+      if (o !== this.bg) o.setVisible(false)
     })
     const { unlockedCount, totalCount, list } = getAchievementsSummary()
-    const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.85).setOrigin(0).setDepth(80).setInteractive()
-    overlay.on('pointerdown', () => this.closeModal())
-
     const pw = 840
     const ph = 500
-    const panel = this.add.rectangle(CX, GAME_H / 2, pw, ph, 0x14162b).setStrokeStyle(2, 0x38b764).setDepth(81).setInteractive()
-
-    const title = this.add.text(CX, GAME_H / 2 - ph / 2 + 26, `🏆 ДОСТИЖЕНИЯ (${unlockedCount} / ${totalCount})`, {
-      fontFamily: 'monospace', fontSize: '20px', color: '#ffcd75',
-    }).setOrigin(0.5).setDepth(82)
-
-    const closeX = tag(this.add.text(CX + pw / 2 - 24, GAME_H / 2 - ph / 2 + 24, '✕', {
-      fontFamily: 'monospace', fontSize: '18px', color: '#94b0c2',
-    }).setOrigin(0.5).setDepth(82).setInteractive({ useHandCursor: true }), 'modal.close')
-    closeX.on('pointerdown', () => this.closeModal())
-    closeX.on('pointerover', () => closeX.setColor('#f4f4f4'))
-    closeX.on('pointerout', () => closeX.setColor('#94b0c2'))
+    const { frameUI, topY } = this.createModalFrame(pw, ph, `🏆 ДОСТИЖЕНИЯ (${unlockedCount} / ${totalCount})`, 0x38b764)
 
     // 12 достижений в 2 колонки по 6 строк
     const colW = 380
     const rowH = 56
     const leftX = CX - 395
     const rightX = CX + 15
-    const topY = GAME_H / 2 - ph / 2 + 64
+    const listTopY = topY + 64
 
     const achCards: Phaser.GameObjects.GameObject[] = []
     list.forEach((ach, i) => {
       const col = i % 2 // 0: left, 1: right
       const row = Math.floor(i / 2) // 0..5
       const x = col === 0 ? leftX : rightX
-      const y = topY + row * (rowH + 8)
+      const y = listTopY + row * (rowH + 8)
 
       const strokeColor = ach.unlocked ? 0x38b764 : 0x3a3f5c
       const bg = this.add.rectangle(x + colW / 2, y + rowH / 2, colW, rowH, 0x232640)
@@ -295,17 +284,7 @@ export class MenuScene extends Phaser.Scene {
       achCards.push(bg, name, desc, statusBadge)
     })
 
-    const btnCloseBg = tag(this.add.rectangle(CX, GAME_H / 2 + ph / 2 - 28, 140, 32, 0x3b5dc9)
-      .setDepth(82).setInteractive({ useHandCursor: true }), 'modal.btn.close')
-    const btnCloseTxt = this.add.text(CX, GAME_H / 2 + ph / 2 - 28, 'Закрыть', {
-      fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4',
-    }).setOrigin(0.5).setDepth(83)
-
-    btnCloseBg.on('pointerdown', () => this.closeModal())
-    btnCloseBg.on('pointerover', () => btnCloseBg.setFillStyle(0x41a6f6))
-    btnCloseBg.on('pointerout', () => btnCloseBg.setFillStyle(0x3b5dc9))
-
-    this.modalUI = [overlay, panel, title, closeX, ...achCards, btnCloseBg, btnCloseTxt]
+    this.modalUI = [...frameUI, ...achCards]
   }
 
   // Клавиатура меню (ITGAME-24): 1-4 — сложность, Enter — «Продолжить»
