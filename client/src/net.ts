@@ -17,23 +17,69 @@ export interface Listener {
 const SID_KEY = 'itd.sid'
 const DIFF_KEY = 'itd.diff'
 
-// sessionId — ключ сейва на сервере: живёт в localStorage, переживает
-// перезагрузку страницы и рестарт сервера (мягкий деплой).
-export function sessionId(): string {
-  let sid = localStorage.getItem(SID_KEY)
-  if (!sid) {
-    sid = typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : 'sid-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
-    localStorage.setItem(SID_KEY, sid)
-  }
+// Ключ сессии в памяти вкладки: чтение больше НИЧЕГО не пишет в хранилища
+// (ITGAME-30). Раньше геттер создавал uuid при первом чтении и клал его в
+// localStorage — страница просто открыта, сейва нет, а меню уже показывает
+// «ПРОДОЛЖИТЬ» и честное лицо теряет. Теперь ключ появляется в хранилищах
+// только с настоящей партией — в connect().
+let memorySid: string | null = null
+// Откуда пришёл sid: 'session' — вкладочный (зеркало или агентский),
+// 'local' — общий ключ игрока, 'generated' — создан этой страницей.
+let sidOrigin: 'session' | 'local' | 'generated' | null = null
+// Происхождение ТЕКУЩЕЙ партии фиксируется на коннекте: дальнейшие чтения
+// sessionId() честно перекладывают origin на зеркало sessionStorage, а
+// гарда общего ключа должна знать, чья партия на самом деле.
+let partyOrigin: 'session' | 'local' | 'generated' | null = null
 
-  return sid
+function newSid(): string {
+  return typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : 'sid-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
 
-// Есть ли сейв для «Продолжить» в меню (sid + сложность прошлой игры).
+// sessionId — ключ сейва на сервере. Приоритет: sessionStorage →
+// localStorage → память вкладки (сгенерированный, ещё не записанный).
+// Хранилище всегда важнее памяти: агент может вызвать itd.server() до
+// установки своего sid — кэш не должен побить явную установку.
+// Параллельным вкладкам/агентским прогонам общий localStorage-ключ —
+// ловушка: вкладки тихо перезаписывают sid друг другу, команда уезжает в
+// чужую партию. sessionStorage виден только своей вкладке — агрессивные
+// сценарии ставят sid туда и не воюют с соседями.
+export function sessionId(): string {
+  const fromSession = sessionStorage.getItem(SID_KEY)
+  if (fromSession) {
+    memorySid = fromSession
+    sidOrigin = 'session'
+    return memorySid
+  }
+  const fromLocal = localStorage.getItem(SID_KEY)
+  if (fromLocal) {
+    memorySid = fromLocal
+    sidOrigin = 'local'
+    return memorySid
+  }
+  if (memorySid) return memorySid
+  memorySid = newSid()
+  sidOrigin = 'generated'
+  return memorySid
+}
+
+// Записать ключ с реальной партией (connect): зеркало вкладки всегда,
+// общий ключ игрока — только если sid не вкладочный: партии агентов из
+// sessionStorage в общий ключ не попадают. Сразу фиксируем происхождение
+// партии для гарды общего ключа.
+function persistSid(): void {
+  const sid = sessionId()
+  partyOrigin = sidOrigin
+  sessionStorage.setItem(SID_KEY, sid)
+  if (sidOrigin !== 'session') localStorage.setItem(SID_KEY, sid)
+}
+
+// Есть ли сейв для «Продолжить» в меню: ключ в хранилищах теперь появляется
+// только с настоящей партией — «ПРОДОЛЖИТЬ» больше не судит по ключу,
+// созданному голым чтением.
 export function hasSavedSession(): boolean {
-  return localStorage.getItem(SID_KEY) !== null
+  return sessionStorage.getItem(SID_KEY) !== null || localStorage.getItem(SID_KEY) !== null
 }
 
 export function savedDifficulty(): DifficultyId {
@@ -41,7 +87,12 @@ export function savedDifficulty(): DifficultyId {
 }
 
 // clearSession — сейва больше нет (финал/сдаться): спрятать «Продолжить».
+// Память вкладки тоже забываем: следующее чтение честно создаст новый sid.
 export function clearSession(): void {
+  memorySid = null
+  sidOrigin = null
+  partyOrigin = null
+  sessionStorage.removeItem(SID_KEY)
   localStorage.removeItem(SID_KEY)
   localStorage.removeItem(DIFF_KEY)
 }
@@ -59,6 +110,7 @@ export class GameClient {
     reconnects: 0, // сколько раз рвалось и чинилось
     lastMessageAt: 0, // epoch ms последнего сообщения
     rtt: null as number | null, // мс от последней команды до ответа
+    sidSwitches: 0, // ITGAME-30: sid сменился между соединениями (гарда вкладок)
   }
   // Эфир WS для itd.net(): последние сообщения в обе стороны (ITGAME-25).
   readonly wire: { dir: 'in' | 'out'; at: number; type: string; info: Record<string, unknown> }[] = []
@@ -70,6 +122,26 @@ export class GameClient {
   private reconnectAttempt = 0
   private takenOver = false
   private difficulty: DifficultyId = 'normal'
+
+  constructor() {
+    // Гарда общего ключа (ITGAME-30): чужой game_over в соседней вкладке
+    // вытирает ОБЩИЙ localStorage-sid — под ним может жить НАША партия.
+    // Пока партия жива (есть снапшот), возвращаем свой ключ на место;
+    // finished-вкладке он больше не нужен, войны не возникает.
+    window.addEventListener('storage', (ev) => {
+      if (ev.key !== SID_KEY || ev.newValue !== null) return
+      if (!this.latest || partyOrigin === 'session') return
+      const sid = sessionId()
+      if (localStorage.getItem(SID_KEY) !== sid) localStorage.setItem(SID_KEY, sid)
+    })
+  }
+  // Квитанции команд (ITGAME-30): FIFO — каждый state|error после отправки
+  // закрывает ОДНУ самую старую ждущую квитанцию, порядок команд сохраняется.
+  private receipts: ((r: { ok: boolean; code?: string }) => void)[] = []
+  // sid, которым живёт ТЕКУЩЕЕ соединение; гарда «sid сменился подо мной».
+  // Легитимная смена (новая партия из меню, abandon) сбрасывается в null
+  // в connect()/abandon() — предупреждает только незапланированные.
+  private sessionSid: string | null = null
 
   // Статус сокета одним словом — для itd.server() и баннеров.
   socketStatus(): 'open' | 'reconnecting' | 'closed' {
@@ -108,14 +180,31 @@ export class GameClient {
     this.latest = null
     this.intentionalClose = false
     this.takenOver = false
+    this.sessionSid = null // смена sid здесь запланирована (новая партия)
     this.difficulty = difficulty
     localStorage.setItem(DIFF_KEY, difficulty)
+    // Ключ сессии появляется в хранилищах только здесь — с реальной партией
+    // (ITGAME-30): зеркало вкладки (sessionStorage) держит партию против
+    // чужого clearSession, общий ключ игрока не затирается вкладочными sid.
+    persistSid()
     this.openSocket()
   }
 
   private openSocket(): void {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    const sid = encodeURIComponent(sessionId())
+    const sid = sessionId()
+    if (this.sessionSid !== null && this.sessionSid !== sid) {
+      // Гарда (ITGAME-30): между соединениями общий ключ перезаписала
+      // другая вкладка — реконнект молча ушёл бы в её партию.
+      this.stats.sidSwitches++
+      console.warn(
+        `[net] sid сменился подо мной: ${this.sessionSid} → ${sid}. ` +
+          'Реконнект уйдёт в чужую партию. Параллельные вкладки: ' +
+          `sessionStorage.setItem('${SID_KEY}', '<уникальный sid>').`,
+      )
+    }
+    this.sessionSid = sid
+    const urlSid = encodeURIComponent(sid)
     // Отладочные параметры страницы (ITGAME-26) пробрасываются в WS:
     // ?seed= задаёт сид НОВОЙ партии, ?scenario= — её фиксуру. Сервер
     // применяет их только к новой партии: живой сейв важнее параметров.
@@ -127,7 +216,7 @@ export class GameClient {
     if (scenario) extra.set('scenario', scenario)
     const qs = extra.toString()
     this.ws = new WebSocket(
-      `${proto}://${location.host}/ws?difficulty=${this.difficulty}&sid=${sid}${qs ? `&${qs}` : ''}`,
+      `${proto}://${location.host}/ws?difficulty=${this.difficulty}&sid=${urlSid}${qs ? `&${qs}` : ''}`,
     )
     this.ws.onmessage = (ev) => {
       this.stats.messages++
@@ -145,11 +234,15 @@ export class GameClient {
       }
       this.logWire('in', msg.type, msg as unknown as Record<string, unknown>)
       if (msg.type === 'state') {
+        // квитанция команды (ITGAME-30): state = успех, закрывает старейшую
+        this.receipts.shift()?.({ ok: true })
         // соединение живое: банк экспоненты сброс
         this.reconnectAttempt = 0
         this.latest = msg
         this.listeners.forEach((l) => l.onState(msg))
       } else if (msg.type === 'error') {
+        // error = отказ сервера: код уходит квитанции, слушателям — как раньше
+        this.receipts.shift()?.({ ok: false, code: msg.code })
         this.listeners.forEach((l) => l.onError(msg.code))
       } else if (msg.type === 'day_report') {
         this.listeners.forEach((l) => l.onDayReport?.(msg))
@@ -173,6 +266,7 @@ export class GameClient {
     const onGone = (ev: CloseEvent | null) => {
       if (this.intentionalClose || handled) return
       handled = true
+      this.failReceipts('disconnected')
       const reason = ev?.reason ?? ''
       if (reason.includes('session_taken')) {
         // Другая вкладка забрала сессию: реконнект устроит войну вкладок.
@@ -202,12 +296,19 @@ export class GameClient {
     this.intentionalClose = true
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = null
+    this.failReceipts('disconnected')
     this.ws.close()
     this.latest = null
   }
 
+  // Все ждущие квитанции — отказ с кодом (сокет ушёл: висеть им нельзя).
+  private failReceipts(code: string): void {
+    while (this.receipts.length > 0) this.receipts.shift()?.({ ok: false, code })
+  }
+
   // Сдаться: удалить сейв на сервере и забыть сессию локально.
   abandon(): void {
+    this.sessionSid = null // смена sid здесь запланирована
     if (this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'abandon' }))
     }
@@ -219,13 +320,44 @@ export class GameClient {
     return this.takenOver
   }
 
-  send(cmd: CommandType, office = 0, extra: Record<string, number> = {}): void {
+  send(cmd: CommandType, office = 0, extra: Record<string, number> = {}): boolean {
     // Соединение ещё не открыто или уже потеряно — команду безопасно игнорируем,
-    // сервер всё равно источник истины.
-    if (this.ws.readyState !== WebSocket.OPEN) return
+    // сервер всё равно источник истины. Возвращаем факт отправки: вызывающий
+    // (itd.pause(), itd.cmd) обязан отличить «отправлено» от тихого no-op.
+    if (this.ws?.readyState !== WebSocket.OPEN) return false
     this.commandSentAt = Date.now()
     this.ws.send(JSON.stringify({ type: cmd, office, ...extra }))
     this.logWire('out', cmd, { type: cmd, office, ...extra })
+    return true
+  }
+
+  // Команда с квитанцией сервера (ITGAME-30): Promise<{ok, code?}>.
+  // Успех — первый state после отправки, отказ — error с кодом сервера
+  // (no_free_pc, not_enough_money, …). Квитанции выдаются по порядку команд.
+  // Сокет не открыт — честный {ok:false, code:'not_connected'} сразу;
+  // ответа нет за timeoutMs — {ok:false, code:'receipt_timeout'}.
+  sendWithReceipt(
+    cmd: CommandType,
+    office = 0,
+    extra: Record<string, number> = {},
+    timeoutMs = 5000,
+  ): Promise<{ ok: boolean; code?: string }> {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      return Promise.resolve({ ok: false, code: 'not_connected' })
+    }
+    return new Promise((resolve) => {
+      const settle = (r: { ok: boolean; code?: string }) => {
+        clearTimeout(timer)
+        resolve(r)
+      }
+      const timer = setTimeout(() => {
+        const i = this.receipts.indexOf(settle)
+        if (i >= 0) this.receipts.splice(i, 1)
+        resolve({ ok: false, code: 'receipt_timeout' })
+      }, timeoutMs)
+      this.receipts.push(settle)
+      this.send(cmd, office, extra)
+    })
   }
 
   // Повторно раздаёт последний снапшот — перерисовка сцен без сервера

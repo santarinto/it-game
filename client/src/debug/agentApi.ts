@@ -166,6 +166,10 @@ async function debugFetch<T>(method: 'GET' | 'POST', path: string, body?: Record
 // чтобы wait()-условия не падали на «ещё не подключено».
 export interface AgentState {
   connected: boolean
+  // ITGAME-30: меню создано и активно — предикат готовности ДО старта
+  // партии (state() там весь null). wait(s => s.menuReady) вместо слепого
+  // setTimeout; в скрытой вкладке wait() сам прогревает кадр.
+  menuReady: boolean
   balance: number | null
   day: number | null
   clock: string | null
@@ -208,6 +212,8 @@ export interface AgentServer {
   rtt: number | null // мс от последней команды до ближайшего ответа
   reconnects: number
   lastMessageAt: number | null // epoch ms
+  sid: string // ITGAME-30: sid текущего соединения (каким партиям уезжают команды)
+  sidSwitches: number // ITGAME-30: сколько раз sid сменился между соединениями (гарда вкладок)
   snapshot: StateMessage | null
 }
 
@@ -233,6 +239,15 @@ export interface AgentResult {
   error?: string
 }
 
+// Квитанция команды (ITGAME-30): ok=true — сервер принял (state за ней),
+// ok=false — код отказа: серверный (no_free_pc, not_enough_money, …) или
+// транспортный (not_connected, receipt_timeout, disconnected).
+export interface CmdReceipt {
+  ok: boolean
+  code?: string
+  error?: string
+}
+
 export interface ItdApi {
   // Штамп сборки (ITGAME-28): {sha, builtAt} + <meta name="build">.
   readonly version: { sha: string; builtAt: string }
@@ -244,6 +259,10 @@ export interface ItdApi {
   click(id: string): AgentResult & { id?: string; scene?: string }
   hover(id: string): AgentResult & { id?: string; scene?: string }
   key(k: string): AgentResult & { key?: string; scenes?: string[] }
+  // ITGAME-30: команда с квитанцией сервера — Promise<{ok, code?}>.
+  cmd(type: string, office?: number, extra?: Record<string, number>): Promise<CmdReceipt>
+  // ITGAME-30: прогреть кадр вручную (сколько шагов лупа сделали).
+  warm(): number
   wait(cond: (s: AgentState, srv: AgentServer) => boolean, timeoutMs?: number): Promise<AgentState>
   overlaps(): OverlapEntry[]
   offscreen(): OffscreenEntry[]
@@ -265,9 +284,9 @@ export interface ItdApi {
     last: { dir: 'in' | 'out'; at: number; type: string; info: Record<string, unknown> }[]
   }
   // ITGAME-26: управление временем и состоянием через /api/debug/*.
-  pause(): AgentResult
-  resume(): AgentResult
-  speed(n: number): AgentResult
+  pause(): AgentResult & { code?: string }
+  resume(): AgentResult & { code?: string }
+  speed(n: number): AgentResult & { code?: string }
   step(ms: number): Promise<DebugAdvanceResult>
   advanceDays(n: number): Promise<DebugAdvanceResult>
   set(patch: { money?: number; day?: number; tickInDay?: number }): Promise<DebugState>
@@ -286,11 +305,26 @@ declare global {
 
 // ── Реализация ────────────────────────────────────────────────────────────
 
-function buildState(): AgentState {
+// Прогрев лупа (ITGAME-30): в скрытой вкладке RAF стоит — сцены не
+// создаются, ids()/nodes() смотрели бы в пустоту без ошибки. tick() —
+// публичный шаг TimeStep, ровно тот, что зовёт RAF: он двигает загрузчик,
+// create() сцен и обновление. Прогрев не рендерит ничего лишнего — канвас
+// скрытой вкладки и так не показывается.
+function warmTicks(game: Phaser.Game, n: number): number {
+  const loop = game.loop as Phaser.Core.TimeStep & { tick(): void }
+  let done = 0
+  for (; done < n; done++) loop.tick()
+  return done
+}
+
+function buildState(game: Phaser.Game): AgentState {
+  // Меню готово, когда его create() отработал (сцена RUNNING). До старта
+  // партии это единственный честный «я на экране» для агента.
+  const menuReady = game.scene.isActive('menu')
   const s = client.latest
   if (!s) {
     return {
-      connected: false, balance: null, day: null, clock: null, lunch: null,
+      connected: false, menuReady, balance: null, day: null, clock: null, lunch: null,
       phase: null, speed: null, difficulty: null, incomePerTick: null,
       payrollPerDay: null, forecastEndOfDay: null, staff: null,
       staffConnected: null, staffLimit: null, officesUnlocked: null,
@@ -304,6 +338,7 @@ function buildState(): AgentState {
   const staff = s.offices.reduce((n, o) => n + o.employees.length, 0)
   return {
     connected: true,
+    menuReady,
     balance: s.money,
     day: s.day,
     clock: s.clock,
@@ -346,6 +381,8 @@ function buildServer(): AgentServer {
     rtt: client.stats.rtt,
     reconnects: client.stats.reconnects,
     lastMessageAt: client.stats.lastMessageAt || null,
+    sid: sessionId(),
+    sidSwitches: client.stats.sidSwitches,
     snapshot: client.latest,
   }
 }
@@ -452,16 +489,28 @@ const KEYMAP: Record<string, { code: string; keyCode: number; key: string }> = {
   4: { code: 'FOUR', keyCode: 52, key: '4' },
 }
 
-const HELP = `itd — агентский API игры (ITGAME-24/25/26)
-  itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота)
-  itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt, reconnects
+// Команды протокола для itd.cmd() (ITGAME-30): зеркало CommandType.
+const COMMANDS = new Set<string>([
+  'buy_pc', 'hire', 'buy_router', 'hire_boss', 'buy_office',
+  'buy_server', 'buy_gateway', 'next_day', 'restart',
+  'buy_cooler', 'buy_fridge', 'buy_coffee', 'set_speed',
+  'upgrade_server', 'upgrade_core',
+  'motivate', 'repair_click', 'call_master', 'event_choice', 'fire',
+  'abandon',
+])
+
+const HELP = `itd — агентский API игры (ITGAME-24/25/26/30)
+  itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); menuReady — меню создано и активно
+  itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt, reconnects, sid, sidSwitches
   itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, visible, alpha, interactive, depth}
   itd.text()                        — nodes() с непустым текстом
   itd.ids()                         — стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*, modal.*)
   itd.click('btn.hire')             — клик по id: дергает pointerdown-обработчик напрямую, мимо input-слоя
   itd.hover('office.worker.0')      — наведение по id (тултипы)
   itd.key('1'|'enter'|'space'|'esc')— клавиша: 1-4 сложность в меню, enter/space/esc — отчёт дня
-  itd.wait(s => s.day === 2)        — промис: поллинг state()/server() до условия (таймаут 5с, второй аргумент — свой)
+  itd.cmd('hire')                   — команда с квитанцией сервера: Promise<{ok, code?}> — первый state|error после отправки, по порядку команд; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
+  itd.warm()                        — прогреть кадр вручную (шаги лупа); в скрытой вкладке itd делает это сам
+  itd.wait(s => s.day === 2)        — промис: поллинг state()/server() до условия (таймаут 5с, второй аргумент — свой); готовность меню — wait(s => s.menuReady), до старта партии state() null, но menuReady уже честен
   itd.overlaps()                    — линтер вёрстки: пересечения видимых текстов одного depth
   itd.offscreen()                   — линтер: вылезание за канвас 1280×720
   itd.contrast()                    — линтер: контраст текста к фону ниже 3:1
@@ -472,8 +521,8 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26)
   itd.version                       — {sha, builtAt} сборки (+ <meta name="build"> в html)
   itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне Sweetie-16, дубли ключей
   itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк)
-  itd.reset()                       — снести все ключи localStorage itd.* (sid, сложность, хинты, зум, отчёты)
-  itd.pause() / resume() / speed(n) — темп сессии: set_speed 0/1/0..3 (серверный, живёт в сейве)
+  itd.reset()                       — снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум, отчёты)
+  itd.pause() / resume() / speed(n) — темп сессии: set_speed 0/1/0..3 (серверный, живёт в сейве); до коннекта — {ok:false, code:'not_connected'}
   itd.step(2000)                    — пауза + промотка 2с игровых тиков (2000мс = 2 тика) через /api/debug/advance
   itd.advanceDays(3)                — промотка дней офлайн-движком: день N → N+3, отчёты дней в itd.events()
   itd.set({money: 50000})           — читы живой сессии: {money, day, tickInDay}
@@ -481,28 +530,54 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26)
   itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы
   itd.restore(save)                 — вернуть состояние из snapshot().save (дельта над текущим)
   itd.quiet()                       — стоп твитов/миганий для стабильных скриншотов
+Фоновая вкладка: RAF стоит, но itd сам ведёт луп (пульс 300мс + прогрев в каждом вызове) — ids()/nodes()/click() живут без скриншотов и без «принудительного кадра».
+Параллельные вкладки: sid берётся из sessionStorage РАНЬШЕ localStorage; в хранилища ключ попадает ТОЛЬКО с реальной партиёй (чтение его не пишет — «ПРОДОЛЖИТЬ» не врёт). Одна партия = один sid: агрессивным прогонам — sessionStorage.setItem('itd.sid', 'a-<имя>-'+Date.now()) (виден только вкладке, общий ключ не трогает), игроку достаётся localStorage + зеркало вкладки. server().sidSwitches > 0 — общий ключ перезаписала соседняя вкладка, реконнект ушёл бы в её партию.
 Пример: await itd.scenario('soft_lock'); itd.state().day
-Пример: itd.set({money: 50000}); await itd.wait(s => s.balance === 50000)`
+Пример: itd.set({money: 50000}); await itd.wait(s => s.balance === 50000)
+Пример: await itd.cmd('hire') → {ok:false, code:'no_free_pc'} — сервер отказал, ПК заняты`
 
 function makeApi(game: Phaser.Game): ItdApi {
   const telemetry = startTelemetry(game)
+
+  // Пульс скрытой вкладки (ITGAME-30): пока вкладка спрятана, RAF стоит —
+  // грузчик и create() сцен не двигаются вовсе. Раз в 300мс ткнём луп
+  // вручную: объекты создаются и живут независимо от рендера. На видимой
+  // вкладке пульс — no-op, там работает настоящий RAF.
+  const pulse = setInterval(() => {
+    if (document.visibilityState === 'hidden') warmTicks(game, 1)
+  }, 300)
+  game.events.once(Phaser.Core.Events.DESTROY, () => clearInterval(pulse))
+
+  // Прогрев по требованию: каждый читающий метод фасада сначала ткнёт луп
+  // несколько раз — в скрытой вкладке это создаёт сцены сразу, не ожидая
+  // пульса; на видимой — ничего не меняет (кадры уже идут).
+  const warmIfHidden = (): void => {
+    if (document.visibilityState === 'hidden') warmTicks(game, 5)
+  }
+  const warmedNodes = (): AgentNode[] => {
+    warmIfHidden()
+    return activeNodes(game)
+  }
+
   return {
     version: BUILD,
-    state: buildState,
+    state: () => buildState(game),
     server: buildServer,
-    nodes: () => activeNodes(game),
-    text: () => activeNodes(game).filter((n) => n.text !== null && n.text !== ''),
+    nodes: () => warmedNodes(),
+    text: () => warmedNodes().filter((n) => n.text !== null && n.text !== ''),
     ids: () =>
-      activeNodes(game)
+      warmedNodes()
         .filter((n) => n.id !== null)
         .map((n) => ({ id: n.id as string, scene: n.scene, type: n.type, text: n.text })),
     click(id) {
+      warmIfHidden()
       const hit = findById(game, id)
       if (!hit) return { ok: false, error: `id '${id}' не найден — см. itd.ids()` }
       hit.obj.emit('pointerdown', leftPointer, 0, 0, {})
       return { ok: true, id, scene: hit.scene }
     },
     hover(id) {
+      warmIfHidden()
       const hit = findById(game, id)
       if (!hit) return { ok: false, error: `id '${id}' не найден — см. itd.ids()` }
       hit.obj.emit('pointerover', leftPointer, 0, 0, {})
@@ -511,6 +586,7 @@ function makeApi(game: Phaser.Game): ItdApi {
     key(k) {
       const def = KEYMAP[k.toLowerCase()]
       if (!def) return { ok: false, error: `неизвестная клавиша '${k}' — есть: ${Object.keys(KEYMAP).join(', ')}` }
+      warmIfHidden()
       const event = {
         keyCode: def.keyCode,
         key: def.key,
@@ -528,11 +604,28 @@ function makeApi(game: Phaser.Game): ItdApi {
       }
       return { ok: true, key: def.code, scenes }
     },
+    cmd(type, office = 0, extra = {}) {
+      // Квитанция сервера (ITGAME-30): ok=true только когда за командой
+      // пришёл state; отказ сервера виден кодом, а не молчанием.
+      if (!COMMANDS.has(type)) {
+        return Promise.resolve({
+          ok: false,
+          error: `неизвестная команда '${type}' — есть: ${[...COMMANDS].join(', ')}`,
+        })
+      }
+      return client
+        .sendWithReceipt(type as import('../protocol').CommandType, office, extra)
+        .then((r) => (r.ok ? r : { ...r, error: r.code }))
+    },
+    warm: () => warmTicks(game, 10),
     wait(cond, timeoutMs = 5000) {
       return new Promise<AgentState>((resolve, reject) => {
         const startedAt = Date.now()
         const tick = () => {
-          const s = buildState()
+          // Скрытая вкладка: условия вида menuReady/ids без прогрева не
+          // станут истинными никогда — луп стоит (ITGAME-30).
+          warmIfHidden()
+          const s = buildState(game)
           let ok: boolean
           try {
             ok = cond(s, buildServer())
@@ -600,14 +693,17 @@ function makeApi(game: Phaser.Game): ItdApi {
       })
     },
     reset() {
-      // Единый namespace itd.* (ITGAME-28): снести всё разом — sid,
+      // Единый namespace itd.* (ITGAME-28): снести всё разом — sid (обе
+      // копии: sessionStorage вкладки + localStorage игрока, ITGAME-30),
       // сложность, хинты, зум, тумблеры. Страницу перезагружает агент.
       const removed: string[] = []
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const k = localStorage.key(i)
-        if (k?.startsWith('itd.')) {
-          localStorage.removeItem(k)
-          removed.push(k)
+      for (const store of [localStorage, sessionStorage]) {
+        for (let i = store.length - 1; i >= 0; i--) {
+          const k = store.key(i)
+          if (k?.startsWith('itd.')) {
+            store.removeItem(k)
+            removed.push(k)
+          }
         }
       }
       return { ok: true, removed }
@@ -623,19 +719,23 @@ function makeApi(game: Phaser.Game): ItdApi {
       }
     },
     pause() {
-      client.send('set_speed', 0, { speed: 0 })
-      return { ok: true }
+      // Честный отказ до коннекта (ITGAME-30): раньше — тихий no-op c ok:true.
+      return client.send('set_speed', 0, { speed: 0 })
+        ? { ok: true }
+        : { ok: false, code: 'not_connected', error: 'сокет не открыт — пауза не отправлена' }
     },
     resume() {
-      client.send('set_speed', 0, { speed: 1 })
-      return { ok: true }
+      return client.send('set_speed', 0, { speed: 1 })
+        ? { ok: true }
+        : { ok: false, code: 'not_connected', error: 'сокет не открыт — resume не отправлен' }
     },
     speed(n) {
       if (!Number.isInteger(n) || n < 0 || n > 3) {
         return { ok: false, error: 'скорость — целое 0..3 (0 — пауза)' }
       }
-      client.send('set_speed', 0, { speed: n })
-      return { ok: true }
+      return client.send('set_speed', 0, { speed: n })
+        ? { ok: true }
+        : { ok: false, code: 'not_connected', error: 'сокет не открыт — скорость не отправлена' }
     },
     async step(ms) {
       if (ms <= 0 || ms > 10000) throw new Error('step: мс — 1..10000')
