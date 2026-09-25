@@ -110,8 +110,7 @@
 
 Деплой дёргает on-box webhook (`bin/trigger-deploy.sh`, HMAC), бокс
 собирает релиз атомарно (`bin/deploy-local.sh`: `releases/<id>` → своп
-симлинка `current` → `systemctl restart itgame`). Репозиторий переехал
-на GitHub (2026-09-26), GitFlic CI убран: автозапуск деплоя временно
+симлинка `current` → `systemctl restart itgame`). Деплой сейчас
 ручной — `bin/trigger-deploy.sh <sha>` (GitHub Actions — следующий шаг).
 Схема деплоя — плейбук атомарного деплоя (репо my-santarinto).
 На боксе: nginx (TLS, статика,

@@ -11,8 +11,8 @@
 - **nginx:** статика из `current/client/dist`, `/ws` с Upgrade и
   таймаутом 1 ч, `/admin` под basic auth, `/api/deploy` → webhook
   (только POST).
-- **CD по плейбуку gitflic-ci-cd-playbook:** пуш в `main` → GitFlic
-  CI (Go vet/test + typecheck/build) → HMAC-вебхук → атомарный релиз
+- **CD по плейбуку атомарного деплоя (репо my-santarinto):** пуш в
+  `main` → CI (Go vet/test + typecheck/build) → HMAC-вебхук → атомарный релиз
   (`bin/deploy-local.sh`: git archive → сборка → своп `rename(2)` →
   restart + health-check `/admin`; храним 3 релиза).
 - **Гонка пайплайнов закрыта:** деплоится протестированный SHA из
