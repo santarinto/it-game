@@ -1,260 +1,179 @@
-# Разработка и эксплуатация
+# Development
 
-Технический справочник проекта: запуск, прод и деплой, сейвы, тесты,
-CI, облачная сессия, БД, ассеты. Что за игра и стек — в README;
-геймдизайн — `docs/design/gdd.md`.
+Operations and testing reference. What the game is and how to run it — see
+the README; game design — `docs/design/gdd.md`.
 
-## Запуск (dev)
+## Deploy
 
-    make dev        # Go-сервер :8080 + Vite :5173 (открыть http://localhost:5173)
+Production runs on a single box: nginx (TLS, static files, `/ws`, `/admin`
+behind basic auth) → Go binary on `127.0.0.1:8080`, systemd unit `itgame`.
 
-## Прод-сборка
+A deploy is triggered by an HMAC-signed webhook (`bin/trigger-deploy.sh`).
+The box builds an atomic release with `bin/deploy-local.sh`:
+`releases/<id>` → swap the `current` symlink → `systemctl restart itgame`.
+A failed build leaves the running release untouched.
 
-    make build
-    ./bin/itdirector -static client/dist   # всё на http://localhost:8080
+- **GitHub Actions** — the `deploy` job runs on pushes to `main` after the
+  `server` and `client` jobs pass, deploys the tested SHA and smoke-tests
+  production. It is enabled by the `DEPLOY_HOOK_SECRET` repository secret;
+  without it the job skips with a warning. A SHA that `main` has already
+  moved past is not deployed. "Run workflow" on `main` deploys manually.
+- **Manually:** `DEPLOY_HOOK_SECRET=… bin/trigger-deploy.sh <sha>`.
 
-## Прод (itgame.santarinto.com)
+Notes:
 
-Деплой дёргает on-box webhook (`bin/trigger-deploy.sh`, HMAC), бокс
-собирает релиз атомарно (`bin/deploy-local.sh`: `releases/<id>` → своп
-симлинка `current` → `systemctl restart itgame`). Запуск — один из двух:
+- `npm run build` runs `check-sprites.mjs`, so the box needs Chromium
+  (`CHROME_PATH` or `/usr/bin/chromium`).
+- Releases are built from `git archive` (no `.git`), so the build stamp
+  (`<meta name="build">`, `itd.version`) reads `dev` instead of a SHA.
+- A deploy drops live WebSocket connections; saves live in `shared/saves`,
+  and clients reconnect and resume.
+- nginx must not SPA-fallback `/assets/`, or a missing asset returns
+  `index.html` with 200:
 
-- **GitHub Actions** (`.github/workflows/ci.yml`, джоба `deploy`): пуш в
-  `main` → зелёные `server` и `client` → вебхук с протестированным SHA →
-  UI-смоук против прода. Включается секретом репо `DEPLOY_HOOK_SECRET`
-  (Settings → Secrets and variables → Actions); без него джоба
-  пропускает выкат с warning. Если `main` за время тестов ушёл вперёд,
-  устаревший SHA не выкатывается. Ручной выкат из Actions — «Run
-  workflow» на `main`.
-- **Вручную:** `DEPLOY_HOOK_SECRET=… bin/trigger-deploy.sh <sha>`.
+  ```nginx
+  location /assets/ {
+      try_files $uri =404;
+  }
+  ```
 
-Бокс собирает клиент тем же `npm run build`, а он включает
-`check-sprites.mjs` — на боксе нужен Chromium (`CHROME_PATH` или
-`/usr/bin/chromium`), иначе релиз падает до свопа (прод остаётся на
-старом). Релиз собирается из `git archive` — `.git` в нём нет, и
-`vite.config.ts` ставит в штамп сборки `dev` вместо sha.
-Схема деплоя — плейбук атомарного деплоя (репо my-santarinto).
-На боксе: nginx (TLS, статика,
-`/ws`, `/admin` под basic auth) → Go-бинарь на `127.0.0.1:8080`. Деплой
-рвёт активные WS-сессии, но сейвы переживают рестарт (общий каталог
-`shared/saves`), клиент переподключается сам и продолжает партию.
+- Sourcemaps are built as `hidden` (`dist/assets/*.map`, not referenced
+  from the bundle). The Go server serves them only when
+  `ITGAME_SOURCEMAP_TOKEN` is set: `/assets/app.js.map?token=…`.
 
-### Честные 404 и sourcemaps (ITGAME-28)
+## Sessions and saves
 
-Go-сервер раздаёт статику голым `http.FileServer` — отсутствующий ассет
-честно даёт 404. Но nginx бокса сейчас делает SPA-fallback (`try_files …
-/index.html`) на ВСЁ, включая `/assets/` — битая ссылка на спрайт
-возвращала 200 с HTML (поймано curl'ом: `curl -o /dev/null -w '%{code}'`
-`/assets/nope.png` → 200 text/html). Фикс на боксе (`/etc/nginx/…`,
-секция server itgame) — не трогать `/assets` фолбэком:
+A session is keyed by the client's `sid` (localStorage, `/ws?sid=`). The
+server saves after every command and tick — in memory plus an atomically
+written `<sid>.json`. On reconnect with the same `sid` within the TTL
+(default 24 h, `-save-ttl`):
 
-```nginx
-location /assets/ {
-    try_files $uri =404;   # битые ассеты — честный 404, не index.html
-}
-```
+- the game resumes; a short drop (e.g. a deploy) continues silently;
+- missed time is simulated offline with a summary formula (no coffee rolls,
+  events, breakdowns or XP; lunch and amenity debuffs apply; session speed
+  applies, pause freezes). A day or more away produces a "while you were
+  away" report; bankruptcy or victory can happen offline;
+- game endings and `abandon` delete the save; another tab with the same
+  `sid` takes the session over and the old one is closed with
+  `session_taken`.
 
-Sourcemaps: клиент собирается с `sourcemap: 'hidden'` (карты лежат в
-`dist/assets/*.map`, ссылок в бандле нет). Наружу Go-сервер их не отдаёт:
-нужен env `ITGAME_SOURCEMAP_TOKEN` на боксе, карта доступна как
-`/assets/app.js.map?token=…`. Без env — 404 даже с токеном.
+Save directory: `-saves` flag → `ITGAME_SAVES_DIR` →
+`/opt/itgame/shared/saves` (if it exists) → `./saves`. `-saves off` runs
+stateless. Expired saves are purged on start and on access.
 
-Штамп сборки: `<meta name="build" content="<sha> <время>">` в index.html
-и `itd.version` в консоли — проверка «доехала ли правка» без хэша в имени
-файла. Спрайты проверяются сборкой (`client/scripts/check-sprites.mjs`:
-64×64, прозрачный фон, Sweetie-16, детектор запечённого чекерборда) —
-кривой ассет роняет `npm run build`.
+## Agent bridge `/ws/agent`
 
-### WS-мост агента /ws/agent (ITGAME-29)
+`ws://host/ws/agent?sid=…[&seed=][&scenario=][&difficulty=]` drives a
+session without a browser. It speaks the client protocol plus:
+`{"type":"status"}` → `agent_status` (role, phase, server version, seed);
+`debug_patch` / `debug_advance` / `debug_step` / `debug_scenario` →
+`agent_result` (mirrors `/api/debug/*`). The agent never takes a live
+session: it attaches as an observer, or runs a headless one if none exists;
+a player connecting takes the headless session over. Neither the bridge
+nor `/api/debug/*` is gated yet.
 
-`ws://host/ws/agent?sid=…[&seed=][&scenario=][&difficulty=]` — управление
-сессией без браузера (wscat/скрипты). Протокол: те же сообщения, что
-вкладке (`state`, `day_report`, …) + агентские:
-`{"type":"status"}` → `agent_status` (role, phase, version=sha сервера,
-seed); `debug_patch`/`debug_advance`/`debug_step`/`debug_scenario` →
-`agent_result` (зеркало /api/debug/*); обычные команды (`buy_pc`, `hire`,
-`set_speed`, …) — как у клиента. Политика занятости: агент не отбирает
-сессию — к живой цепляется наблюдателем, без живой поднимает headless и
-владеет ею; игрок при подключении отбирает headless-сессию (агент получает
-`session_taken` и переподключается наблюдателем). Гейта нет до прода —
-как у /api/debug/*.
+## Tests
 
-## Сейвы, реконнект и офлайн-прогресс (итерация 16)
+    make test         # Go (DB tests need TEST_DATABASE_URL, otherwise SKIP)
+    make typecheck    # client type check
+    make smoke-ui     # built client in headless Chromium: menu starts, clean console
+    make sim ARGS=…   # headless balance runs
+    cd client && npm run visreg   # screenshot and layout regressions
 
-Сессия привязана к `sid` из localStorage клиента (query-параметр `/ws`).
-Сервер сейвит игру после каждой команды и каждого тика: память + файл
-`<sid>.json` (атомарно, tmp+rename). При переподключении с тем же sid:
-
-- в течение TTL (по умолчанию 24 ч, `-save-ttl`) — восстановление фазы,
-  тика дня и баланса; короткий разрыв (деплой) продолжается тихо;
-- пропущенное время досимулируется офлайн-догоном по сводной формуле
-  (как `ForecastEndOfDay`: без кофе-роллов, событий, поломок и XP, обед и
-  дебаффы быта учитываются; темп сессии 1–3x ускоряет догон, пауза
-  замораживает). Прошёл день и больше — клиенту приходит отчёт
-  «пока вас не было»; банкротство/победа возможны и офлайн;
-- финалы (банкротство/победа) и `abandon` (сдаться из меню) удаляют сейв;
-  другая вкладка с тем же sid забирает сессию, старой закрывается
-  соединение с причиной `session_taken`.
-
-Каталог сейвов: флаг `-saves` → env `ITGAME_SAVES_DIR` →
-`/opt/itgame/shared/saves` (если существует — прод-бокс) → `./saves`;
-`-saves off` — stateless-режим как до итерации 16. Протухшие сейвы
-чистятся при старте и при обращении.
-
-## Тесты
-
-    make test        # Go: домен, WebSocket-слой, слой БД (нужен TEST_DATABASE_URL)
-    make typecheck   # клиент: проверка типов
-    make smoke-ui    # клиент: headless-Chromium открывает билд — меню
-                     # стартует, консоль чистая (или FAIL)
-    make sim         # сервер: headless-прогоны баланса
-                     # ARGS="--diff hard --seed 1..50 --days 30 --policy all"
-    cd client && npm run visreg   # регрессии скриншотов и вёрстки
-
-Chromium нужен не только смоуку: `npm run build` тоже запускает его
-(`check-sprites.mjs`), как и `visreg`. Скрипты ищут `CHROME_PATH`, затем
-`/usr/bin/chromium`, `/usr/bin/chromium-browser`,
+Chromium is used by `npm run build`, `smoke-ui` and `visreg`; scripts look
+for `CHROME_PATH`, then `/usr/bin/chromium`, `/usr/bin/chromium-browser`,
 `/usr/bin/google-chrome-stable`.
 
-UI-смоук (ITGAME-11) — часть релизного пути: CI гоняет его после сборки,
-до деплоя, чтобы «молчаливый чёрный экран» не доехал до прода.
-Локально можно проверить любой URL:
-`cd client && npm run smoke-ui -- https://itgame.santarinto.com`.
-`OFFICE=1` — плюс клик «НОРМА» и проверка сцены офиса (нужен живой
-сервер). Boot проверяет контракт арт-пайплайна (64×64 + прозрачность,
-ITGAME-12) — нарушение падает ошибкой консоли и ловится смоуком.
-Скриншоты проверок — client/smoke-menu.png / smoke-office.png
-(gitignored).
+**Smoke test.** `npm run smoke-ui -- <url>` checks any URL; `OFFICE=1` also
+starts a game and checks the office scene (needs a live server). Boot
+enforces the sprite contract, so a broken asset fails the smoke test.
+Screenshots: `client/smoke-*.png` (gitignored).
 
-Живая проверка протокола (сервер + реальный WebSocket-клиент,
-без браузера):
+**Live protocol checks** — a real WebSocket client against a running server:
 
     cd server && go run ./cmd/server -addr :8091 &
-    node scripts/live-check-saves.mjs            # сейвы/реконнект (ITGAME-8)
-    OFFLINE=1 node scripts/live-check-saves.mjs  # + офлайн-догон (~70с)
-    node scripts/live-check-activeday.mjs        # активный день
-    node scripts/live-check-events.mjs           # события Unseen Forces
-    node scripts/live-check-employees2.mjs       # сотрудники 2.0
-    node scripts/live-check-difficulty2.mjs      # сложность 2.0
+    node scripts/live-check-saves.mjs            # saves, reconnect
+    OFFLINE=1 node scripts/live-check-saves.mjs  # + offline catch-up (~70 s)
+    node scripts/live-check-activeday.mjs        # active day
+    node scripts/live-check-events.mjs           # random events (SEED=3 by default)
+    node scripts/live-check-employees2.mjs       # employees
+    node scripts/live-check-difficulty2.mjs      # difficulty rules
 
-Каждый ждёт своё «… ОК» и exit 0. `live-check-events` идёт на
-фиксированном сиде (`SEED=3` по умолчанию, ~40с) — ролл событий
-воспроизводим; другой сид — `SEED=N node scripts/live-check-events.mjs`.
-`live-check-difficulty2` зависит от ролла выработки: изредка день 1 на
-хардкоре закрывается в плюс, и проверка отрицательного баланса
-падает — перезапустить.
-`scripts/live-check.mjs` устарел после ребаланса (ждёт старые цены и
-цель хардкора $500k) и падает на старте — ждёт актуализации.
+Each exits 0 with a final "… ОК". `live-check-difficulty2` depends on an
+income roll and occasionally fails — rerun it. `scripts/live-check.mjs` is
+outdated (expects old prices and targets) and fails.
 
-### sim — прогоны баланса (ITGAME-27)
-
-`server/cmd/sim` — партии без браузера, ядром и честными тиками:
+**sim** (`server/cmd/sim`) plays games with the real engine, e.g.
 `make sim ARGS="--diff hardcore --seed 1..50 --days 30 --policy all --out runs.csv"`.
-Политики: greedy (покупает/ремонтирует/мотивирует всё доступное с резервом
-на ФОТ), idle (контроль выживаемости), random (разброс между ними). CSV
-`policy,seed,day,money,income,payroll,events,outcome` — строка на день,
-финал в последней (bankrupt | deadlock | victory | time_up | timeout).
-Эталоны инсайтов: normal+greedy ≈ 70% банкротств к 30-му дню
-(аудит-качели при тонком резерве), easy+greedy ≈ 2/3 побед. В CI —
-отчётом в summary джобы `server` (исходы по всем сложностям), CSV —
-артефактом `sim-csv`; джобу не роняет.
+Policies: `greedy`, `idle`, `random`. CSV:
+`policy,seed,day,money,income,payroll,events,outcome`, one row per day;
+the last row holds the outcome (`bankrupt | deadlock | victory | time_up |
+timeout`). Reference: normal + greedy ≈ 70% bankrupt by day 30,
+easy + greedy ≈ 2/3 wins.
 
-### visreg — регрессии скриншотов и вёрстки (ITGAME-27)
+**visreg** loads each fixture scenario (`?scenario=X&seed=1&debug=1`) and the
+menu, screenshots the canvas and diffs it against
+`client/scripts/visreg/shots/` (>0.5% differing pixels fails); the layout
+linter (overlaps, offscreen, contrast, tiny) must not be worse than
+`baseline.json`. Without `BASE_URL` it serves the build itself on :4173.
+Update baselines after intended UI changes: `npm run visreg -- --update`,
+then commit. Baselines depend on the machine (system `monospace` font);
+kill stray Chromium processes before a run — they starve software WebGL.
 
-`cd client && npm run visreg` — по каждому сценарию-фикстуре
-(`?scenario=X&seed=1&debug=1` + меню): пауза → quiet() → скриншот канваса
-→ пиксельный diff с эталоном (pixelmatch, >0.5% отличается = FAIL) +
-линтер вёрстки itd.overlaps/offscreen/contrast/tiny не хуже бейзлайна
-(известные находки ITGAME-16 живут в бейзлайне до отдельного фикса).
-Эталоны: `client/scripts/visreg/{baseline.json,shots/*.png}`; обновление
-после осознанных правок UI: `npm run visreg -- --update` и закоммитить.
-Self-serve: без BASE_URL поднимает Go-сервер на :4173 (static+ws+api
-одним процессом — как прод).
-Грабли: перед прогоном убедиться, что не осталось зомби-хромов
-(`pgrep -x chromium | wc -l` → 0) — они душат software-WebGL.
-Эталоны машинозависимы: текст рисуется системным `monospace`, и на чужой
-машине даже коммит эталонов даёт diff 0.3–0.65%. Поэтому в CI visreg —
-отчёт, не гейт: при расхождении джоба кладёт кадры, снятые на раннере,
-в артефакт `visreg-ci-shots` — их можно принять эталонами и после этого
-сделать проверку обязательной.
+## CI
 
-## CI (GitHub Actions)
+`.github/workflows/ci.yml` runs on pull requests, pushes to `main` and
+manual dispatch:
 
-`.github/workflows/ci.yml` — на каждый PR, пуш в `main` и вручную
-(«Run workflow»):
+- **server** — `go vet`, `go test` with a Postgres 16 service container,
+  sim report in the job summary (non-blocking);
+- **client** — `npm ci`, typecheck, build, menu smoke test, then the Go
+  server over `dist`: office smoke test and `live-check-saves`;
+- **visreg** — report only; on mismatch it uploads screenshots taken on the
+  runner (`visreg-ci-shots`) that can be adopted as baselines before
+  making the job blocking;
+- **deploy** — see [Deploy](#deploy).
 
-- **server** — `go vet`, `go test` (слой БД — на сервис-контейнере
-  Postgres 16, `TEST_DATABASE_URL` задан), sim-отчёт;
-- **client** — `npm ci`, typecheck, `npm run build` (с контрактом
-  спрайтов), UI-смоук меню, затем Go-сервер над `dist` (как прод):
-  смоук сцены офиса через живой WS и `live-check-saves`;
-- **visreg** — отчёт (см. выше), не блокирует;
-- **deploy** — только `main`, после зелёных server и client (см. «Прод»).
+## Claude Code cloud sessions
 
-## Облачная сессия Claude Code
+`.claude/hooks/session-start.sh` (runs only when `CLAUDE_CODE_REMOTE=true`)
+prepares a fresh container: Go modules, `npm ci`, `CHROME_PATH`, and a
+local PostgreSQL with role `itd` and databases `itdirector` /
+`itdirector_test`; it exports `DATABASE_URL` and `TEST_DATABASE_URL`.
 
-`.claude/hooks/session-start.sh` (SessionStart-хук, только при
-`CLAUDE_CODE_REMOTE=true`) готовит свежий контейнер: Go-модули (тулчейн
-из `go.mod` скачивается сам), `npm ci` клиента, `CHROME_PATH` на
-Chromium образа, запуск PostgreSQL с ролью `itd` и базами `itdirector`
-/ `itdirector_test`. В сессию экспортируются `DATABASE_URL` (для `/admin`
-в `make dev`) и `TEST_DATABASE_URL` — `make test` гоняет и тест БД.
+## Database
 
-## База данных
+PostgreSQL is optional: gameplay and saves don't use it. It backs the
+`/admin` page (current balance config and the `lib_equipment` catalog).
 
-PostgreSQL опциональна: геймплей от неё не зависит — сейвы сессий файловые,
-прогресс живёт и без БД. БД нужна только для служебной страницы `/admin`
-(ссылка «Админка» в шапке игры) — она показывает текущий баланс игры
-(`config.go`) и каталог оборудования из таблицы `lib_equipment`.
+Put `DATABASE_URL=postgres://user:pass@localhost:5432/itdirector` into
+`.env` in the repo root (gitignored); the `Makefile` loads it and exports
+`DATABASE_URL` / `TEST_DATABASE_URL`. With `DATABASE_URL` set, the server
+connects on start and applies migrations from
+`server/internal/db/migrations` (tracked in `schema_migrations`); a
+connection or migration error is fatal. Without it, the server starts
+normally and `/admin` shows a database-unavailable notice instead of the
+catalog.
 
-Чтобы подключить БД, положите строку соединения в `.env` в корне
-репозитория (файл в `.gitignore`, не коммитится):
+## Assets
 
-    DATABASE_URL=postgres://user:pass@localhost:5432/itdirector
+Sprites come from a dev-time AI pipeline; the game itself is fully offline
+and the finished PNGs are committed.
 
-`Makefile` подхватывает `.env` автоматически (`-include .env`) и
-экспортирует `DATABASE_URL`/`TEST_DATABASE_URL` для `make dev`,
-`make build`-бинаря и тестов. При старте сервера, если `DATABASE_URL`
-задан, приложение подключается к БД и применяет миграции из
-`server/internal/db/migrations` (версии — по имени файла, применённые
-хранятся в `schema_migrations`); ошибка подключения или миграции —
-фатальна. Если `DATABASE_URL` не задан, сервер стартует как обычно и
-пишет в лог предупреждение, а `/admin` показывает блок «БД недоступна»
-вместо каталога.
-
-Для тестов слоя БД (`server/internal/db`) нужен отдельный
-`TEST_DATABASE_URL`; без него они пропускаются (`SKIP`) — остальные
-пакеты это не затрагивает. В CI (сервис-контейнер Postgres 16) и в
-облачной сессии Claude Code (SessionStart-хук поднимает локальный
-Postgres) переменная задана — тест БД там идёт всегда.
-
-## Ассеты: спрайты и звук (ITGAME-6, итерация 13)
-
-Правило «пиксель-арт только кодогеном» (итерации 1-12) сменилось:
-графика — dev-time пайплайн AI-генерации, игра остаётся полностью
-офлайн, в репо коммитятся готовые PNG.
-
-- **Генерация:** `scripts/gen-sprites.sh [имя]` — промпты
-  `scripts/sprites/prompts.txt` → PixelLab API (`create-image-pixen`,
-  64×64, прозрачный фон, стабильный seed на имя) → постобработка
-  `scripts/sprites/remap.sh` (downscale до игрового размера +
-  квантизация в палитру Sweetie-16) → `client/public/assets/sprites/`.
-  Опционально `SPRITES_SIZE` (по умолчанию 64) и `SPRITES_OUT`.
-- **Правка:** `scripts/sprite-edit.sh <имя> "<инструкция>"` — Gemini
-  (`GEMINI_IMAGE_MODEL`, по умолчанию `gemini-2.5-flash-image`) →
-  remap 64px.
-- **Ключи** — в `.env` корня репо (gitignored): `SPRITES_API_KEY`
-  (PixelLab), `GEMINI_API_KEY` (правка).
-- **Контракт:** каждый PNG — 64×64, прозрачный фон, палитра
-  Sweetie-16, без запечённого чекерборда; проверяется
-  `client/scripts/check-sprites.mjs` в `npm run build`, размер и
-  прозрачность дублирует boot клиента (ITGAME-12).
-- **Куриция:** автопроверка читаемости силуэта — локальной vision-
-  моделью LocalMind (`localmind_recognize` MCP по пути к PNG с
-  промптом «что изображено, читается ли силуэт на игровом масштабе»),
-  ручная доводка — Aseprite.
-- **Звук:** SFX из CC0-пака [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds)
-  (лицензия CC0 1.0) — `client/public/assets/sfx/`, проигрывание
-  `client/src/audio.ts` (клик, покупка, ошибка, событие, итоги дня).
-- Кодоген `client/src/pixelart.ts` остаётся фолбэком: PNG из
-  `assets/sprites/` подменяют те текстуры, для которых они есть.
+- **Generate:** `scripts/gen-sprites.sh [name]` — prompts from
+  `scripts/sprites/prompts.txt` → PixelLab API (64×64, transparent, stable
+  seed per name) → `scripts/sprites/remap.sh` (downscale + Sweetie-16
+  palette) → `client/public/assets/sprites/`. Optional `SPRITES_SIZE`
+  (default 64), `SPRITES_OUT`.
+- **Edit:** `scripts/sprite-edit.sh <name> "<instruction>"` — Gemini
+  (`GEMINI_IMAGE_MODEL`, default `gemini-2.5-flash-image`) → remap to 64 px.
+- **Keys** in `.env`: `SPRITES_API_KEY` (PixelLab), `GEMINI_API_KEY`.
+- **Contract:** every PNG is 64×64, transparent, Sweetie-16, with no baked-in
+  checkerboard — enforced by `client/scripts/check-sprites.mjs` in
+  `npm run build`; boot re-checks size and transparency.
+- **Review:** silhouette readability via the local LocalMind vision model
+  (`localmind_recognize` MCP), touch-ups in Aseprite.
+- **Sound:** SFX from [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds)
+  (CC0) in `client/public/assets/sfx/`, played by `client/src/audio.ts`.
+- `client/src/pixelart.ts` generates fallback textures for any sprite
+  without a PNG.
