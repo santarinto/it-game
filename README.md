@@ -111,7 +111,7 @@
 Деплой дёргает on-box webhook (`bin/trigger-deploy.sh`, HMAC), бокс
 собирает релиз атомарно (`bin/deploy-local.sh`: `releases/<id>` → своп
 симлинка `current` → `systemctl restart itgame`). Деплой сейчас
-ручной — `bin/trigger-deploy.sh <sha>` (GitHub Actions — следующий шаг).
+ручной — `bin/trigger-deploy.sh <sha>`.
 Схема деплоя — плейбук атомарного деплоя (репо my-santarinto).
 На боксе: nginx (TLS, статика,
 `/ws`, `/admin` под basic auth) → Go-бинарь на `127.0.0.1:8080`. Деплой
@@ -142,7 +142,7 @@ Sourcemaps: клиент собирается с `sourcemap: 'hidden'` (карт
 и `itd.version` в консоли — проверка «доехала ли правка» без хэша в имени
 файла. Спрайты проверяются сборкой (`client/scripts/check-sprites.mjs`:
 64×64, прозрачный фон, Sweetie-16, детектор запечённого чекерборда) —
-кривой ассет роняет `npm run build` и CI.
+кривой ассет роняет `npm run build`.
 
 ### WS-мост агента /ws/agent (ITGAME-29)
 
@@ -189,9 +189,9 @@ seed); `debug_patch`/`debug_advance`/`debug_step`/`debug_scenario` →
     make sim         # сервер: headless-прогоны баланса
                      # ARGS="--diff hard --seed 1..50 --days 30 --policy all"
 
-UI-смоук (ITGAME-11) — часть релизного пути: CI гоняет его после сборки
-до вебхука деплоя, так что «молчаливый чёрный экран» до прода больше
-не доедет. Локально можно проверить любой URL:
+UI-смоук (ITGAME-11) — часть релизного пути: прогоняй его после сборки,
+до деплоя, чтобы «молчаливый чёрный экран» не доехал до прода.
+Локально можно проверить любой URL:
 `cd client && npm run smoke-ui -- https://itgame.santarinto.ru`.
 `OFFICE=1` — плюс клик «НОРМА» и проверка сцены офиса (нужен живой
 
@@ -202,8 +202,8 @@ UI-смоук (ITGAME-11) — часть релизного пути: CI гон�
 Политики: greedy (покупает/ремонтирует/мотивирует всё доступное с резервом
 на ФОТ), idle (контроль выживаемости), random (разброс между ними). CSV
 `policy,seed,day,money,income,payroll,events,outcome` — строка на день,
-финал в последней (bankrupt | victory | time_up | timeout). В CI —
-отчётом в test-server (джобу не роняет). Эталоны инсайтов: normal+greedy
+финал в последней (bankrupt | victory | time_up | timeout). Эталоны
+инсайтов: normal+greedy
 ≈ 70% банкротств к 30-му дню (аудит-качели при тонком резерве),
 easy+greedy ≈ 2/3 побед.
 
@@ -217,7 +217,7 @@ easy+greedy ≈ 2/3 побед.
 Эталоны: `client/scripts/visreg/{baseline.json,shots/*.png}`; обновление
 после осознанных правок UI: `npm run visreg -- --update` и закоммитить.
 Self-serve: без BASE_URL поднимает Go-сервер на :4173 (static+ws+api
-одним процессом — как прод). В CI — обязательная джоба visreg.
+одним процессом — как прод).
 Грабли: перед прогоном убедиться, что не осталось зомби-хромов
 (`pgrep -x chromium | wc -l` → 0) — они душат software-WebGL.
 сервер). Boot проверяет контракт арт-пайплайна (64×64 + прозрачность,
