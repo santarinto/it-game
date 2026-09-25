@@ -202,17 +202,30 @@ try {
   check('itd.cmd(next_day): день 5 наступил', day5State.day === 5, `day=${day5State.day}`)
   check('itd.cmd(next_day): скорость 2x восстановлена через refresh()', day5State.speed === 2, `speed=${day5State.speed}`)
 
-  // 11. Сохранение внешней паузы (itd.speed(0) во время отчёта)
+  // 11. Сохранение внешней паузы при закрытии через ENTER (путь игрока)
   await page.evaluate(async () => {
     window.itd.speed(3)
     await window.itd.wait((s, srv) => srv.snapshot?.speed === 3, 5000)
     await window.itd.set({ tickInDay: 53 })
     await window.itd.wait(() => window.itd.ids().some((x) => x.id === 'btn.next_day'), 8000)
+    // Проверяем гарду itd.set({ tickInDay }) в фазе day_report
+    let setRejected = false
+    try {
+      await window.itd.set({ tickInDay: 10 })
+    } catch {
+      setRejected = true
+    }
+    window.__setRejectedInReport = setRejected
+
     // Внешняя пауза, например агент или пользователь вызвал itd.speed(0)
     window.itd.speed(0)
-    // И затем переход на следующий день напрямую
-    window.itd.cmd('next_day')
   })
+  const setCheck = await page.evaluate(() => window.__setRejectedInReport)
+  check('itd.set(tickInDay) отклонён во время day_report', setCheck === true, `rejected=${setCheck}`)
+
+  // Закрываем модал нажатием клавиши Enter (реальное DOM-событие игрока!)
+  await page.keyboard.press('Enter')
+
   const day6State = await page.evaluate(async () => {
     await window.itd.wait(() => !window.itd.ids().some((x) => x.id === 'btn.next_day'), 5000)
     await window.itd.wait((s) => s.day === 6 && s.phase === 'running', 5000)

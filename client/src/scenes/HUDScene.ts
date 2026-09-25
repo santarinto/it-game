@@ -555,14 +555,21 @@ export class HUDScene extends Phaser.Scene {
     return { setLabel: (s: string) => txt.setText(s) }
   }
 
-  private toast(text: string, ms = 1500) {
-    const t = this.add
-      .text(CX, GAME_H - 40, text, {
-        fontFamily: 'monospace', fontSize: '18px', color: '#f4f4f4',
-        backgroundColor: '#b13e53', padding: { x: 12, y: 6 },
-      })
-      .setOrigin(0.5)
-    this.tweens.add({ targets: t, alpha: 0, y: GAME_H - 80, duration: ms, delay: ms * 2, onComplete: () => t.destroy() })
+  private toast(text: string, ms = 1500, opts?: { top?: boolean; bg?: string }) {
+    const isTop = opts?.top ?? false
+    const startY = isTop ? HUD_H + 24 : GAME_H - 40
+    const endY = isTop ? HUD_H - 8 : GAME_H - 80
+    const bg = opts?.bg ?? '#b13e53'
+    const t = tag(
+      this.add
+        .text(CX, startY, text, {
+          fontFamily: 'monospace', fontSize: '18px', color: '#f4f4f4',
+          backgroundColor: bg, padding: { x: 12, y: 6 },
+        })
+        .setOrigin(0.5).setDepth(100),
+      'toast',
+    )
+    this.tweens.add({ targets: t, alpha: 0, y: endY, duration: ms, delay: ms * 2, onComplete: () => t.destroy() })
   }
 
   // Онбординг-хинты (итерация 11): одноразовые тосты по триггерам.
@@ -619,7 +626,11 @@ export class HUDScene extends Phaser.Scene {
     playSfx(this, r.profit >= 0 ? 'bong' : 'drop')
     if (this.skipReports) {
       client.send('next_day')
-      this.toast(`День ${r.day}: прибыль ${fmtMoney(r.profit)} · баланс ${fmtMoney(r.balance)}`)
+      this.toast(
+        `День ${r.day}: прибыль ${fmtMoney(r.profit)} · баланс ${fmtMoney(r.balance)}`,
+        2500,
+        { top: true, bg: r.profit >= 0 ? '#257179' : '#b13e53' },
+      )
       return
     }
     // Серверная пауза (ITGAME-18): запоминаем скорость в sessionStorage
@@ -646,19 +657,17 @@ export class HUDScene extends Phaser.Scene {
       ...(r.incidents > 0 ? [`Поломки:   ${r.incidents} (−${fmtMoney(r.lostIncome)})`] : []),
       ...(r.events?.length ? ['', 'События:', ...r.events.map((e) => `· ${e}`)] : []),
     ].join('\n')
-    // Подложка interactive: глушит клики по кнопкам HUD под модалкой.
-    const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(50).setInteractive()
-    const panel = this.add.rectangle(CX, 300, 440, 320, 0x14162b).setStrokeStyle(2, 0x41a6f6).setDepth(51)
+
     const title = this.add
-      .text(CX, 180, `День ${r.day} завершён`, { fontFamily: 'monospace', fontSize: '22px', color: '#ffcd75' })
-      .setOrigin(0.5).setDepth(51)
+      .text(CX, 0, `День ${r.day} завершён`, { fontFamily: 'monospace', fontSize: '22px', color: '#ffcd75' })
+      .setOrigin(0.5, 0).setDepth(51)
     const bodyText = this.add
-      .text(CX, 280, body, { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8 })
-      .setOrigin(0.5).setDepth(51)
+      .text(CX, 0, body, { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8 })
+      .setOrigin(0.5, 0).setDepth(51)
     const checkbox = tag(
       this.add
-        .text(CX, 366, this.checkboxLabel(), { fontFamily: 'monospace', fontSize: '14px', color: '#5d7275' })
-        .setOrigin(0.5).setDepth(51).setInteractive({ useHandCursor: true }),
+        .text(CX, 0, this.checkboxLabel(), { fontFamily: 'monospace', fontSize: '14px', color: '#5d7275' })
+        .setOrigin(0.5, 0).setDepth(51).setInteractive({ useHandCursor: true }),
       'btn.skip_reports',
     )
     checkbox.on('pointerdown', () => {
@@ -667,25 +676,56 @@ export class HUDScene extends Phaser.Scene {
     })
     const btnBg = tag(
       this.add
-        .rectangle(CX - 100, 400, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(51)
+        .rectangle(CX - 100, 0, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(51)
         .setInteractive({ useHandCursor: true }),
       'btn.next_day',
     )
     const btnText = this.add
-      .text(CX, 417, 'Следующий день →', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
-      .setOrigin(0.5).setDepth(52)
+      .text(CX, 0, 'Следующий день →', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
+      .setOrigin(0.5, 0.5).setDepth(52)
     btnBg.on('pointerdown', () => this.proceedNextDay())
     btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
     btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
+
+    // Динамический расчёт высоты панели: исключает наложение чекбокса на события (ITGAME-18).
+    const padY = 24
+    const gapTitle = 16
+    const gapBody = 18
+    const gapCheck = 16
+    const btnH = 34
+    const contentH = title.height + gapTitle + bodyText.height + gapBody + checkbox.height + gapCheck + btnH
+    const panelH = padY * 2 + contentH
+    const panelW = 440
+    const panelY = Math.round((GAME_H - panelH) / 2)
+
+    // Подложка interactive: глушит клики по кнопкам HUD под модалкой.
+    const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(50).setInteractive()
+    const panel = this.add.rectangle(CX, panelY + panelH / 2, panelW, panelH, 0x14162b).setStrokeStyle(2, 0x41a6f6).setDepth(51)
+
+    let curY = panelY + padY
+    title.setY(curY)
+    curY += title.height + gapTitle
+    bodyText.setY(curY)
+    curY += bodyText.height + gapBody
+    checkbox.setY(curY)
+    curY += checkbox.height + gapCheck
+    btnBg.setY(curY)
+    btnText.setY(curY + btnH / 2)
+
     this.reportUI = [overlay, panel, title, bodyText, checkbox, btnBg, btnText]
     this.reportUI.push(...drawDebugFrames(this, this.reportUI))
   }
 
   private proceedNextDay() {
     if (this.reportUI.length === 0) return
-    const restoreSpeed = this.speedBeforeReport ?? this.currentSpeed
-    this.speedBeforeReport = null
-    client.send('set_speed', 0, { speed: restoreSpeed })
+    if (this.speedBeforeReport !== null) {
+      // Восстанавливаем скорость, только если во время отчёта не было внешних
+      // изменений скорости (например, itd.pause(), itd.speed(0) или клик по HUD).
+      if (this.reportPauseSeq === 0 || client.speedSeq === this.reportPauseSeq) {
+        client.send('set_speed', 0, { speed: this.speedBeforeReport })
+      }
+      this.speedBeforeReport = null
+    }
     client.send('next_day')
     this.closeReport()
   }

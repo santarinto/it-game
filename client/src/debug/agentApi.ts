@@ -749,7 +749,10 @@ function makeApi(game: Phaser.Game): ItdApi {
       return debugFetch<DebugAdvanceResult>('POST', '/advance', { days: n })
     },
     set(patch) {
-      if (!patch.money && !patch.day && !patch.tickInDay) {
+      if (patch.tickInDay !== undefined && client.latest?.phase === 'day_report') {
+        return Promise.reject(new Error('set: tickInDay недоступен в фазе day_report'))
+      }
+      if (patch.money === undefined && patch.day === undefined && patch.tickInDay === undefined) {
         return Promise.reject(new Error('set: нужен хотя бы один из money/day/tickInDay'))
       }
       return debugFetch<DebugState>('POST', '/state', { ...patch })

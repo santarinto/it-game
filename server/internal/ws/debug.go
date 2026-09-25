@@ -464,6 +464,9 @@ func applyDebugPatch(g *game.Game, p debugPatch) string {
 		return "day >= 1"
 	}
 	if p.TickInDay != nil {
+		if g.Phase == game.PhaseDayReport {
+			return "tickInDay недоступен в фазе day_report"
+		}
 		t := *p.TickInDay
 		if t < 0 || t > dayTicks || (g.Phase == game.PhaseRunning && t >= dayTicks) {
 			return fmt.Sprintf("tickInDay — целое 0..%d (в running строго меньше)", dayTicks)
