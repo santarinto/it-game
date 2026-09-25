@@ -30,5 +30,10 @@ it; set `CHROME_PATH` if it is not in a standard location).
 To enable `/admin`, put `DATABASE_URL=postgres://…` into `.env` in the repo
 root.
 
-Development and operations notes (in Russian) live in
+Deploy, saves, testing, CI and the asset pipeline:
 [`docs/development.md`](docs/development.md).
+
+## License
+
+[GNU General Public License v3.0](LICENSE). Sound effects are
+[Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds) (CC0).
