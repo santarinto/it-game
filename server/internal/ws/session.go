@@ -419,6 +419,12 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 					Difficulty: string(g.Config().Difficulty), Day: g.Day, Balance: g.Money})
 				continue
 			}
+			if wasRunning && g.Phase == game.PhaseGameOver {
+				hub.write(ctx, snapshot(g, speed, false, scenario))
+				hub.write(ctx, gameOverMessage{Type: "game_over", DaysSurvived: g.Day,
+					PeakIncomePerTick: g.PeakIncomePerTick, Balance: g.Money, Reason: g.LoseReason})
+				continue
+			}
 			// На паузе фазы (отчёт/банкротство) тик — no-op: не шлём одинаковые
 			// снапшоты каждую секунду, клиент ждёт команду игрока.
 			if report == nil && g.Phase != game.PhaseRunning {
@@ -426,14 +432,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 			}
 			hub.write(ctx, snapshot(g, speed, false, scenario))
 			if report != nil {
-				var out any
-				if g.Phase == game.PhaseGameOver {
-					out = gameOverMessage{Type: "game_over", DaysSurvived: g.Day,
-						PeakIncomePerTick: g.PeakIncomePerTick, Balance: g.Money, Reason: g.LoseReason}
-				} else {
-					out = dayReportMsg(report)
-				}
-				hub.write(ctx, out)
+				hub.write(ctx, dayReportMsg(report))
 			}
 		case <-ctx.Done():
 			return false

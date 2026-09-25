@@ -92,6 +92,7 @@ func waitResult(t *testing.T, ctx context.Context, c *websocket.Conn, action str
 // снапшот, купить ПК, промотать день, прочитать статус.
 func TestAgentHeadlessLifecycle(t *testing.T) {
 	cfg := game.DefaultConfig()
+	cfg.StartMoney = 2000
 	cfg.WinTarget = 1_000_000
 	base, _ := startDebugServer(t, cfg, time.Hour) // тики не мешают
 

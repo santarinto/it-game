@@ -198,7 +198,7 @@ type gameOverMessage struct {
 	DaysSurvived      int    `json:"daysSurvived"`
 	PeakIncomePerTick int    `json:"peakIncomePerTick"`
 	Balance           int    `json:"balance"` // отрицательный: сколько не хватило
-	Reason            string `json:"reason"`  // bankrupt | time_up (Сложность 2.0)
+	Reason            string `json:"reason"`  // bankrupt | time_up | deadlock
 }
 
 // victoryMessage — итоги победы; шлётся сразу после снапшота с phase=won.
@@ -221,7 +221,7 @@ type offlineReportMessage struct {
 	Balance  int    `json:"balance"`
 	GameOver bool   `json:"gameOver"`
 	Victory  bool   `json:"victory"`
-	Reason   string `json:"reason"` // причина финала: bankrupt | time_up
+	Reason   string `json:"reason"` // причина финала: bankrupt | time_up | deadlock
 }
 
 func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessage {

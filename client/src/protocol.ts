@@ -152,7 +152,7 @@ export interface GameOverMessage {
   daysSurvived: number
   peakIncomePerTick: number
   balance: number
-  reason: 'bankrupt' | 'time_up' // сложность 2.0: время вышло
+  reason: 'bankrupt' | 'time_up' | 'deadlock' // сложность 2.0 / ITGAME-20: тупик
 }
 
 export interface VictoryMessage {
@@ -173,7 +173,7 @@ export interface OfflineReportMessage {
   balance: number
   gameOver: boolean
   victory: boolean
-  reason?: 'bankrupt' | 'time_up' // причина офлайн-финала
+  reason?: 'bankrupt' | 'time_up' | 'deadlock' // причина офлайн-финала
 }
 
 export type ServerMessage =

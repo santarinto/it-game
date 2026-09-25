@@ -38,7 +38,15 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 		g.DayIncome += inc
 		g.TickInDay += miss
 		s.Income, s.Balance = inc, g.Money
-		g.checkOfflineWin(s)
+		if g.checkOfflineWin(s) {
+			return s
+		}
+		if g.IsDeadlocked() {
+			g.Phase = PhaseGameOver
+			g.LoseReason = LoseDeadlock
+			s.GameOver, s.Reason, s.Balance = true, LoseDeadlock, g.Money
+			return s
+		}
 		return s
 	}
 	inc := g.sumIncome(g.TickInDay, dayTicks)
@@ -81,7 +89,15 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	g.DayIncome = inc
 	s.Income += inc
 	s.Balance = g.Money
-	g.checkOfflineWin(s)
+	if g.checkOfflineWin(s) {
+		return s
+	}
+	if g.IsDeadlocked() {
+		g.Phase = PhaseGameOver
+		g.LoseReason = LoseDeadlock
+		s.GameOver, s.Reason, s.Balance = true, LoseDeadlock, g.Money
+		return s
+	}
 	return s
 }
 
@@ -103,6 +119,12 @@ func (g *Game) closeOfflineDay(s *OfflineSummary) bool {
 		g.Phase = PhaseGameOver
 		g.LoseReason = LoseTimeUp
 		s.GameOver, s.Reason, s.Balance = true, LoseTimeUp, g.Money
+		return true
+	}
+	if g.IsDeadlocked() {
+		g.Phase = PhaseGameOver
+		g.LoseReason = LoseDeadlock
+		s.GameOver, s.Reason, s.Balance = true, LoseDeadlock, g.Money
 		return true
 	}
 	s.Balance = g.Money

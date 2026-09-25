@@ -346,7 +346,9 @@ export class HUDScene extends Phaser.Scene {
     const finalLine = bankrupt
       ? r.reason === 'time_up'
         ? 'Срок вышел: цель не достигнута.'
-        : 'Компания обанкротилась.'
+        : r.reason === 'deadlock'
+          ? 'Тупик: компанию уже не спасти.'
+          : 'Компания обанкротилась.'
       : r.victory
         ? 'Цель достигнута — победа!'
         : ''
@@ -1004,13 +1006,20 @@ export class HUDScene extends Phaser.Scene {
     const { newAchievements } = recordGameOver(o, diff, client.latest ?? undefined)
     const { unlockedCount, totalCount } = getAchievementsSummary()
 
+    const isDeadlock = o.reason === 'deadlock'
     const timeUp = o.reason === 'time_up' // дедлайн уровня (сложность 2.0)
     const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.9).setOrigin(0).setDepth(60).setInteractive()
+    const titleText = isDeadlock ? 'ТУПИК' : timeUp ? 'ВРЕМЯ ВЫШЛО' : 'БАНКРОТСТВО'
     const title = this.add
-      .text(CX, 200, timeUp ? 'ВРЕМЯ ВЫШЛО' : 'БАНКРОТСТВО', { fontFamily: 'monospace', fontSize: '32px', color: '#b13e53' })
+      .text(CX, 200, titleText, { fontFamily: 'monospace', fontSize: '32px', color: '#b13e53' })
       .setOrigin(0.5).setDepth(61)
 
-    const lines = timeUp ? [
+    const lines = isDeadlock ? [
+      'Штат пуст, денег на развитие нет:',
+      'компанию уже не спасти.',
+      `Прожито дней: ${o.daysSurvived}`,
+      `Баланс: ${fmtMoney(o.balance)}`,
+    ] : timeUp ? [
       'Инвесторы потеряли терпение:',
       'цель не достигнута к концу срока.',
       `Дней дано: ${o.daysSurvived}`,
@@ -1029,9 +1038,12 @@ export class HUDScene extends Phaser.Scene {
     const body = this.add
       .text(CX, 290, lines.join('\n'), { fontFamily: 'monospace', fontSize: '15px', color: '#f4f4f4', lineSpacing: 6, align: 'center' })
       .setOrigin(0.5).setDepth(61)
-    const btnBg = this.add
-      .rectangle(CX - 100, 380, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(61)
-      .setInteractive({ useHandCursor: true })
+    const btnBg = tag(
+      this.add
+        .rectangle(CX - 100, 380, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(61)
+        .setInteractive({ useHandCursor: true }),
+      'btn.gameover.menu',
+    )
     const btnText = this.add
       .text(CX, 397, 'В меню', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
       .setOrigin(0.5).setDepth(62)

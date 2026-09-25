@@ -86,6 +86,7 @@ type Game struct {
 const (
 	LoseBankrupt = "bankrupt" // долг за кредитным порогом / минус без кредита
 	LoseTimeUp   = "time_up"  // дедлайн уровня: день X закрыт без победы
+	LoseDeadlock = "deadlock" // софт-лок: штат пуст и средств на развитие нет
 )
 
 func New(cfg Config) *Game {
@@ -240,8 +241,64 @@ func (g *Game) settleDebt() bool {
 	return -g.Money > g.cfg.CreditLimit
 }
 
+// TotalEmployees — суммарное число сотрудников во всех открытых офисах.
+func (g *Game) TotalEmployees() int {
+	return g.staffCount()
+}
+
+// AvailableFunds — доступные средства с учётом кредитного лимита
+// (на сложностях Hard/Hardcore лимит расширяет порог выживания).
+func (g *Game) AvailableFunds() int {
+	return g.Money + g.cfg.CreditLimit
+}
+
+// MinCostToEarn — минимальная стоимость создания хотя бы одного источника дохода
+// (найма одного сотрудника с учётом покупки ПК или офиса при необходимости).
+func (g *Game) MinCostToEarn() int {
+	minCost := math.MaxInt
+	for oi := range g.Offices {
+		o := &g.Offices[oi]
+		if o.Unlocked {
+			cap := o.StaffCap(g.cfg)
+			if len(o.Employees) < cap {
+				if o.PCs > len(o.Employees) {
+					// Свободный ПК уже есть — платим только за найм
+					if g.cfg.HirePrice < minCost {
+						minCost = g.cfg.HirePrice
+					}
+				} else if o.PCs < g.cfg.OfficeSlots {
+					// ПК нет — покупка ПК + найм
+					cost := g.NextPCPrice(oi) + g.cfg.HirePrice
+					if cost < minCost {
+						minCost = cost
+					}
+				}
+			}
+		} else {
+			// Офис закрыт — разблокировка + ПК + найм
+			cost := g.cfg.OfficePrices[oi-1] + g.cfg.PCPrice + g.cfg.HirePrice
+			if cost < minCost {
+				minCost = cost
+			}
+		}
+	}
+	return minCost
+}
+
+// IsDeadlocked возвращает true, если компания оказалась в софт-локе:
+// положительный (или нулевой) баланс при пустом штате (нет источников дохода),
+// при этом доступных средств (с учётом кредита) не хватает даже на самое
+// дешёвое действие для получения дохода. Отрицательный баланс тупиком не является —
+// он регулируется кредитом и ведёт к банкротству (settleDebt).
+func (g *Game) IsDeadlocked() bool {
+	if g.Money < 0 || g.TotalEmployees() > 0 {
+		return false
+	}
+	return g.AvailableFunds() < g.MinCostToEarn()
+}
+
 // closeDay — конец дня после списания ФОТ: кредит или банкротство,
-// затем дедлайн уровня (время вышло без победы). Переводит фазу.
+// затем дедлайн уровня (время вышло без победы), затем тупик. Переводит фазу.
 func (g *Game) closeDay() {
 	g.Phase = PhaseDayReport
 	if g.settleDebt() {
@@ -253,6 +310,10 @@ func (g *Game) closeDay() {
 	if g.Phase == PhaseDayReport && g.cfg.WinDayLimit > 0 && g.Day >= g.cfg.WinDayLimit {
 		g.Phase = PhaseGameOver
 		g.LoseReason = LoseTimeUp
+	}
+	if g.Phase == PhaseDayReport && g.IsDeadlocked() {
+		g.Phase = PhaseGameOver
+		g.LoseReason = LoseDeadlock
 	}
 }
 
@@ -367,6 +428,11 @@ type DayReport struct {
 // (day_report, при балансе < 0 — game_over) и возвращает отчёт.
 func (g *Game) Tick() *DayReport {
 	if g.Phase != PhaseRunning {
+		return nil
+	}
+	if g.IsDeadlocked() {
+		g.Phase = PhaseGameOver
+		g.LoseReason = LoseDeadlock
 		return nil
 	}
 	for oi := range g.Offices {
