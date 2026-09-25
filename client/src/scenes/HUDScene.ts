@@ -62,6 +62,8 @@ export class HUDScene extends Phaser.Scene {
   private victoryUI: Phaser.GameObjects.GameObject[] = []
   private skipReports = localStorage.getItem('itd.skipReports') === '1'
   private switching = false
+  private currentSpeed = 1
+  private speedBeforeReport: number | null = null
   private speedBtns: { bg: Phaser.GameObjects.Rectangle; speed: number }[] = []
   private hudInteractive: Phaser.GameObjects.GameObject[] = []
   private debugFrames: Phaser.GameObjects.GameObject[] = []
@@ -204,19 +206,23 @@ export class HUDScene extends Phaser.Scene {
     })
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, unsub)
 
-    // Клавиатура отчёта дня (ITGAME-24): Enter/Space/Esc — следующий день,
+    // Клавиатура отчёта дня (ITGAME-18, ITGAME-24): Enter/Space/Esc — следующий день,
     // пока отчёт открыт. itd.key('enter') дергает те же обработчики.
     const kb = this.input.keyboard
     if (kb) {
-      const nextDay = () => {
-        if (this.reportUI.length === 0) return
-        client.send('next_day')
-        this.closeReport()
-      }
+      const nextDay = () => this.proceedNextDay()
       kb.on('keydown-ENTER', nextDay)
       kb.on('keydown-SPACE', nextDay)
       kb.on('keydown-ESC', nextDay)
-      this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => kb.removeAllListeners())
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+        if (this.input.keyboard) {
+          this.input.keyboard.removeCapture([
+            Phaser.Input.Keyboard.KeyCodes.ENTER,
+            Phaser.Input.Keyboard.KeyCodes.SPACE,
+          ])
+        }
+        kb.removeAllListeners()
+      })
     }
   }
 
@@ -389,8 +395,22 @@ export class HUDScene extends Phaser.Scene {
     // Живой снапшот = соединение восстановлено: баннер реконнекта долой.
     this.reconnectUI.forEach((o) => o.destroy())
     this.reconnectUI = []
+    if (this.speedBeforeReport === null && s.speed > 0) {
+      this.currentSpeed = s.speed
+    }
     if (s.phase === 'running') {
-      this.closeReport()
+      if (this.reportUI.length > 0) {
+        this.closeReport()
+      }
+      if (this.speedBeforeReport !== null) {
+        // Реконнект/догон в running-фазу с открытым модалом (ITGAME-18):
+        // не даём скорости залипнуть на 0.
+        if (s.speed === 0) {
+          const restore = this.speedBeforeReport > 0 ? this.speedBeforeReport : 1
+          client.send('set_speed', 0, { speed: restore })
+        }
+        this.speedBeforeReport = null
+      }
       this.closeGameOver()
       this.closeVictory()
     }
@@ -574,6 +594,7 @@ export class HUDScene extends Phaser.Scene {
 
   private onDayReport(r: DayReportMessage) {
     playSfx(this, r.profit >= 0 ? 'bong' : 'drop')
+    this.skipReports = localStorage.getItem('itd.skipReports') === '1'
     if (this.skipReports) {
       client.send('next_day')
       this.toast(`День ${r.day}: прибыль ${fmtMoney(r.profit)} · баланс ${fmtMoney(r.balance)}`)
@@ -584,6 +605,16 @@ export class HUDScene extends Phaser.Scene {
 
   private showReport(r: DayReportMessage) {
     this.closeReport()
+    if (this.speedBeforeReport === null) {
+      this.speedBeforeReport = this.currentSpeed > 0 ? this.currentSpeed : 1
+    }
+    client.send('set_speed', 0, { speed: 0 })
+    if (this.input.keyboard) {
+      this.input.keyboard.addCapture([
+        Phaser.Input.Keyboard.KeyCodes.ENTER,
+        Phaser.Input.Keyboard.KeyCodes.SPACE,
+      ])
+    }
     const body = [
       `Доход:     ${fmtMoney(r.income)}`,
       `Зарплата: -${fmtMoney(r.payroll)}`,
@@ -622,14 +653,20 @@ export class HUDScene extends Phaser.Scene {
     const btnText = this.add
       .text(CX, 417, 'Следующий день →', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
       .setOrigin(0.5).setDepth(52)
-    btnBg.on('pointerdown', () => {
-      client.send('next_day')
-      this.closeReport()
-    })
+    btnBg.on('pointerdown', () => this.proceedNextDay())
     btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
     btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
     this.reportUI = [overlay, panel, title, bodyText, checkbox, btnBg, btnText]
     this.reportUI.push(...drawDebugFrames(this, this.reportUI))
+  }
+
+  private proceedNextDay() {
+    if (this.reportUI.length === 0) return
+    const restoreSpeed = this.speedBeforeReport ?? (this.currentSpeed > 0 ? this.currentSpeed : 1)
+    this.speedBeforeReport = null
+    client.send('set_speed', 0, { speed: restoreSpeed })
+    client.send('next_day')
+    this.closeReport()
   }
 
   private checkboxLabel(): string {
@@ -641,6 +678,12 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private closeReport() {
+    if (this.input.keyboard) {
+      this.input.keyboard.removeCapture([
+        Phaser.Input.Keyboard.KeyCodes.ENTER,
+        Phaser.Input.Keyboard.KeyCodes.SPACE,
+      ])
+    }
     this.reportUI.forEach((o) => o.destroy())
     this.reportUI = []
   }
@@ -727,6 +770,7 @@ export class HUDScene extends Phaser.Scene {
   // Возврат в меню: намеренный разрыв WS (новая игра = новое подключение).
   // Сейв живёт на сервере — с меню можно вернуться («Продолжить»).
   private returnToMenu() {
+    this.speedBeforeReport = null
     client.disconnect()
     this.scene.stop('office')
     this.scene.stop('serverRoom')
