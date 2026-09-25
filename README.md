@@ -108,12 +108,13 @@
 
 ## Прод (itgame.santarinto.ru)
 
-Каждый пуш в `main` деплоится автоматически: GitFlic CI (`.gitflic-ci.yaml`,
-стадии test → deploy) после зелёных тестов дёргает on-box webhook
-(`bin/trigger-deploy.sh`, HMAC), бокс собирает релиз атомарно
-(`bin/deploy-local.sh`: `releases/<id>` → своп симлинка `current` →
-`systemctl restart itgame`). Схема и грабли GitFlic — в плейбуке
-`gitflic-ci-cd-playbook` (репо my-santarinto). На боксе: nginx (TLS, статика,
+Деплой дёргает on-box webhook (`bin/trigger-deploy.sh`, HMAC), бокс
+собирает релиз атомарно (`bin/deploy-local.sh`: `releases/<id>` → своп
+симлинка `current` → `systemctl restart itgame`). Репозиторий переехал
+на GitHub (2026-09-26), GitFlic CI убран: автозапуск деплоя временно
+ручной — `bin/trigger-deploy.sh <sha>` (GitHub Actions — следующий шаг).
+Схема деплоя — плейбук атомарного деплоя (репо my-santarinto).
+На боксе: nginx (TLS, статика,
 `/ws`, `/admin` под basic auth) → Go-бинарь на `127.0.0.1:8080`. Деплой
 рвёт активные WS-сессии, но сейвы переживают рестарт (общий каталог
 `shared/saves`), клиент переподключается сам и продолжает партию.

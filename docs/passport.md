@@ -11,7 +11,7 @@ Intel «IT Manager 3: Unseen Forces» в pixel style. Игрок покупае�
 доход против ФОТ и опекса. Проигрыш — банкротство на вечернем расчёте.
 
 - **Прод:** https://itgame.santarinto.ru (сервер `site`, 217.197.115.128)
-- **Репозиторий:** https://gitflic.ru/project/santarinto-labs/it-director-web-game
+- **Репозиторий:** https://github.com/santarinto/it-director-web-game (переезд с GitFlic 2026-09-26)
 - **Старт разработки:** 2026-07-11
 
 ## Стек и архитектура
@@ -28,11 +28,11 @@ Intel «IT Manager 3: Unseen Forces» в pixel style. Игрок покупае�
 
 ## Прод и CI/CD
 
-- CD: пуш в `main` → GitFlic CI (Go vet/test + typecheck/build клиента)
+- CD: пуш в `main` → CI (Go vet/test + typecheck/build клиента)
   → on-box webhook (HMAC) → атомарный релиз
   (`releases/<id>` → своп симлинка `current` → `systemctl restart itgame`).
-- Схема и грабли GitFlic — плейбук `gitflic-ci-cd-playbook.md` (репо
-  my-santarinto); детали игры — раздел «Прод» в README.
+- Схема деплоя — плейбук атомарного деплоя (репо my-santarinto);
+  детали игры — раздел «Прод» в README.
 - `/admin` на проде закрыт basic auth (доступы — вне репозитория).
 - Деплой рвёт активные WS-сессии — до итерации с аккаунтами/сейвами
   это принятая цена.
