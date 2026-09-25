@@ -9,6 +9,13 @@ import { tag } from '../debug/agentApi'
 import { showModal } from '../ui/modal'
 import { playSfx } from '../audio'
 import { activeZoom, applyZoom, ZOOM_OPTIONS, zoomLabel } from '../uiscale'
+import {
+  checkAchievements,
+  getAchievementsSummary,
+  recordGameOver,
+  recordVictory,
+  updateOngoingStats,
+} from '../meta'
 
 const CX = GAME_W / 2 // центр поля — якорь модалок и тостов
 const SPEED_BEFORE_REPORT_KEY = 'itd.speedBeforeReport'
@@ -287,6 +294,11 @@ export class HUDScene extends Phaser.Scene {
     playSfx(this, r.gameOver ? 'glitch' : r.victory ? 'confirmation' : 'bong')
     this.offlineUI.forEach((o) => o.destroy())
     const bankrupt = r.gameOver
+    if (r.victory && client.latest) {
+      recordVictory({ type: 'victory', difficulty: client.latest.difficulty, day: r.days, balance: r.balance }, client.latest)
+    } else if (bankrupt && client.latest) {
+      recordGameOver({ type: 'game_over', daysSurvived: r.days, balance: r.balance, peakIncomePerTick: 0, reason: r.reason ?? 'bankrupt' }, client.latest.difficulty, client.latest)
+    }
     const finalLine = bankrupt
       ? r.reason === 'time_up'
         ? 'Срок вышел: цель не достигнута.'
@@ -411,6 +423,15 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private refresh(s: StateMessage) {
+    updateOngoingStats(s)
+    const newAchs = checkAchievements(s)
+    if (newAchs.length > 0) {
+      playSfx(this, 'confirmation')
+      for (const a of newAchs) {
+        this.toast(`🏆 Достижение: ${a.icon} «${a.title}»!`, 4000)
+      }
+    }
+
     // Живой снапшот = соединение восстановлено: баннер реконнекта долой.
     this.reconnectUI.forEach((o) => o.destroy())
     this.reconnectUI = []
@@ -756,22 +777,34 @@ export class HUDScene extends Phaser.Scene {
     playSfx(this, 'glitch')
     this.closeReport()
     this.closeGameOver()
+    const diff = client.latest?.difficulty ?? 'normal'
+    const { newAchievements } = recordGameOver(o, diff, client.latest ?? undefined)
+    const { unlockedCount, totalCount } = getAchievementsSummary()
+
     const timeUp = o.reason === 'time_up' // дедлайн уровня (сложность 2.0)
     const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.9).setOrigin(0).setDepth(60).setInteractive()
     const title = this.add
-      .text(CX, 220, timeUp ? 'ВРЕМЯ ВЫШЛО' : 'БАНКРОТСТВО', { fontFamily: 'monospace', fontSize: '32px', color: '#b13e53' })
+      .text(CX, 200, timeUp ? 'ВРЕМЯ ВЫШЛО' : 'БАНКРОТСТВО', { fontFamily: 'monospace', fontSize: '32px', color: '#b13e53' })
       .setOrigin(0.5).setDepth(61)
+
+    const lines = timeUp ? [
+      'Инвесторы потеряли терпение:',
+      'цель не достигнута к концу срока.',
+      `Дней дано: ${o.daysSurvived}`,
+      `Баланс: ${fmtMoney(o.balance)}`,
+    ] : [
+      `Прожито дней: ${o.daysSurvived}`,
+      `Пик дохода: ${fmtMoney(o.peakIncomePerTick)}/сек`,
+      `На зарплаты не хватило: ${fmtMoney(-o.balance)}`,
+    ]
+    if (newAchievements.length > 0) {
+      const names = newAchievements.map((a) => `${a.icon} ${a.title}`).join(', ')
+      lines.push(`🏆 Новое достижение: ${names}`)
+    }
+    lines.push(`Всего достижений: ${unlockedCount}/${totalCount}`)
+
     const body = this.add
-      .text(CX, 300, timeUp ? [
-        'Инвесторы потеряли терпение:',
-        'цель не достигнута к концу срока.',
-        `Дней дано: ${o.daysSurvived}`,
-        `Баланс: ${fmtMoney(o.balance)}`,
-      ].join('\n') : [
-        `Прожито дней: ${o.daysSurvived}`,
-        `Пик дохода: ${fmtMoney(o.peakIncomePerTick)}/сек`,
-        `На зарплаты не хватило: ${fmtMoney(-o.balance)}`,
-      ].join('\n'), { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8, align: 'center' })
+      .text(CX, 290, lines.join('\n'), { fontFamily: 'monospace', fontSize: '15px', color: '#f4f4f4', lineSpacing: 6, align: 'center' })
       .setOrigin(0.5).setDepth(61)
     const btnBg = this.add
       .rectangle(CX - 100, 380, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(61)
@@ -799,16 +832,30 @@ export class HUDScene extends Phaser.Scene {
     playSfx(this, 'confirmation')
     this.closeReport()
     this.closeVictory()
+    const { newAchievements, isRecord } = recordVictory(v, client.latest ?? undefined)
+    const { unlockedCount, totalCount } = getAchievementsSummary()
+
     const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.9).setOrigin(0).setDepth(60).setInteractive()
     const title = this.add
-      .text(CX, 220, 'ПОБЕДА!', { fontFamily: 'monospace', fontSize: '32px', color: '#38b764' })
+      .text(CX, 200, 'ПОБЕДА!', { fontFamily: 'monospace', fontSize: '32px', color: '#38b764' })
       .setOrigin(0.5).setDepth(61)
+
+    const lines = [
+      `Сложность: ${HUDScene.DIFF_LABELS[v.difficulty] ?? v.difficulty}`,
+      `Дней прошло: ${v.day}`,
+      `Баланс: ${fmtMoney(v.balance)}`,
+    ]
+    if (isRecord) {
+      lines.push('⭐ Новый рекорд баланса!')
+    }
+    if (newAchievements.length > 0) {
+      const names = newAchievements.map((a) => `${a.icon} ${a.title}`).join(', ')
+      lines.push(`🏆 Новое достижение: ${names}`)
+    }
+    lines.push(`Всего достижений: ${unlockedCount}/${totalCount}`)
+
     const body = this.add
-      .text(CX, 300, [
-        `Сложность: ${HUDScene.DIFF_LABELS[v.difficulty] ?? v.difficulty}`,
-        `Дней прошло: ${v.day}`,
-        `Баланс: ${fmtMoney(v.balance)}`,
-      ].join('\n'), { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8, align: 'center' })
+      .text(CX, 290, lines.join('\n'), { fontFamily: 'monospace', fontSize: '15px', color: '#f4f4f4', lineSpacing: 6, align: 'center' })
       .setOrigin(0.5).setDepth(61)
     const btnBg = tag(
       this.add

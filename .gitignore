@@ -7,6 +7,7 @@ client/dist/
 iter8-smoke-menu.png
 client/smoke-menu.png
 client/smoke-office.png
+client/smoke-*.png
 
 # сейвы сессий (dev по умолчанию, ITGAME-8)
 saves/

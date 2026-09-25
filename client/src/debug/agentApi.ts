@@ -6,6 +6,13 @@ import { findLowContrast, findOffscreen, findOverlaps, findTiny } from './lint'
 import type { ContrastEntry, OffscreenEntry, OverlapEntry, TinyEntry } from './lint'
 import { startTelemetry } from './telemetry'
 import type { ErrorEntry, LogEntry } from './telemetry'
+import {
+  getAchievementsSummary,
+  loadStats,
+  resetMeta,
+  unlockAchievement,
+} from '../meta'
+import type { AchievementDef, MetaStats } from '../meta'
 
 // Агентский фасад window.itd (ITGAME-23, шаг ITGAME-24): консольный API,
 // которым агент видит игру и действует в ней без input-слоя и скриншотов.
@@ -294,6 +301,12 @@ export interface ItdApi {
   snapshot(): Promise<DebugState>
   restore(save: Record<string, unknown>): Promise<DebugState>
   quiet(): AgentResult
+  meta(): {
+    stats: MetaStats
+    achievements: { unlockedCount: number; totalCount: number; list: (AchievementDef & { unlocked: boolean; unlockedAt?: number })[] }
+  }
+  resetMeta(): AgentResult
+  unlockAchievement(id: string): AgentResult & { achievement?: AchievementDef }
   help(): string
 }
 
@@ -772,6 +785,18 @@ function makeApi(game: Phaser.Game): ItdApi {
       // пауза отдельно через itd.pause().
       for (const scene of game.scene.getScenes(true)) scene.tweens.pauseAll()
       return { ok: true }
+    },
+    meta: () => ({
+      stats: loadStats(),
+      achievements: getAchievementsSummary(),
+    }),
+    resetMeta: () => {
+      resetMeta()
+      return { ok: true }
+    },
+    unlockAchievement: (id: string) => {
+      const ach = unlockAchievement(id)
+      return { ok: Boolean(ach), achievement: ach ?? undefined }
     },
     help() {
       console.log(HELP)
