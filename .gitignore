@@ -13,8 +13,8 @@ client/smoke-*.png
 saves/
 .serena/
 
-# локальные MCP-конфиги и скиллы флота — не в репо
+# локальные MCP-конфиги и личный QA-скилл — не в репо
 .mcp.json
 opencode.json
-.claude/skills/ai-chat/
-.claude/skills/catalog-skill/
+.claude/skills/generate-qa-promt-for-browser-agent/
+.agents/
