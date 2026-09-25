@@ -11,6 +11,8 @@ import { playSfx } from '../audio'
 import { activeZoom, applyZoom, ZOOM_OPTIONS, zoomLabel } from '../uiscale'
 
 const CX = GAME_W / 2 // центр поля — якорь модалок и тостов
+const SPEED_BEFORE_REPORT_KEY = 'itd.speedBeforeReport'
+const REPORT_KEYS = [Phaser.Input.Keyboard.KeyCodes.ENTER, Phaser.Input.Keyboard.KeyCodes.SPACE]
 
 const ERROR_TEXTS: Record<string, string> = {
   not_enough_money: 'Не хватает денег',
@@ -60,10 +62,32 @@ export class HUDScene extends Phaser.Scene {
   private eventUI: Phaser.GameObjects.GameObject[] = []
   private gameOverUI: Phaser.GameObjects.GameObject[] = []
   private victoryUI: Phaser.GameObjects.GameObject[] = []
-  private skipReports = localStorage.getItem('itd.skipReports') === '1'
   private switching = false
+  private get skipReports(): boolean {
+    return localStorage.getItem('itd.skipReports') === '1'
+  }
+  private set skipReports(v: boolean) {
+    if (v) {
+      localStorage.setItem('itd.skipReports', '1')
+    } else {
+      localStorage.removeItem('itd.skipReports')
+    }
+  }
   private currentSpeed = 1
-  private speedBeforeReport: number | null = null
+  private get speedBeforeReport(): number | null {
+    const v = sessionStorage.getItem(SPEED_BEFORE_REPORT_KEY)
+    if (!v) return null
+    const n = parseInt(v, 10)
+    return n >= 1 && n <= 3 ? n : null
+  }
+  private set speedBeforeReport(n: number | null) {
+    if (n === null) {
+      sessionStorage.removeItem(SPEED_BEFORE_REPORT_KEY)
+    } else {
+      sessionStorage.setItem(SPEED_BEFORE_REPORT_KEY, String(n))
+    }
+  }
+  private reportPauseSeq = 0
   private speedBtns: { bg: Phaser.GameObjects.Rectangle; speed: number }[] = []
   private hudInteractive: Phaser.GameObjects.GameObject[] = []
   private debugFrames: Phaser.GameObjects.GameObject[] = []
@@ -215,12 +239,7 @@ export class HUDScene extends Phaser.Scene {
       kb.on('keydown-SPACE', nextDay)
       kb.on('keydown-ESC', nextDay)
       this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-        if (this.input.keyboard) {
-          this.input.keyboard.removeCapture([
-            Phaser.Input.Keyboard.KeyCodes.ENTER,
-            Phaser.Input.Keyboard.KeyCodes.SPACE,
-          ])
-        }
+        kb.removeCapture(REPORT_KEYS)
         kb.removeAllListeners()
       })
     }
@@ -404,12 +423,16 @@ export class HUDScene extends Phaser.Scene {
       }
       if (this.speedBeforeReport !== null) {
         // Реконнект/догон в running-фазу с открытым модалом (ITGAME-18):
-        // не даём скорости залипнуть на 0.
-        if (s.speed === 0) {
-          const restore = this.speedBeforeReport > 0 ? this.speedBeforeReport : 1
-          client.send('set_speed', 0, { speed: restore })
+        // восстанавливаем скорость, только если 0 был нашей паузой модала
+        // (никто другой не отправлял set_speed после неё).
+        if (s.speed === 0 && (this.reportPauseSeq === 0 || client.speedSeq === this.reportPauseSeq)) {
+          const restore = this.speedBeforeReport
+          if (client.send('set_speed', 0, { speed: restore })) {
+            this.speedBeforeReport = null
+          }
+        } else {
+          this.speedBeforeReport = null
         }
-        this.speedBeforeReport = null
       }
       this.closeGameOver()
       this.closeVictory()
@@ -594,26 +617,25 @@ export class HUDScene extends Phaser.Scene {
 
   private onDayReport(r: DayReportMessage) {
     playSfx(this, r.profit >= 0 ? 'bong' : 'drop')
-    this.skipReports = localStorage.getItem('itd.skipReports') === '1'
     if (this.skipReports) {
       client.send('next_day')
       this.toast(`День ${r.day}: прибыль ${fmtMoney(r.profit)} · баланс ${fmtMoney(r.balance)}`)
       return
     }
+    // Серверная пауза (ITGAME-18): запоминаем скорость в sessionStorage
+    // (переживает перезагрузку F5 во время отчёта) и замораживаем темп.
+    if (this.speedBeforeReport === null) {
+      this.speedBeforeReport = this.currentSpeed
+    }
+    client.send('set_speed', 0, { speed: 0 })
+    this.reportPauseSeq = client.speedSeq
     this.showReport(r)
   }
 
   private showReport(r: DayReportMessage) {
     this.closeReport()
-    if (this.speedBeforeReport === null) {
-      this.speedBeforeReport = this.currentSpeed > 0 ? this.currentSpeed : 1
-    }
-    client.send('set_speed', 0, { speed: 0 })
     if (this.input.keyboard) {
-      this.input.keyboard.addCapture([
-        Phaser.Input.Keyboard.KeyCodes.ENTER,
-        Phaser.Input.Keyboard.KeyCodes.SPACE,
-      ])
+      this.input.keyboard.addCapture(REPORT_KEYS)
     }
     const body = [
       `Доход:     ${fmtMoney(r.income)}`,
@@ -641,7 +663,6 @@ export class HUDScene extends Phaser.Scene {
     )
     checkbox.on('pointerdown', () => {
       this.skipReports = !this.skipReports
-      localStorage.setItem('itd.skipReports', this.skipReports ? '1' : '0')
       checkbox.setText(this.checkboxLabel())
     })
     const btnBg = tag(
@@ -662,7 +683,7 @@ export class HUDScene extends Phaser.Scene {
 
   private proceedNextDay() {
     if (this.reportUI.length === 0) return
-    const restoreSpeed = this.speedBeforeReport ?? (this.currentSpeed > 0 ? this.currentSpeed : 1)
+    const restoreSpeed = this.speedBeforeReport ?? this.currentSpeed
     this.speedBeforeReport = null
     client.send('set_speed', 0, { speed: restoreSpeed })
     client.send('next_day')
@@ -679,10 +700,7 @@ export class HUDScene extends Phaser.Scene {
 
   private closeReport() {
     if (this.input.keyboard) {
-      this.input.keyboard.removeCapture([
-        Phaser.Input.Keyboard.KeyCodes.ENTER,
-        Phaser.Input.Keyboard.KeyCodes.SPACE,
-      ])
+      this.input.keyboard.removeCapture(REPORT_KEYS)
     }
     this.reportUI.forEach((o) => o.destroy())
     this.reportUI = []

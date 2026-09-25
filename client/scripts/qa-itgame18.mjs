@@ -34,7 +34,9 @@ try {
   page.on('console', (msg) => console.log('PAGE:', msg.text()))
 
   await page.evaluateOnNewDocument(() => {
-    sessionStorage.setItem('itd.sid', 'qa18-test-' + Date.now())
+    if (!sessionStorage.getItem('itd.sid')) {
+      sessionStorage.setItem('itd.sid', 'qa18-test-' + Date.now())
+    }
     localStorage.removeItem('itd.skipReports')
   })
 
@@ -65,6 +67,7 @@ try {
   // 4. Ждем открытия модала отчета дня
   const reportOpened = await page.evaluate(async () => {
     await window.itd.wait(() => window.itd.ids().some((x) => x.id === 'btn.next_day'), 8000)
+    await window.itd.wait((s, srv) => srv.snapshot?.speed === 0, 5000)
     const st = window.itd.server().snapshot
     return {
       hasBtn: window.itd.ids().some((x) => x.id === 'btn.next_day'),
@@ -91,10 +94,8 @@ try {
   check('Баланс не изменился (нет тиков/событий)', pausedState.balance === reportOpened.balance, `balance=${pausedState.balance}`)
   check('Скорость остается 0', pausedState.speed === 0, `speed=${pausedState.speed}`)
 
-  // 6. Нажимаем Enter (itd.key('enter')) — переход на следующий день
-  await page.evaluate(async () => {
-    window.itd.key('enter')
-  })
+  // 6. Нажимаем Enter через реальное клавиатурное событие страницы
+  await page.keyboard.press('Enter')
 
   // 7. Проверяем, что модал закрылся, наступил День 2, и восстановилась скорость 2x!
   const day2State = await page.evaluate(async () => {
@@ -108,33 +109,22 @@ try {
       noModal: !window.itd.ids().some((x) => x.id === 'btn.next_day'),
     }
   })
-  check('Модал закрыт', day2State.noModal === true, `noModal=${day2State.noModal}`)
+  check('Модал закрыт по Enter', day2State.noModal === true, `noModal=${day2State.noModal}`)
   check('День 2 наступил', day2State.day === 2 && day2State.phase === 'running', `day=${day2State.day}, phase=${day2State.phase}`)
   check('Скорость восстановлена на 2x', day2State.speed === 2, `speed=${day2State.speed}`)
 
-  // 8. Проверяем Space на следующем дне
+  // 8. Проверяем Space на следующем дне через реальное клавиатурное событие
   await page.evaluate(async () => {
     window.itd.speed(3) // сменим на 3x
     await window.itd.wait((s, srv) => srv.snapshot?.speed === 3, 5000)
-    const beforeSet = window.itd.server().snapshot
-    console.log('[test] day 2 state before set:', beforeSet?.day, beforeSet?.tickInDay, beforeSet?.phase)
     await window.itd.set({ tickInDay: 53 })
-    const afterSet = window.itd.server().snapshot
-    console.log('[test] day 2 state after set:', afterSet?.day, afterSet?.tickInDay, afterSet?.phase)
-    try {
-      await window.itd.wait(() => window.itd.ids().some((x) => x.id === 'btn.next_day'), 8000)
-    } catch (e) {
-      const snap = window.itd.server().snapshot
-      throw new Error(`Timeout waiting btn.next_day on day 2. Current snap: day=${snap?.day}, tick=${snap?.tickInDay}, phase=${snap?.phase}, money=${snap?.money}, ids=${window.itd.ids().map(x => x.id).join(',')}`)
-    }
+    await window.itd.wait(() => window.itd.ids().some((x) => x.id === 'btn.next_day'), 8000)
   })
   const day2ReportSpeed = await page.evaluate(() => window.itd.server().snapshot?.speed)
   check('День 2: скорость на паузе (0)', day2ReportSpeed === 0, `speed=${day2ReportSpeed}`)
 
   // Нажимаем Space
-  await page.evaluate(async () => {
-    window.itd.key('space')
-  })
+  await page.keyboard.press('Space')
   const day3State = await page.evaluate(async () => {
     await window.itd.wait(() => !window.itd.ids().some((x) => x.id === 'btn.next_day'), 5000)
     await window.itd.wait((s) => s.day === 3 && s.phase === 'running', 5000)
@@ -147,19 +137,106 @@ try {
   check('Space перевел на день 3', day3State.day === 3, `day=${day3State.day}`)
   check('Скорость 3x восстановлена после Space', day3State.speed === 3, `speed=${day3State.speed}`)
 
-  // 9. Проверяем режим skipReports
+  // 9. Перезагрузка F5 при открытом отчёте дня (ITGAME-18 Opus review)
+  await page.evaluate(async () => {
+    window.itd.speed(3)
+    await window.itd.wait((s, srv) => srv.snapshot?.speed === 3, 5000)
+    await window.itd.set({ tickInDay: 53 })
+    await window.itd.wait(() => window.itd.ids().some((x) => x.id === 'btn.next_day'), 8000)
+  })
+  const beforeReloadStorage = await page.evaluate(() => sessionStorage.getItem('itd.speedBeforeReport'))
+  check('sessionStorage хранит 3x до перезагрузки', beforeReloadStorage === '3', `val=${beforeReloadStorage}`)
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await new Promise((r) => setTimeout(r, 200))
+
+  const afterReloadReady = await page.evaluate(async () => {
+    await window.itd.wait((s) => s.menuReady === true, 8000)
+    const storageBeforeClick = sessionStorage.getItem('itd.speedBeforeReport')
+    window.itd.click('menu.continue')
+    await window.itd.wait((s) => s.connected === true, 8000)
+    await window.itd.wait(() => window.itd.ids().some((x) => x.id === 'btn.next_day'), 8000)
+    return {
+      storageVal: storageBeforeClick,
+      storageAfterConnect: sessionStorage.getItem('itd.speedBeforeReport'),
+      speed: window.itd.server().snapshot?.speed,
+    }
+  })
+  check('sessionStorage сохранил 3x после F5', afterReloadReady.storageVal === '3', `val=${afterReloadReady.storageVal}`)
+  check('Скорость на сервере 0 после F5', afterReloadReady.speed === 0, `speed=${afterReloadReady.speed}`)
+
+  // Закрываем модал кликом по кнопке btn.next_day
+  await page.evaluate(() => {
+    window.itd.click('btn.next_day')
+  })
+  const day4State = await page.evaluate(async () => {
+    await window.itd.wait(() => !window.itd.ids().some((x) => x.id === 'btn.next_day'), 5000)
+    await window.itd.wait((s) => s.day === 4 && s.phase === 'running', 5000)
+    return {
+      day: window.itd.server().snapshot?.day,
+      speed: window.itd.server().snapshot?.speed,
+      storageCleared: sessionStorage.getItem('itd.speedBeforeReport') === null,
+    }
+  })
+  check('День 4 наступил после F5', day4State.day === 4, `day=${day4State.day}`)
+  check('Скорость 3x восстановлена после F5 (не сбросилась в 1)', day4State.speed === 3, `speed=${day4State.speed}`)
+  check('sessionStorage очищен после закрытия модала', day4State.storageCleared === true, `cleared=${day4State.storageCleared}`)
+
+  // 10. Прямой вызов itd.cmd('next_day') во время открытого отчёта
+  await page.evaluate(async () => {
+    window.itd.speed(2)
+    await window.itd.wait((s, srv) => srv.snapshot?.speed === 2, 5000)
+    await window.itd.set({ tickInDay: 53 })
+    await window.itd.wait(() => window.itd.ids().some((x) => x.id === 'btn.next_day'), 8000)
+    // Шлём команду напрямую на сервер в обход proceedNextDay UI
+    window.itd.cmd('next_day')
+  })
+  const day5State = await page.evaluate(async () => {
+    await window.itd.wait(() => !window.itd.ids().some((x) => x.id === 'btn.next_day'), 5000)
+    await window.itd.wait((s) => s.day === 5 && s.phase === 'running', 5000)
+    return {
+      day: window.itd.server().snapshot?.day,
+      speed: window.itd.server().snapshot?.speed,
+    }
+  })
+  check('itd.cmd(next_day): день 5 наступил', day5State.day === 5, `day=${day5State.day}`)
+  check('itd.cmd(next_day): скорость 2x восстановлена через refresh()', day5State.speed === 2, `speed=${day5State.speed}`)
+
+  // 11. Сохранение внешней паузы (itd.speed(0) во время отчёта)
+  await page.evaluate(async () => {
+    window.itd.speed(3)
+    await window.itd.wait((s, srv) => srv.snapshot?.speed === 3, 5000)
+    await window.itd.set({ tickInDay: 53 })
+    await window.itd.wait(() => window.itd.ids().some((x) => x.id === 'btn.next_day'), 8000)
+    // Внешняя пауза, например агент или пользователь вызвал itd.speed(0)
+    window.itd.speed(0)
+    // И затем переход на следующий день напрямую
+    window.itd.cmd('next_day')
+  })
+  const day6State = await page.evaluate(async () => {
+    await window.itd.wait(() => !window.itd.ids().some((x) => x.id === 'btn.next_day'), 5000)
+    await window.itd.wait((s) => s.day === 6 && s.phase === 'running', 5000)
+    return {
+      day: window.itd.server().snapshot?.day,
+      speed: window.itd.server().snapshot?.speed,
+    }
+  })
+  check('День 6 наступил', day6State.day === 6, `day=${day6State.day}`)
+  check('Внешняя пауза не снята (скорость осталась 0)', day6State.speed === 0, `speed=${day6State.speed}`)
+
+  // 12. Проверяем режим skipReports
   await page.evaluate(async () => {
     // Включаем skipReports через localStorage и выставляем скорость 2x
     localStorage.setItem('itd.skipReports', '1')
     window.itd.speed(2)
     await window.itd.wait((s, srv) => srv.snapshot?.speed === 2, 5000)
-    // Промотаем день 3 к концу
+    // Промотаем день 6 к концу
     await window.itd.set({ tickInDay: 53 })
   })
 
-  // С включенным skipReports игра должна автоматически перейти на следующий день (день 4) без паузы
+  // С включенным skipReports игра должна автоматически перейти на следующий день (день 7) без паузы
   const skipResult = await page.evaluate(async () => {
-    await window.itd.wait((s) => s.day === 4 && s.phase === 'running', 8000)
+    await window.itd.wait((s) => s.day === 7 && s.phase === 'running', 8000)
     const st = window.itd.server().snapshot
     const hasModal = window.itd.ids().some((x) => x.id === 'btn.next_day')
     return {
@@ -168,7 +245,7 @@ try {
       hasModal,
     }
   })
-  check('skipReports: день перешел на 4 без модала', skipResult.day === 4 && !skipResult.hasModal, `day=${skipResult.day}, modal=${skipResult.hasModal}`)
+  check('skipReports: день перешел на 7 без модала', skipResult.day === 7 && !skipResult.hasModal, `day=${skipResult.day}, modal=${skipResult.hasModal}`)
   check('skipReports: скорость не залипла на 0 (осталась 2)', skipResult.speed === 2, `speed=${skipResult.speed}`)
 
   check('Ошибок на странице нет', pageErrors.length === 0, `errors=${pageErrors.length}`)

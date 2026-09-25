@@ -123,6 +123,7 @@ export function clearSession(): void {
   partyOrigin = null
   sessionStorage.removeItem(SID_KEY)
   sessionStorage.removeItem(SID_AUTO_KEY)
+  sessionStorage.removeItem('itd.speedBeforeReport')
   localStorage.removeItem(SID_KEY)
   localStorage.removeItem(DIFF_KEY)
 }
@@ -133,6 +134,7 @@ export function clearSession(): void {
 // автопереподключением с тем же sid: сервер восстанавливает прогресс.
 export class GameClient {
   latest: StateMessage | null = null
+  speedSeq = 0
   // Телеметрия сокета для агентского фасада window.itd (ITGAME-24):
   // единственный честный источник — сам клиент, сцены ничего не знают.
   readonly stats = {
@@ -356,6 +358,9 @@ export class GameClient {
     // (itd.pause(), itd.cmd) обязан отличить «отправлено» от тихого no-op.
     if (this.ws?.readyState !== WebSocket.OPEN) return false
     this.commandSentAt = Date.now()
+    if (cmd === 'set_speed') {
+      this.speedSeq++
+    }
     this.ws.send(JSON.stringify({ type: cmd, office, ...extra }))
     this.logWire('out', cmd, { type: cmd, office, ...extra })
     return true
