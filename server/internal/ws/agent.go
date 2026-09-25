@@ -53,7 +53,7 @@ type agentResultMessage struct {
 // ServeAgent — HTTP-хендлер GET /ws/agent.
 func (h *Handler) ServeAgent(w http.ResponseWriter, r *http.Request) {
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		OriginPatterns: []string{"localhost:*", "127.0.0.1:*", "itgame.santarinto.ru"},
+		OriginPatterns: []string{"localhost:*", "127.0.0.1:*", "itgame.santarinto.com"},
 	})
 	if err != nil {
 		return

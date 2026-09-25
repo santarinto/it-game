@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Запуск прод-деплоя itgame.santarinto.ru через on-box webhook. Ни чекаута,
+# Запуск прод-деплоя itgame.santarinto.com через on-box webhook. Ни чекаута,
 # ни SSH не нужно — только общий HMAC-секрет.
 #
 #   DEPLOY_HOOK_SECRET=... bin/trigger-deploy.sh <sha>
@@ -10,7 +10,7 @@
 set -euo pipefail
 
 : "${DEPLOY_HOOK_SECRET:?set DEPLOY_HOOK_SECRET (the webhook HMAC secret)}"
-URL="${DEPLOY_URL:-https://itgame.santarinto.ru/api/deploy}"
+URL="${DEPLOY_URL:-https://itgame.santarinto.com/api/deploy}"
 SHA="${1:-}"
 
 BODY=$(printf '{"sha":"%s"}' "${SHA}")

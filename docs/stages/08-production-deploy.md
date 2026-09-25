@@ -1,11 +1,11 @@
-# Этап 8 — Прод-деплой itgame.santarinto.ru
+# Этап 8 — Прод-деплой itgame.santarinto.com
 
 Дата: 2026-07-18. Ветка `deploy-setup` (мерж `29b349d`), плюс
 обвязка на боксе `site`. Решение: сначала деплой, потом аккаунты.
 
 ## Что построено
 
-- **Домен и TLS:** A-запись `itgame.santarinto.ru → 217.197.115.128`,
+- **Домен и TLS:** A-запись `itgame.santarinto.com → 217.197.115.128`,
   сертификат Let's Encrypt с автопродлением. AAAA нет: IPv6-префикс
   хостера не маршрутизируется (тикет в ESTT открыт, переписка идёт).
 - **nginx:** статика из `current/client/dist`, `/ws` с Upgrade и
@@ -18,7 +18,7 @@
 - **Гонка пайплайнов закрыта:** деплоится протестированный SHA из
   payload, не `origin/main` (обёртка `/usr/local/bin/itgame-deploy`).
 - Go 1.26.5 на боксе, systemd-юнит `itgame` (127.0.0.1:8080, задел
-  под `DATABASE_URL` через env-файл), origin `itgame.santarinto.ru`
+  под `DATABASE_URL` через env-файл), origin `itgame.santarinto.com`
   добавлен в `ws.Accept`.
 
 ## Проверка

@@ -6,7 +6,7 @@
 
 Консольная команда, которая локально синхронизирует документацию
 репозитория (`docs/`) в папку проекта в Obsidian vault
-`~/projects/my/obsidian-vault/My/MyProjects/Site/itgame.santarinto.ru`,
+`~/projects/my/obsidian-vault/My/MyProjects/Site/itgame.santarinto.com`,
 чтобы паспорт, вехи, GDD и спеки читались из Obsidian.
 
 ## Решение
@@ -15,7 +15,7 @@
 
 - **Команда:** `make sync-docs` → `scripts/sync-docs-to-vault.sh`.
 - **Куда:** в подпапку `<vault-папка проекта>/docs/`. Рукописный паспорт
-  `itgame.santarinto.ru.md` в корне vault-папки не затрагивается.
+  `itgame.santarinto.com.md` в корне vault-папки не затрагивается.
 - **Механизм:** `rsync -a --delete docs/ "$dst/docs/"` — удаления файлов
   в репо доезжают до копии; `--delete` действует только внутри `docs/`.
 - **Путь vault:** захардкожен в скрипте, переопределяется переменной
@@ -38,7 +38,7 @@
 ## Критерий приёмки
 
 `make sync-docs` из корня репо: в vault появляется/обновляется
-`itgame.santarinto.ru/docs/**` (паспорт, вехи, design, superpowers);
+`itgame.santarinto.com/docs/**` (паспорт, вехи, design, superpowers);
 файл, удалённый из `docs/` репо, исчезает из копии; рукописный
-`itgame.santarinto.ru.md` не изменён; при отсутствии vault-папки —
+`itgame.santarinto.com.md` не изменён; при отсутствии vault-папки —
 ошибка без побочных эффектов.

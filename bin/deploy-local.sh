@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Атомарный деплой itgame.santarinto.ru (IT Director). Запускается на боксе
+# Атомарный деплой itgame.santarinto.com (IT Director). Запускается на боксе
 # обёрткой /usr/local/bin/itgame-deploy (та держит flock и уже сделала
 # git reset в repo/ на протестированный SHA из payload вебхука).
 #
@@ -88,4 +88,4 @@ else
     echo "  нечего убирать"
 fi
 
-say "DONE → https://itgame.santarinto.ru (${ID})"
+say "DONE → https://itgame.santarinto.com (${ID})"

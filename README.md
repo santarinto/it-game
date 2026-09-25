@@ -106,7 +106,7 @@
     make build
     ./bin/itdirector -static client/dist   # всё на http://localhost:8080
 
-## Прод (itgame.santarinto.ru)
+## Прод (itgame.santarinto.com)
 
 Деплой дёргает on-box webhook (`bin/trigger-deploy.sh`, HMAC), бокс
 собирает релиз атомарно (`bin/deploy-local.sh`: `releases/<id>` → своп
@@ -192,7 +192,7 @@ seed); `debug_patch`/`debug_advance`/`debug_step`/`debug_scenario` →
 UI-смоук (ITGAME-11) — часть релизного пути: прогоняй его после сборки,
 до деплоя, чтобы «молчаливый чёрный экран» не доехал до прода.
 Локально можно проверить любой URL:
-`cd client && npm run smoke-ui -- https://itgame.santarinto.ru`.
+`cd client && npm run smoke-ui -- https://itgame.santarinto.com`.
 `OFFICE=1` — плюс клик «НОРМА» и проверка сцены офиса (нужен живой
 
 ### sim — прогоны баланса (ITGAME-27)

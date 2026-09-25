@@ -10,7 +10,7 @@ Intel «IT Manager 3: Unseen Forces» в pixel style. Игрок покупае�
 серверные стойки → шлюз в интернет), открывает офисы и балансирует
 доход против ФОТ и опекса. Проигрыш — банкротство на вечернем расчёте.
 
-- **Прод:** https://itgame.santarinto.ru (сервер `site`, 217.197.115.128)
+- **Прод:** https://itgame.santarinto.com (сервер `site`, 217.197.115.128)
 - **Репозиторий:** https://github.com/santarinto/it-director-web-game
 - **Старт разработки:** 2026-07-11
 

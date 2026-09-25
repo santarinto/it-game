@@ -10,8 +10,8 @@
 
 ## Global Constraints
 
-- Путь vault по умолчанию: `$HOME/projects/my/obsidian-vault/My/MyProjects/Site/itgame.santarinto.ru`, переопределяется env `VAULT_DIR` (спека).
-- Копия кладётся ТОЛЬКО в `<VAULT_DIR>/docs/`; файлы в корне vault-папки (рукописный `itgame.santarinto.ru.md`) не трогать (спека).
+- Путь vault по умолчанию: `$HOME/projects/my/obsidian-vault/My/MyProjects/Site/itgame.santarinto.com`, переопределяется env `VAULT_DIR` (спека).
+- Копия кладётся ТОЛЬКО в `<VAULT_DIR>/docs/`; файлы в корне vault-папки (рукописный `itgame.santarinto.com.md`) не трогать (спека).
 - Если `VAULT_DIR` не существует — понятная ошибка, exit != 0, никаких побочных эффектов (спека).
 - Содержимое файлов не модифицируется — точная копия (спека).
 - Спека: `docs/superpowers/specs/2026-07-20-sync-docs-to-vault-design.md`.
@@ -40,7 +40,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-vault_dir="${VAULT_DIR:-$HOME/projects/my/obsidian-vault/My/MyProjects/Site/itgame.santarinto.ru}"
+vault_dir="${VAULT_DIR:-$HOME/projects/my/obsidian-vault/My/MyProjects/Site/itgame.santarinto.com}"
 
 if [ ! -d "$vault_dir" ]; then
     echo "ОШИБКА: vault-папка не найдена: $vault_dir" >&2
@@ -49,7 +49,7 @@ if [ ! -d "$vault_dir" ]; then
 fi
 
 # --delete действует только внутри "$vault_dir/docs/" — корень vault-папки
-# (рукописный паспорт itgame.santarinto.ru.md) не затрагивается.
+# (рукописный паспорт itgame.santarinto.com.md) не затрагивается.
 changes="$(rsync -a --delete --itemize-changes "$repo_root/docs/" "$vault_dir/docs/")"
 
 if [ -n "$changes" ]; then
@@ -111,8 +111,8 @@ sync-docs: ## docs/ -> Obsidian vault (односторонне, источни�
 
 - [ ] **Step 6: Прогнать по-настоящему**
 
-Run: `make sync-docs && ls ~/projects/my/obsidian-vault/My/MyProjects/Site/itgame.santarinto.ru/docs/`
-Expected: итоговая строка скрипта; в vault появились `passport.md`, `stages/`, `design/`, `superpowers/`; рукописный `itgame.santarinto.ru.md` в корне папки не изменён.
+Run: `make sync-docs && ls ~/projects/my/obsidian-vault/My/MyProjects/Site/itgame.santarinto.com/docs/`
+Expected: итоговая строка скрипта; в vault появились `passport.md`, `stages/`, `design/`, `superpowers/`; рукописный `itgame.santarinto.com.md` в корне папки не изменён.
 
 - [ ] **Step 7: Commit**
 

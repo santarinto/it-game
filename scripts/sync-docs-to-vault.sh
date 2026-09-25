@@ -5,7 +5,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-vault_dir="${VAULT_DIR:-$HOME/projects/my/obsidian-vault/My/MyProjects/Site/itgame.santarinto.ru}"
+vault_dir="${VAULT_DIR:-$HOME/projects/my/obsidian-vault/My/MyProjects/Site/itgame.santarinto.com}"
 
 if [ ! -d "$vault_dir" ]; then
     echo "ОШИБКА: vault-папка не найдена: $vault_dir" >&2
@@ -14,7 +14,7 @@ if [ ! -d "$vault_dir" ]; then
 fi
 
 # --delete действует только внутри "$vault_dir/docs/" — корень vault-папки
-# (рукописный паспорт itgame.santarinto.ru.md) не затрагивается.
+# (рукописный паспорт itgame.santarinto.com.md) не затрагивается.
 changes="$(rsync -a --delete --itemize-changes "$repo_root/docs/" "$vault_dir/docs/")"
 
 if [ -n "$changes" ]; then
