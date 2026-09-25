@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "smoke-ui": "node scripts/smoke-ui.mjs",
     "qa:meta": "node scripts/qa-itgame10.mjs",
+    "qa:buttons": "node scripts/qa-itgame17.mjs",
     "check:sprites": "node scripts/check-sprites.mjs",
     "visreg": "node scripts/visreg.mjs"
   },

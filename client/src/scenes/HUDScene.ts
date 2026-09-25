@@ -48,6 +48,8 @@ const ERROR_TEXTS: Record<string, string> = {
 
 interface Button {
   setLabel(s: string): void
+  setEnabled(enabled: boolean, tooltip?: string): void
+  isEnabled(): boolean
 }
 
 export class HUDScene extends Phaser.Scene {
@@ -64,6 +66,10 @@ export class HUDScene extends Phaser.Scene {
   private hireBtn!: Button
   private bossBtn!: Button
   private gatewayBtn!: Button
+  private buttonTooltip!: Phaser.GameObjects.Container
+  private buttonTooltipBg!: Phaser.GameObjects.Rectangle
+  private buttonTooltipText!: Phaser.GameObjects.Text
+  private hoveredButtonId: string | null = null
   private navItems: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; sub: Phaser.GameObjects.Text }[] = []
   private currentRoom: 'office' | 'serverRoom' = 'office'
   private reportUI: Phaser.GameObjects.GameObject[] = []
@@ -159,6 +165,26 @@ export class HUDScene extends Phaser.Scene {
       client.send('buy_gateway')
     })
 
+    this.buttonTooltipText = tag(
+      this.add.text(10, 7, '', {
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        color: '#ffcd75',
+        align: 'center',
+      }).setOrigin(0, 0).setVisible(false),
+      'hud.tooltip.text',
+    )
+    this.buttonTooltipBg = tag(
+      this.add.rectangle(0, 0, 10, 10, 0x14162b, 0.95)
+        .setOrigin(0, 0)
+        .setStrokeStyle(1, 0x41a6f6)
+        .setVisible(false),
+      'hud.tooltip.bg',
+    )
+    this.buttonTooltip = this.add.container(0, 0, [this.buttonTooltipBg, this.buttonTooltipText])
+      .setDepth(70)
+      .setVisible(false)
+
     // Темп времени: пауза и множители. Активная кнопка подсвечивается по speed
     // из снапшота — сервер источник истины.
     const speeds = [
@@ -236,7 +262,10 @@ export class HUDScene extends Phaser.Scene {
       onOfflineReport: (r) => this.showOfflineReport(r),
       onReconnecting: (n) => this.showReconnecting(n),
     })
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, unsub)
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.hideButtonTooltip()
+      unsub()
+    })
 
     // Клавиатура отчёта дня (ITGAME-18, ITGAME-24): Enter/Space/Esc — следующий день,
     // пока отчёт открыт. itd.key('enter') дергает те же обработчики.
@@ -256,6 +285,7 @@ export class HUDScene extends Phaser.Scene {
   // Баннер реконнекта: деплой/сеть рвут WS — клиент возвращается сам,
   // сервер продолжает сессию по sid (ITGAME-8). Прячется первым снапшотом.
   private showReconnecting(attempt: number) {
+    this.hideButtonTooltip()
     this.reconnectUI.forEach((o) => o.destroy())
     this.reconnectUI = []
     const bg = this.add.rectangle(CX, 130, 360, 30, 0x14162b).setStrokeStyle(2, 0xffcd75).setDepth(90)
@@ -268,6 +298,7 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private showDisconnect(reason?: string) {
+    this.hideButtonTooltip()
     this.reconnectUI.forEach((o) => o.destroy())
     this.reconnectUI = []
     const taken = reason === 'session_taken'
@@ -292,6 +323,7 @@ export class HUDScene extends Phaser.Scene {
   // Финал офлайн (банкротство/победа) не дублируется обычными экранами —
   // его закрывает кнопка «В меню» прямо отсюда.
   private showOfflineReport(r: OfflineReportMessage) {
+    this.hideButtonTooltip()
     playSfx(this, r.gameOver ? 'glitch' : r.victory ? 'confirmation' : 'bong')
     this.offlineUI.forEach((o) => o.destroy())
     const bankrupt = r.gameOver
@@ -408,7 +440,9 @@ export class HUDScene extends Phaser.Scene {
     if (this.switching) return
     this.switching = true
     this.time.delayedCall(250, () => (this.switching = false))
+    this.hideButtonTooltip()
     if (office >= 0) nav.activeOffice = office
+    if (client.latest) this.refresh(client.latest)
     this.scene.stop(this.currentRoom)
     if (key === this.currentRoom && key === 'office') {
       this.scene.launch('office') // рестарт сцены офиса на новый activeOffice
@@ -512,10 +546,68 @@ export class HUDScene extends Phaser.Scene {
     // с x=420 — дальше строки не заходят (layoutRow сжимает gap).
     layoutRow(16, 16, [this.incomeText, this.payrollText], 416)
     layoutRow(16, 12, [this.dayProfitText, this.debtText], 416)
-    this.pcBtn.setLabel(active.nextPC > 0 ? `Купить ПК  ${fmtMoney(active.nextPC)}` : 'Купить ПК — мест нет')
-    this.hireBtn.setLabel(`Нанять  ${fmtMoney(s.prices.hire)}`)
-    this.bossBtn.setLabel(active.boss === '' ? `Начальник  ${fmtMoney(s.prices.boss)}` : 'Начальник ✓')
-    this.gatewayBtn.setLabel(s.gateway ? 'Шлюз ✓' : `Шлюз  ${fmtMoney(s.prices.gateway)}`)
+
+    // Состояние кнопок покупки (ITGAME-17): доступность, затемнение, тултипы
+    // 1. Кнопка ПК
+    const staffCap = active.boss !== '' ? s.officeSlots : s.staffLimit
+    if (active.nextPC === 0 || active.pcs >= s.officeSlots) {
+      this.pcBtn.setLabel('Купить ПК — мест нет')
+      this.pcBtn.setEnabled(false, 'В офисе нет свободных мест')
+    } else if (active.pcs >= staffCap) {
+      this.pcBtn.setLabel(`Купить ПК  ${fmtMoney(active.nextPC)}`)
+      this.pcBtn.setEnabled(false, 'Нужен начальник для расширения свыше 9 мест')
+    } else if (s.money < active.nextPC) {
+      this.pcBtn.setLabel(`Купить ПК  ${fmtMoney(active.nextPC)}`)
+      this.pcBtn.setEnabled(false, `не хватает ${fmtMoney(active.nextPC - s.money)}`)
+    } else {
+      this.pcBtn.setLabel(`Купить ПК  ${fmtMoney(active.nextPC)}`)
+      this.pcBtn.setEnabled(true)
+    }
+
+    // 2. Кнопка найма сотрудника
+    const hirePrice = s.prices.hire
+    if (active.employees.length >= staffCap) {
+      this.hireBtn.setLabel(`Нанять  ${fmtMoney(hirePrice)}`)
+      const reason = active.boss === '' && active.employees.length >= s.staffLimit
+        ? 'Нужен начальник для найма свыше 9 сотрудников'
+        : 'Штат офиса укомплектован'
+      this.hireBtn.setEnabled(false, reason)
+    } else if (active.employees.length >= active.pcs) {
+      this.hireBtn.setLabel(`Нанять  ${fmtMoney(hirePrice)}`)
+      this.hireBtn.setEnabled(false, 'Нет свободного ПК — сначала купите ПК')
+    } else if (s.money < hirePrice) {
+      this.hireBtn.setLabel(`Нанять  ${fmtMoney(hirePrice)}`)
+      this.hireBtn.setEnabled(false, `не хватает ${fmtMoney(hirePrice - s.money)}`)
+    } else {
+      this.hireBtn.setLabel(`Нанять  ${fmtMoney(hirePrice)}`)
+      this.hireBtn.setEnabled(true)
+    }
+
+    // 3. Кнопка найма начальника
+    const bossPrice = s.prices.boss
+    if (active.boss !== '') {
+      this.bossBtn.setLabel('Начальник ✓')
+      this.bossBtn.setEnabled(false, `Начальник уже нанят: ${active.boss}`)
+    } else if (s.money < bossPrice) {
+      this.bossBtn.setLabel(`Начальник  ${fmtMoney(bossPrice)}`)
+      this.bossBtn.setEnabled(false, `не хватает ${fmtMoney(bossPrice - s.money)}`)
+    } else {
+      this.bossBtn.setLabel(`Начальник  ${fmtMoney(bossPrice)}`)
+      this.bossBtn.setEnabled(true)
+    }
+
+    // 4. Кнопка интернет-шлюза
+    const gwPrice = s.prices.gateway
+    if (s.gateway) {
+      this.gatewayBtn.setLabel('Шлюз ✓')
+      this.gatewayBtn.setEnabled(false, 'Интернет-шлюз уже подключён')
+    } else if (s.money < gwPrice) {
+      this.gatewayBtn.setLabel(`Шлюз  ${fmtMoney(gwPrice)}`)
+      this.gatewayBtn.setEnabled(false, `не хватает ${fmtMoney(gwPrice - s.money)}`)
+    } else {
+      this.gatewayBtn.setLabel(`Шлюз  ${fmtMoney(gwPrice)}`)
+      this.gatewayBtn.setEnabled(true)
+    }
     this.navItems.forEach((item, idx) => {
       if (idx === 3) return
       const o = s.offices[idx]
@@ -538,6 +630,7 @@ export class HUDScene extends Phaser.Scene {
   private lastEventId = ''
 
   private showEvent(ev: NonNullable<StateMessage['activeEvent']>) {
+    this.hideButtonTooltip()
     if (ev.id !== this.lastEventId) {
       this.lastEventId = ev.id
       playSfx(this, 'question')
@@ -579,6 +672,10 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private makeButton(x: number, y: number, id: string, onClick: () => void): Button {
+    let enabled = true
+    let tooltipText: string | undefined
+    let isShaking = false
+
     const bg = tag(
       this.add
         .rectangle(x, y, 200, 34, 0x3b5dc9)
@@ -589,11 +686,115 @@ export class HUDScene extends Phaser.Scene {
     const txt = this.add
       .text(x + 100, y + 17, '…', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
       .setOrigin(0.5)
-    bg.on('pointerdown', onClick)
-    bg.on('pointerover', () => bg.setFillStyle(0x41a6f6))
-    bg.on('pointerout', () => bg.setFillStyle(0x3b5dc9))
+
+    const applyState = () => {
+      if (enabled) {
+        const isHovered = this.hoveredButtonId === id
+        bg.setFillStyle(isHovered ? 0x41a6f6 : 0x3b5dc9)
+        bg.setStrokeStyle(0)
+        bg.setAlpha(1)
+        txt.setAlpha(1)
+      } else {
+        bg.setFillStyle(0x232640)
+        bg.setStrokeStyle(2, 0x3a3f5c)
+        bg.setAlpha(0.45)
+        txt.setAlpha(0.45)
+      }
+    }
+
+    const shake = () => {
+      if (isShaking) return
+      isShaking = true
+      const origX = x
+      this.tweens.addCounter({
+        from: 0,
+        to: Math.PI * 4,
+        duration: 180,
+        onUpdate: (tween) => {
+          if (!bg.scene) return
+          const v = tween.getValue() ?? 0
+          const offset = Math.sin(v) * 5
+          bg.x = origX + offset
+          txt.x = origX + 100 + offset
+        },
+        onComplete: () => {
+          if (bg.scene) {
+            bg.x = origX
+            txt.x = origX + 100
+          }
+          isShaking = false
+        },
+      })
+    }
+
+    bg.on('pointerdown', () => {
+      if (!enabled) {
+        playSfx(this, 'error')
+        shake()
+        return
+      }
+      onClick()
+    })
+
+    bg.on('pointerover', () => {
+      this.hoveredButtonId = id
+      if (enabled) {
+        bg.setFillStyle(0x41a6f6)
+      } else {
+        bg.setFillStyle(0x232640)
+        if (tooltipText) {
+          this.showButtonTooltip(tooltipText, x, y)
+        }
+      }
+    })
+
+    bg.on('pointerout', () => {
+      if (this.hoveredButtonId === id) {
+        this.hoveredButtonId = null
+        this.hideButtonTooltip()
+      }
+      applyState()
+    })
+
     this.hudInteractive.push(bg)
-    return { setLabel: (s: string) => txt.setText(s) }
+
+    return {
+      setLabel: (s: string) => txt.setText(s),
+      setEnabled: (e: boolean, tooltip?: string) => {
+        enabled = e
+        tooltipText = tooltip
+        applyState()
+        if (this.hoveredButtonId === id && this.buttonTooltip && this.buttonTooltip.visible) {
+          if (!enabled && tooltipText) {
+            this.showButtonTooltip(tooltipText, x, y)
+          } else {
+            this.hideButtonTooltip()
+          }
+        }
+      },
+      isEnabled: () => enabled,
+    }
+  }
+
+  private showButtonTooltip(text: string, x: number, y: number) {
+    if (!text) {
+      this.hideButtonTooltip()
+      return
+    }
+    this.buttonTooltipText.setText(text).setVisible(true)
+    this.buttonTooltipBg.setSize(this.buttonTooltipText.width + 20, this.buttonTooltipText.height + 14).setVisible(true)
+    const tx = Phaser.Math.Clamp(x + 100 - this.buttonTooltipBg.width / 2, 8, GAME_W - this.buttonTooltipBg.width - 8)
+    const ty = y + 38
+    this.buttonTooltip.setPosition(tx, ty).setVisible(true)
+  }
+
+  private hideButtonTooltip() {
+    this.hoveredButtonId = null
+    if (this.buttonTooltip) {
+      this.buttonTooltip.setVisible(false)
+      this.buttonTooltipText.setVisible(false)
+      this.buttonTooltipBg.setVisible(false)
+    }
   }
 
   private toast(text: string, ms = 1500, opts?: { top?: boolean; bg?: string }) {
@@ -686,6 +887,7 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private showReport(r: DayReportMessage) {
+    this.hideButtonTooltip()
     this.closeReport()
     if (this.input.keyboard) {
       this.input.keyboard.addCapture(REPORT_KEYS)
@@ -794,6 +996,7 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private showGameOver(o: GameOverMessage) {
+    this.hideButtonTooltip()
     playSfx(this, 'glitch')
     this.closeReport()
     this.closeGameOver()
@@ -849,6 +1052,7 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private showVictory(v: VictoryMessage) {
+    this.hideButtonTooltip()
     playSfx(this, 'confirmation')
     this.closeReport()
     this.closeVictory()
@@ -911,6 +1115,7 @@ export class HUDScene extends Phaser.Scene {
   // Выход в меню с сейвами (ITGAME-8): выход сохраняет прогресс, сдаться —
   // осознанное удаление сейва. Случайный клик по ⌂ не должен стоить партию.
   private confirmExitToMenu() {
+    this.hideButtonTooltip()
     showModal(this, 'Выйти в меню?', ['Прогресс сохранится — продолжите', 'с главного меню в любое время.'], [
       { label: 'Сохранить и выйти', onClick: () => this.returnToMenu() },
       { label: 'Сдаться (удалить сейв)', onClick: () => { client.abandon(); this.returnToMenu() } },

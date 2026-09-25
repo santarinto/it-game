@@ -54,4 +54,11 @@ export default defineConfig({
       '/api': 'http://localhost:8080',
     },
   },
+  preview: {
+    proxy: {
+      '/ws': { target: 'ws://localhost:8080', ws: true },
+      '/admin': 'http://localhost:8080',
+      '/api': 'http://localhost:8080',
+    },
+  },
 })
