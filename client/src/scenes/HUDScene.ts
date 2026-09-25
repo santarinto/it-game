@@ -557,8 +557,8 @@ export class HUDScene extends Phaser.Scene {
 
   private toast(text: string, ms = 1500, opts?: { top?: boolean; bg?: string }) {
     const isTop = opts?.top ?? false
-    const startY = isTop ? HUD_H + 24 : GAME_H - 40
-    const endY = isTop ? HUD_H - 8 : GAME_H - 80
+    const startY = isTop ? 175 : GAME_H - 40
+    const endY = isTop ? 150 : GAME_H - 80
     const bg = opts?.bg ?? '#b13e53'
     const t = tag(
       this.add
@@ -626,10 +626,11 @@ export class HUDScene extends Phaser.Scene {
     playSfx(this, r.profit >= 0 ? 'bong' : 'drop')
     if (this.skipReports) {
       client.send('next_day')
+      const toastBg = r.profit > 0 ? '#257179' : r.profit === 0 ? '#333c57' : '#b13e53'
       this.toast(
         `День ${r.day}: прибыль ${fmtMoney(r.profit)} · баланс ${fmtMoney(r.balance)}`,
         2500,
-        { top: true, bg: r.profit >= 0 ? '#257179' : '#b13e53' },
+        { top: true, bg: toastBg },
       )
       return
     }
@@ -658,16 +659,22 @@ export class HUDScene extends Phaser.Scene {
       ...(r.events?.length ? ['', 'События:', ...r.events.map((e) => `· ${e}`)] : []),
     ].join('\n')
 
+    // Подложка interactive: глушит клики по кнопкам HUD под модалкой (depth 50).
+    const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(50).setInteractive()
+    // Плашка модала (depth 51) создаётся ДО текстов и кнопок (depth 52..53),
+    // чтобы display list и depth гарантированно держали фон ПОЗАДИ контента.
+    const panel = this.add.rectangle(CX, 300, 440, 320, 0x14162b).setStrokeStyle(2, 0x41a6f6).setDepth(51)
+
     const title = this.add
       .text(CX, 0, `День ${r.day} завершён`, { fontFamily: 'monospace', fontSize: '22px', color: '#ffcd75' })
-      .setOrigin(0.5, 0).setDepth(51)
+      .setOrigin(0.5, 0).setDepth(52)
     const bodyText = this.add
       .text(CX, 0, body, { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8 })
-      .setOrigin(0.5, 0).setDepth(51)
+      .setOrigin(0.5, 0).setDepth(52)
     const checkbox = tag(
       this.add
         .text(CX, 0, this.checkboxLabel(), { fontFamily: 'monospace', fontSize: '14px', color: '#5d7275' })
-        .setOrigin(0.5, 0).setDepth(51).setInteractive({ useHandCursor: true }),
+        .setOrigin(0.5, 0).setDepth(52).setInteractive({ useHandCursor: true }),
       'btn.skip_reports',
     )
     checkbox.on('pointerdown', () => {
@@ -676,13 +683,13 @@ export class HUDScene extends Phaser.Scene {
     })
     const btnBg = tag(
       this.add
-        .rectangle(CX - 100, 0, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(51)
+        .rectangle(CX - 100, 0, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(52)
         .setInteractive({ useHandCursor: true }),
       'btn.next_day',
     )
     const btnText = this.add
       .text(CX, 0, 'Следующий день →', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
-      .setOrigin(0.5, 0.5).setDepth(52)
+      .setOrigin(0.5, 0.5).setDepth(53)
     btnBg.on('pointerdown', () => this.proceedNextDay())
     btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
     btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
@@ -698,9 +705,8 @@ export class HUDScene extends Phaser.Scene {
     const panelW = 440
     const panelY = Math.round((GAME_H - panelH) / 2)
 
-    // Подложка interactive: глушит клики по кнопкам HUD под модалкой.
-    const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(50).setInteractive()
-    const panel = this.add.rectangle(CX, panelY + panelH / 2, panelW, panelH, 0x14162b).setStrokeStyle(2, 0x41a6f6).setDepth(51)
+    panel.setSize(panelW, panelH)
+    panel.setPosition(CX, panelY + panelH / 2)
 
     let curY = panelY + padY
     title.setY(curY)

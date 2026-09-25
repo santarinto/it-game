@@ -56,15 +56,19 @@ function textObjs(scene: Phaser.Scene): Phaser.GameObjects.Text[] {
 function nameOf(o: Node0): string {
   const id = o.getData?.('id')
   if (typeof id === 'string') return id
-  const text = (o as unknown as { text?: string }).text ?? ''
-  return text.slice(0, 24).replace(/\n/g, ' ')
+  const text = (o as unknown as { text?: string }).text
+  if (text) return text.slice(0, 24).replace(/\n/g, ' ')
+  const oObj = o as unknown as { type?: string; width?: number; height?: number }
+  if (oObj.type) return `${oObj.type}(${Math.round(oObj.width || 0)}x${Math.round(oObj.height || 0)})`
+  return ''
 }
 
-// Пересечения видимых текстов одной сцены на одном depth: тексты на разных
-// depth легитимно перекрываются (текст поверх панели), а на одном — баг.
+// Пересечения видимых текстов одной сцены на одном depth, а также закрытие
+// текста непрозрачным узлом (Rectangle/Image), отрисованным выше по depth или display list.
 export function findOverlaps(game: Phaser.Game): OverlapEntry[] {
   const out: OverlapEntry[] = []
   for (const scene of game.scene.getScenes(true)) {
+    const list = scene.children.list
     const texts = textObjs(scene).filter((t) => t.visible && t.alpha > 0.5)
     for (let i = 0; i < texts.length; i++) {
       for (let j = i + 1; j < texts.length; j++) {
@@ -82,6 +86,38 @@ export function findOverlaps(game: Phaser.Game): OverlapEntry[] {
             b: nameOf(b),
             overlap: { w: Math.round(w), h: Math.round(h) },
             at: { x: Math.round(Math.max(ra.x, rb.x)), y: Math.round(Math.max(ra.y, rb.y)) },
+          })
+        }
+      }
+
+      // Проверка: не закрыт ли видимый текст непрозрачным объектом (например, плашкой модала).
+      const t = texts[i]
+      const tIdx = list.indexOf(t)
+      const tDepth = t.depth ?? 0
+      const rt = t.getBounds()
+      if (rt.width <= 0 || rt.height <= 0) continue
+
+      for (let k = 0; k < list.length; k++) {
+        const o = list[k] as unknown as Node0 & { fillAlpha?: number; isFilled?: boolean }
+        if (o === (t as unknown) || !o.visible || (o.alpha ?? 1) < 0.9) continue
+        if (o.type !== 'Rectangle' && o.type !== 'Image') continue
+        if (o.type === 'Rectangle' && (o.isFilled === false || (o.fillAlpha ?? 1) < 0.9)) continue
+
+        const oDepth = o.depth ?? 0
+        if (oDepth >= 90) continue // технические слои отладочных рамок
+        const isAbove = oDepth > tDepth || (oDepth === tDepth && k > tIdx)
+        if (!isAbove) continue
+
+        const ro = o.getBounds()
+        const w = Math.min(rt.right, ro.right) - Math.max(rt.x, ro.x)
+        const h = Math.min(rt.bottom, ro.bottom) - Math.max(rt.y, ro.y)
+        if (w > rt.width * 0.5 && h > rt.height * 0.5) {
+          out.push({
+            scene: scene.scene.key,
+            a: nameOf(t as unknown as Node0),
+            b: nameOf(o),
+            overlap: { w: Math.round(w), h: Math.round(h) },
+            at: { x: Math.round(Math.max(rt.x, ro.x)), y: Math.round(Math.max(rt.y, ro.y)) },
           })
         }
       }
