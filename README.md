@@ -95,7 +95,8 @@
   (тик 1 с). Сейвы сессий — файловые (память + атомарная запись на диск),
   PostgreSQL не участвует: переподключение с тем же session-id в течение
   TTL восстанавливает игру (см. «Сейвы, реконнект и офлайн-прогресс»).
-- Клиент: Phaser 3 + TypeScript + Vite, кодогенерируемый пиксель-арт.
+- Клиент: Phaser 3 + TypeScript + Vite; спрайты — PNG из dev-time
+  AI-пайплайна (см. «Ассеты»), кодоген `client/src/pixelart.ts` — фолбэк.
 
 ## Запуск (dev)
 
@@ -110,8 +111,22 @@
 
 Деплой дёргает on-box webhook (`bin/trigger-deploy.sh`, HMAC), бокс
 собирает релиз атомарно (`bin/deploy-local.sh`: `releases/<id>` → своп
-симлинка `current` → `systemctl restart itgame`). Деплой сейчас
-ручной — `bin/trigger-deploy.sh <sha>`.
+симлинка `current` → `systemctl restart itgame`). Запуск — один из двух:
+
+- **GitHub Actions** (`.github/workflows/ci.yml`, джоба `deploy`): пуш в
+  `main` → зелёные `server` и `client` → вебхук с протестированным SHA →
+  UI-смоук против прода. Включается секретом репо `DEPLOY_HOOK_SECRET`
+  (Settings → Secrets and variables → Actions); без него джоба
+  пропускает выкат с warning. Если `main` за время тестов ушёл вперёд,
+  устаревший SHA не выкатывается. Ручной выкат из Actions — «Run
+  workflow» на `main`.
+- **Вручную:** `DEPLOY_HOOK_SECRET=… bin/trigger-deploy.sh <sha>`.
+
+Бокс собирает клиент тем же `npm run build`, а он включает
+`check-sprites.mjs` — на боксе нужен Chromium (`CHROME_PATH` или
+`/usr/bin/chromium`), иначе релиз падает до свопа (прод остаётся на
+старом). Релиз собирается из `git archive` — `.git` в нём нет, и
+`vite.config.ts` ставит в штамп сборки `dev` вместо sha.
 Схема деплоя — плейбук атомарного деплоя (репо my-santarinto).
 На боксе: nginx (TLS, статика,
 `/ws`, `/admin` под basic auth) → Go-бинарь на `127.0.0.1:8080`. Деплой
@@ -182,18 +197,48 @@ seed); `debug_patch`/`debug_advance`/`debug_step`/`debug_scenario` →
 
 ## Тесты
 
-    make test        # Go: домен и WebSocket-слой
+    make test        # Go: домен, WebSocket-слой, слой БД (нужен TEST_DATABASE_URL)
     make typecheck   # клиент: проверка типов
     make smoke-ui    # клиент: headless-Chromium открывает билд — меню
                      # стартует, консоль чистая (или FAIL)
     make sim         # сервер: headless-прогоны баланса
                      # ARGS="--diff hard --seed 1..50 --days 30 --policy all"
+    cd client && npm run visreg   # регрессии скриншотов и вёрстки
 
-UI-смоук (ITGAME-11) — часть релизного пути: прогоняй его после сборки,
+Chromium нужен не только смоуку: `npm run build` тоже запускает его
+(`check-sprites.mjs`), как и `visreg`. Скрипты ищут `CHROME_PATH`, затем
+`/usr/bin/chromium`, `/usr/bin/chromium-browser`,
+`/usr/bin/google-chrome-stable`.
+
+UI-смоук (ITGAME-11) — часть релизного пути: CI гоняет его после сборки,
 до деплоя, чтобы «молчаливый чёрный экран» не доехал до прода.
 Локально можно проверить любой URL:
 `cd client && npm run smoke-ui -- https://itgame.santarinto.com`.
 `OFFICE=1` — плюс клик «НОРМА» и проверка сцены офиса (нужен живой
+сервер). Boot проверяет контракт арт-пайплайна (64×64 + прозрачность,
+ITGAME-12) — нарушение падает ошибкой консоли и ловится смоуком.
+Скриншоты проверок — client/smoke-menu.png / smoke-office.png
+(gitignored).
+
+Живая проверка протокола (сервер + реальный WebSocket-клиент,
+без браузера):
+
+    cd server && go run ./cmd/server -addr :8091 &
+    node scripts/live-check-saves.mjs            # сейвы/реконнект (ITGAME-8)
+    OFFLINE=1 node scripts/live-check-saves.mjs  # + офлайн-догон (~70с)
+    node scripts/live-check-activeday.mjs        # активный день
+    node scripts/live-check-events.mjs           # события Unseen Forces
+    node scripts/live-check-employees2.mjs       # сотрудники 2.0
+    node scripts/live-check-difficulty2.mjs      # сложность 2.0
+
+Каждый ждёт своё «… ОК» и exit 0. `live-check-events` идёт на
+фиксированном сиде (`SEED=3` по умолчанию, ~40с) — ролл событий
+воспроизводим; другой сид — `SEED=N node scripts/live-check-events.mjs`.
+`live-check-difficulty2` зависит от ролла выработки: изредка день 1 на
+хардкоре закрывается в плюс, и проверка отрицательного баланса
+падает — перезапустить.
+`scripts/live-check.mjs` устарел после ребаланса (ждёт старые цены и
+цель хардкора $500k) и падает на старте — ждёт актуализации.
 
 ### sim — прогоны баланса (ITGAME-27)
 
@@ -202,10 +247,11 @@ UI-смоук (ITGAME-11) — часть релизного пути: прого
 Политики: greedy (покупает/ремонтирует/мотивирует всё доступное с резервом
 на ФОТ), idle (контроль выживаемости), random (разброс между ними). CSV
 `policy,seed,day,money,income,payroll,events,outcome` — строка на день,
-финал в последней (bankrupt | victory | time_up | timeout). Эталоны
-инсайтов: normal+greedy
-≈ 70% банкротств к 30-му дню (аудит-качели при тонком резерве),
-easy+greedy ≈ 2/3 побед.
+финал в последней (bankrupt | deadlock | victory | time_up | timeout).
+Эталоны инсайтов: normal+greedy ≈ 70% банкротств к 30-му дню
+(аудит-качели при тонком резерве), easy+greedy ≈ 2/3 побед. В CI —
+отчётом в summary джобы `server` (исходы по всем сложностям), CSV —
+артефактом `sim-csv`; джобу не роняет.
 
 ### visreg — регрессии скриншотов и вёрстки (ITGAME-27)
 
@@ -220,21 +266,33 @@ Self-serve: без BASE_URL поднимает Go-сервер на :4173 (stati
 одним процессом — как прод).
 Грабли: перед прогоном убедиться, что не осталось зомби-хромов
 (`pgrep -x chromium | wc -l` → 0) — они душат software-WebGL.
-сервер). Boot проверяет контракт арт-пайплайна (64×64 + прозрачность,
-ITGAME-12) — нарушение падает ошибкой консоли и ловится смоуком.
-Скриншоты проверок — client/smoke-menu.png / smoke-office.png
-(gitignored).
+Эталоны машинозависимы: текст рисуется системным `monospace`, и на чужой
+машине даже коммит эталонов даёт diff 0.3–0.65%. Поэтому в CI visreg —
+отчёт, не гейт: при расхождении джоба кладёт кадры, снятые на раннере,
+в артефакт `visreg-ci-shots` — их можно принять эталонами и после этого
+сделать проверку обязательной.
 
-Живая проверка протокола (сервер + реальный WebSocket-клиент,
-без браузера):
+## CI (GitHub Actions)
 
-    cd server && go run ./cmd/server -addr :8091 &
-    node scripts/live-check.mjs   # ждёт `ПРОТОКОЛ ОК` и exit 0
+`.github/workflows/ci.yml` — на каждый PR, пуш в `main` и вручную
+(«Run workflow»):
 
-Сейвы/реконнект/офлайн-догон (ITGAME-8), тот же сервер:
+- **server** — `go vet`, `go test` (слой БД — на сервис-контейнере
+  Postgres 16, `TEST_DATABASE_URL` задан), sim-отчёт;
+- **client** — `npm ci`, typecheck, `npm run build` (с контрактом
+  спрайтов), UI-смоук меню, затем Go-сервер над `dist` (как прод):
+  смоук сцены офиса через живой WS и `live-check-saves`;
+- **visreg** — отчёт (см. выше), не блокирует;
+- **deploy** — только `main`, после зелёных server и client (см. «Прод»).
 
-    node scripts/live-check-saves.mjs            # быстрый сценарий
-    OFFLINE=1 node scripts/live-check-saves.mjs  # + офлайн-догон (~70с)
+## Облачная сессия Claude Code
+
+`.claude/hooks/session-start.sh` (SessionStart-хук, только при
+`CLAUDE_CODE_REMOTE=true`) готовит свежий контейнер: Go-модули (тулчейн
+из `go.mod` скачивается сам), `npm ci` клиента, `CHROME_PATH` на
+Chromium образа, запуск PostgreSQL с ролью `itd` и базами `itdirector`
+/ `itdirector_test`. В сессию экспортируются `DATABASE_URL` (для `/admin`
+в `make dev`) и `TEST_DATABASE_URL` — `make test` гоняет и тест БД.
 
 ## База данных
 
@@ -260,7 +318,9 @@ PostgreSQL опциональна: геймплей от неё не завис�
 
 Для тестов слоя БД (`server/internal/db`) нужен отдельный
 `TEST_DATABASE_URL`; без него они пропускаются (`SKIP`) — остальные
-пакеты это не затрагивает.
+пакеты это не затрагивает. В CI (сервис-контейнер Postgres 16) и в
+облачной сессии Claude Code (SessionStart-хук поднимает локальный
+Postgres) переменная задана — тест БД там идёт всегда.
 
 ## Документация
 
@@ -275,21 +335,27 @@ PostgreSQL опциональна: геймплей от неё не завис�
 графика — dev-time пайплайн AI-генерации, игра остаётся полностью
 офлайн, в репо коммитятся готовые PNG.
 
-- **Пайплайн:** `scripts/gen-sprites.sh` — промпты
-  `scripts/sprites/prompts.txt` → API генератора → постобработка
-  `scripts/sprites/remap.sh` (downscale до 16/32px + квантизация в
-  палитру Sweetie-16) → `client/public/assets/sprites/`.
-- **Ключ** — в `.env` корня репо (gitignored): `SPRITES_API_KEY=...`,
-  опционально `SPRITES_API_URL`/`SPRITES_API_MODEL` (по умолчанию —
-  Leonardo AI REST; интеграционная часть не проверена живым ключом —
-  сверься с документацией своего сервиса перед первым прогоном).
+- **Генерация:** `scripts/gen-sprites.sh [имя]` — промпты
+  `scripts/sprites/prompts.txt` → PixelLab API (`create-image-pixen`,
+  64×64, прозрачный фон, стабильный seed на имя) → постобработка
+  `scripts/sprites/remap.sh` (downscale до игрового размера +
+  квантизация в палитру Sweetie-16) → `client/public/assets/sprites/`.
+  Опционально `SPRITES_SIZE` (по умолчанию 64) и `SPRITES_OUT`.
+- **Правка:** `scripts/sprite-edit.sh <имя> "<инструкция>"` — Gemini
+  (`GEMINI_IMAGE_MODEL`, по умолчанию `gemini-2.5-flash-image`) →
+  remap 64px.
+- **Ключи** — в `.env` корня репо (gitignored): `SPRITES_API_KEY`
+  (PixelLab), `GEMINI_API_KEY` (правка).
+- **Контракт:** каждый PNG — 64×64, прозрачный фон, палитра
+  Sweetie-16, без запечённого чекерборда; проверяется
+  `client/scripts/check-sprites.mjs` в `npm run build`, размер и
+  прозрачность дублирует boot клиента (ITGAME-12).
 - **Куриция:** автопроверка читаемости силуэта — локальной vision-
   моделью LocalMind (`localmind_recognize` MCP по пути к PNG с
-  промптом «что изображено и читается ли силуэт на 32px»), ручная
-  доводка — Aseprite.
+  промптом «что изображено, читается ли силуэт на игровом масштабе»),
+  ручная доводка — Aseprite.
 - **Звук:** SFX из CC0-пака [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds)
   (лицензия CC0 1.0) — `client/public/assets/sfx/`, проигрывание
   `client/src/audio.ts` (клик, покупка, ошибка, событие, итоги дня).
 - Кодоген `client/src/pixelart.ts` остаётся фолбэком: PNG из
-  `assets/sprites/` подменяют текстуры по мере появления (поэтапно:
-  тайлы и устройства, затем персонажи).
+  `assets/sprites/` подменяют те текстуры, для которых они есть.

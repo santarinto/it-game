@@ -31,10 +31,15 @@ Intel «IT Manager 3: Unseen Forces» в pixel style. Игрок покупае�
 
 ## Прод и деплой
 
-- Деплой ручной: `bin/trigger-deploy.sh <sha>` → on-box webhook (HMAC)
+- CI — GitHub Actions (`.github/workflows/ci.yml`, с 2026-09-26, после
+  переезда репо на GitHub): на каждый PR и пуш в `main` — Go vet/test
+  (слой БД на Postgres 16), typecheck/build клиента с контрактом
+  спрайтов, UI-смоук меню и офиса, live-check сейвов; visreg — отчёт.
+- Деплой: `bin/trigger-deploy.sh <sha>` → on-box webhook (HMAC)
   → атомарный релиз (`releases/<id>` → своп симлинка `current` →
-  `systemctl restart itgame`). CI убран вместе с переездом репо на
-  GitHub (2026-09-26).
+  `systemctl restart itgame`). Из Actions — джоба `deploy` после
+  зелёных тестов на `main`, включается секретом `DEPLOY_HOOK_SECRET`;
+  пока секрета нет — вручную.
 - Схема деплоя — плейбук атомарного деплоя (репо my-santarinto);
   детали игры — раздел «Прод» в README.
 - `/admin` на проде закрыт basic auth (доступы — вне репозитория).
@@ -48,7 +53,8 @@ Intel «IT Manager 3: Unseen Forces» в pixel style. Игрок покупае�
 Рабочий цикл итерации: **брейншторм → спека → план → SDD
 (subagent-driven development) → браузерный смоук → финальное ревью →
 плейтест пользователя → мерж в main** (мерж только после плейтеста;
-деплой на прод — вручную, `bin/trigger-deploy.sh`).
+деплой на прод — джоба `deploy` в Actions, пока секрет не задан —
+вручную, `bin/trigger-deploy.sh`).
 
 - Геймдизайн (живой документ): `docs/design/gdd.md`
 - Спеки: `docs/superpowers/specs/`
@@ -70,5 +76,5 @@ Intel «IT Manager 3: Unseen Forces» в pixel style. Игрок покупае�
 cmd/net/log, отладочные эндпоинты `/api/debug/*`, WS-мост `/ws/agent`)
 — основа скриптовых QA (`qa:buttons`/`qa:tabs`/`qa:meta`). Следующие
 в бэклоге — облачная цепочка ITGAME-37→38→39→22→19→21 (полиш фасада,
-служебное UI, стартовый экран, полиш HUD). Прод обновляется ручным
-деплоем и может отставать от main.
+служебное UI, стартовый экран, полиш HUD). Пока секрет деплоя в
+Actions не задан, прод обновляется вручную и может отставать от main.
