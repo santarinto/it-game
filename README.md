@@ -35,5 +35,5 @@ Deploy, saves, testing, CI and the asset pipeline:
 
 ## License
 
-[GNU General Public License v3.0](LICENSE). Sound effects are
+[GNU Affero General Public License v3.0](LICENSE). Sound effects are
 [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds) (CC0).
