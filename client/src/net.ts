@@ -16,6 +16,12 @@ export interface Listener {
 
 const SID_KEY = 'itd.sid'
 const DIFF_KEY = 'itd.diff'
+// Метка зеркала: значение sid, которым КЛИЕНТ писал зеркало вкладки.
+// Если sessionStorage['itd.sid'] ≠ метке — sid выставлен ЯВНО (агентом),
+// и его чтим; совпадает — это наше зеркало текущей партии, новая партия
+// может его сменить. Самоисцеляющаяся: ручная перезапись sid ломает
+// совпадение без дополнительной гигиены.
+const SID_AUTO_KEY = 'itd.sid.auto'
 
 // Ключ сессии в памяти вкладки: чтение больше НИЧЕГО не пишет в хранилища
 // (ITGAME-30). Раньше геттер создавал uuid при первом чтении и клал его в
@@ -72,7 +78,30 @@ function persistSid(): void {
   const sid = sessionId()
   partyOrigin = sidOrigin
   sessionStorage.setItem(SID_KEY, sid)
+  sessionStorage.setItem(SID_AUTO_KEY, sid)
   if (sidOrigin !== 'session') localStorage.setItem(SID_KEY, sid)
+}
+
+// Новая партия по явному выбору игрока (кнопка сложности, клавиши 1-4):
+// если вкладке не выставлен ЯВНЫЙ sid (агентский sessionStorage без нашей
+// метки), текущий sid забывается везде — и зеркало, и общий ключ: иначе
+// sessionId() молча продолжит чужой сейв из localStorage (волна B: «НОРМА»
+// открывала существующую партию). Живой сосед вернёт себе общий ключ гарде,
+// а connect() новой партии запишет туда уже свежий sid. Явно выставленный
+// sid чтим — на нём держатся агентские прогоны (?seed/?scenario + sid).
+export function prepareNewGame(): void {
+  const explicit = sessionStorage.getItem(SID_KEY)
+  if (explicit !== null && explicit !== sessionStorage.getItem(SID_AUTO_KEY)) return
+  const sid = newSid()
+  memorySid = sid
+  sidOrigin = 'generated'
+  sessionStorage.removeItem(SID_KEY)
+  sessionStorage.removeItem(SID_AUTO_KEY)
+  // Общий ключ сразу ПЕРЕЗАПИСЫВАЕМ на новую партию (S→N), а не удаляем:
+  // соседняя живая вкладка увидит запись, а не стирание — гарда общего
+  // ключа не вступит в гонку за указатель. Удаление остаётся у финала
+  // партии (game_over), где его и возвращает живой сосед.
+  localStorage.setItem(SID_KEY, sid)
 }
 
 // Есть ли сейв для «Продолжить» в меню: ключ в хранилищах теперь появляется
@@ -93,6 +122,7 @@ export function clearSession(): void {
   sidOrigin = null
   partyOrigin = null
   sessionStorage.removeItem(SID_KEY)
+  sessionStorage.removeItem(SID_AUTO_KEY)
   localStorage.removeItem(SID_KEY)
   localStorage.removeItem(DIFF_KEY)
 }

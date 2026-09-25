@@ -188,19 +188,20 @@ const note = (item, name, pass, fact) => report.push({ item, name, pass, fact })
   note('C2', 'агентский sid не загрязняет localStorage', c2.local === null && c2.server === 'qa30-c2-agent', JSON.stringify(c2))
   await page.close()
 
-  // 3) «игрок»: sid в localStorage, партия жива; соседняя вкладка вытирает
-  //    общий ключ (чужой game_over) — живая вкладка возвращает его на место
+  // 3) «игрок»: чистый браузер, партия через «НОРМА» (новая семантика:
+  //    sid создаётся при старте, localStorage+зеркало пишутся connect'ом);
+  //    соседняя вкладка вытирает общий ключ (чужой game_over) — живая
+  //    вкладка возвращает его на место
   const player = await browser.newPage()
-  await player.evaluateOnNewDocument(() => {
-    localStorage.clear()
-    localStorage.setItem('itd.sid', 'qa30-c2-player')
-  })
+  await player.evaluateOnNewDocument(() => localStorage.clear())
   await player.goto(`${BASE}/?debug=1`, { waitUntil: 'domcontentloaded' })
-  await player.evaluate(async () => {
+  const pinfo = await player.evaluate(async () => {
     await window.itd.wait((s) => s.menuReady === true, 8000)
     window.itd.click('menu.diff.normal')
     await window.itd.wait((s) => s.connected === true, 10000)
+    return { sid: window.itd.server().sid }
   })
+  const playerSid = pinfo.sid
   const neighbor = await browser.newPage()
   await neighbor.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
   await neighbor.evaluate(() => localStorage.removeItem('itd.sid'))
@@ -210,8 +211,8 @@ const note = (item, name, pass, fact) => report.push({ item, name, pass, fact })
     sessionMirror: sessionStorage.getItem('itd.sid'),
     connected: window.itd.state().connected,
   }))
-  note('C2', 'живая вкладка вернула вытертый ключ', after.local === 'qa30-c2-player' && after.connected === true, JSON.stringify(after))
-  note('C2', 'зеркало вкладки лежит в sessionStorage', after.sessionMirror === 'qa30-c2-player', JSON.stringify(after))
+  note('C2', 'живая вкладка вернула вытертый ключ', after.local === playerSid && after.connected === true, JSON.stringify(after))
+  note('C2', 'зеркало вкладки лежит в sessionStorage', after.sessionMirror === playerSid, JSON.stringify(after))
   await neighbor.close()
 
   // 4) перезагрузка живой вкладки после вытирания — партия та же (не день 1):
@@ -226,8 +227,66 @@ const note = (item, name, pass, fact) => report.push({ item, name, pass, fact })
     const st = window.itd.state()
     return { hasContinue, day: st.day, sid: window.itd.server().sid }
   })
-  note('C2', 'после вытирания+перезагрузки партия та же', resumed.hasContinue === true && resumed.sid === 'qa30-c2-player' && resumed.day >= dayBefore, `day ${dayBefore} → ${resumed.day}, sid=${resumed.sid}`)
+  note('C2', 'после вытирания+перезагрузки партия та же', resumed.hasContinue === true && resumed.sid === playerSid && resumed.day >= dayBefore, `day ${dayBefore} → ${resumed.day}, sid=${resumed.sid}`)
   await player.close()
+}
+
+// ── D2: «НОРМА» при живом сейве — новая партия, не чужой сейв (волна B) ──
+{
+  // 1) игрок сыграл партию S (зеркало+общий ключ); вторая вкладка БЕЗ
+  //    явного sid жмёт «НОРМА» → свой НОВЫЙ sid и своя партия, не S
+  const player = await browser.newPage()
+  await player.evaluateOnNewDocument(() => localStorage.clear())
+  await player.goto(`${BASE}/?debug=1`, { waitUntil: 'domcontentloaded' })
+  const p = await player.evaluate(async () => {
+    await window.itd.wait((s) => s.menuReady === true, 8000)
+    window.itd.click('menu.diff.normal')
+    await window.itd.wait((s) => s.connected === true, 10000)
+    return { sid: window.itd.server().sid, day: window.itd.state().day }
+  })
+  const neighbor = await browser.newPage()
+  await neighbor.goto(`${BASE}/?debug=1`, { waitUntil: 'domcontentloaded' })
+  const n = await neighbor.evaluate(async () => {
+    await window.itd.wait((s) => s.menuReady === true, 8000)
+    window.itd.click('menu.diff.normal') // «начните новую» при сейве S в общем ключе
+    await window.itd.wait((s) => s.connected === true, 10000)
+    return {
+      sid: window.itd.server().sid,
+      day: window.itd.state().day,
+      scenario: window.itd.state().scenario,
+      local: localStorage.getItem('itd.sid'),
+      socket: window.itd.net(1).socket,
+      errors: window.itd.errors().length,
+    }
+  })
+  note('D2', '«НОРМА» без явного sid = новый sid, не партия S', n.sid !== p.sid, `игрок ${p.sid} vs новая ${n.sid}`)
+  note('D2', 'новая партия действительно новая (день 1, без сценария)', n.day === 1 && (n.scenario ?? '') === '', JSON.stringify({ day: n.day, scenario: n.scenario }))
+  note('D2', 'общий ключ теперь указывает на новую партию', n.local === n.sid, `local=${n.local}`)
+  note('D2', 'сокеты обеих партий живы (нет session_taken-войны)', n.socket === 'open' && n.errors === 0, JSON.stringify({ socket: n.socket, errors: n.errors }))
+  const playerStill = await player.evaluate(() => ({
+    sid: window.itd.server().sid,
+    connected: window.itd.state().connected,
+    mirror: sessionStorage.getItem('itd.sid'),
+  }))
+  note('D2', 'партия игрока S не тронута', playerStill.sid === p.sid && playerStill.connected === true && playerStill.mirror === p.sid, JSON.stringify(playerStill))
+  await neighbor.close()
+  await player.close()
+
+  // 2) явный агентский sid чтится для новой партии даже при чужом сейве
+  //    (sid уникален на прогон: повторно использованный сервер молча
+  //    продолжает старую партию — день уйдёт с фикстуры)
+  const agent = await browser.newPage()
+  await agent.evaluateOnNewDocument(() => sessionStorage.setItem('itd.sid', 'qa30-d2-explicit-' + Date.now()))
+  await agent.goto(`${BASE}/?debug=1&scenario=soft_lock&seed=1`, { waitUntil: 'domcontentloaded' })
+  const a = await agent.evaluate(async () => {
+    await window.itd.wait((s) => s.menuReady === true, 8000)
+    window.itd.click('menu.diff.normal')
+    await window.itd.wait((s) => s.connected === true, 10000)
+    const st = window.itd.state()
+    return { sid: window.itd.server().sid, session: sessionStorage.getItem('itd.sid'), scenario: st.scenario, day: st.day }
+  })
+  note('D2', 'явный sid чтим: soft_lock под выставленным sid', a.sid === a.session && a.scenario === 'soft_lock' && a.day === 40, JSON.stringify(a))
+  await agent.close()
 }
 
 await browser.close()

@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import { GAME_H, GAME_W } from '../layout'
-import { client, hasSavedSession, savedDifficulty } from '../net'
+import { client, hasSavedSession, prepareNewGame, savedDifficulty } from '../net'
 import { activeZoom, applyZoom, ZOOM_OPTIONS } from '../uiscale'
 import { tag } from '../debug/agentApi'
 import type { DifficultyId } from '../protocol'
@@ -74,7 +74,7 @@ export class MenuScene extends Phaser.Scene {
       this.add.text(CX + 240, y + 14, `Цель: ${lvl.goal}`, { fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4' }).setOrigin(1, 0)
       bg.on('pointerover', () => bg.setStrokeStyle(2, lvl.color))
       bg.on('pointerout', () => bg.setStrokeStyle(2, 0x3a3f5c))
-      bg.on('pointerdown', () => this.startGame(lvl.id))
+      bg.on('pointerdown', () => this.startGame(lvl.id, true))
     })
 
     // Масштаб UI (ITGAME-15): стартовый экран — единственное место, где все
@@ -112,19 +112,24 @@ export class MenuScene extends Phaser.Scene {
   private registerKeys() {
     const kb = this.input.keyboard
     if (!kb) return
-    kb.on('keydown-ONE', () => this.startGame('easy'))
-    kb.on('keydown-TWO', () => this.startGame('normal'))
-    kb.on('keydown-THREE', () => this.startGame('hard'))
-    kb.on('keydown-FOUR', () => this.startGame('hardcore'))
+    kb.on('keydown-ONE', () => this.startGame('easy', true))
+    kb.on('keydown-TWO', () => this.startGame('normal', true))
+    kb.on('keydown-THREE', () => this.startGame('hard', true))
+    kb.on('keydown-FOUR', () => this.startGame('hardcore', true))
     kb.on('keydown-ENTER', () => this.startGame(hasSavedSession() ? savedDifficulty() : 'normal'))
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => kb.removeAllListeners())
   }
 
-  private startGame(d: DifficultyId) {
+  // fresh=true — игрок ЯВНО выбрал новую партию (кнопка сложности, 1-4):
+  // явный агентский sid чтим, наше зеркало/общий ключ — забываем, партия
+  // начинается с новым sid. fresh=false — «Продолжить»/Enter: текущий sid,
+  // сервер восстановит сейв (волна B: «НОРМА» молча открывала чужой сейв).
+  private startGame(d: DifficultyId, fresh = false) {
     if (this.started) return
     // Флаг — только после фактического старта (ITGAME-24): ошибка старта
     // раньше молча залипала меню, кнопки переставали отвечать.
     try {
+      if (fresh) prepareNewGame()
       client.connect(d)
       this.scene.start('office') // start глушит menu
       this.scene.launch('hud')
