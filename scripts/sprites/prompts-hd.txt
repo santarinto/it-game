@@ -17,7 +17,27 @@
 # сегодня для остальных ключей; на 64px only worker.includesDesk=true —
 # для HD-пары такое совмещение осознанно не переносим, чтобы стол и стул
 # не дублировались/не расходились при рендере в изометрии).
+#
+# Что реально дало результат (см. scripts/sprites/hd-src/*.raw.png):
+# движок pixflux, --hd (то есть --size 128 --palette hd32 --lock-palette),
+# outline "single color black outline", shading "medium shading", detail
+# "medium detail" — так получен desk_pc.raw.png (seed 2087953640).
+# worker.raw.png — тот же движок/палитра/outline/shading/detail, но
+# --size 80 и --direction north-west; результат смотрел вправо-вверх —
+# build-hd.sh зеркалит его (--flip-x) при ремапе в 128px. bitforge со
+# style_image-кропом стола (проба worker) дорисовал стол вопреки «no desk»
+# в промпте — стиль-референс тянет за собой композицию.
+# --negative (negative_description) у нас дважды приводил к 502 upstream
+# со списанием генерации без картинки (см. ниже про desk_empty).
 desk_pc|isometric 3/4 office desk with desktop computer, monitor, keyboard and an empty office chair tucked in, no person, workspace unoccupied
 worker|isometric 3/4 office worker sitting in an office chair, seen from behind/three-quarter back angle, no desk, no monitor, chair and person only, mid torso and head visible
+# desk_empty в итоге НЕ генерируется: pixflux с seed якоря рисует ПК и
+# кресло даже при явных отрицаниях в тексте промпта («no computer, no
+# chair» — модель их игнорирует), а --negative (negative_description)
+# дважды вернул 502 upstream со списанием генерации без картинки. Вместо
+# генерации hd-src/desk_empty.png — детерминированная пиксельная правка
+# desk_pc.raw.png (стёрты предметы, закрытое ими восстановлено по геометрии
+# стола); build-hd.sh только ремапит её. Строка ниже — историческая
+# справка о промпте, который не сработал.
 desk_empty|isometric 3/4 office desk with absolutely nothing on it, bare wooden desktop surface only, no computer, no monitor, no keyboard, no chair, no person
 boss|isometric 3/4 office boss standing, shirt and tie, confident pose, full body, no desk, no chair

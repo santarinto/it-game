@@ -18,11 +18,7 @@
     "desk_pc": { "size": 128, "frames": 1, "palette": "hd32", "class": "desk" },
     "desk_pc_off": { "size": 128, "frames": 1, "palette": "hd32", "class": "desk", "fallback": "desk_pc" },
     "desk_pc_broken": { "size": 128, "frames": 1, "palette": "hd32", "class": "desk", "fallback": "desk_pc" },
-    "desk_empty": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "desk",
-      "maxSpecks": 98,
-      "note": "шахматка — остатки запечённого фона превью, перегенерировать"
-    },
+    "desk_empty": { "size": 128, "frames": 1, "palette": "hd32", "class": "desk" },
     "worker": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "includesDesk": false },
     "worker_1": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "fallback": "worker" },
     "worker_2": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "fallback": "worker" },

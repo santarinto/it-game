@@ -57,6 +57,18 @@ node "$RECOLOR" "$OUT/desk_pc_off.png" "$OUT/desk_pc_broken.png" \
   --region 45,36,70,64 \
   --map 1a1c2c=b13e53,272c42=873358,333c57=d05e55
 
+# ── desk_empty: пустой стол (без ПК/кресла) — НЕ генерация, а ────────────
+# детерминированная пиксельная правка hd-src/desk_empty.png, полученного
+# из desk_pc.raw.png (стёрты монитор/клавиатура/мышь/кресло, закрытые ими
+# пиксели столешницы/кромки/правой тумбы восстановлены по изометрической
+# геометрии стола, остальное — пиксель-в-пиксель из оригинала). Генерация
+# не удалась: pixflux с seed якоря рисует ПК и кресло даже при "no
+# computer, no chair" в промпте; --negative (negative_description) дважды
+# вернул 502 upstream со списанием генерации без картинки — см.
+# scripts/sprites/prompts-hd.txt.
+node "$REMAP" "$SRC/desk_empty.png" "$OUT/desk_empty.png" \
+  --key desk_empty --size 128 --palette hd32
+
 # ── worker: зеркалим (смотрел вправо-вверх → влево-вверх, к монитору) и ──
 # кладём bbox в (47,58) — подобрано вручную так, чтобы кресло сотрудника
 # легло ровно на кресло desk_pc (оба спрайта рисуются в одной точке слота).
@@ -81,5 +93,5 @@ node "$RECOLOR" "$OUT/worker.png" "$OUT/worker_3.png" \
   --map f4f4f4=d05e55,c4d2db=b13e53,94b0c2=873358,758ea4=5d275d
 
 echo
-echo "готово: $OUT/{desk_pc_off,desk_pc,desk_pc_broken,worker,worker_1,worker_2,worker_3}.png"
+echo "готово: $OUT/{desk_pc_off,desk_pc,desk_pc_broken,desk_empty,worker,worker_1,worker_2,worker_3}.png"
 echo "проверка контракта: cd client && node scripts/check-sprites.mjs"

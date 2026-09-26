@@ -22,8 +22,9 @@ A failed build leaves the running release untouched.
 
 Notes:
 
-- `npm run build` runs `check-sprites.mjs`, so the box needs Chromium
-  (`CHROME_PATH` or `/usr/bin/chromium`).
+- `npm run build` runs `check-sprites.mjs`, which decodes PNGs with pngjs —
+  no Chromium needed for the box to build (Chromium is only for
+  `smoke-ui`/`qa:*`/`visreg`, see [Tests](#tests)).
 - Releases are built from `git archive` (no `.git`), so the build stamp
   (`<meta name="build">`, `itd.version`) reads `dev` instead of a SHA.
 - A deploy drops live WebSocket connections; saves live in `shared/saves`,
@@ -284,9 +285,13 @@ so a scene restart keeps it) uses `zoom: RENDER_SCALE, roundPixels: true,
 scrollX: -GAME_W*(RENDER_SCALE-1)/2, scrollY: -GAME_H*(RENDER_SCALE-1)/2` —
 the only combination that both zooms in and keeps `camera.worldView` at
 `(0,0,1280,720)` (`CameraManager.fromJSON` always resets `roundPixels` to
-`false` unless the scene config sets it explicitly). Prep for HD sprites
-(128px art into 64-world-px slots, see `hd32` in the sprite manifest below)
-and for crisp text under CSS zoom.
+`false` unless the scene config sets it explicitly). HD sprites are in use
+today: `desk_pc`/`desk_pc_off`/`desk_pc_broken`, `desk_empty` and
+`worker`/`worker_1..3` are 128px `hd32` art (see the sprite manifest below)
+drawn at ×0.5 into 64-world-px slots — `spriteScale()` computes that factor
+from the texture's real width against `SPRITE_TARGET` (`pixelart.ts`), so at
+2× render one texture texel lands on exactly one canvas pixel. Also for
+crisp text under CSS zoom.
 
 Every `Text` object needs its own `resolution` (Phaser defaults it to 1
 regardless of camera zoom), so `installHiResText()` patches
@@ -336,9 +341,12 @@ and the finished PNGs are committed.
 - **Remap:** `client/scripts/sprite-remap.mjs` (pngjs — no ImageMagick, it
   isn't installed in the container): alpha-threshold → nearest-palette
   quantize (redmean) → optional despeckle → bbox → center/bottom-place on
-  a `size`×`size` canvas. No resampling, except an exact integer
-  `--downscale-nearest` factor. Shares its contract check with
-  `check-sprites.mjs` via `client/scripts/lib/sprite-check.mjs`.
+  a `size`×`size` canvas, or an exact top-left `--place X,Y` (optionally
+  mirrored first with `--flip-x`) — the two flags used to align two HD
+  sprites onto the same slot point, see the HD pipeline below. No
+  resampling, except an exact integer `--downscale-nearest` factor. Shares
+  its contract check with `check-sprites.mjs` via
+  `client/scripts/lib/sprite-check.mjs`.
 - **Edit:** `scripts/sprite-edit.sh <name> "<instruction>"` — Gemini
   (`GEMINI_IMAGE_MODEL`, default `gemini-2.5-flash-image`) → remap;
   overwrites the tracked PNG only if the result passes the contract.
@@ -354,6 +362,41 @@ and the finished PNGs are committed.
 - `client/src/pixelart.ts` generates fallback textures for any sprite
   without a PNG.
 
+### HD sprite pipeline
+
+`scripts/sprites/hd-src/` holds the raw generations (`desk_pc.raw.png`,
+`worker.raw.png`) plus `desk_empty.png`, a hand-edited source (not a
+generation — see below). `scripts/sprites/build-hd.sh` deterministically
+rebuilds every HD asset from those sources with no network and no AI: it
+calls `sprite-remap.mjs` (`--flip-x`/`--place` bake the worker's mirror and
+its manual chair-to-chair alignment onto `desk_pc` into the PNG) and
+`client/scripts/sprite-recolor.mjs` — a one-line CLI, hex→hex replacement
+inside an optional `--region`, used for the monitor-screen states
+(`desk_pc`/`_off`/`_broken`) and the worker's shirt-color levels
+(`worker_1..3`). Run `scripts/sprites/build-hd.sh` (no args), then
+`cd client && node scripts/check-sprites.mjs`.
+
+What actually produced usable art (prompts and detail in
+`scripts/sprites/prompts-hd.txt`): pixflux, `--hd` (`--size 128 --palette
+hd32 --lock-palette`), outline "single color black outline", shading
+"medium shading", detail "medium detail", for `desk_pc`; the same engine/
+palette/outline/shading/detail for `worker`, but `--size 80 --direction
+north-west` — it faced right, so `build-hd.sh` mirrors it with `--flip-x`.
+`desk_empty` was never generated: pixflux with the anchor seed draws a
+computer and chair even with "no computer, no chair" in the prompt
+(negations in prompt text are ignored by the model), and `--negative`
+(`negative_description`) twice came back as a 502
+upstream error that still charged a generation with no image produced.
+`desk_empty.png` is instead a deterministic pixel edit of `desk_pc.raw.png`
+(monitor/keyboard/mouse/chair erased, the desk surface/edge/right-cabinet
+pixels they covered restored from the desk's isometric geometry), remapped
+like any other HD source. Other gotchas: bitforge's `style_image` must be
+exactly the output's size or the API returns 500, and a style_image crop of
+the desk made bitforge draw a desk into the `worker` despite "no desk" in
+the prompt — the reference drags its composition along. Check the credit balance
+with `scripts/gen-sprites.sh --balance` before and after a batch of
+generations.
+
 ### Sprite manifest
 
 `client/src/assets/sprites.json` is the single source of truth for AI
@@ -363,15 +406,29 @@ scale by them. `client/src/assets/manifest.ts` adds types, `AI_SPRITES`,
 
 - `size`, `frames` — the PNG is exactly `size·frames × size` (frames side by
   side; `frames > 1` is registered as a spritesheet).
-- `palette` — `sweetie16` (all current 64px art) or `hd32` (Sweetie-16 plus
-  16 in-between shades, reserved for the future 128px HD sprites).
+- `palette` — `sweetie16` (the remaining 64px art) or `hd32` (Sweetie-16 plus
+  16 in-between shades) — no longer reserved, it's what the HD desk/worker
+  keys below actually use.
 - `class` — target on-screen size from `SPRITE_TARGET` in
   `client/src/pixelart.ts`; `addSprite()` scales from frame 0.
-- `includesDesk` — the sprite draws its own desk (today's `worker`): an
-  occupied slot shows only it, no `desk_pc` underneath.
+- `includesDesk` — the sprite draws its own desk. `false` (today's HD
+  `worker`, 128px): the slot draws `desk_pc`/`desk_pc_off`/`desk_pc_broken`
+  underneath and the worker on top at the same point (`OfficeScene.ts`'s
+  `SLOT_LAYOUT_HD`, sized from the HD sprites' opaque-pixel bbox). `true` is
+  legacy: an old 64px `worker.png` with the desk baked into the same PNG —
+  an occupied slot then shows only it, no `desk_pc` underneath
+  (`SLOT_LAYOUT_LEGACY`, sized for that fuller 64×64 frame instead).
 - `fallback` — texture to use if this one is missing (`boss` → `worker`,
   `gateway` → `router`); `aliases` maps alternate names the same way.
+  `desk_pc_off`/`desk_pc_broken` fall back to `desk_pc`, `worker_1..3` to
+  `worker`.
 - `maxSpecks`, `maxWhitePct`, `note` — per-key thresholds with the reason.
+
+State keys for the desk/worker slot: `desk_pc` (screen lit — an occupied
+workspace, and also what lunch shows), `desk_pc_off` (a PC bought but no
+employee assigned yet), `desk_pc_broken` (a breakdown), and `worker_1..3`
+for employee level 1..3 (`worker` itself is level 0) — see
+[Assets](#assets) above for how the states/levels are produced.
 
 A new key ships only together with its PNG and vice versa: a key without a
 file 404s at boot and fails `smoke-ui`.
@@ -382,11 +439,15 @@ browser needed. It fails on: key ⇄ file mismatch, dangling
 colors, wrong size, colors outside the key's palette, <5% transparency,
 semi-transparent pixels, too much `#f4f4f4`, and noise — 8-connected
 opaque components of area ≤ `4·(size/64)²` beyond `maxSpecks` (default 0).
-Only `desk_empty` (98 specks) and `office_floor_tile` (4) carry baked-in
-checkerboard remnants today; their counts are recorded, the art is left for
+`desk_empty` is no longer an exception (it's a pixel edit of `desk_pc`, not
+a generation with baked-in checkerboard); only `office_floor_tile` (4)
+still carries one today — its count is recorded, the art is left for
 regeneration.
 
 `npm run qa:slots` (see [Tests](#tests)) checks slot rendering on
-`full_office`: one image per occupied desk, `boss` and `gateway` textures
-in their slots, lunch shows `desk_pc` + «обед», and real mouse clicks on a
-broken PC's repair zone send `repair_click`, not `motivate`.
+`full_office`: each occupied desk draws `worker`/`worker_N` (by employee
+level) over exactly one `desk_pc`/`desk_pc_broken` at the same point, `boss`
+and `gateway` textures land in their slots, lunch turns a slot into a single
+`desk_pc` with no employee plus the «обед» label, a breakdown shows
+`desk_pc_broken`, and real mouse clicks on a broken PC's repair zone send
+`repair_click`, not `motivate`.
