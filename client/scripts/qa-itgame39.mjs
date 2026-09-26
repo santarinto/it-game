@@ -12,12 +12,12 @@
 //   + на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
-// :4179 — свой порт задачи, соседи 4173/4174/4175/4176/4177/8091/8093 заняты).
+// :4178 — свой порт задачи; 4179 у qa:tabs, 4173–4177 у соседних скриптов).
 import { existsSync } from 'node:fs'
 import { selfServe } from './lib/selfserve.mjs'
 import puppeteer from 'puppeteer-core'
 
-const SELF_PORT = Number(process.env.QA_PORT) || 4179
+const SELF_PORT = Number(process.env.QA_PORT) || 4178
 
 function chromePath() {
   const cands = [
