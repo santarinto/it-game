@@ -233,19 +233,21 @@ export class HUDScene extends Phaser.Scene {
       zoomTxt.setText(zoomLabel(activeZoom()))
     })
     this.hudInteractive.push(zoomBg)
-    // Тумблер debug: рамки интерактивных зон во всех сценах.
-    const dbg = tag(
-      this.add
-        .text(GAME_W - 280, 17, this.debugLabel(), { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
-        .setInteractive({ useHandCursor: true }),
-      'btn.debug',
-    )
-    dbg.on('pointerdown', () => {
-      setDebug(!debug.enabled)
-      dbg.setText(this.debugLabel())
-      client.reemit() // сцены перерисуются по последнему снапшоту
-    })
-    this.hudInteractive.push(dbg)
+    // ITGAME-22: только при ?debug=1; короткая подпись — «debug off» наезжала на ⌂
+    if (debug.enabled) {
+      const dbg = tag(
+        this.add
+          .text(GAME_W - 280, 17, this.debugLabel(), { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
+          .setInteractive({ useHandCursor: true }),
+        'btn.debug',
+      )
+      dbg.on('pointerdown', () => {
+        setDebug(!debug.enabled)
+        dbg.setText(this.debugLabel())
+        client.reemit() // сцены перерисуются по последнему снапшоту
+      })
+      this.hudInteractive.push(dbg)
+    }
 
     this.createNavPanel()
 
@@ -986,7 +988,7 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private debugLabel(): string {
-    return `debug ${debug.enabled ? 'on' : 'off'}`
+    return `dbg ${debug.enabled ? 'on' : 'off'}`
   }
 
   private closeReport() {

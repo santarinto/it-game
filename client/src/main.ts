@@ -7,6 +7,24 @@ import { HUDScene } from './scenes/HUDScene'
 import { OfficeScene } from './scenes/OfficeScene'
 import { ServerRoomScene } from './scenes/ServerRoomScene'
 import { installAgentApi } from './debug/agentApi'
+import { debug } from './debug'
+
+// «Админка» (ITGAME-22): только владельцу — ?admin=1 запоминает флаг, ?admin=0 снимает; в debug видна всегда.
+function adminLinkWanted(): boolean {
+  const url = new URL(location.href)
+  const q = url.searchParams.get('admin')
+  if (q !== null) { url.searchParams.delete('admin'); history.replaceState(history.state, '', url) }
+  try {
+    if (q === '1') localStorage.setItem('itd.admin', '1')
+    else if (q === '0') localStorage.removeItem('itd.admin')
+    return debug.enabled || localStorage.getItem('itd.admin') === '1'
+  } catch { return debug.enabled || q === '1' }
+}
+if (adminLinkWanted()) {
+  const bar = document.createElement('div'); bar.id = 'topbar'
+  const a = document.createElement('a'); a.href = '/admin'; a.target = '_blank'; a.textContent = 'Админка'
+  bar.append(a); document.body.prepend(bar)
+}
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,

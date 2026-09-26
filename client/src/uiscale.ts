@@ -28,11 +28,12 @@ export function activeZoom(): ZoomValue {
   return DEFAULT_ZOOM
 }
 
-// «По окну»: вписать канвас во вьюпорт. Над #app висит topbar — резервируем
-// его фактическую высоту + паддинг #app и запас.
+// «По окну»: вписать канвас во вьюпорт. topbar есть только у владельца/в debug
+// (ITGAME-22) — если он есть, резервируем его фактическую высоту + паддинг
+// #app и запас; иначе только паддинг.
 export function fitZoom(): number {
   const topbar = document.getElementById('topbar')
-  const reserveY = (topbar?.offsetHeight ?? 34) + 16
+  const reserveY = (topbar?.offsetHeight ?? 0) + 16
   return Math.max(Math.min((innerWidth - 8) / GAME_W, (innerHeight - reserveY) / GAME_H), 0.5)
 }
 
