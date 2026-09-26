@@ -129,9 +129,40 @@ export interface StateMessage {
   }
 }
 
+// Коды отказа сервера (ITGAME-39): зеркало server/internal/game/commands.go
+// (Err* + ErrUnknownCommand) и server/internal/ws/session.go (bad_speed).
+// Источник истины для itd.contract() (типы types.ServerErrorCode) и для
+// scripts/gen-contract.mjs, который сверяет этот список с Go по AST.
+export const SERVER_ERROR_CODES = [
+  'not_enough_money',
+  'no_free_office_slot',
+  'no_free_pc',
+  'no_free_rack_slot',
+  'router_maxed',
+  'wrong_phase',
+  'staff_limit',
+  'office_locked',
+  'boss_already',
+  'offices_maxed',
+  'gateway_already',
+  'bad_office',
+  'equipment_already',
+  'bad_slot',
+  'server_maxed',
+  'core_maxed',
+  'motivate_cooldown',
+  'not_broken',
+  'no_event',
+  'bad_option',
+  'unknown_command',
+  'bad_speed',
+] as const
+
+export type ServerErrorCode = (typeof SERVER_ERROR_CODES)[number]
+
 export interface ErrorMessage {
   type: 'error'
-  code: string
+  code: ServerErrorCode
 }
 
 export interface DayReportMessage {
@@ -179,10 +210,17 @@ export interface OfflineReportMessage {
 export type ServerMessage =
   | StateMessage | ErrorMessage | DayReportMessage | GameOverMessage | VictoryMessage | OfflineReportMessage
 
-export type CommandType =
-  | 'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office'
-  | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart'
-  | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed'
-  | 'upgrade_server' | 'upgrade_core'
-  | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire'
-  | 'abandon'
+// Команды протокола (ITGAME-39): зеркало game.Command в
+// server/internal/game/commands.go (Cmd* consts) плюс set_speed/abandon
+// (server/internal/ws/session.go — команды сессии, не игры). Единственный
+// список — client/src/debug/agentApi.ts берёт COMMANDS из него же.
+export const COMMAND_TYPES = [
+  'buy_pc', 'hire', 'buy_router', 'hire_boss', 'buy_office',
+  'buy_server', 'buy_gateway', 'next_day', 'restart',
+  'buy_cooler', 'buy_fridge', 'buy_coffee', 'set_speed',
+  'upgrade_server', 'upgrade_core',
+  'motivate', 'repair_click', 'call_master', 'event_choice', 'fire',
+  'abandon',
+] as const
+
+export type CommandType = (typeof COMMAND_TYPES)[number]

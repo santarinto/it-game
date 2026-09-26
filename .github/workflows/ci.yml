@@ -98,6 +98,12 @@ jobs:
       - name: npm ci
         working-directory: client
         run: npm ci --no-audit --no-fund
+      # itd.contract() (ITGAME-39): сверяет contract.gen.ts с ItdApi и коды
+      # ошибок/команды протокола с ../server — до typecheck, чтобы отчёт был
+      # виден раньше и не терялся среди ошибок tsc.
+      - name: check:contract
+        working-directory: client
+        run: npm run check:contract
       - name: typecheck
         working-directory: client
         run: npm run typecheck

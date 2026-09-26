@@ -1,8 +1,16 @@
-import type { CommandType, DayReportMessage, DifficultyId, GameOverMessage, OfflineReportMessage, ServerMessage, StateMessage, VictoryMessage } from './protocol'
+import type { CommandType, DayReportMessage, DifficultyId, GameOverMessage, OfflineReportMessage, ServerErrorCode, ServerMessage, StateMessage, VictoryMessage } from './protocol'
+
+// Транспортные коды отказа (ITGAME-39): квитанция команды (sendWithReceipt)
+// падает ими, когда сервер вовсе не ответил — в отличие от ServerErrorCode,
+// который приходит В сообщении error от сервера. Источник истины для
+// itd.contract() (enum TransportErrorCode).
+export const TRANSPORT_ERROR_CODES = ['not_connected', 'receipt_timeout', 'disconnected'] as const
+
+export type TransportErrorCode = (typeof TRANSPORT_ERROR_CODES)[number]
 
 export interface Listener {
   onState(s: StateMessage): void
-  onError(code: string): void
+  onError(code: ServerErrorCode): void
   onDisconnect(reason?: string): void
   // Только HUD показывает отчёты, банкротство и офлайн-итог — для
   // остальных сцен опциональны.
@@ -265,7 +273,7 @@ export class GameClient {
   }
   // Квитанции команд (ITGAME-30): FIFO — каждый state|error после отправки
   // закрывает ОДНУ самую старую ждущую квитанцию, порядок команд сохраняется.
-  private receipts: ((r: { ok: boolean; code?: string }) => void)[] = []
+  private receipts: ((r: { ok: boolean; code?: ServerErrorCode | TransportErrorCode }) => void)[] = []
   // sid, которым живёт ТЕКУЩЕЕ соединение; гарда «sid сменился подо мной».
   // Легитимная смена (новая партия из меню, abandon) сбрасывается в null
   // в connect()/abandon() — предупреждает только незапланированные.
@@ -452,7 +460,7 @@ export class GameClient {
   }
 
   // Все ждущие квитанции — отказ с кодом (сокет ушёл: висеть им нельзя).
-  private failReceipts(code: string): void {
+  private failReceipts(code: TransportErrorCode): void {
     while (this.receipts.length > 0) this.receipts.shift()?.({ ok: false, code })
   }
 
@@ -495,12 +503,12 @@ export class GameClient {
     office = 0,
     extra: Record<string, number> = {},
     timeoutMs = 5000,
-  ): Promise<{ ok: boolean; code?: string }> {
+  ): Promise<{ ok: boolean; code?: ServerErrorCode | TransportErrorCode }> {
     if (this.ws?.readyState !== WebSocket.OPEN) {
       return Promise.resolve({ ok: false, code: 'not_connected' })
     }
     return new Promise((resolve) => {
-      const settle = (r: { ok: boolean; code?: string }) => {
+      const settle = (r: { ok: boolean; code?: ServerErrorCode | TransportErrorCode }) => {
         clearTimeout(timer)
         resolve(r)
       }

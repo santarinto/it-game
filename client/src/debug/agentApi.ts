@@ -1,6 +1,9 @@
 import Phaser from 'phaser'
 import { client, sessionId } from '../net'
-import type { StateMessage } from '../protocol'
+import type { TransportErrorCode } from '../net'
+import { COMMAND_TYPES } from '../protocol'
+import type { CommandType, ServerErrorCode, StateMessage } from '../protocol'
+import { CONTRACT } from './contract.gen'
 import { AI_SPRITES } from '../scenes/BootScene'
 import { SWEETIE16 } from '../assets/manifest'
 import { findLowContrast, findOffscreen, findOverlaps, findTiny } from './lint'
@@ -260,70 +263,281 @@ export interface AgentResult {
 }
 
 // Квитанция команды (ITGAME-30): ok=true — сервер принял (state за ней),
-// ok=false — код отказа: серверный (no_free_pc, not_enough_money, …) или
-// транспортный (not_connected, receipt_timeout, disconnected).
+// ok=false — код отказа: серверный (ServerErrorCode: no_free_pc,
+// not_enough_money, …) или транспортный (TransportErrorCode: not_connected,
+// receipt_timeout, disconnected).
 export interface CmdReceipt {
   ok: boolean
-  code?: string
+  code?: ServerErrorCode | TransportErrorCode
   error?: string
 }
 
+// ── Контракт API (ITGAME-39): формат itd.contract() ─────────────────────────
+// Единственный источник истины — типы ItdApi ниже; client/scripts/gen-contract.mjs
+// строит из них contract.gen.ts через TS Compiler API. Меняется сигнатура —
+// меняется JSON, а не рукописная строка HELP, за которой легко забыть уследить.
+
+// Параметр метода фасада: имя, тип (как объявлен), опциональность.
+export interface ParamSpec {
+  name: string
+  type: string
+  optional: boolean
+}
+
+// Поле объектного типа (AgentNode, CmdReceipt, …): тип, опциональность,
+// описание — из JSDoc поля, иначе из хвостового //-комментария той же строки.
+export interface FieldSpec {
+  type: string
+  optional: boolean
+  doc: string
+}
+
+// Один член ItdApi: метод (с параметрами и типом результата) либо
+// readonly-свойство (itd.version).
+export type MemberSpec =
+  | { kind: 'method'; params: ParamSpec[]; returns: string; doc: string; examples: string[] }
+  | { kind: 'prop'; type: string; readonly: boolean; doc: string }
+
+// Именованный тип из замыкания членов ItdApi: объект с полями, enum строковых
+// литералов (ServerErrorCode, CommandType, …) или произвольный алиас.
+export type TypeSpec =
+  | { kind: 'object'; fields: Record<string, FieldSpec>; index?: string[] }
+  | { kind: 'enum'; values: string[] }
+  | { kind: 'alias'; type: string }
+
+// itd.contract(): машинный контракт фасада целиком — методы, типы (в т.ч.
+// коды отказов и команды как enum), штамп версии с hash самого контракта.
+// version.hash — то, что цитирует отчёт волны приёмки, а не пересказ help().
+export interface ItdContract {
+  schema: 1
+  version: { sha: string; builtAt: string; hash: string }
+  methods: Record<string, MemberSpec>
+  types: Record<string, TypeSpec>
+}
+
 export interface ItdApi {
-  // Штамп сборки (ITGAME-28): {sha, builtAt} + <meta name="build">.
+  /**
+   * Штамп сборки: {sha, builtAt} + `<meta name="build">` в html.
+   * @example itd.version
+   */
   readonly version: { sha: string; builtAt: string }
+  /**
+   * Баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий
+   * (null до первого снапшота); menuReady — меню создано и активно.
+   * @example itd.state()
+   */
   state(): AgentState
+  /**
+   * Снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt,
+   * reconnects, sid, sidSwitches.
+   * @example itd.server()
+   */
   server(): AgentServer
+  /**
+   * Все объекты живых сцен: {scene, type, id, text, x, y, w, h, visible,
+   * alpha, interactive, depth, active}.
+   * @example itd.nodes()
+   */
   nodes(): AgentNode[]
+  /**
+   * nodes() с непустым текстом.
+   * @example itd.text()
+   */
   text(): AgentNode[]
+  /**
+   * Стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*,
+   * modal.*) + active — состояние переключателя, null у прочих (НЕ
+   * GameObject.active).
+   * @example itd.ids()
+   */
   ids(): { id: string; scene: string; type: string; text: string | null; active: boolean | null }[]
+  /**
+   * Клик по id: дёргает pointerdown-обработчик напрямую, мимо input-слоя.
+   * @example itd.click('btn.hire')
+   */
   click(id: string): AgentResult & { id?: string; scene?: string }
+  /**
+   * Наведение по id (тултипы).
+   * @example itd.hover('office.worker.0')
+   */
   hover(id: string): AgentResult & { id?: string; scene?: string }
+  /**
+   * Клавиша: 1-4 — сложность в меню, enter/space/esc — отчёт дня.
+   * @example itd.key('enter')
+   */
   key(k: string): AgentResult & { key?: string; scenes?: string[] }
-  // ITGAME-30: команда с квитанцией сервера — Promise<{ok, code?}>.
-  cmd(type: string, office?: number, extra?: Record<string, number>): Promise<CmdReceipt>
-  // ITGAME-37: живая трассировка окна вокруг action — реальный путь игрока
-  // без поллинга (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().
+  /**
+   * Команда с квитанцией сервера (ITGAME-30): Promise<{ok, code?}> — первый
+   * state|error после отправки, по порядку команд.
+   * @example await itd.cmd('hire')
+   */
+  cmd(type: CommandType, office?: number, extra?: Record<string, number>): Promise<CmdReceipt>
+  /**
+   * Живая трассировка окна вокруг action (ITGAME-37): подписка ДО action,
+   * окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь
+   * игрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().
+   * @example itd.trace(() => itd.click('btn.pc'), 1000)
+   */
   trace(action: () => unknown, windowMs?: number): Promise<TraceResult>
-  // ITGAME-30: прогреть кадр вручную (сколько шагов лупа сделали).
+  /**
+   * Прогреть кадр вручную (сколько шагов лупа сделали); в скрытой вкладке
+   * itd делает это сам.
+   * @example itd.warm()
+   */
   warm(): number
+  /**
+   * Промис: поллинг state()/server() до условия (таймаут 5с по умолчанию,
+   * второй аргумент — свой).
+   * @example itd.wait(s => s.day === 2)
+   */
   wait(cond: (s: AgentState, srv: AgentServer) => boolean, timeoutMs?: number): Promise<AgentState>
+  /**
+   * Линтер вёрстки: kind text — тексты одного depth; occlusion — текст под
+   * непрозрачной плашкой; interactive — интерактив частично перекрыт
+   * интерактивом или текстом (вложенность целиком — не находка).
+   * @example itd.overlaps()
+   */
   overlaps(): OverlapEntry[]
+  /**
+   * Линтер: вылезание за канвас 1280×720.
+   * @example itd.offscreen()
+   */
   offscreen(): OffscreenEntry[]
+  /**
+   * Линтер: контраст текста к фону ниже 3:1.
+   * @example itd.contrast()
+   */
   contrast(): ContrastEntry[]
+  /**
+   * Линтер: шрифт мельче 12px.
+   * @example itd.tiny()
+   */
   tiny(): TinyEntry[]
+  /**
+   * Аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне
+   * Sweetie-16, дубли ключей.
+   * @example itd.assets()
+   */
   assets(): {
     textures: AssetReport[]
     duplicates: { keys: string[]; expected: boolean }[]
     textTextures: number // растеризации Text-объектов (UUID-ключи), вне аудита
   }
+  /**
+   * Чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк).
+   * @example itd.assetSet()
+   */
   assetSet(): AssetSetEntry[]
+  /**
+   * Снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум,
+   * отчёты).
+   * @example itd.reset()
+   */
   reset(): AgentResult & { removed: string[] }
+  /**
+   * Журнал переходов (кольцевой на 200, переживает чистку консоли); + звуки
+   * и тосты ({type:'sound', ...} / {type:'toast', ...}).
+   * @example itd.log(50)
+   */
   log(n?: number): LogEntry[]
+  /**
+   * Ошибки страницы (window.onerror + unhandledrejection).
+   * @example itd.errors()
+   */
   errors(): ErrorEntry[]
+  /**
+   * Последние сообщения WS в обе стороны + сокет/rtt/реконнекты.
+   * @example itd.net(20)
+   */
   net(n?: number): {
     socket: AgentServer['socket']
     reconnects: number
     rtt: number | null
     last: { dir: 'in' | 'out'; at: number; type: string; info: Record<string, unknown> }[]
   }
-  // ITGAME-26: управление временем и состоянием через /api/debug/*.
+  /**
+   * Темп сессии — пауза (set_speed 0, серверный, живёт в сейве); до коннекта
+   * — {ok:false, code:'not_connected'}.
+   * @example itd.pause()
+   */
   pause(): AgentResult & { code?: string }
+  /**
+   * Темп сессии — возобновить (set_speed 1).
+   * @example itd.resume()
+   */
   resume(): AgentResult & { code?: string }
+  /**
+   * Темп сессии: set_speed 0..3 (0 — пауза).
+   * @example itd.speed(2)
+   */
   speed(n: number): AgentResult & { code?: string }
+  /**
+   * Пауза + промотка ms игровых тиков через /api/debug/advance (2000мс =
+   * 2 тика).
+   * @example itd.step(2000)
+   */
   step(ms: number): Promise<DebugAdvanceResult>
+  /**
+   * Промотка дней офлайн-движком: день N → N+n, отчёты дней в itd.log().
+   * @example itd.advanceDays(3)
+   */
   advanceDays(n: number): Promise<DebugAdvanceResult>
+  /**
+   * Читы живой сессии: {money, day, tickInDay}.
+   * @example itd.set({money: 50000})
+   */
   set(patch: { money?: number; day?: number; tickInDay?: number }): Promise<DebugState>
+  /**
+   * Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|
+   * soft_lock|pre_victory.
+   * @example itd.scenario('soft_lock')
+   */
   scenario(name: string): Promise<DebugState>
+  /**
+   * Полный стейт с сервера: {sid, state, save, events}.
+   * @example await itd.snapshot()
+   */
   snapshot(): Promise<DebugState>
+  /**
+   * Вернуть состояние из snapshot().save (дельта над текущим).
+   * @example itd.restore(save)
+   */
   restore(save: Record<string, unknown>): Promise<DebugState>
+  /**
+   * Стоп твитов/миганий для стабильных скриншотов.
+   * @example itd.quiet()
+   */
   quiet(): AgentResult
+  /**
+   * Статистика прогонов и состояние достижений (localStorage).
+   * @example itd.meta()
+   */
   meta(): {
     stats: MetaStats
     achievements: { unlockedCount: number; totalCount: number; list: (AchievementDef & { unlocked: boolean; unlockedAt?: number })[] }
   }
+  /**
+   * Сбросить мета-статистику и достижения.
+   * @example itd.resetMeta()
+   */
   resetMeta(): AgentResult
+  /**
+   * Принудительно открыть ачивку: {ok:true, achievement} | {ok:false, code}.
+   * @example itd.unlockAchievement('id')
+   */
   unlockAchievement(id: string): AgentResult & { achievement?: AchievementDef }
+  /**
+   * Человекочитаемая справка по всем методам (печатает в консоль и
+   * возвращает ту же строку).
+   * @example itd.help()
+   */
   help(): string
+  /**
+   * Машинный контракт API (ITGAME-39): методы, типы, коды ошибок и команд;
+   * version.hash — цитировать в отчётах приёмки вместо пересказа help().
+   * @example itd.contract().version.hash
+   */
+  contract(): ItdContract
 }
 
 declare global {
@@ -520,17 +734,11 @@ const KEYMAP: Record<string, { code: string; keyCode: number; key: string }> = {
   4: { code: 'FOUR', keyCode: 52, key: '4' },
 }
 
-// Команды протокола для itd.cmd() (ITGAME-30): зеркало CommandType.
-const COMMANDS = new Set<string>([
-  'buy_pc', 'hire', 'buy_router', 'hire_boss', 'buy_office',
-  'buy_server', 'buy_gateway', 'next_day', 'restart',
-  'buy_cooler', 'buy_fridge', 'buy_coffee', 'set_speed',
-  'upgrade_server', 'upgrade_core',
-  'motivate', 'repair_click', 'call_master', 'event_choice', 'fire',
-  'abandon',
-])
+// Команды протокола для itd.cmd() (ITGAME-30): единственный список —
+// COMMAND_TYPES в protocol.ts (ITGAME-39), zero дублей.
+const COMMANDS = new Set<string>(COMMAND_TYPES)
 
-const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38)
+const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/39)
   itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); menuReady — меню создано и активно
   itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt, reconnects, sid, sidSwitches
   itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, visible, alpha, interactive, depth, active}
@@ -567,6 +775,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38)
   itd.meta()                        — статистика прогонов и состояние достижений (localStorage)
   itd.resetMeta()                   — сбросить мета-статистику и достижения
   itd.unlockAchievement('id')       — принудительно открыть ачивку: {ok:true, achievement} | {ok:false, code}
+  itd.contract()                    — машинный контракт API (методы, типы, коды ошибок); version.hash — цитировать в отчётах, а не пересказ help()
 Фоновая вкладка: RAF стоит, но itd сам ведёт луп (пульс 300мс + прогрев в каждом вызове) — ids()/nodes()/click() живут без скриншотов и без «принудительного кадра».
 Параллельные вкладки: sid берётся из sessionStorage РАНЬШЕ localStorage; в хранилища ключ попадает ТОЛЬКО с реальной партиёй (чтение его не пишет — «ПРОДОЛЖИТЬ» не врёт). Одна партия = один sid: агрессивным прогонам — sessionStorage.setItem('itd.sid', 'a-<имя>-'+Date.now()) (виден только вкладке, общий ключ не трогает; ЯВНО выставленный sid чтится и для новой партии), игроку достаётся localStorage + зеркало вкладки. Кнопка сложности/1-4 = НОВАЯ партия: без явного sessionStorage-sid берётся свежий sid, чужой сейв из общего ключа НЕ продолжается молча; «ПРОДОЛЖИТЬ»/Enter = восстановление текущего sid. server().sidSwitches > 0 — общий ключ перезаписала соседняя вкладка, реконнект ушёл бы в её партию.
 Пример: await itd.scenario('soft_lock'); itd.state().day
@@ -647,7 +856,8 @@ function makeApi(game: Phaser.Game): ItdApi {
     },
     cmd(type, office = 0, extra = {}) {
       // Квитанция сервера (ITGAME-30): ok=true только когда за командой
-      // пришёл state; отказ сервера виден кодом, а не молчанием.
+      // пришёл state; отказ сервера виден кодом, а не молчанием. Проверка
+      // рантайм-набора остаётся: itd.cmd() зовут из консоли, не из TS.
       if (!COMMANDS.has(type)) {
         return Promise.resolve({
           ok: false,
@@ -655,7 +865,7 @@ function makeApi(game: Phaser.Game): ItdApi {
         })
       }
       return client
-        .sendWithReceipt(type as import('../protocol').CommandType, office, extra)
+        .sendWithReceipt(type, office, extra)
         .then((r) => (r.ok ? r : { ...r, error: r.code }))
     },
     trace: (action, windowMs = 1000) => runTrace(game, action, windowMs),
@@ -836,6 +1046,17 @@ function makeApi(game: Phaser.Game): ItdApi {
       console.log(HELP)
       return HELP
     },
+    // itd.contract() (ITGAME-39): structuredClone — CONTRACT — единственный
+    // объект модуля, отдавать ссылку на него небезопасно (вызывающий может
+    // мутировать общий кэш). version подмешивает актуальный BUILD, а не
+    // {sha,builtAt} времени генерации contract.gen.ts — hash при этом
+    // остаётся хэшем самого контракта (methods/types), а не билда.
+    contract: () => structuredClone({
+      schema: CONTRACT.schema,
+      version: { ...BUILD, hash: CONTRACT.hash },
+      methods: CONTRACT.methods,
+      types: CONTRACT.types,
+    }),
   }
 }
 

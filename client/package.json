@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build && node scripts/check-sprites.mjs",
+    "build": "node scripts/gen-contract.mjs --check && tsc --noEmit && vite build && node scripts/check-sprites.mjs",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "smoke-ui": "node scripts/smoke-ui.mjs",
@@ -15,7 +15,10 @@
     "qa:facade": "node scripts/qa-itgame38.mjs",
     "qa:slots": "node scripts/qa-office-slots.mjs",
     "qa:trace": "node scripts/qa-itgame37.mjs",
+    "qa:contract": "node scripts/qa-itgame39.mjs",
     "check:sprites": "node scripts/check-sprites.mjs",
+    "gen:contract": "node scripts/gen-contract.mjs",
+    "check:contract": "node scripts/gen-contract.mjs --check",
     "visreg": "node scripts/visreg.mjs"
   },
   "dependencies": {

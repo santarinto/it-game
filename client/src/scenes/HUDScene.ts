@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { GAME_H, GAME_W, HUD_H, NAV_W, layoutColumn, layoutRow } from '../layout'
 import { client } from '../net'
-import type { DayReportMessage, GameOverMessage, OfflineReportMessage, StateMessage, VictoryMessage } from '../protocol'
+import type { DayReportMessage, GameOverMessage, OfflineReportMessage, ServerErrorCode, StateMessage, VictoryMessage } from '../protocol'
 import { fmtMoney } from '../format'
 import { nav } from '../rooms'
 import { debug, drawDebugFrames, setDebug } from '../debug'
@@ -23,7 +23,10 @@ const CX = GAME_W / 2 // центр поля — якорь модалок и т
 const SPEED_BEFORE_REPORT_KEY = 'itd.speedBeforeReport'
 const REPORT_KEYS = [Phaser.Input.Keyboard.KeyCodes.ENTER, Phaser.Input.Keyboard.KeyCodes.SPACE]
 
-const ERROR_TEXTS: Record<string, string> = {
+// Record<ServerErrorCode, string> — tsc требует запись под каждый код
+// (ITGAME-39): забытый код в этом словаре ловится сборкой, а не молчаливым
+// фолбэком на сырой код в тосте.
+const ERROR_TEXTS: Record<ServerErrorCode, string> = {
   not_enough_money: 'Не хватает денег',
   no_free_office_slot: 'В офисе нет свободных мест',
   no_free_pc: 'Нет свободного ПК — купите ПК',
@@ -37,6 +40,7 @@ const ERROR_TEXTS: Record<string, string> = {
   offices_maxed: 'Все офисы уже куплены',
   gateway_already: 'Шлюз уже установлен',
   bad_office: 'Нет такого офиса',
+  equipment_already: 'Уже установлено в этом офисе',
   bad_speed: 'Нет такой скорости',
   bad_slot: 'Нет такой стойки',
   server_maxed: 'Серверная стойка уже максимального уровня',
@@ -275,7 +279,7 @@ export class HUDScene extends Phaser.Scene {
       onState: (s) => this.refresh(s),
       onError: (code) => {
         playSfx(this, 'error')
-        this.toast(ERROR_TEXTS[code] ?? code)
+        this.toast((ERROR_TEXTS as Record<string, string>)[code] ?? code)
       },
       onDisconnect: (reason) => this.showDisconnect(reason),
       onDayReport: (r) => this.onDayReport(r),
