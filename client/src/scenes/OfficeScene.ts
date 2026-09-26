@@ -31,6 +31,50 @@ const OFFLINE_LABELS: Record<string, string> = {
 // конфига (только для строки тултипа; сервер считает сам).
 const LEVEL_BONUS: Record<number, number> = { 1: 1, 2: 2, 3: 2 }
 
+// Геометрия оверлеев/бейджей рабочего места относительно центра (x,y)
+// слота. Два варианта — под HD 128px спрайты (desk_pc + worker поверх,
+// контент прижат к низу кадра) и под легаси 64px worker.png (стол/кресло
+// запечены в сам спрайт, контент занимает почти весь кадр). Раньше была
+// одна раскладка под старый «залитый» квадрат 64×64 — на HD-спрайтах она
+// вешала бейджи в воздухе над пустой верхней частью кадра.
+//
+// HD-числа — bbox непрозрачных пикселей в мировых px, world = (px−64)/2
+// (см. client/scripts/qa-office-slots.mjs; проверено pngjs по самим PNG):
+//   desk_pc.png (128×128): x −25..+25, y −16..+32 — столешница+монитор+системник
+//   worker.png  (128×128): x  −9..+13, y  −3..+30 — сотрудник+кресло поверх стола
+// Верх монитора ≈ y −14; правый верхний угол столешницы ≈ (+25, 0);
+// левый угол столешницы ≈ (−24, +5).
+const SLOT_LAYOUT_HD = {
+  // У правого верхнего угла стола, ниже и левее монитора.
+  networkDot: { x: 24, y: -8 },
+  // Над точкой сети, над монитором — не перекрывает экран.
+  offlineLabel: { x: 24, y: -22 },
+  // У левого края столешницы.
+  motivationBadge: { x: -24, y: -6 },
+  // Над бейджем мотивации.
+  star: { x: -24, y: -20 },
+  // Накрывает bbox стола (x ±25, y −16..+32) с отступом ~3px по краям.
+  repairOverlay: { y: 8, width: 58, height: 54 },
+  // Над оверлеем ремонта (оверлей до y+8−27=y−19).
+  repairText: { y: -26 },
+  // Под оверлеем (оверлей до y+8+27=y+35) — не наезжает на стол.
+  masterButton: { y: 46 },
+}
+
+// Легаси (includesDesk=true): старый 64px worker.png уже содержит
+// стол/кресло/монитор, контент занимает почти весь кадр 64×64 — раскладка
+// держится у углов квадрата ±32. Числа не менялись — сохраняем прежний
+// вид на случай отката на старые PNG.
+const SLOT_LAYOUT_LEGACY = {
+  networkDot: { x: 30, y: -30 },
+  offlineLabel: { x: 30, y: -44 },
+  motivationBadge: { x: -28, y: -36 },
+  star: { x: -28, y: -58 },
+  repairOverlay: { y: -8, width: 76, height: 56 },
+  repairText: { y: -48 },
+  masterButton: { y: 46 },
+}
+
 export class OfficeScene extends Phaser.Scene {
   private objects: Phaser.GameObjects.GameObject[] = []
   private tooltip!: Phaser.GameObjects.Container
@@ -198,6 +242,9 @@ export class OfficeScene extends Phaser.Scene {
       // точке (кресло на worker.png нарисовано так, что ложится ровно на
       // кресло desk_pc — выравнивание запечено в PNG, смещений не нужно).
       const workerIncludesDesk = SPRITES.worker?.includesDesk === true
+      // Раскладка бейджей/оверлея под текущий вариант спрайтов слота —
+      // см. SLOT_LAYOUT_HD/_LEGACY выше.
+      const layout = workerIncludesDesk ? SLOT_LAYOUT_LEGACY : SLOT_LAYOUT_HD
       const showWorkerOnly = hasPc && !!e && !s.isLunch && workerIncludesDesk
       // Стол слота: без ПК — desk_empty; на обеде — всегда desk_pc (экран
       // горит, кресло пустое — обед убирает только сотрудника, не стол);
@@ -219,7 +266,10 @@ export class OfficeScene extends Phaser.Scene {
       // Сломанный ПК: доход места 0; клики по столу чинят, мастер чинит за деньги.
       if (e?.pcBroken) {
         const overlay = tag(
-          this.add.rectangle(x, y - 8, 76, 56, 0xb13e53, 0.3)
+          this.add.rectangle(
+            x, y + layout.repairOverlay.y, layout.repairOverlay.width, layout.repairOverlay.height,
+            0xb13e53, 0.3,
+          )
             .setInteractive({ useHandCursor: true })
             // Выше сотрудника: иначе спрайт сотрудника (создаётся ниже, и
             // при показе desk_pc+worker перекрывает левую треть зоны) крадёт
@@ -235,11 +285,11 @@ export class OfficeScene extends Phaser.Scene {
           targets: overlay, alpha: { from: 0.65, to: 0.15 }, duration: 420, yoyo: true, repeat: -1,
         })
         const masterBg = tag(
-          this.add.rectangle(x, y + 46, 108, 22, 0x3b5dc9)
+          this.add.rectangle(x, y + layout.masterButton.y, 108, 22, 0x3b5dc9)
             .setOrigin(0.5).setInteractive({ useHandCursor: true }),
           `office.master.${i}`,
         )
-        const masterTxt = this.add.text(x, y + 46, `мастер ${fmtMoney(s.prices.repair)}`, {
+        const masterTxt = this.add.text(x, y + layout.masterButton.y, `мастер ${fmtMoney(s.prices.repair)}`, {
           fontFamily: 'monospace', fontSize: '10px', color: '#f4f4f4',
         }).setOrigin(0.5)
         masterBg.on('pointerdown', () => {
@@ -247,7 +297,7 @@ export class OfficeScene extends Phaser.Scene {
           client.send('call_master', nav.activeOffice, { slot: i })
         })
         this.objects.push(
-          this.add.text(x, y - 48, `✖ чинить ${e.repairClicks}/3`, {
+          this.add.text(x, y + layout.repairText.y, `✖ чинить ${e.repairClicks}/3`, {
             fontFamily: 'monospace', fontSize: '11px', color: '#b13e53',
           }).setOrigin(0.5),
           overlay, masterBg, masterTxt,
@@ -319,24 +369,24 @@ export class OfficeScene extends Phaser.Scene {
           }
         }
         if (e.connected && e.serverSlot > 0) {
-          this.objects.push(this.add.circle(x + 30, y - 30, 4, 0x38b764))
+          this.objects.push(this.add.circle(x + layout.networkDot.x, y + layout.networkDot.y, 4, 0x38b764))
         }
         // Видимость сети (итерация 11): метка-причина над проблемным
         // столом — точка 4px «почему я без бонуса» не объясняла.
         if (e.offlineReason) {
           const label = OFFLINE_LABELS[e.offlineReason] ?? e.offlineReason
           const color = e.offlineReason === 'no_server' ? '#5d7275' : '#b13e53'
-          this.objects.push(this.add.text(x + 30, y - 44, label, {
+          this.objects.push(this.add.text(x + layout.offlineLabel.x, y + layout.offlineLabel.y, label, {
             fontFamily: 'monospace', fontSize: '9px', color,
           }).setOrigin(0.5))
         }
         // Жёлтый значок-бейдж, пока действует мотивация кликом.
         if (e.effects.some((ef) => ef.token === 'motivated')) {
-          this.objects.push(this.add.circle(x - 28, y - 36, 5, 0xffcd75))
+          this.objects.push(this.add.circle(x + layout.motivationBadge.x, y + layout.motivationBadge.y, 5, 0xffcd75))
         }
         // Золотая звезда найма-рулетки (и кандидата события) — ×1.5 базы.
         if (e.star) {
-          this.objects.push(this.add.text(x - 28, y - 58, '★', {
+          this.objects.push(this.add.text(x + layout.star.x, y + layout.star.y, '★', {
             fontFamily: 'monospace', fontSize: '14px', color: '#ffcd75',
           }).setOrigin(0.5))
         }
