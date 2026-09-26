@@ -5,8 +5,12 @@
 // HD 128px), на обеде слот превращается в desk_pc + подпись «обед» (стол
 // рисуется РОВНО один раз, не дважды), сломанный ПК кликается мышью по
 // всей зоне ремонта (не только по краям — раньше сотрудник перехватывал
-// левую треть), слот шлюза серверной рисует gateway (не router).
-// Стиль/selfServe — как client/scripts/qa-itgame16.mjs.
+// левую треть), слот шлюза серверной рисует gateway (не router), полка
+// быта (office.amenity.cooler/fridge/coffee_machine) и слот сети офиса
+// рисуют свои HD-текстуры, занятые/пустые серверные стойки — rack_server/
+// rack_empty (пустая — с подсветкой первой свободной, ITGAME-11) без
+// itd.overlaps()/itd.offscreen() в серверной. Стиль/selfServe — как
+// client/scripts/qa-itgame16.mjs.
 //
 // includesDesk читаем из манифеста напрямую (не из сцены) — ожидания
 // кейсов зависят от текущего режима ассетов (легаси 64px vs HD 128px).
@@ -78,6 +82,10 @@ async function loadScenario(page, scenario, sidTag) {
 }
 
 // ── Прямой доступ к сцене (мимо itd.nodes(), которому не хватает texture.key) ──
+// alpha/tint — для кейса пустых стоек (ServerRoomScene.ts затемняет стойки
+// закрытых офисов setAlpha(0.3) и подсвечивает первую пустую setTint();
+// tint читаем через .tint — геттер Phaser отдаёт tintTopLeft, дефолт без
+// тинта 0xffffff, см. Tint.js).
 async function dumpImages(page, sceneKey) {
   return page.evaluate((key) => {
     const scene = window.__itd.scene.getScene(key)
@@ -91,6 +99,8 @@ async function dumpImages(page, sceneKey) {
         y: o.y,
         visible: o.visible,
         depth: o.depth ?? 0,
+        alpha: o.alpha,
+        tint: o.tint,
       }))
   }, sceneKey)
 }
@@ -213,6 +223,21 @@ async function caseFullOffice(browser) {
     const boss = images.find((n) => n.id === 'office.boss')
     check('full_office: office.boss рисуется текстурой boss', boss?.key === 'boss',
       boss ? `key=${boss.key}` : 'office.boss не найден')
+
+    // Полка быта (office.amenity.<key>, все три куплены в full_office —
+    // см. fixtures/full_office.json Cooler/Fridge/CoffeeMachine) — HD
+    // 128px/hd32 замена бывших 64px sweetie16.
+    for (const key of ['cooler', 'fridge', 'coffee_machine']) {
+      const item = images.find((n) => n.id === `office.amenity.${key}`)
+      check(`full_office: office.amenity.${key} рисуется текстурой ${key}`, item?.key === key,
+        item ? `key=${item.key}` : `office.amenity.${key} не найден`)
+    }
+    // Слот сети (office.router — тег на прозрачной зоне-прямоугольнике, не
+    // на самой картинке, см. OfficeScene.ts: routerImg без tag()) — ищем
+    // по текстуре, она в слоте одна.
+    const routerImg = images.find((n) => n.key === 'router')
+    check('full_office: слот сети рисует текстуру router', !!routerImg, routerImg ? 'ok' : 'не найдена')
+
     const overlaps = await page.evaluate(() => window.itd.overlaps())
     check('full_office: itd.overlaps() пуст', overlaps.length === 0, `n=${overlaps.length}`)
     check('full_office: нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))
@@ -382,10 +407,85 @@ async function caseServerRoomGateway(browser) {
     check('serverRoom: текстура router в слоте шлюза больше не используется', !wrongRouter,
       wrongRouter ? 'найден router в serverRoom' : 'ok')
 
+    // full_office: офис 1 занят целиком (Servers [3,3,3], см. fixtures) —
+    // все 3 стойки room.rack.0.* рисуют rack_server (не rack_empty).
+    const racks = images.filter((n) => n.id && /^room\.rack\.0\.\d+$/.test(n.id))
+    check('serverRoom: 3 занятые стойки офиса 1 рисуют rack_server', racks.length === 3 && racks.every((r) => r.key === 'rack_server'),
+      JSON.stringify(racks.map((r) => ({ id: r.id, key: r.key }))))
+
+    // Core (стойка роутеров слева) — картинка без id: тег room.core висит
+    // на прозрачной зоне поверх неё (ServerRoomScene.ts).
+    const core = images.find((n) => !n.id && n.key === 'rack_server')
+    check('serverRoom: core (coreLevel>0) рисует текстуру rack_server', !!core, core ? 'ok' : 'не найден')
+
+    // Единый линтер раскладки — тот же itd.overlaps()/offscreen(), что и
+    // для офиса (client/scripts/qa-itgame16.mjs): переключение комнаты
+    // глушит сцену office (HUDScene.switchRoom → scene.stop), так что
+    // здесь линтер видит только серверную + HUD.
+    const overlaps = await page.evaluate(() => window.itd.overlaps())
+    check('serverRoom: itd.overlaps() пуст', overlaps.length === 0, `n=${overlaps.length}`)
+    const offscreen = await page.evaluate(() => window.itd.offscreen())
+    check('serverRoom: itd.offscreen() пуст', offscreen.length === 0, `n=${offscreen.length}`)
+
     check('serverRoom: нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))
     await shot(page, 'server_room_gateway')
   } catch (e) {
     check('serverRoom: кейс выполнен без ошибок', false, e instanceof Error ? e.message : String(e))
+  } finally {
+    await page.close().catch(() => {})
+  }
+}
+
+// ── Кейс 5: пустые стойки — rack_empty, подсветка первой пустой, закрытые ───
+// офисы затемнены. mid_day10 (см. server/internal/game/fixtures/mid_day10.json):
+// офис 1 — Servers [2,1] при serverSlots=3 (OfficeSlots/EmployeesPerServer
+// = 12/4, server/internal/game/config.go) → 2 занятые стойки + 1 пустая;
+// офисы 2/3 — Unlocked:false, их 3+3 стойки всегда rack_empty (Servers==[]).
+async function caseServerRoomEmptyRacks(browser) {
+  const page = await browser.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e)))
+  await page.setViewport({ width: 1920, height: 1080 })
+  try {
+    await loadScenario(page, 'mid_day10', 'emptyracks')
+    await page.evaluate(() => window.itd.click('nav.serverRoom'))
+    await delay(300)
+
+    const images = await dumpImages(page, 'serverRoom')
+
+    const filled = images.filter((n) => n.id && /^room\.rack\.0\.[01]$/.test(n.id))
+    check('mid_day10: 2 занятые стойки офиса 1 рисуют rack_server', filled.length === 2 && filled.every((r) => r.key === 'rack_server'),
+      JSON.stringify(filled.map((r) => ({ id: r.id, key: r.key }))))
+
+    // Третья стойка офиса 1 — пустая и, как первая пустая (firstEmpty),
+    // подсвечена setTint(0x9be3ba) (ServerRoomScene.ts) — «сюда встанет
+    // сервер».
+    const empty = images.find((n) => n.id === 'room.rack.0.2')
+    check('mid_day10: пустая стойка room.rack.0.2 рисует rack_empty', empty?.key === 'rack_empty',
+      empty ? `key=${empty.key}` : 'room.rack.0.2 не найден')
+    check('mid_day10: первая пустая стойка подсвечена тинтом 0x9be3ba', empty?.tint === 0x9be3ba,
+      empty ? `tint=0x${(empty.tint ?? 0).toString(16)}` : 'не найдена')
+
+    // Офисы 2/3 закрыты — их стойки нетегированы (пропущены до tag() в
+    // ServerRoomScene.ts) и затемнены setAlpha(0.3), но БЕЗ тинта: ветка
+    // !o.unlocked делает `continue` раньше строки с setTint.
+    const closedRacks = images.filter((n) => !n.id && n.key === 'rack_empty' && n.alpha < 1)
+    check('mid_day10: 6 стоек закрытых офисов (2/3) рисуют затемнённый rack_empty', closedRacks.length === 6,
+      `n=${closedRacks.length}`)
+    check('mid_day10: стойки закрытых офисов без тинта', closedRacks.every((r) => r.tint === 0xffffff),
+      JSON.stringify(closedRacks.map((r) => r.tint)))
+
+    // Подпись «сервер сюда» над первой пустой стойкой есть только здесь
+    // (на full_office пустых стоек нет) — линтер раскладки и на ней.
+    const overlaps = await page.evaluate(() => window.itd.overlaps())
+    check('mid_day10: itd.overlaps() в серверной пуст', overlaps.length === 0, `n=${overlaps.length}`)
+    const offscreen = await page.evaluate(() => window.itd.offscreen())
+    check('mid_day10: itd.offscreen() в серверной пуст', offscreen.length === 0, `n=${offscreen.length}`)
+
+    check('mid_day10: нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))
+    await shot(page, 'server_room_empty_racks')
+  } catch (e) {
+    check('mid_day10: кейс выполнен без ошибок', false, e instanceof Error ? e.message : String(e))
   } finally {
     await page.close().catch(() => {})
   }
@@ -403,7 +503,7 @@ if (!process.env.QA_BASE) {
 }
 
 try {
-  for (const runCase of [caseFullOffice, caseLunch, caseBrokenPc, caseServerRoomGateway]) {
+  for (const runCase of [caseFullOffice, caseLunch, caseBrokenPc, caseServerRoomGateway, caseServerRoomEmptyRacks]) {
     const browser = await puppeteer.launch({
       executablePath: chromePath(),
       headless: 'new',

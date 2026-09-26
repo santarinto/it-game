@@ -27,6 +27,29 @@
 #     ноутбуком). boss_lunch — тот же начальник на обеде, с кофе и
 #     сэндвичем («как все», см. desk_pc на обеде у сотрудников). Промпты —
 #     scripts/sprites/prompts-hd.txt.
+#   • rack_server.raw.png — 128×128 (стойка выше остального — свой холст),
+#     router.raw.png/gateway.raw.png/cooler.raw.png/coffee_machine.raw.png —
+#     по 96×96, все PixelLab /v2/create-image-pixflux-background, тот же
+#     outline/shading/detail, --palette hd32 --lock-palette. Замена
+#     оставшихся 64px sweetie16 (серверная + быт + роутер) на HD — холст
+#     генерации подобран под экранный размер предмета, --size/--palette
+#     передавались ЯВНО (манифест на момент генерации ещё держал эти ключи
+#     как 64/sweetie16 — без явных флагов gen-sprites.sh взял бы их оттуда
+#     и isometric=false). seed по умолчанию (cksum ключа, см.
+#     scripts/gen-sprites.sh --dry-run): rack_server 1439954681, router
+#     604758682, gateway 778627568, cooler 3555790590, coffee_machine
+#     1105630005.
+#   • fridge.raw.png — 96×96, тот же движок/палитра/outline/shading/detail,
+#     но seed ЯВНЫЙ 20260926 (не cksum): первая генерация с дефолтным
+#     seed и промптом без «large tall» дала холодильник крошечным (bbox
+#     26×48 на холсте 96 — вдвое ниже cooler), перегенерирован с «large
+#     tall … full height» в промпте и этим seed. Промпты и разбор —
+#     scripts/sprites/prompts-hd.txt.
+#   • rack_empty.png — НЕ генерация (как desk_empty выше): pixflux
+#     игнорирует отрицания («empty», «no servers») так же, как «no
+#     computer, no chair» у desk_empty — это пиксельная правка
+#     rack_server.raw.png (тот же силуэт/альфа, во фронтальном проёме
+#     стёрты серверы, оставлена тёмная пустота с монтажными рейками).
 #
 # desk_pc_off/desk_pc/desk_pc_broken — один и тот же стол, три состояния
 # экрана монитора (выкл/вкл-синий/сбой-красный) — sprite-recolor.mjs
@@ -37,6 +60,20 @@
 # worker_1/worker_2/worker_3 — уровни сотрудника 1..3 (зелёная/синяя/
 # бордовая рубашка вместо белой) — та же перекраска, на светлые цвета
 # рубашки (уникальны для неё во всём спрайте, --region не нужен).
+#
+# rack_server/rack_empty/router/gateway/cooler/fridge/coffee_machine —
+# HD-замена оставшихся 64px sweetie16-спрайтов (серверная, роутер офиса,
+# полка быта). Спрайт рисуется с origin по центру кадра, поэтому
+# --bottom-margin ≈ (128 − высота bbox)/2 ставит предмет в центр своего
+# бокса; где предметы стоят рядом, margin общий на группу:
+#   • rack_server/rack_empty — ОДИН И ТОТ ЖЕ --bottom-margin 8 (bbox 72×111
+#     по центру): пустая и полная стойка совпадают пиксель-в-пиксель по
+#     силуэту и подменяют друг друга в ServerRoomScene.ts без «прыжка».
+#   • router --bottom-margin 24 (bbox 72×79), gateway --bottom-margin 27
+#     (80×73) — по центру боксов 84×84 (слот сети офиса / шлюз серверной).
+#   • cooler/fridge/coffee_machine — ОДИН И ТОТ ЖЕ --bottom-margin 22:
+#     общая линия пола на полке быта (office.amenity.*); bbox по высоте
+#     84/83/78 — самый высокий (cooler) по центру, у остальных сверху запас.
 #
 # Прогон: scripts/sprites/build-hd.sh (без аргументов) из любого места —
 # скрипт сам cd в корень репо. Результат — в client/public/assets/sprites/,
@@ -120,6 +157,32 @@ node "$REMAP" "$SRC/boss.raw.png" "$OUT/boss.png" \
 node "$REMAP" "$SRC/boss_lunch.raw.png" "$OUT/boss_lunch.png" \
   --key boss_lunch --size 128 --palette hd32 --bottom-margin 18
 
+# ── rack_server/rack_empty: серверная стойка, полная и пустая ───────────
+# ОДИН И ТОТ ЖЕ --bottom-margin 8 — по силуэту/альфе pixel-в-pixel
+# совпадают (rack_empty — правка rack_server.raw.png, не своя генерация).
+node "$REMAP" "$SRC/rack_server.raw.png" "$OUT/rack_server.png" \
+  --key rack_server --size 128 --palette hd32 --bottom-margin 8
+
+node "$REMAP" "$SRC/rack_empty.png" "$OUT/rack_empty.png" \
+  --key rack_empty --size 128 --palette hd32 --bottom-margin 8
+
+# ── router/gateway: слоты сети (офис/серверная), центр своего бокса 84×84 ─
+node "$REMAP" "$SRC/router.raw.png" "$OUT/router.png" \
+  --key router --size 128 --palette hd32 --bottom-margin 24
+
+node "$REMAP" "$SRC/gateway.raw.png" "$OUT/gateway.png" \
+  --key gateway --size 128 --palette hd32 --bottom-margin 27
+
+# ── cooler/fridge/coffee_machine: полка быта, общая линия пола ──────────
+node "$REMAP" "$SRC/cooler.raw.png" "$OUT/cooler.png" \
+  --key cooler --size 128 --palette hd32 --bottom-margin 22
+
+node "$REMAP" "$SRC/fridge.raw.png" "$OUT/fridge.png" \
+  --key fridge --size 128 --palette hd32 --bottom-margin 22
+
+node "$REMAP" "$SRC/coffee_machine.raw.png" "$OUT/coffee_machine.png" \
+  --key coffee_machine --size 128 --palette hd32 --bottom-margin 22
+
 echo
-echo "готово: $OUT/{desk_pc_off,desk_pc,desk_pc_broken,desk_empty,worker,worker_1,worker_2,worker_3,boss,boss_lunch}.png"
+echo "готово: $OUT/{desk_pc_off,desk_pc,desk_pc_broken,desk_empty,worker,worker_1,worker_2,worker_3,boss,boss_lunch,rack_server,rack_empty,router,gateway,cooler,fridge,coffee_machine}.png"
 echo "проверка контракта: cd client && node scripts/check-sprites.mjs"

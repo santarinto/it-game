@@ -180,7 +180,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35) | :4179, self-serve + temp saves dir |
 | `npm run qa:hud` | HUD layout column, toast stack, no overlaps (ITGAME-16) | :4174, self-serve |
 | `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38) | :4175, self-serve |
-| `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway | :4177, self-serve |
+| `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |
@@ -287,8 +287,10 @@ the only combination that both zooms in and keeps `camera.worldView` at
 `(0,0,1280,720)` (`CameraManager.fromJSON` always resets `roundPixels` to
 `false` unless the scene config sets it explicitly). HD sprites are in use
 today: `desk_pc`/`desk_pc_off`/`desk_pc_broken`, `desk_empty`,
-`worker`/`worker_1..3` and `boss`/`boss_lunch` are 128px `hd32` art (see the
-sprite manifest below) drawn at ×0.5 into 64-world-px slots —
+`worker`/`worker_1..3`, `boss`/`boss_lunch`, `rack_server`/`rack_empty`,
+`router`, `gateway`, and `cooler`/`fridge`/`coffee_machine` are all 128px
+`hd32` art (see the sprite manifest below) drawn at ×0.5 into 64-world-px
+slots —
 `spriteScale()` computes that factor from the texture's real width against
 `SPRITE_TARGET` (`pixelart.ts`), so at 2× render one texture texel lands on
 exactly one canvas pixel. Also for
@@ -325,9 +327,10 @@ and the finished PNGs are committed.
   review the PNGs → `--install <key> <file>` re-checks the file against the
   manifest contract and only then copies it to
   `client/public/assets/sprites/<key>.png`. Size/palette come from the
-  manifest per key (unchanged for the 14 current 64px keys); `--hd`, or a
-  key the manifest doesn't have yet, defaults to 128px/`hd32`/isometric and
-  reads `scripts/sprites/prompts-hd.txt`. Per-engine size caps are enforced
+  manifest per key (unchanged for the 3 remaining 64px keys —
+  `office_floor_tile`, `icon_money`, `icon_network`); `--hd`, or a key the
+  manifest doesn't have yet, defaults to 128px/`hd32`/isometric and reads
+  `scripts/sprites/prompts-hd.txt`. Per-engine size caps are enforced
   before the request (`pixen` ≤768, multiple of 4, area ≤512×512;
   `pixflux` ≤400; `bitforge` ≤200). `--lock-palette` (on by default for
   pixflux/bitforge, unavailable for pixen — warns instead of failing)
@@ -366,8 +369,10 @@ and the finished PNGs are committed.
 ### HD sprite pipeline
 
 `scripts/sprites/hd-src/` holds the raw generations (`desk_pc.raw.png`,
-`worker.raw.png`, `boss.raw.png`, `boss_lunch.raw.png`) plus
-`desk_empty.png`, a hand-edited source (not a generation — see below).
+`worker.raw.png`, `boss.raw.png`, `boss_lunch.raw.png`, `rack_server.raw.png`,
+`router.raw.png`, `gateway.raw.png`, `cooler.raw.png`, `fridge.raw.png`,
+`coffee_machine.raw.png`) plus `desk_empty.png` and `rack_empty.png`,
+hand-edited sources (not generations — see below).
 `scripts/sprites/build-hd.sh` deterministically rebuilds every HD asset
 from those sources with no network and no AI: it calls `sprite-remap.mjs`
 (`--flip-x`/`--place` bake the worker's mirror and its manual
@@ -394,6 +399,34 @@ through `--background` (see below) rather than the synchronous endpoint.
 same `--bottom-margin` for both, so their feet land on the same canvas row
 and the figure doesn't jump when `OfficeScene.ts` switches the slot
 between the two on lunch.
+
+`rack_server`, `router`, `gateway`, `cooler`, `fridge` and `coffee_machine`
+are the HD replacement for the last 64px `sweetie16` art (server room and
+the office amenity shelf/network slot): same pixflux `--background` engine/
+outline/shading/detail/`--lock-palette` as `boss`. Their generation canvas
+is sized to the item's on-screen footprint rather than a fixed number
+(`rack_server` 128px, the rest 96px), and unlike keys the manifest already
+had at 128px/`hd32`, `--size`/`--palette` had to be passed explicitly on
+the CLI — at generation time the manifest still listed these keys as
+64px/`sweetie16`, and without an explicit override `gen-sprites.sh` would
+have read that (and `isometric=false`) instead of `--hd`'s defaults.
+`fridge` needed a second generation: the first attempt (default seed, no
+"large tall" in the prompt) drew a refrigerator with a 26×48 bbox on the
+96px canvas, half `cooler`'s height — redone with "large tall … full
+height" in the prompt and an explicit seed (`scripts/sprites/prompts-hd.txt`
+carries it as the key's third field). Sprites are drawn with a centered
+origin, so `build-hd.sh` picks each `--bottom-margin` to center the item
+in its box — `rack_server` 8, `router` 24, `gateway` 27 (the source bboxes
+differ: 72×111, 72×79, 80×73) — while `cooler`/`fridge`/
+`coffee_machine` all share one margin (22) so the three sit on a common
+"floor line" on the amenity shelf regardless of their own height (84/83/78).
+`rack_empty` — like `desk_empty` above — is never generated: pixflux
+ignores "empty"/"no servers" negations in the prompt the same way it
+ignores `desk_empty`'s. It's a pixel edit of `rack_server.raw.png` (same
+silhouette/alpha, the front bay's servers erased to a dark cavity with rack
+rails) remapped with the *same* `--bottom-margin` as `rack_server`, so the
+occupied and empty rack line up pixel-for-pixel when `ServerRoomScene.ts`
+swaps one texture for the other in the same slot.
 
 Long pixflux generations occasionally trip a gateway timeout: the
 synchronous `create-image-pixflux` call periodically comes back as a 502
@@ -437,11 +470,16 @@ scale by them. `client/src/assets/manifest.ts` adds types, `AI_SPRITES`,
 
 - `size`, `frames` — the PNG is exactly `size·frames × size` (frames side by
   side; `frames > 1` is registered as a spritesheet).
-- `palette` — `sweetie16` (the remaining 64px art) or `hd32` (Sweetie-16 plus
-  16 in-between shades) — no longer reserved, it's what the HD desk/worker
-  keys below actually use.
+- `palette` — `sweetie16` (the remaining 64px art: `office_floor_tile` and
+  the `icon_money`/`icon_network` icons) or `hd32` (Sweetie-16 plus 16
+  in-between shades) — every other key, desk/worker/boss/rack/router/
+  gateway/amenity alike, is 128px `hd32` today.
 - `class` — target on-screen size from `SPRITE_TARGET` in
-  `client/src/pixelart.ts`; `addSprite()` scales from frame 0.
+  `client/src/pixelart.ts`; `addSprite()` scales from frame 0. `amenity`
+  (cooler/fridge/coffee_machine) is 64, not 48: at 48 a 128px `hd32` frame
+  would scale ×0.375, a non-integer texel at 2× render — 64 gives ×0.5,
+  same as every other HD key, and the item's actual on-screen size comes
+  from its opaque-pixel bbox inside the 128×128 canvas instead.
 - `includesDesk` — the sprite draws its own desk. `false` (today's HD
   `worker`, 128px): the slot draws `desk_pc`/`desk_pc_off`/`desk_pc_broken`
   underneath and the worker on top at the same point (`OfficeScene.ts`'s
@@ -480,9 +518,14 @@ regeneration.
 
 `npm run qa:slots` (see [Tests](#tests)) checks slot rendering on
 `full_office`: each occupied desk draws `worker`/`worker_N` (by employee
-level) over exactly one `desk_pc`/`desk_pc_broken` at the same point, `boss`
-and `gateway` textures land in their slots, lunch turns a slot into a single
-`desk_pc` with no employee plus the «обед» label and switches the boss slot
-to `boss_lunch`, a breakdown shows `desk_pc_broken`, and real mouse clicks
-on a broken PC's repair zone send
-`repair_click`, not `motivate`.
+level) over exactly one `desk_pc`/`desk_pc_broken` at the same point, `boss`,
+`gateway`, `router` and the `cooler`/`fridge`/`coffee_machine` amenity shelf
+textures land in their slots, lunch turns a slot into a single `desk_pc`
+with no employee plus the «обед» label and switches the boss slot to
+`boss_lunch`, a breakdown shows `desk_pc_broken`, real mouse clicks on a
+broken PC's repair zone send `repair_click` (not `motivate`), the server
+room's occupied racks and core draw `rack_server` with no layout-linter
+findings (`itd.overlaps()`/`itd.offscreen()`), and — on `mid_day10`, whose
+one unlocked office has fewer servers than rack slots — empty racks draw
+`rack_empty`, the first empty one carries the "place a server here" tint,
+and closed offices' racks render `rack_empty` dimmed with no tint.

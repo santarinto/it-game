@@ -214,8 +214,11 @@ export function registerTextures(scene: Phaser.Scene): void {
 export const SPRITE_TARGET = {
   desk: 64, // стол в слоте 80×64
   person: 64, // сотрудник и начальник: ровно ×1 для 64px (sweetie16) и ×0.5 для HD 128px (hd32)
-  rack: 64, // стойки, core, роутер, шлюз
-  amenity: 48, // быт-устройства на полке
+  rack: 64, // стойки, core, роутер, шлюз — HD 128px, ×0.5
+  // быт-устройства на полке — HD 128px, ×0.5 (48 дало бы ×0.375: нецелый
+  // тексель при 2× рендере); видимый размер предмета задаёт его bbox в
+  // холсте 128×128 (scripts/sprites/build-hd.sh), а не target
+  amenity: 64,
   icon: 32, // мелкие UI-иконки (icon_money, icon_network) — пока нигде не рисуются
   tile: 64, // плитка пола (office_floor_tile) — пока нигде не рисуется
 } as const
