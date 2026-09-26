@@ -4,7 +4,9 @@
 //
 // Детерминированная часть: день 1 без событий, event_choice/no_event,
 // поле salary, events в отчёте. Само событие — шанс 75%/день: ждём до
-// 3 дней, отсутствие = «повторить прогон» (прецедент: live-check кулера).
+// 3 дней. С фиксированным сидом прогон воспроизводим целиком; на другом
+// SEED событие может не выпасть или партия обанкротится — скрипт честно
+// падает с причиной, а не висит до таймаута.
 let step = 0
 const ok = (name) => console.log(`ok ${++step} — ${name}`)
 const fail = (name, got) => {
@@ -12,7 +14,11 @@ const fail = (name, got) => {
   process.exit(1)
 }
 
-const ws = new WebSocket('ws://localhost:8091/ws?difficulty=normal')
+// Фиксированный сид (ITGAME-26): ролл событий, поломок и выработки
+// воспроизводим — без него прогон мог обанкротиться (один сотрудник,
+// тонкий баланс) и висел до таймаута. SEED=… — проверить другой сид.
+const SEED = process.env.SEED ?? '3' // сид 3: «Дедлайн» на день 2, ~37с
+const ws = new WebSocket(`ws://localhost:8091/ws?difficulty=normal&seed=${SEED}`)
 let phase = 'start'
 let lastState = null
 const timeout = setTimeout(
@@ -24,6 +30,11 @@ ws.onclose = () => fail('соединение закрылось до конца
 ws.onmessage = (ev) => {
   const m = JSON.parse(ev.data)
   if (m.type === 'state') lastState = m
+  if (m.type === 'game_over') {
+    // Сценарий не рассчитан на финал: без этой ветки скрипт молча ждал
+    // таймаут 240с. Банкротство здесь — ролл, а не баг протокола.
+    fail(`финал партии раньше конца сценария (сид ${SEED}) — возьмите другой SEED`, m)
+  }
   if (phase === 'start' && m.type === 'state') {
     ws.send(JSON.stringify({ type: 'set_speed', speed: 3 })) // день ~18с
     phase = 'speed'

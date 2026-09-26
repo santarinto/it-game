@@ -12,3 +12,9 @@ client/smoke-*.png
 # сейвы сессий (dev по умолчанию, ITGAME-8)
 saves/
 .serena/
+
+# локальные MCP-конфиги и личный QA-скилл — не в репо
+.mcp.json
+opencode.json
+.claude/skills/generate-qa-promt-for-browser-agent/
+.agents/
