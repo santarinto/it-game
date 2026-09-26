@@ -17,7 +17,7 @@
   },
   "broke_day3": {
     "lint": {
-      "overlaps": 1,
+      "overlaps": 0,
       "offscreen": 0,
       "contrast": 16,
       "tiny": 15
