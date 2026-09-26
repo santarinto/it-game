@@ -9,7 +9,8 @@
 // Использование:
 //   node client/scripts/sprite-remap.mjs <in.png> <out.png> --key <ключ> \
 //     [--size N] [--palette sweetie16|hd32] [--alpha N=128] \
-//     [--downscale-nearest] [--despeckle N=0] [--bottom-margin N=0]
+//     [--downscale-nearest] [--despeckle N=0] [--bottom-margin N=0] \
+//     [--flip-x] [--place X,Y]
 //
 // Алгоритм (без ресемплинга/интерполяции — пиксель-арт терпит только
 // точное приближение цвета и точное прореживание):
@@ -29,8 +30,16 @@
 //   5. bbox непрозрачных пикселей. Если bbox шире/выше size — ошибка
 //      (exit 1): ресемплинг не делаем, вход должен быть уже нужного
 //      разрешения (см. --downscale-nearest выше).
-//   6. Холст size×size, bbox кладём по центру по X и по низу (минус
-//      --bottom-margin, default 0) по Y.
+//   5.5. --flip-x: зеркалит по горизонтали СОДЕРЖИМОЕ bbox (bbox-зависимо
+//      — сам bbox не двигается и не меняет размер, зеркалится только то,
+//      что внутри него). После alpha/квантизации/despeckle, до размещения
+//      на холсте — зеркалим уже готовые пиксели, а не сырой вход.
+//   6. Холст size×size: по умолчанию bbox кладём по центру по X и по низу
+//      (минус --bottom-margin, default 0) по Y; с --place X,Y — вместо
+//      этого левый-верхний угол bbox кладётся ровно в (X,Y) (используется
+//      для ручной подгонки нескольких спрайтов в одну точку слота, см.
+//      worker.png в scripts/sprites/build-hd.sh). Если со смещением bbox
+//      не влезает в холст — ошибка (exit 1), без ресемплинга.
 //   7. Отчёт: checkSpriteImage() из lib/sprite-check.mjs — тот же
 //      контракт, что build. Нарушения печатаются, exit 1.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
@@ -48,7 +57,7 @@ function usageError(msg) {
   console.error(
     'Usage: node client/scripts/sprite-remap.mjs <in.png> <out.png> --key <ключ> ' +
       '[--size N] [--palette sweetie16|hd32] [--alpha N=128] [--downscale-nearest] ' +
-      '[--despeckle N=0] [--bottom-margin N=0]',
+      '[--despeckle N=0] [--bottom-margin N=0] [--flip-x] [--place X,Y]',
   )
   process.exit(1)
 }
@@ -56,7 +65,7 @@ function usageError(msg) {
 // ── Аргументы ────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2)
 const positional = []
-const opts = { alpha: 128, despeckle: 0, bottomMargin: 0, downscaleNearest: false }
+const opts = { alpha: 128, despeckle: 0, bottomMargin: 0, downscaleNearest: false, flipX: false, place: null }
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i]
   switch (a) {
@@ -81,6 +90,16 @@ for (let i = 0; i < argv.length; i++) {
     case '--bottom-margin':
       opts.bottomMargin = Number(argv[++i])
       break
+    case '--flip-x':
+      opts.flipX = true
+      break
+    case '--place': {
+      const raw = argv[++i] ?? ''
+      const m = /^(-?\d+),(-?\d+)$/.exec(raw)
+      if (!m) usageError(`--place ожидает "X,Y" целыми числами, получено '${raw}'`)
+      opts.place = { x: Number(m[1]), y: Number(m[2]) }
+      break
+    }
     default:
       if (a.startsWith('--')) usageError(`неизвестный флаг ${a}`)
       positional.push(a)
@@ -253,14 +272,46 @@ if (bboxW > size || bboxH > size) {
   process.exit(1)
 }
 
-// ── 6. Холст size×size: по центру X, по низу Y (минус bottomMargin) ─────
+// ── 5.5. --flip-x: зеркалим содержимое bbox по горизонтали (bbox не двигается) ──
+if (opts.flipX) {
+  const flipped = Buffer.from(work)
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const srcX = minX + maxX - x
+      const si = (y * w + srcX) * 4
+      const di = (y * w + x) * 4
+      flipped[di] = work[si]
+      flipped[di + 1] = work[si + 1]
+      flipped[di + 2] = work[si + 2]
+      flipped[di + 3] = work[si + 3]
+    }
+  }
+  flipped.copy(work)
+}
+
+// ── 6. Холст size×size: по центру X, по низу Y (минус bottomMargin), либо ─
+//      с --place X,Y — левый-верхний угол bbox ровно в (X,Y) ───────────────
 if (opts.bottomMargin < 0 || opts.bottomMargin > size) {
   usageError(`некорректный --bottom-margin: ${opts.bottomMargin}`)
 }
-const destX0 = Math.floor((size - bboxW) / 2)
-const destY0 = size - opts.bottomMargin - bboxH
-if (destY0 < 0) {
-  usageError(`--bottom-margin=${opts.bottomMargin} не оставляет места для bbox высотой ${bboxH} в холсте ${size}`)
+let destX0
+let destY0
+if (opts.place) {
+  destX0 = opts.place.x
+  destY0 = opts.place.y
+  if (destX0 < 0 || destY0 < 0 || destX0 + bboxW > size || destY0 + bboxH > size) {
+    console.error(
+      `error: --place ${destX0},${destY0} — bbox ${bboxW}x${bboxH} не влезает в холст ${size}x${size} ` +
+        `(нужно 0<=X, 0<=Y, X+${bboxW}<=${size}, Y+${bboxH}<=${size})`,
+    )
+    process.exit(1)
+  }
+} else {
+  destX0 = Math.floor((size - bboxW) / 2)
+  destY0 = size - opts.bottomMargin - bboxH
+  if (destY0 < 0) {
+    usageError(`--bottom-margin=${opts.bottomMargin} не оставляет места для bbox высотой ${bboxH} в холсте ${size}`)
+  }
 }
 const canvas = new PNG({ width: size, height: size }) // Buffer.alloc — уже прозрачно (нули)
 for (let y = 0; y < bboxH; y++) {
@@ -299,9 +350,13 @@ console.log(`${outPath}`)
 console.log(
   `  ${size}x${size}, палитра ${paletteName}, alpha>=${opts.alpha}` +
     (opts.downscaleNearest ? `, downscale-nearest` : '') +
-    (opts.despeckle > 0 ? `, despeckle<=${opts.despeckle}` : ''),
+    (opts.despeckle > 0 ? `, despeckle<=${opts.despeckle}` : '') +
+    (opts.flipX ? `, flip-x` : ''),
 )
-console.log(`  bbox исходника: ${bboxW}x${bboxH} → холст со смещением (${destX0}, ${destY0})`)
+console.log(
+  `  bbox исходника: ${bboxW}x${bboxH} → холст со смещением (${destX0}, ${destY0})` +
+    (opts.place ? ` (--place)` : ''),
+)
 console.log(`  цветов использовано: ${usedColors.size}, прозрачность: ${stats.transparentPct}%, #${WHITE_HEX}: ${stats.whitePct}%${stats.noiseSummary}`)
 for (const wmsg of warnings) console.warn(`  WARN ${wmsg}`)
 
