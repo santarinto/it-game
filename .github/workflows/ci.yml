@@ -125,6 +125,8 @@ jobs:
         run: OFFICE=1 timeout 300 npm run smoke-ui -- http://127.0.0.1:8091
       - name: live-check — сейвы, реконнект, офлайн-догон
         run: timeout 180 node scripts/live-check-saves.mjs
+      - name: live-check — правила сложности (хардкор-кредит, рынок, норма)
+        run: timeout 240 node scripts/live-check-difficulty2.mjs
       - name: лог сервера
         if: failure()
         run: cat "$RUNNER_TEMP/server.log" || true

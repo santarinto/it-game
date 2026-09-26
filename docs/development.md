@@ -129,7 +129,8 @@ manual dispatch:
 - **server** — `go vet`, `go test` with a Postgres 16 service container,
   sim report in the job summary (non-blocking);
 - **client** — `npm ci`, typecheck, build, menu smoke test, then the Go
-  server over `dist`: office smoke test and `live-check-saves`;
+  server over `dist`: office smoke test, `live-check-saves` and
+  `live-check-difficulty2`;
 - **visreg** — report only; on mismatch it uploads screenshots taken on the
   runner (`visreg-ci-shots`) that can be adopted as baselines before
   making the job blocking;
