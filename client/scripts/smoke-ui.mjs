@@ -195,18 +195,27 @@ try {
       // Наводим в центр bounds (x/y узла — левый верхний угол) и ждём опросом:
       // на software-WebGL в CI рендер 2× даёт единицы FPS, а Phaser разбирает
       // движение мыши только на следующем кадре — фиксированной паузы мало.
+      // Пауза: OfficeScene.render() на каждом снапшоте пересоздаёт спрайты и
+      // прячет тултип — на ходу игры проверка гонялась бы с тиками. Phaser
+      // перепроверяет наведение только на движении мыши, поэтому курсор
+      // слегка покачиваем, пока тултип не появится.
+      await page.evaluate(() => window.itd.pause())
+      await delay(600)
       box = await canvasBox()
-      await page.mouse.move(box.x + (worker0.x + worker0.w / 2) * box.k, box.y + (worker0.y + worker0.h / 2) * box.k)
-      const tooltipVisible = await page
-        .waitForFunction(
-          () => {
-            const scene = window.__itd.scene.getScene('office')
-            const c = scene.children.list.find((o) => o.type === 'Container')
-            return c?.visible === true
-          },
-          { timeout: 5_000, polling: 100 },
-        )
-        .then(() => true, () => false)
+      const cx = box.x + (worker0.x + worker0.w / 2) * box.k
+      const cy = box.y + (worker0.y + worker0.h / 2) * box.k
+      const tooltipShown = () =>
+        page.evaluate(() => {
+          const scene = window.__itd.scene.getScene('office')
+          const c = scene.children.list.find((o) => o.type === 'Container')
+          return c?.visible === true
+        })
+      let tooltipVisible = false
+      for (let i = 0; i < 25 && !tooltipVisible; i++) {
+        await page.mouse.move(cx + (i % 2), cy)
+        await delay(200)
+        tooltipVisible = await tooltipShown()
+      }
       if (tooltipVisible !== true) {
         console.error(`SMOKE-UI FAIL (z=${z}): реальный hover по office.worker.0 не показал тултип`)
         process.exit(1)
