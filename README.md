@@ -28,7 +28,8 @@ it; set `CHROME_PATH` if it is not in a standard location).
     make smoke-ui   # headless-browser smoke test of the built client
 
 To enable `/admin`, put `DATABASE_URL=postgres://…` into `.env` in the repo
-root.
+root. The header link is hidden from players: open `/?admin=1` once
+(remembered in localStorage, `?admin=0` hides it again) or use `?debug=1`.
 
 Deploy, saves, testing, CI and the asset pipeline:
 [`docs/development.md`](docs/development.md).

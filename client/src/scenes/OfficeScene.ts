@@ -9,10 +9,16 @@ import { tag } from '../debug/agentApi'
 import { showModal } from '../ui/modal'
 import { coreFree, routerGain } from '../network-preview'
 import { playSfx } from '../audio'
-import { SPRITE_TARGET, spriteScale } from '../pixelart'
+import { addSprite } from '../pixelart'
+import { SPRITES } from '../assets/manifest'
+import { HIRES_CAMERA } from '../render'
 
 const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
-const LUNCH_SHIFT = 24 // на обеде сотрудник отходит от стола
+// Оверлей «сломанный ПК» обязан перехватывать клики раньше спрайта
+// сотрудника — иначе левая треть зоны ремонта кликает мотивацию вместо
+// ремонта: для Phaser-хиттеста при равных depth побеждает
+// последний в списке рендера, так что явный depth надёжнее порядка create().
+const REPAIR_OVERLAY_DEPTH = 5
 
 // Метки причин отсутствия сети над столом (итерация 11).
 const OFFLINE_LABELS: Record<string, string> = {
@@ -25,6 +31,84 @@ const OFFLINE_LABELS: Record<string, string> = {
 // конфига (только для строки тултипа; сервер считает сам).
 const LEVEL_BONUS: Record<number, number> = { 1: 1, 2: 2, 3: 2 }
 
+// Геометрия оверлеев/бейджей рабочего места относительно центра (x,y)
+// слота. Два варианта — под HD 128px спрайты (desk_pc + worker поверх,
+// контент прижат к низу кадра) и под легаси 64px worker.png (стол/кресло
+// запечены в сам спрайт, контент занимает почти весь кадр). Раньше была
+// одна раскладка под старый «залитый» квадрат 64×64 — на HD-спрайтах она
+// вешала бейджи в воздухе над пустой верхней частью кадра.
+//
+// HD-числа — bbox непрозрачных пикселей в мировых px, world = (px−64)/2
+// (см. client/scripts/qa-office-slots.mjs; проверено pngjs по самим PNG):
+//   desk_pc.png (128×128): x −25..+25, y −16..+32 — столешница+монитор+системник
+//   worker.png  (128×128): x  −9..+13, y  −3..+30 — сотрудник+кресло поверх стола
+// Верх монитора ≈ y −14; правый верхний угол столешницы ≈ (+25, 0);
+// левый угол столешницы ≈ (−24, +5).
+//
+// ВАЖНО (регрессия itd.overlaps(), см. client/src/debug/lint.ts): хитбокс
+// office.worker.i — это ВЕСЬ отмасштабированный кадр спрайта (addSprite
+// тянет 128px-текстуру к SPRITE_TARGET.person=64px), а не тесный alpha-bbox
+// артворка выше — т.е. интерактивный/лейаут-бокс сотрудника это ПОЛНЫЙ
+// квадрат x −32..+32, y −32..+32 от центра слота. Линтер (findInteractiveOverlaps)
+// считает находкой только ЧАСТИЧНОЕ пересечение интерактива/текста с другим
+// интерактивом или текстом — полная вложенность (insideRect) в порядке
+// вещей. А вот для пары «текст-текст» одного depth (findOverlaps, кейс
+// kind:'text') исключения для вложенности НЕТ ВООБЩЕ — там нельзя
+// пересекаться даже частично. Поэтому каждый элемент ниже держим либо
+// ЦЕЛИКОМ внутри бокса сотрудника (±32 по обеим осям), либо ЦЕЛИКОМ
+// снаружи — без «почти» с одной стороны на пару-тройку px.
+// Реальные ширины (Phaser Text.getBounds(), monospace, см.
+// client/scripts/qa-office-slots.mjs-style замер): OFFLINE_LABELS при 9px —
+// «✗ роутер» 44px, «✗ core» 33px, «без стойки» 55px (самая длинная);
+// «✖ чинить N/3» при 11px — 80px.
+const SLOT_LAYOUT_HD = {
+  // У правого верхнего угла стола, ниже и левее монитора. Кружок 8px —
+  // не текст и не интерактив, линтер его не видит; важно лишь не вылезти
+  // из кадра (visual only).
+  networkDot: { x: 24, y: -8 },
+  // ЦЕЛИКОМ ВНУТРИ бокса сотрудника, над монитором (монитор начинается с
+  // y −14, низ метки на y −19 — запас 5px). Самая широкая метка «без
+  // стойки» — 55px, т.е. ±27.5 от центра: центрируем по x (не по
+  // networkDot/правому краю, как раньше) — на x+24 «без стойки» вылезала
+  // бы до x+51.5, далеко за край бокса (x+32). При x=0 запас ±4.5px до
+  // краёв бокса на самой длинной метке — переживает сдвиг шрифта между
+  // браузерами (визрег/CI).
+  offlineLabel: { x: 0, y: -24 },
+  // У левого края столешницы — маленький кружок, целиком внутри бокса.
+  motivationBadge: { x: -24, y: -6 },
+  // Над бейджем мотивации — текст «★» (9×17px), целиком внутри бокса.
+  star: { x: -24, y: -20 },
+  // ЦЕЛИКОМ ВНУТРИ бокса сотрудника: высота 48 (было 54 — нижний край
+  // y+35 вылезал за y+32 бокса на 3px, частичное пересечение с
+  // office.worker.i) даёт y −16..+32 — ровно по нижнему краю бокса.
+  // Ширина 58 → x ±29, тоже с запасом внутри ±32.
+  repairOverlay: { y: 8, width: 58, height: 48 },
+  // ЦЕЛИКОМ СНАРУЖИ бокса сотрудника (сверху): «✖ чинить N/3» шириной
+  // 80px при 11px в бокс ±32 не поместится ни при каком центрировании —
+  // выносим целиком за верхний край. Высота строки 13px (±6.5): при
+  // y=−42 нижний край −35.5, что ниже верхнего края бокса (−32) на 3.5px
+  // запаса — не частичное пересечение, а полное разделение.
+  repairText: { y: -42 },
+  // Целиком снаружи бокса снизу (кнопка 22px высотой → y+35..y+57,
+  // бокс кончается на y+32) — соседних слотов/подписей не задевает:
+  // ближайшие ряды разнесены на GRID.stepY=170px.
+  masterButton: { y: 46 },
+}
+
+// Легаси (includesDesk=true): старый 64px worker.png уже содержит
+// стол/кресло/монитор, контент занимает почти весь кадр 64×64 — раскладка
+// держится у углов квадрата ±32. Числа не менялись — сохраняем прежний
+// вид на случай отката на старые PNG.
+const SLOT_LAYOUT_LEGACY = {
+  networkDot: { x: 30, y: -30 },
+  offlineLabel: { x: 30, y: -44 },
+  motivationBadge: { x: -28, y: -36 },
+  star: { x: -28, y: -58 },
+  repairOverlay: { y: -8, width: 76, height: 56 },
+  repairText: { y: -48 },
+  masterButton: { y: 46 },
+}
+
 export class OfficeScene extends Phaser.Scene {
   private objects: Phaser.GameObjects.GameObject[] = []
   private tooltip!: Phaser.GameObjects.Container
@@ -35,7 +119,7 @@ export class OfficeScene extends Phaser.Scene {
   private hoveredSlot = -1
 
   constructor() {
-    super('office')
+    super({ key: 'office', cameras: HIRES_CAMERA })
   }
 
   create() {
@@ -126,13 +210,14 @@ export class OfficeScene extends Phaser.Scene {
       this.add.text(rx, ry - 56, 'сеть', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
     )
     if (office.routerTier > 0) {
-      const routerImg = this.add.image(rx, ry, 'router')
-        .setScale(spriteScale(this, 'router', SPRITE_TARGET.rack)).setInteractive({ useHandCursor: true })
+      const routerImg = addSprite(this, rx, ry, 'router', 'rack').setInteractive({ useHandCursor: true })
       routerImg.on('pointerdown', () => this.openRouterModal(office, s))
       this.objects.push(
         routerImg,
-        this.add.text(rx, ry + 52, `роутер т${office.routerTier} · ${office.ports} порт.`, {
-          fontFamily: 'monospace', fontSize: '11px', color: '#41a6f6',
+        // Две строки: одной строкой подпись шириной ~130px заезжала на
+        // крайний стол ряда (линтер интерактивов ловит office.worker.3).
+        this.add.text(rx, ry + 58, `роутер т${office.routerTier}\n${office.ports} порт.`, {
+          fontFamily: 'monospace', fontSize: '11px', color: '#41a6f6', align: 'center',
         }).setOrigin(0.5),
       )
     } else {
@@ -151,9 +236,16 @@ export class OfficeScene extends Phaser.Scene {
       this.add.text(bx, by - 56, 'начальник', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
     )
     if (office.boss !== '') {
+      // Слот начальника раньше рисовал текстуру 'worker' — теперь свой
+      // спрайт boss.png/boss_lunch.png (fallback на worker через
+      // spriteKey, если оба вдруг не загрузятся); id office.boss не
+      // меняем. На обеде — тот же начальник с кофе и сэндвичем
+      // (boss_lunch), как и у сотрудников (s.isLunch, см. deskKey выше);
+      // оба спрайта 128px/hd32 с одинаковым --bottom-margin в build-hd.sh —
+      // ноги на одной строке, смены обед↔работа не «прыгают».
+      const bossKey = s.isLunch ? 'boss_lunch' : 'boss'
       const bossImg = tag(
-        this.add.image(bx, by, 'worker')
-          .setScale(spriteScale(this, 'worker', SPRITE_TARGET.person)).setInteractive({ useHandCursor: true }),
+        addSprite(this, bx, by, bossKey, 'person').setInteractive({ useHandCursor: true }),
         'office.boss',
       )
       bossImg.on('pointerover', () => this.showBossTooltip(office, s, bx, by))
@@ -178,15 +270,50 @@ export class OfficeScene extends Phaser.Scene {
         )
         continue
       }
-      const desk = this.add.image(x, y, i < office.pcs ? 'desk_pc' : 'desk_empty')
-        .setScale(spriteScale(this, i < office.pcs ? 'desk_pc' : 'desk_empty', SPRITE_TARGET.desk))
-      this.objects.push(desk)
       const e = office.employees[i]
+      const hasPc = i < office.pcs
+      // includesDesk=true — старый 64px worker.png уже содержит свой
+      // стол/монитор/системник/кресло (легаси-раскладка, живёт для отката
+      // на старые PNG): занятое место рисует ТОЛЬКО его, без отдельного
+      // desk_pc под ним (иначе два стола в разных ракурсах). includesDesk=
+      // false — HD 128px worker без стола: слот всегда рисует отдельный
+      // desk_pc/_off/_broken в (x,y), сотрудник — поверх него, В ТОЙ ЖЕ
+      // точке (кресло на worker.png нарисовано так, что ложится ровно на
+      // кресло desk_pc — выравнивание запечено в PNG, смещений не нужно).
+      const workerIncludesDesk = SPRITES.worker?.includesDesk === true
+      // Раскладка бейджей/оверлея под текущий вариант спрайтов слота —
+      // см. SLOT_LAYOUT_HD/_LEGACY выше.
+      const layout = workerIncludesDesk ? SLOT_LAYOUT_LEGACY : SLOT_LAYOUT_HD
+      const showWorkerOnly = hasPc && !!e && !s.isLunch && workerIncludesDesk
+      // Стол слота: без ПК — desk_empty; на обеде — всегда desk_pc (экран
+      // горит, кресло пустое — обед убирает только сотрудника, не стол);
+      // ПК куплен, но не нанят — desk_pc_off; сотрудник на месте —
+      // desk_pc/_broken по e.pcBroken. Легаси showWorkerOnly стол не рисует
+      // вовсе — он запечён в worker.png.
+      let deskImg: Phaser.GameObjects.Image | null = null
+      if (!showWorkerOnly) {
+        const deskKey = !hasPc
+          ? 'desk_empty'
+          : s.isLunch
+            ? 'desk_pc'
+            : !e
+              ? 'desk_pc_off'
+              : e.pcBroken ? 'desk_pc_broken' : 'desk_pc'
+        deskImg = addSprite(this, x, y, deskKey, 'desk')
+        this.objects.push(deskImg)
+      }
       // Сломанный ПК: доход места 0; клики по столу чинят, мастер чинит за деньги.
       if (e?.pcBroken) {
         const overlay = tag(
-          this.add.rectangle(x, y - 8, 76, 56, 0xb13e53, 0.3)
-            .setInteractive({ useHandCursor: true }),
+          this.add.rectangle(
+            x, y + layout.repairOverlay.y, layout.repairOverlay.width, layout.repairOverlay.height,
+            0xb13e53, 0.3,
+          )
+            .setInteractive({ useHandCursor: true })
+            // Выше сотрудника: иначе спрайт сотрудника (создаётся ниже, и
+            // при показе desk_pc+worker перекрывает левую треть зоны) крадёт
+            // клик по ремонту, отправляя мотивацию вместо repair_click.
+            .setDepth(REPAIR_OVERLAY_DEPTH),
           `office.repair.${i}`,
         )
         overlay.on('pointerdown', () => {
@@ -197,11 +324,11 @@ export class OfficeScene extends Phaser.Scene {
           targets: overlay, alpha: { from: 0.65, to: 0.15 }, duration: 420, yoyo: true, repeat: -1,
         })
         const masterBg = tag(
-          this.add.rectangle(x, y + 46, 108, 22, 0x3b5dc9)
+          this.add.rectangle(x, y + layout.masterButton.y, 108, 22, 0x3b5dc9)
             .setOrigin(0.5).setInteractive({ useHandCursor: true }),
           `office.master.${i}`,
         )
-        const masterTxt = this.add.text(x, y + 46, `мастер ${fmtMoney(s.prices.repair)}`, {
+        const masterTxt = this.add.text(x, y + layout.masterButton.y, `мастер ${fmtMoney(s.prices.repair)}`, {
           fontFamily: 'monospace', fontSize: '10px', color: '#f4f4f4',
         }).setOrigin(0.5)
         masterBg.on('pointerdown', () => {
@@ -209,21 +336,44 @@ export class OfficeScene extends Phaser.Scene {
           client.send('call_master', nav.activeOffice, { slot: i })
         })
         this.objects.push(
-          this.add.text(x, y - 48, `✖ чинить ${e.repairClicks}/3`, {
+          this.add.text(x, y + layout.repairText.y, `✖ чинить ${e.repairClicks}/3`, {
             fontFamily: 'monospace', fontSize: '11px', color: '#b13e53',
           }).setOrigin(0.5),
           overlay, masterBg, masterTxt,
         )
       }
       if (e) {
-        // На обеде сотрудник отходит от стола.
-        const wx = s.isLunch ? x - 52 + LUNCH_SHIFT : x - 52
-        const wy = s.isLunch ? y - 6 + LUNCH_SHIFT : y - 6
-        const worker = tag(
-          this.add.image(wx, wy, 'worker')
-            .setScale(spriteScale(this, 'worker', SPRITE_TARGET.person)).setInteractive({ useHandCursor: true }),
-          `office.worker.${i}`,
-        )
+        // Слот-картинка занятого места (id office.worker.i, тултип/клик):
+        // на обеде — тот же стол desk_pc, что уже нарисован выше (без
+        // второго стола: сотрудник отошёл, LUNCH_SHIFT убран — стол никуда
+        // не двигается); иначе — сотрудник, в позиции стола (includesDesk,
+        // легаси) либо поверх отдельного desk_pc в ТОЙ ЖЕ точке (HD).
+        let wx: number
+        let wy: number
+        let slotImg: Phaser.GameObjects.Image
+        if (s.isLunch) {
+          wx = x
+          wy = y
+          // deskImg гарантированно создан выше: showWorkerOnly требует
+          // !s.isLunch, значит на обеде всегда проходим ветку !showWorkerOnly.
+          slotImg = deskImg as Phaser.GameObjects.Image
+          this.objects.push(this.add.text(x, y + 40, 'обед', {
+            fontFamily: 'monospace', fontSize: '12px', color: '#94b0c2',
+          }).setOrigin(0.5))
+        } else if (workerIncludesDesk) {
+          wx = x
+          wy = y
+          slotImg = addSprite(this, wx, wy, 'worker', 'desk')
+        } else {
+          wx = x
+          wy = y
+          const workerKey = e.level >= 1 && e.level <= 3 ? `worker_${e.level}` : 'worker'
+          slotImg = addSprite(this, wx, wy, workerKey, 'person')
+        }
+        // id office.worker.i и обработчики висят на картинке слота (worker
+        // или desk_pc на обеде) — itd.click('office.worker.i') и тултип
+        // продолжают работать и на обеде.
+        const worker = tag(slotImg.setInteractive({ useHandCursor: true }), `office.worker.${i}`)
         // ЛКМ по сотруднику — мотивация: +25% на 3 часа с кулдауном.
         // ПКМ (правый клик) — модалка увольнения (итерация 15).
         worker.on('pointerdown', (p: Phaser.Input.Pointer) => {
@@ -242,7 +392,10 @@ export class OfficeScene extends Phaser.Scene {
           this.hoveredSlot = -1
           this.hideTooltip()
         })
-        this.objects.push(worker)
+        // На обеде slotImg === deskImg — тот стол уже в this.objects (пушился
+        // при отрисовке стола выше); повторный push задвоил бы объект и
+        // вызвал бы двойной destroy()/killTweensOf() на следующей перерисовке.
+        if (slotImg !== deskImg) this.objects.push(worker)
         // Спрайт пересоздан — восстанавливаем тултип, но только если курсор
         // реально над спрайтом: pointerout не срабатывает по уничтоженному
         // объекту, и без этой проверки hoveredSlot «залипает».
@@ -255,24 +408,24 @@ export class OfficeScene extends Phaser.Scene {
           }
         }
         if (e.connected && e.serverSlot > 0) {
-          this.objects.push(this.add.circle(x + 30, y - 30, 4, 0x38b764))
+          this.objects.push(this.add.circle(x + layout.networkDot.x, y + layout.networkDot.y, 4, 0x38b764))
         }
         // Видимость сети (итерация 11): метка-причина над проблемным
         // столом — точка 4px «почему я без бонуса» не объясняла.
         if (e.offlineReason) {
           const label = OFFLINE_LABELS[e.offlineReason] ?? e.offlineReason
           const color = e.offlineReason === 'no_server' ? '#5d7275' : '#b13e53'
-          this.objects.push(this.add.text(x + 30, y - 44, label, {
+          this.objects.push(this.add.text(x + layout.offlineLabel.x, y + layout.offlineLabel.y, label, {
             fontFamily: 'monospace', fontSize: '9px', color,
           }).setOrigin(0.5))
         }
         // Жёлтый значок-бейдж, пока действует мотивация кликом.
         if (e.effects.some((ef) => ef.token === 'motivated')) {
-          this.objects.push(this.add.circle(x - 28, y - 36, 5, 0xffcd75))
+          this.objects.push(this.add.circle(x + layout.motivationBadge.x, y + layout.motivationBadge.y, 5, 0xffcd75))
         }
         // Золотая звезда найма-рулетки (и кандидата события) — ×1.5 базы.
         if (e.star) {
-          this.objects.push(this.add.text(x - 28, y - 58, '★', {
+          this.objects.push(this.add.text(x + layout.star.x, y + layout.star.y, '★', {
             fontFamily: 'monospace', fontSize: '14px', color: '#ffcd75',
           }).setOrigin(0.5))
         }
@@ -297,8 +450,7 @@ export class OfficeScene extends Phaser.Scene {
       this.objects.push(box)
       if (a.owned) {
         const img = tag(
-          this.add.image(ax, ay, a.key)
-            .setScale(spriteScale(this, a.key, SPRITE_TARGET.amenity)).setInteractive({ useHandCursor: true }),
+          addSprite(this, ax, ay, a.key, 'amenity').setInteractive({ useHandCursor: true }),
           `office.amenity.${a.key}`,
         )
         img.on('pointerover', () => this.showTextTooltip(`${a.label}\n${a.hint}`, ax, ay - 40))

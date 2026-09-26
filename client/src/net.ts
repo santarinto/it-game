@@ -1,8 +1,16 @@
-import type { CommandType, DayReportMessage, DifficultyId, GameOverMessage, OfflineReportMessage, ServerMessage, StateMessage, VictoryMessage } from './protocol'
+import type { CommandType, DayReportMessage, DifficultyId, GameOverMessage, OfflineReportMessage, ServerErrorCode, ServerMessage, StateMessage, VictoryMessage } from './protocol'
+
+// Транспортные коды отказа (ITGAME-39): квитанция команды (sendWithReceipt)
+// падает ими, когда сервер вовсе не ответил — в отличие от ServerErrorCode,
+// который приходит В сообщении error от сервера. Источник истины для
+// itd.contract() (enum TransportErrorCode).
+export const TRANSPORT_ERROR_CODES = ['not_connected', 'receipt_timeout', 'disconnected'] as const
+
+export type TransportErrorCode = (typeof TRANSPORT_ERROR_CODES)[number]
 
 export interface Listener {
   onState(s: StateMessage): void
-  onError(code: string): void
+  onError(code: ServerErrorCode): void
   onDisconnect(reason?: string): void
   // Только HUD показывает отчёты, банкротство и офлайн-итог — для
   // остальных сцен опциональны.
@@ -139,6 +147,10 @@ export interface NeighborSessionInfo {
   day?: number
 }
 
+// Запись эфира WS (ITGAME-25/37): краткая выжимка сообщения (logWire ужимает
+// снапшоты до нужных полей — полный raw живёт только в аргументе tapWire).
+export type WireEntry = { dir: 'in' | 'out'; at: number; type: string; info: Record<string, unknown> }
+
 // checkActiveNeighbor (ITGAME-35): опрашивает соседние вкладки через BroadcastChannel('itd').
 // Возвращает { active: true, day?: number } если живая соседняя вкладка ответила,
 // либо { active: false } если за timeoutMs ответа не поступило.
@@ -206,7 +218,12 @@ export class GameClient {
     sidSwitches: 0, // ITGAME-30: sid сменился между соединениями (гарда вкладок)
   }
   // Эфир WS для itd.net(): последние сообщения в обе стороны (ITGAME-25).
-  readonly wire: { dir: 'in' | 'out'; at: number; type: string; info: Record<string, unknown> }[] = []
+  readonly wire: WireEntry[] = []
+  // Живая подписка на эфир для itd.trace() (ITGAME-37): в отличие от wire
+  // (срез кольцевого буфера), тут вызывающий видит КАЖДОЕ сообщение с
+  // момента подписки — trace.ts ставит tapWire ДО action и не пропускает
+  // события, случившиеся между чтениями itd.net().
+  private wireTaps = new Set<(e: WireEntry, raw: Record<string, unknown>) => void>()
   private commandSentAt: number | null = null
   private ws!: WebSocket
   private listeners: Listener[] = []
@@ -256,7 +273,7 @@ export class GameClient {
   }
   // Квитанции команд (ITGAME-30): FIFO — каждый state|error после отправки
   // закрывает ОДНУ самую старую ждущую квитанцию, порядок команд сохраняется.
-  private receipts: ((r: { ok: boolean; code?: string }) => void)[] = []
+  private receipts: ((r: { ok: boolean; code?: ServerErrorCode | TransportErrorCode }) => void)[] = []
   // sid, которым живёт ТЕКУЩЕЕ соединение; гарда «sid сменился подо мной».
   // Легитимная смена (новая партия из меню, abandon) сбрасывается в null
   // в connect()/abandon() — предупреждает только незапланированные.
@@ -291,8 +308,28 @@ export class GameClient {
     } else {
       brief.code = m.code
     }
-    this.wire.push({ dir, at: Date.now(), type, info: brief })
+    const entry: WireEntry = { dir, at: Date.now(), type, info: brief }
+    this.wire.push(entry)
     if (this.wire.length > 100) this.wire.splice(0, this.wire.length - 100)
+    // try обязателен: logWire('in') зовётся ДО раздачи снапшота слушателям
+    // (this.listeners) — упавший тап не должен срывать доставку state/error.
+    for (const fn of this.wireTaps) {
+      try {
+        fn(entry, m)
+      } catch (e) {
+        console.error('[net] tapWire', e)
+      }
+    }
+  }
+
+  // Живая подписка на эфир (ITGAME-37, itd.trace): вызывающий получает
+  // brief-запись (как itd.net()) + сырое сообщение raw — полная команда для
+  // sent, снапшот НЕ хранится для recv (см. trace.ts). Возвращает отписку.
+  tapWire(fn: (e: WireEntry, raw: Record<string, unknown>) => void): () => void {
+    this.wireTaps.add(fn)
+    return () => {
+      this.wireTaps.delete(fn)
+    }
   }
 
   connect(difficulty: DifficultyId): void {
@@ -423,7 +460,7 @@ export class GameClient {
   }
 
   // Все ждущие квитанции — отказ с кодом (сокет ушёл: висеть им нельзя).
-  private failReceipts(code: string): void {
+  private failReceipts(code: TransportErrorCode): void {
     while (this.receipts.length > 0) this.receipts.shift()?.({ ok: false, code })
   }
 
@@ -432,6 +469,7 @@ export class GameClient {
     this.sessionSid = null // смена sid здесь запланирована
     if (this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'abandon' }))
+      this.logWire('out', 'abandon', { type: 'abandon' })
     }
     clearSession()
     this.disconnect()
@@ -465,12 +503,12 @@ export class GameClient {
     office = 0,
     extra: Record<string, number> = {},
     timeoutMs = 5000,
-  ): Promise<{ ok: boolean; code?: string }> {
+  ): Promise<{ ok: boolean; code?: ServerErrorCode | TransportErrorCode }> {
     if (this.ws?.readyState !== WebSocket.OPEN) {
       return Promise.resolve({ ok: false, code: 'not_connected' })
     }
     return new Promise((resolve) => {
-      const settle = (r: { ok: boolean; code?: string }) => {
+      const settle = (r: { ok: boolean; code?: ServerErrorCode | TransportErrorCode }) => {
         clearTimeout(timer)
         resolve(r)
       }

@@ -5,8 +5,15 @@ import { GAME_H, GAME_W } from '../layout'
 // наезжала на «+/день») ловятся геометрией, без пикселей и скриншотов.
 // Все функции получают игру и смотрят только живые (активные) сцены.
 
+// ITGAME-38: 'text' — тексты одного depth наезжают друг на друга; 'occlusion'
+// — текст закрыт непрозрачной плашкой выше по depth/display list; 'interactive'
+// — интерактивный контейнер/спрайт/чекбокс частично перекрыт другим
+// интерактивом или текстом (JSON-контракт для агента/моста — ITGAME-39).
+export type OverlapKind = 'text' | 'occlusion' | 'interactive'
+
 export interface OverlapEntry {
   scene: string
+  kind: OverlapKind
   a: string // сниппет текста или id
   b: string
   overlap: { w: number; h: number }
@@ -82,6 +89,7 @@ export function findOverlaps(game: Phaser.Game): OverlapEntry[] {
         if (w > 1 && h > 1) {
           out.push({
             scene: scene.scene.key,
+            kind: 'text',
             a: nameOf(a),
             b: nameOf(b),
             overlap: { w: Math.round(w), h: Math.round(h) },
@@ -114,6 +122,7 @@ export function findOverlaps(game: Phaser.Game): OverlapEntry[] {
         if (w > rt.width * 0.5 && h > rt.height * 0.5) {
           out.push({
             scene: scene.scene.key,
+            kind: 'occlusion',
             a: nameOf(t as unknown as Node0),
             b: nameOf(o),
             overlap: { w: Math.round(w), h: Math.round(h) },
@@ -121,6 +130,142 @@ export function findOverlaps(game: Phaser.Game): OverlapEntry[] {
           })
         }
       }
+    }
+
+    out.push(...findInteractiveOverlaps(scene))
+  }
+  return out
+}
+
+// ── Интерактивы: контейнеры и спрайты (ITGAME-38) ──────────────────────────
+// Раньше линтер смотрел только Text верхнего уровня — наезд кнопки или
+// спрайта на соседний интерактив или на текст (чекбокс «пропускать отчёты» на
+// строку событий отчёта) не ловился. Обход рекурсивный (контейнеры),
+// видимость — с учётом родителей: getBounds() ребёнка не знает, что его
+// контейнер скрыт.
+
+interface WalkNode extends Node0 {
+  input?: { enabled?: boolean } | null
+  text?: string
+  parentContainer?: (Phaser.GameObjects.GameObject & { visible?: boolean }) | null
+}
+
+function collectAll(list: Phaser.GameObjects.GameObject[], out: Phaser.GameObjects.GameObject[]): void {
+  for (const o of list) {
+    out.push(o)
+    const withList = o as unknown as { list?: Phaser.GameObjects.GameObject[] }
+    if (withList.list) collectAll(withList.list, out)
+  }
+}
+
+// Видимость с учётом родителей: невидимый контейнер прячет всё содержимое,
+// даже если у самого объекта visible === true.
+function isWorldVisible(o: Phaser.GameObjects.GameObject): boolean {
+  let p: (Phaser.GameObjects.GameObject & { visible?: boolean; parentContainer?: unknown }) | null =
+    o as unknown as Phaser.GameObjects.GameObject & { visible?: boolean; parentContainer?: unknown }
+  while (p) {
+    if (p.visible === false) return false
+    p = (p.parentContainer as typeof p) ?? null
+  }
+  return true
+}
+
+function safeBounds(o: Phaser.GameObjects.GameObject): Phaser.Geom.Rectangle | null {
+  try {
+    return (o as unknown as Node0).getBounds()
+  } catch {
+    return null
+  }
+}
+
+function overlapWH(ra: Phaser.Geom.Rectangle, rb: Phaser.Geom.Rectangle): { w: number; h: number } {
+  return {
+    w: Math.min(ra.right, rb.right) - Math.max(ra.x, rb.x),
+    h: Math.min(ra.bottom, rb.bottom) - Math.max(ra.y, rb.y),
+  }
+}
+
+// Прямоугольник a целиком внутри b (+1px допуск на округление) — вложенность,
+// не находка (иконка внутри своей кнопки и т.п.).
+function insideRect(a: Phaser.Geom.Rectangle, b: Phaser.Geom.Rectangle): boolean {
+  return a.x >= b.x - 1 && a.y >= b.y - 1 && a.right <= b.right + 1 && a.bottom <= b.bottom + 1
+}
+
+// Пара двух Text верхнего уровня одного depth уже поймана циклом текст-текст
+// (kind 'text') — не дублируем её как 'interactive'.
+function sameTextPair(a: WalkNode, b: WalkNode): boolean {
+  return (
+    a.type === 'Text' && b.type === 'Text' && !a.parentContainer && !b.parentContainer &&
+    (a.depth ?? 0) === (b.depth ?? 0)
+  )
+}
+
+function findInteractiveOverlaps(scene: Phaser.Scene): OverlapEntry[] {
+  const out: OverlapEntry[] = []
+  const all: Phaser.GameObjects.GameObject[] = []
+  collectAll(scene.children.list, all)
+
+  const interactives = all.filter((o) => {
+    const n = o as unknown as WalkNode
+    return n.input?.enabled === true && isWorldVisible(o) && (n.alpha ?? 1) > 0 && (n.depth ?? 0) < 90
+  })
+  // Не интерактивные тексты: интерактивный Text (чекбокс, modal.close) уже
+  // виден циклу текст-текст выше (kind 'text') — не дублируем его здесь.
+  const plainTexts = all.filter((o) => {
+    const n = o as unknown as WalkNode
+    return (
+      n.type === 'Text' &&
+      n.input?.enabled !== true &&
+      isWorldVisible(o) &&
+      (n.alpha ?? 1) > 0.5 &&
+      (n.depth ?? 0) < 90 &&
+      !!n.text
+    )
+  })
+
+  for (let i = 0; i < interactives.length; i++) {
+    for (let j = i + 1; j < interactives.length; j++) {
+      const a = interactives[i]
+      const b = interactives[j]
+      const ra = safeBounds(a)
+      const rb = safeBounds(b)
+      if (!ra || !rb) continue
+      const na = a as unknown as WalkNode
+      const nb = b as unknown as WalkNode
+      if (sameTextPair(na, nb)) continue
+      const { w, h } = overlapWH(ra, rb)
+      if (w <= 1 || h <= 1) continue
+      if (insideRect(ra, rb) || insideRect(rb, ra)) continue
+      out.push({
+        scene: scene.scene.key,
+        kind: 'interactive',
+        a: nameOf(a as unknown as Node0),
+        b: nameOf(b as unknown as Node0),
+        overlap: { w: Math.round(w), h: Math.round(h) },
+        at: { x: Math.round(Math.max(ra.x, rb.x)), y: Math.round(Math.max(ra.y, rb.y)) },
+      })
+    }
+  }
+
+  for (const a of interactives) {
+    const na = a as unknown as WalkNode
+    for (const t of plainTexts) {
+      const nt = t as unknown as WalkNode
+      if (sameTextPair(na, nt)) continue
+      const ra = safeBounds(a)
+      const rt = safeBounds(t)
+      if (!ra || !rt || rt.width <= 0 || rt.height <= 0) continue
+      const { w, h } = overlapWH(ra, rt)
+      if (w <= 1 || h <= 1) continue
+      if (insideRect(ra, rt) || insideRect(rt, ra)) continue
+      out.push({
+        scene: scene.scene.key,
+        kind: 'interactive',
+        a: nameOf(na),
+        b: nameOf(nt),
+        overlap: { w: Math.round(w), h: Math.round(h) },
+        at: { x: Math.round(Math.max(ra.x, rt.x)), y: Math.round(Math.max(ra.y, rt.y)) },
+      })
     }
   }
   return out

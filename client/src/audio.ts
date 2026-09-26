@@ -1,4 +1,5 @@
 import type Phaser from 'phaser'
+import { emitUi } from './uibus'
 
 // SFX (итерация 13): короткие звуки из CC0-пака Kenney Interface Sounds
 // (https://kenney.nl/assets/interface-sounds, лицензия CC0 1.0).
@@ -24,11 +25,17 @@ export function preloadSfx(scene: Phaser.Scene) {
 }
 
 // Звук — украшение, а не канал информации: любая ошибка воспроизведения
-// глотается, играем без звука.
+// глотается, играем без звука. Каждый вызов (любым исходом) пишется в шину
+// UI-событий (ITGAME-38) — itd.log() видит воспроизведённые звуки: ключ
+// ассета, громкость, сцену и успех воспроизведения.
 export function playSfx(scene: Phaser.Scene, name: SfxName, volume = 0.35) {
+  const key = `sfx:${name}`
+  let ok = true
   try {
-    scene.sound.play(`sfx:${name}`, { volume })
+    ok = scene.sound.play(key, { volume }) !== false
   } catch {
     // нет кодека/автоплей-политики — молча
+    ok = false
   }
+  emitUi({ type: 'sound', key, name, volume, scene: scene.scene.key, ok })
 }

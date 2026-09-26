@@ -1,14 +1,16 @@
 import Phaser from 'phaser'
-import { GAME_H, GAME_W, HUD_H, NAV_W, layoutRow } from '../layout'
+import { GAME_H, GAME_W, HUD_H, NAV_W, layoutColumn, layoutRow } from '../layout'
 import { client } from '../net'
-import type { DayReportMessage, GameOverMessage, OfflineReportMessage, StateMessage, VictoryMessage } from '../protocol'
+import type { DayReportMessage, GameOverMessage, OfflineReportMessage, ServerErrorCode, StateMessage, VictoryMessage } from '../protocol'
 import { fmtMoney } from '../format'
 import { nav } from '../rooms'
 import { debug, drawDebugFrames, setDebug } from '../debug'
-import { tag } from '../debug/agentApi'
+import { markActive, tag } from '../debug/agentApi'
 import { showModal } from '../ui/modal'
 import { playSfx } from '../audio'
+import { emitUi } from '../uibus'
 import { activeZoom, applyZoom, ZOOM_OPTIONS, zoomLabel } from '../uiscale'
+import { HIRES_CAMERA } from '../render'
 import {
   checkAchievements,
   getAchievementsSummary,
@@ -22,7 +24,10 @@ const CX = GAME_W / 2 // центр поля — якорь модалок и т
 const SPEED_BEFORE_REPORT_KEY = 'itd.speedBeforeReport'
 const REPORT_KEYS = [Phaser.Input.Keyboard.KeyCodes.ENTER, Phaser.Input.Keyboard.KeyCodes.SPACE]
 
-const ERROR_TEXTS: Record<string, string> = {
+// Record<ServerErrorCode, string> — tsc требует запись под каждый код
+// (ITGAME-39): забытый код в этом словаре ловится сборкой, а не молчаливым
+// фолбэком на сырой код в тосте.
+const ERROR_TEXTS: Record<ServerErrorCode, string> = {
   not_enough_money: 'Не хватает денег',
   no_free_office_slot: 'В офисе нет свободных мест',
   no_free_pc: 'Нет свободного ПК — купите ПК',
@@ -36,6 +41,7 @@ const ERROR_TEXTS: Record<string, string> = {
   offices_maxed: 'Все офисы уже куплены',
   gateway_already: 'Шлюз уже установлен',
   bad_office: 'Нет такого офиса',
+  equipment_already: 'Уже установлено в этом офисе',
   bad_speed: 'Нет такой скорости',
   bad_slot: 'Нет такой стойки',
   server_maxed: 'Серверная стойка уже максимального уровня',
@@ -107,46 +113,61 @@ export class HUDScene extends Phaser.Scene {
   private debugFrames: Phaser.GameObjects.GameObject[] = []
   private reconnectUI: Phaser.GameObjects.GameObject[] = []
   private offlineUI: Phaser.GameObjects.GameObject[] = []
+  // Стек тостов (ITGAME-16): якорь сверху/снизу — свой список, не больше 3
+  // штук одновременно. Сцена переживает рестарт (client.subscribe/restart),
+  // поэтому сбрасывается явно в create(), а не инициализатором поля.
+  private toasts: Record<'top' | 'bottom', Phaser.GameObjects.Text[]> = { top: [], bottom: [] }
 
   constructor() {
-    super('hud')
+    super({ key: 'hud', cameras: HIRES_CAMERA })
   }
 
   create() {
+    this.toasts = { top: [], bottom: [] }
     // Верхняя панель.
     this.add.rectangle(0, 0, GAME_W, HUD_H, 0x14162b).setOrigin(0)
-    this.moneyText = this.add.text(16, 10, '$…', {
+    this.moneyText = tag(this.add.text(16, 10, '$…', {
       fontFamily: 'monospace', fontSize: '26px', color: '#ffcd75',
-    })
-    this.incomeText = this.add.text(16, 44, '', {
+    }), 'hud.money')
+    this.incomeText = tag(this.add.text(16, 44, '', {
       fontFamily: 'monospace', fontSize: '15px', color: '#38b764',
-    })
-    this.netText = this.add.text(16, 66, '', {
+    }), 'hud.income')
+    this.netText = tag(this.add.text(16, 66, '', {
       fontFamily: 'monospace', fontSize: '15px', color: '#41a6f6',
-    })
-    this.payrollText = this.add.text(200, 44, '', {
+    }), 'hud.net')
+    this.payrollText = tag(this.add.text(200, 44, '', {
       fontFamily: 'monospace', fontSize: '15px', color: '#5d7275',
-    })
-    this.dayText = this.add
-      .text(GAME_W - 16, 70, '', { fontFamily: 'monospace', fontSize: '13px', color: '#5d7275' })
-      .setOrigin(1, 0)
-    this.goalText = this.add
-      .text(GAME_W - 16, 52, '', { fontFamily: 'monospace', fontSize: '13px', color: '#ffcd75' })
-      .setOrigin(1, 0)
+    }), 'hud.payroll')
+    this.dayText = tag(
+      this.add
+        .text(GAME_W - 16, 70, '', { fontFamily: 'monospace', fontSize: '13px', color: '#5d7275' })
+        .setOrigin(1, 0),
+      'hud.day',
+    )
+    this.goalText = tag(
+      this.add
+        .text(GAME_W - 16, 52, '', { fontFamily: 'monospace', fontSize: '13px', color: '#ffcd75' })
+        .setOrigin(1, 0),
+      'hud.goal',
+    )
     // Рынок дня (сложность 2.0): сегодня и завтра, тренд виден заранее.
-    this.marketText = this.add
-      .text(GAME_W - 16, 86, '', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
-      .setOrigin(1, 0)
+    this.marketText = tag(
+      this.add
+        .text(GAME_W - 16, 86, '', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
+        .setOrigin(1, 0),
+      'hud.market',
+    )
     // Долг по кредиту (сложность 2.0): виден только в минусе. Строки нижних
-    // рядов раскладываются по ширинам в refresh() (ITGAME-16) — стартовые
-    // x здесь косметические, до первого снапшота.
-    this.debtText = this.add.text(170, 84, '', {
+    // рядов раскладываются по ширинам в layoutPanel() (ITGAME-16) — стартовые
+    // x/y здесь косметические, до первого layoutPanel().
+    this.debtText = tag(this.add.text(170, 84, '', {
       fontFamily: 'monospace', fontSize: '12px', color: '#b13e53',
-    })
+    }), 'hud.debt')
     // Темп дня одним взглядом: прогноз прибыли «сейчас до вечера».
-    this.dayProfitText = this.add.text(16, 84, '', {
+    this.dayProfitText = tag(this.add.text(16, 84, '', {
       fontFamily: 'monospace', fontSize: '15px', color: '#38b764',
-    })
+    }), 'hud.dayProfit')
+    this.layoutPanel()
 
     this.pcBtn = this.makeButton(420, 10, 'btn.pc', () => {
       playSfx(this, 'select')
@@ -214,8 +235,8 @@ export class HUDScene extends Phaser.Scene {
     menuBg.on('pointerout', () => menuBg.setStrokeStyle(2, 0x3a3f5c))
     this.hudInteractive.push(menuBg)
     // Масштаб UI (ITGAME-15): компактный циклический переключатель рядом с
-    // кнопками скорости. Полный ряд — на стартовом экране; тут панель тесная
-    // (ITGAME-16 пересоберёт раскладку — тогда развернуть в ряд).
+    // кнопками скорости. Полный ряд — на стартовом экране; здесь панель тесная,
+    // переключатель остаётся компактным.
     this.add
       .text(922, 24, 'масштаб', { fontFamily: 'monospace', fontSize: '11px', color: '#5d7275' })
       .setOrigin(1, 0.5)
@@ -233,19 +254,25 @@ export class HUDScene extends Phaser.Scene {
       zoomTxt.setText(zoomLabel(activeZoom()))
     })
     this.hudInteractive.push(zoomBg)
-    // Тумблер debug: рамки интерактивных зон во всех сценах.
-    const dbg = tag(
-      this.add
-        .text(GAME_W - 280, 17, this.debugLabel(), { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
-        .setInteractive({ useHandCursor: true }),
-      'btn.debug',
-    )
-    dbg.on('pointerdown', () => {
-      setDebug(!debug.enabled)
-      dbg.setText(this.debugLabel())
-      client.reemit() // сцены перерисуются по последнему снапшоту
-    })
-    this.hudInteractive.push(dbg)
+    // ITGAME-22: только при ?debug=1; короткая подпись — «debug off» наезжала на ⌂
+    if (debug.enabled) {
+      const dbg = markActive(
+        tag(
+          this.add
+            .text(GAME_W - 280, 17, this.debugLabel(), { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
+            .setInteractive({ useHandCursor: true }),
+          'btn.debug',
+        ),
+        debug.enabled,
+      )
+      dbg.on('pointerdown', () => {
+        setDebug(!debug.enabled)
+        dbg.setText(this.debugLabel())
+        markActive(dbg, debug.enabled)
+        client.reemit() // сцены перерисуются по последнему снапшоту
+      })
+      this.hudInteractive.push(dbg)
+    }
 
     this.createNavPanel()
 
@@ -253,7 +280,7 @@ export class HUDScene extends Phaser.Scene {
       onState: (s) => this.refresh(s),
       onError: (code) => {
         playSfx(this, 'error')
-        this.toast(ERROR_TEXTS[code] ?? code)
+        this.toast((ERROR_TEXTS as Record<string, string>)[code] ?? code)
       },
       onDisconnect: (reason) => this.showDisconnect(reason),
       onDayReport: (r) => this.onDayReport(r),
@@ -459,7 +486,20 @@ export class HUDScene extends Phaser.Scene {
     this.navItems.forEach((item, idx) => {
       const active = this.currentRoom === 'serverRoom' ? idx === 3 : idx === nav.activeOffice
       item.bg.setStrokeStyle(2, active ? 0x41a6f6 : 0x3a3f5c)
+      markActive(item.bg, active)
     })
+  }
+
+  // Раскладка верхней панели (ITGAME-16): столбец слева (money/income+payroll/
+  // net/dayProfit+debt) и столбец справа (goal/day/market) кладутся по
+  // фактическим высотам строк — при 0/1/9/15 сотрудниках и длинных суммах
+  // ни одна строка не пересекает соседнюю и не уходит за HUD_H. Горизонталь
+  // внутри строк — layoutRow (x-старт/gap/maxRight из прежней раскладки).
+  private layoutPanel() {
+    layoutColumn(4, [[this.moneyText], [this.incomeText, this.payrollText], [this.netText], [this.dayProfitText, this.debtText]], 0, HUD_H)
+    layoutRow(16, 16, [this.incomeText, this.payrollText], 416)
+    layoutRow(16, 12, [this.dayProfitText, this.debtText], 416)
+    layoutColumn(44, [[this.goalText], [this.dayText], [this.marketText]], 2, HUD_H)
   }
 
   // Цель уровня (сложность 2.0): деньги + комбо (штат/сеть) + дедлайн дней.
@@ -543,11 +583,10 @@ export class HUDScene extends Phaser.Scene {
     this.dayProfitText.setText(`${dayProfit >= 0 ? '+' : ''}${fmtMoney(dayProfit)}/день`)
     this.dayProfitText.setColor(dayProfit >= 0 ? '#38b764' : '#b13e53')
     this.netText.setText(`Сотрудники: ${employees.length} · в сети ${s.core.connected}/${employees.length}`)
-    // Раскладка строк по фактическим ширинам (ITGAME-16): «Сотрудники…»
-    // наезжала на «+/день» при магических x. Кнопки панели начинаются
-    // с x=420 — дальше строки не заходят (layoutRow сжимает gap).
-    layoutRow(16, 16, [this.incomeText, this.payrollText], 416)
-    layoutRow(16, 12, [this.dayProfitText, this.debtText], 416)
+    // Раскладка панели по фактическим ширинам/высотам (ITGAME-16): длинные
+    // строки («Сотрудники: 15 · в сети 15/15», «$1,234,567») не помещались
+    // в стартовые x/y и наезжали друг на друга или на HUD_H.
+    this.layoutPanel()
 
     // Состояние кнопок покупки (ITGAME-17): доступность, затемнение, тултипы
     // 1. Кнопка ПК
@@ -616,7 +655,11 @@ export class HUDScene extends Phaser.Scene {
       item.sub.setText(o.unlocked ? `${o.employees.length}/${s.officeSlots}` : fmtMoney(o.price))
     })
     this.highlightNav()
-    this.speedBtns.forEach((b) => b.bg.setStrokeStyle(2, b.speed === s.speed ? 0x41a6f6 : 0x3a3f5c))
+    this.speedBtns.forEach((b) => {
+      const on = b.speed === s.speed
+      b.bg.setStrokeStyle(2, on ? 0x41a6f6 : 0x3a3f5c)
+      markActive(b.bg, on)
+    })
     if (s.activeEvent && s.phase === 'running') {
       this.showEvent(s.activeEvent)
     } else {
@@ -799,21 +842,79 @@ export class HUDScene extends Phaser.Scene {
     }
   }
 
+  // Тосты (ITGAME-16): якорь сверху/снизу держит СВОЙ стек, максимум 3 —
+  // одновременная ошибка+ачивка+хинт раньше ложились друг на друга (все
+  // рождались в одной точке и ехали к одной endY). Теперь новый тост
+  // рождается у якоря, старые той же стороны отодвигаются от него
+  // (layoutToasts), а гаснет тост только альфой — дрейф по y убран, иначе
+  // своя и чужие анимации конфликтовали бы кадр в кадр.
   private toast(text: string, ms = 1500, opts?: { top?: boolean; bg?: string }) {
-    const isTop = opts?.top ?? false
-    const startY = isTop ? 175 : GAME_H - 40
-    const endY = isTop ? 150 : GAME_H - 80
+    const where: 'top' | 'bottom' = opts?.top ? 'top' : 'bottom'
     const bg = opts?.bg ?? '#b13e53'
+    emitUi({ type: 'toast', text, where, ms, bg, scene: this.scene.key })
+    const startY = where === 'top' ? 175 : GAME_H - 40 // косметика до первой layoutToasts()
     const t = tag(
       this.add
         .text(CX, startY, text, {
           fontFamily: 'monospace', fontSize: '18px', color: '#f4f4f4',
           backgroundColor: bg, padding: { x: 12, y: 6 },
+          wordWrap: { width: 900, useAdvancedWrap: true }, align: 'center',
         })
         .setOrigin(0.5).setDepth(100),
       'toast',
     )
-    this.tweens.add({ targets: t, alpha: 0, y: endY, duration: ms, delay: ms * 2, onComplete: () => t.destroy() })
+    const stack = this.toasts[where]
+    stack.push(t)
+    if (stack.length > 3) {
+      // 4-й тост на якорь: самый старый долой без анимации — его уже не видно.
+      const old = stack.shift()
+      if (old) {
+        this.tweens.killTweensOf(old)
+        old.destroy()
+      }
+    }
+    this.layoutToasts(where)
+    this.tweens.add({
+      targets: t,
+      alpha: 0,
+      duration: ms,
+      delay: ms * 2,
+      onComplete: () => this.dropToast(where, t),
+    })
+  }
+
+  // Раскладка стека одного якоря: от новых тостов к старым — новый у кромки
+  // якоря, каждый следующий (старее) дальше от неё. Пересчитывается с нуля
+  // на каждое добавление/удаление — дрейфа не накапливается.
+  private layoutToasts(where: 'top' | 'bottom') {
+    const stack = this.toasts[where]
+    let edge = where === 'top' ? 158 : 697
+    for (let i = stack.length - 1; i >= 0; i--) {
+      const h = stack[i].height
+      if (where === 'top') {
+        stack[i].setY(edge + h / 2)
+        edge += h + 6
+      } else {
+        stack[i].setY(edge - h / 2)
+        edge -= h + 6
+      }
+    }
+  }
+
+  // onComplete угасшего твина: снять тост со стека и с экрана. Безопасен при
+  // повторном вызове (тост уже выкинут переполнением стека — idx===-1) и
+  // если сцена к этому моменту уже остановлена/уничтожена.
+  private dropToast(where: 'top' | 'bottom', t: Phaser.GameObjects.Text) {
+    try {
+      const stack = this.toasts[where]
+      const idx = stack.indexOf(t)
+      if (idx === -1) return
+      stack.splice(idx, 1)
+      t.destroy()
+      this.layoutToasts(where)
+    } catch {
+      // сцена ушла между планированием onComplete и его срабатыванием
+    }
   }
 
   // Онбординг-хинты (итерация 11): одноразовые тосты по триггерам.
@@ -916,15 +1017,19 @@ export class HUDScene extends Phaser.Scene {
     const bodyText = this.add
       .text(CX, 0, body, { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8 })
       .setOrigin(0.5, 0).setDepth(52)
-    const checkbox = tag(
-      this.add
-        .text(CX, 0, this.checkboxLabel(), { fontFamily: 'monospace', fontSize: '14px', color: '#5d7275' })
-        .setOrigin(0.5, 0).setDepth(52).setInteractive({ useHandCursor: true }),
-      'btn.skip_reports',
+    const checkbox = markActive(
+      tag(
+        this.add
+          .text(CX, 0, this.checkboxLabel(), { fontFamily: 'monospace', fontSize: '14px', color: '#5d7275' })
+          .setOrigin(0.5, 0).setDepth(52).setInteractive({ useHandCursor: true }),
+        'btn.skip_reports',
+      ),
+      this.skipReports,
     )
     checkbox.on('pointerdown', () => {
       this.skipReports = !this.skipReports
       checkbox.setText(this.checkboxLabel())
+      markActive(checkbox, this.skipReports)
     })
     const btnBg = tag(
       this.add
@@ -986,7 +1091,7 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private debugLabel(): string {
-    return `debug ${debug.enabled ? 'on' : 'off'}`
+    return `dbg ${debug.enabled ? 'on' : 'off'}`
   }
 
   private closeReport() {

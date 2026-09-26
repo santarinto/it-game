@@ -1,11 +1,19 @@
 import Phaser from 'phaser'
 import { client, sessionId } from '../net'
-import type { StateMessage } from '../protocol'
+import type { TransportErrorCode } from '../net'
+import { COMMAND_TYPES } from '../protocol'
+import type { CommandType, ServerErrorCode, StateMessage } from '../protocol'
+import { CONTRACT } from './contract.gen'
 import { AI_SPRITES } from '../scenes/BootScene'
+import { PALETTES, SPRITES } from '../assets/manifest'
+import type { PaletteName } from '../assets/manifest'
 import { findLowContrast, findOffscreen, findOverlaps, findTiny } from './lint'
 import type { ContrastEntry, OffscreenEntry, OverlapEntry, TinyEntry } from './lint'
 import { startTelemetry } from './telemetry'
 import type { ErrorEntry, LogEntry } from './telemetry'
+import { notifyItdKey, runTrace } from './trace'
+import type { TraceResult } from './trace'
+export type { TraceResult }
 import {
   ACHIEVEMENTS,
   getAchievementsSummary,
@@ -24,6 +32,15 @@ import type { AchievementDef, MetaStats } from '../meta'
 // Сцены вешают его единожды при создании объекта — перерисовка не меняет id.
 export function tag<T extends Phaser.GameObjects.GameObject>(obj: T, id: string): T {
   obj.setData('id', id)
+  return obj
+}
+
+// Состояние переключателя для itd.nodes()/itd.ids() (ITGAME-38): рамка
+// активной скорости ⏸/1x/2x/3x, пункт навигации, чекбокс «пропускать
+// отчёты», тумблер debug, зум в меню. НЕ GameObject.active («объект жив» в
+// Phaser) — свой data-ключ 'active', читается в walkObjects().
+export function markActive<T extends Phaser.GameObjects.GameObject>(obj: T, on: boolean): T {
+  obj.setData('active', on)
   return obj
 }
 
@@ -59,13 +76,22 @@ export interface DebugAdvanceResult {
 // момент старта vite). Плюс <meta name="build"> в index.html.
 export const BUILD = { sha: __BUILD_SHA__, builtAt: __BUILD_AT__ }
 
-// Sweetie-16 (GrafxKid) — палитра арт-пайплайна (scripts/sprites/remap.sh);
-// вне её цветов в спрайтах быть не должно.
-const SWEETIE16 = new Set([
-  '#1a1c2c', '#333c57', '#29366f', '#5d275d', '#257179', '#b13e53', '#ef7d57',
-  '#38b764', '#a7f070', '#ffcd75', '#566c86', '#3b5dc9', '#41a6f6', '#73eff7',
-  '#94b0c2', '#f4f4f4',
-])
+// Палитра «вне палитры» — по манифесту ключа (manifest.palettes[spec.palette]),
+// а не жёстко Sweetie-16: HD-спрайты (desk_pc, worker, …) заявлены с
+// palette: 'hd32' и проверяются по hd32, легаси 64px-спрайты — по sweetie16.
+// Ключ вне манифеста (или 'ai:'-обёртка) падает на sweetie16 — как было
+// раньше для всех ключей.
+const paletteSetCache = new Map<PaletteName, ReadonlySet<string>>()
+function paletteSetFor(key: string): ReadonlySet<string> {
+  const bareKey = key.startsWith('ai:') ? key.slice(3) : key
+  const paletteName: PaletteName = SPRITES[bareKey]?.palette ?? 'sweetie16'
+  let set = paletteSetCache.get(paletteName)
+  if (!set) {
+    set = new Set((PALETTES[paletteName] ?? PALETTES.sweetie16).map((h) => `#${h}`))
+    paletteSetCache.set(paletteName, set)
+  }
+  return set
+}
 
 // Служебные текстуры Phaser — не ассеты: встроенные (__*) и растеризации
 // Text-объектов (Phaser 3.60+ даёт каждой UUID-ключ). Палитра на
@@ -80,7 +106,7 @@ export interface AssetReport {
   h: number
   transparentPct: number // доля прозрачных пикселей (alpha < 26)
   f4Pct: number // доля #f4f4f4: детектор запечённого чекерборда/фона
-  offPalette: string[] // цвета вне Sweetie-16 (у кодогена пусто всегда)
+  offPalette: string[] // цвета вне палитры манифеста этого ключа (у кодогена пусто всегда)
 }
 
 export interface AssetSetEntry {
@@ -108,6 +134,7 @@ function analyzeTexture(
   if (!ctx) return null
   ctx.drawImage(src as CanvasImageSource, 0, 0)
   const data = ctx.getImageData(0, 0, w, h).data
+  const paletteSet = paletteSetFor(key)
   let transparent = 0
   let f4 = 0
   const off = new Map<string, number>()
@@ -120,7 +147,7 @@ function analyzeTexture(
     const hex =
       '#' + [data[i], data[i + 1], data[i + 2]].map((v) => v.toString(16).padStart(2, '0')).join('')
     if (hex === '#f4f4f4') f4++
-    if (!SWEETIE16.has(hex)) off.set(hex, (off.get(hex) ?? 0) + 1)
+    if (!paletteSet.has(hex)) off.set(hex, (off.get(hex) ?? 0) + 1)
   }
   const total = w * h
   // Подпись контента (без ключа — для поиска дублей): бинарная строка
@@ -240,6 +267,9 @@ export interface AgentNode {
   alpha: number
   interactive: boolean
   depth: number
+  // ITGAME-38: состояние переключателя (markActive) — true/false для
+  // контролов со сменным состоянием, null у всех прочих объектов.
+  active: boolean | null
 }
 
 export interface AgentResult {
@@ -249,67 +279,282 @@ export interface AgentResult {
 }
 
 // Квитанция команды (ITGAME-30): ok=true — сервер принял (state за ней),
-// ok=false — код отказа: серверный (no_free_pc, not_enough_money, …) или
-// транспортный (not_connected, receipt_timeout, disconnected).
+// ok=false — код отказа: серверный (ServerErrorCode: no_free_pc,
+// not_enough_money, …) или транспортный (TransportErrorCode: not_connected,
+// receipt_timeout, disconnected).
 export interface CmdReceipt {
   ok: boolean
-  code?: string
+  code?: ServerErrorCode | TransportErrorCode
   error?: string
 }
 
+// ── Контракт API (ITGAME-39): формат itd.contract() ─────────────────────────
+// Единственный источник истины — типы ItdApi ниже; client/scripts/gen-contract.mjs
+// строит из них contract.gen.ts через TS Compiler API. Меняется сигнатура —
+// меняется JSON, а не рукописная строка HELP, за которой легко забыть уследить.
+
+// Параметр метода фасада: имя, тип (как объявлен), опциональность.
+export interface ParamSpec {
+  name: string
+  type: string
+  optional: boolean
+}
+
+// Поле объектного типа (AgentNode, CmdReceipt, …): тип, опциональность,
+// описание — из JSDoc поля, иначе из хвостового //-комментария той же строки.
+export interface FieldSpec {
+  type: string
+  optional: boolean
+  doc: string
+}
+
+// Один член ItdApi: метод (с параметрами и типом результата) либо
+// readonly-свойство (itd.version).
+export type MemberSpec =
+  | { kind: 'method'; params: ParamSpec[]; returns: string; doc: string; examples: string[] }
+  | { kind: 'prop'; type: string; readonly: boolean; doc: string }
+
+// Именованный тип из замыкания членов ItdApi: объект с полями, enum строковых
+// литералов (ServerErrorCode, CommandType, …) или произвольный алиас.
+export type TypeSpec =
+  | { kind: 'object'; fields: Record<string, FieldSpec>; index?: string[] }
+  | { kind: 'enum'; values: string[] }
+  | { kind: 'alias'; type: string }
+
+// itd.contract(): машинный контракт фасада целиком — методы, типы (в т.ч.
+// коды отказов и команды как enum), штамп версии с hash самого контракта.
+// version.hash — то, что цитирует отчёт волны приёмки, а не пересказ help().
+export interface ItdContract {
+  schema: 1
+  version: { sha: string; builtAt: string; hash: string }
+  methods: Record<string, MemberSpec>
+  types: Record<string, TypeSpec>
+}
+
 export interface ItdApi {
-  // Штамп сборки (ITGAME-28): {sha, builtAt} + <meta name="build">.
+  /**
+   * Штамп сборки: {sha, builtAt} + `<meta name="build">` в html.
+   * @example itd.version
+   */
   readonly version: { sha: string; builtAt: string }
+  /**
+   * Баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий
+   * (null до первого снапшота); menuReady — меню создано и активно.
+   * @example itd.state()
+   */
   state(): AgentState
+  /**
+   * Снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt,
+   * reconnects, sid, sidSwitches.
+   * @example itd.server()
+   */
   server(): AgentServer
+  /**
+   * Все объекты живых сцен: {scene, type, id, text, x, y, w, h, visible,
+   * alpha, interactive, depth, active}.
+   * @example itd.nodes()
+   */
   nodes(): AgentNode[]
+  /**
+   * nodes() с непустым текстом.
+   * @example itd.text()
+   */
   text(): AgentNode[]
-  ids(): { id: string; scene: string; type: string; text: string | null }[]
+  /**
+   * Стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*,
+   * modal.*) + active — состояние переключателя, null у прочих (НЕ
+   * GameObject.active).
+   * @example itd.ids()
+   */
+  ids(): { id: string; scene: string; type: string; text: string | null; active: boolean | null }[]
+  /**
+   * Клик по id: дёргает pointerdown-обработчик напрямую, мимо input-слоя.
+   * @example itd.click('btn.hire')
+   */
   click(id: string): AgentResult & { id?: string; scene?: string }
+  /**
+   * Наведение по id (тултипы).
+   * @example itd.hover('office.worker.0')
+   */
   hover(id: string): AgentResult & { id?: string; scene?: string }
+  /**
+   * Клавиша: 1-4 — сложность в меню, enter/space/esc — отчёт дня.
+   * @example itd.key('enter')
+   */
   key(k: string): AgentResult & { key?: string; scenes?: string[] }
-  // ITGAME-30: команда с квитанцией сервера — Promise<{ok, code?}>.
-  cmd(type: string, office?: number, extra?: Record<string, number>): Promise<CmdReceipt>
-  // ITGAME-30: прогреть кадр вручную (сколько шагов лупа сделали).
+  /**
+   * Команда с квитанцией сервера (ITGAME-30): Promise<{ok, code?}> — первый
+   * state|error после отправки, по порядку команд.
+   * @example await itd.cmd('hire')
+   */
+  cmd(type: CommandType, office?: number, extra?: Record<string, number>): Promise<CmdReceipt>
+  /**
+   * Живая трассировка окна вокруг action (ITGAME-37): подписка ДО action,
+   * окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь
+   * игрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().
+   * @example itd.trace(() => itd.click('btn.pc'), 1000)
+   */
+  trace(action: () => unknown, windowMs?: number): Promise<TraceResult>
+  /**
+   * Прогреть кадр вручную (сколько шагов лупа сделали); в скрытой вкладке
+   * itd делает это сам.
+   * @example itd.warm()
+   */
   warm(): number
+  /**
+   * Промис: поллинг state()/server() до условия (таймаут 5с по умолчанию,
+   * второй аргумент — свой).
+   * @example itd.wait(s => s.day === 2)
+   */
   wait(cond: (s: AgentState, srv: AgentServer) => boolean, timeoutMs?: number): Promise<AgentState>
+  /**
+   * Линтер вёрстки: kind text — тексты одного depth; occlusion — текст под
+   * непрозрачной плашкой; interactive — интерактив частично перекрыт
+   * интерактивом или текстом (вложенность целиком — не находка).
+   * @example itd.overlaps()
+   */
   overlaps(): OverlapEntry[]
+  /**
+   * Линтер: вылезание за канвас 1280×720.
+   * @example itd.offscreen()
+   */
   offscreen(): OffscreenEntry[]
+  /**
+   * Линтер: контраст текста к фону ниже 3:1.
+   * @example itd.contrast()
+   */
   contrast(): ContrastEntry[]
+  /**
+   * Линтер: шрифт мельче 12px.
+   * @example itd.tiny()
+   */
   tiny(): TinyEntry[]
+  /**
+   * Аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне
+   * палитры манифеста этого ключа (manifest.palettes[spec.palette]), дубли
+   * ключей.
+   * @example itd.assets()
+   */
   assets(): {
     textures: AssetReport[]
     duplicates: { keys: string[]; expected: boolean }[]
     textTextures: number // растеризации Text-объектов (UUID-ключи), вне аудита
   }
+  /**
+   * Чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк).
+   * @example itd.assetSet()
+   */
   assetSet(): AssetSetEntry[]
+  /**
+   * Снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум,
+   * отчёты).
+   * @example itd.reset()
+   */
   reset(): AgentResult & { removed: string[] }
+  /**
+   * Журнал переходов (кольцевой на 200, переживает чистку консоли); + звуки
+   * и тосты ({type:'sound', ...} / {type:'toast', ...}).
+   * @example itd.log(50)
+   */
   log(n?: number): LogEntry[]
+  /**
+   * Ошибки страницы (window.onerror + unhandledrejection).
+   * @example itd.errors()
+   */
   errors(): ErrorEntry[]
+  /**
+   * Последние сообщения WS в обе стороны + сокет/rtt/реконнекты.
+   * @example itd.net(20)
+   */
   net(n?: number): {
     socket: AgentServer['socket']
     reconnects: number
     rtt: number | null
     last: { dir: 'in' | 'out'; at: number; type: string; info: Record<string, unknown> }[]
   }
-  // ITGAME-26: управление временем и состоянием через /api/debug/*.
+  /**
+   * Темп сессии — пауза (set_speed 0, серверный, живёт в сейве); до коннекта
+   * — {ok:false, code:'not_connected'}.
+   * @example itd.pause()
+   */
   pause(): AgentResult & { code?: string }
+  /**
+   * Темп сессии — возобновить (set_speed 1).
+   * @example itd.resume()
+   */
   resume(): AgentResult & { code?: string }
+  /**
+   * Темп сессии: set_speed 0..3 (0 — пауза).
+   * @example itd.speed(2)
+   */
   speed(n: number): AgentResult & { code?: string }
+  /**
+   * Пауза + промотка ms игровых тиков через /api/debug/advance (2000мс =
+   * 2 тика).
+   * @example itd.step(2000)
+   */
   step(ms: number): Promise<DebugAdvanceResult>
+  /**
+   * Промотка дней офлайн-движком: день N → N+n, отчёты дней в itd.log().
+   * @example itd.advanceDays(3)
+   */
   advanceDays(n: number): Promise<DebugAdvanceResult>
+  /**
+   * Читы живой сессии: {money, day, tickInDay}.
+   * @example itd.set({money: 50000})
+   */
   set(patch: { money?: number; day?: number; tickInDay?: number }): Promise<DebugState>
+  /**
+   * Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|
+   * soft_lock|pre_victory.
+   * @example itd.scenario('soft_lock')
+   */
   scenario(name: string): Promise<DebugState>
+  /**
+   * Полный стейт с сервера: {sid, state, save, events}.
+   * @example await itd.snapshot()
+   */
   snapshot(): Promise<DebugState>
+  /**
+   * Вернуть состояние из snapshot().save (дельта над текущим).
+   * @example itd.restore(save)
+   */
   restore(save: Record<string, unknown>): Promise<DebugState>
+  /**
+   * Стоп твитов/миганий для стабильных скриншотов.
+   * @example itd.quiet()
+   */
   quiet(): AgentResult
+  /**
+   * Статистика прогонов и состояние достижений (localStorage).
+   * @example itd.meta()
+   */
   meta(): {
     stats: MetaStats
     achievements: { unlockedCount: number; totalCount: number; list: (AchievementDef & { unlocked: boolean; unlockedAt?: number })[] }
   }
+  /**
+   * Сбросить мета-статистику и достижения.
+   * @example itd.resetMeta()
+   */
   resetMeta(): AgentResult
+  /**
+   * Принудительно открыть ачивку: {ok:true, achievement} | {ok:false, code}.
+   * @example itd.unlockAchievement('id')
+   */
   unlockAchievement(id: string): AgentResult & { achievement?: AchievementDef }
+  /**
+   * Человекочитаемая справка по всем методам (печатает в консоль и
+   * возвращает ту же строку).
+   * @example itd.help()
+   */
   help(): string
+  /**
+   * Машинный контракт API (ITGAME-39): методы, типы, коды ошибок и команд;
+   * version.hash — цитировать в отчётах приёмки вместо пересказа help().
+   * @example itd.contract().version.hash
+   */
+  contract(): ItdContract
 }
 
 declare global {
@@ -433,6 +678,7 @@ function walkObjects(sceneKey: string, objects: Phaser.GameObjects.GameObject[],
       w = typeof o.width === 'number' ? o.width : 0
       h = typeof o.height === 'number' ? o.height : 0
     }
+    const act = o.getData?.('active')
     out.push({
       scene: sceneKey,
       type: o.type ?? 'unknown',
@@ -446,6 +692,7 @@ function walkObjects(sceneKey: string, objects: Phaser.GameObjects.GameObject[],
       alpha: typeof o.alpha === 'number' ? o.alpha : 1,
       interactive: o.input?.enabled === true,
       depth: typeof o.depth === 'number' ? o.depth : 0,
+      active: typeof act === 'boolean' ? act : null,
     })
     if (o.list) walkObjects(sceneKey, o.list, out)
   }
@@ -504,37 +751,34 @@ const KEYMAP: Record<string, { code: string; keyCode: number; key: string }> = {
   4: { code: 'FOUR', keyCode: 52, key: '4' },
 }
 
-// Команды протокола для itd.cmd() (ITGAME-30): зеркало CommandType.
-const COMMANDS = new Set<string>([
-  'buy_pc', 'hire', 'buy_router', 'hire_boss', 'buy_office',
-  'buy_server', 'buy_gateway', 'next_day', 'restart',
-  'buy_cooler', 'buy_fridge', 'buy_coffee', 'set_speed',
-  'upgrade_server', 'upgrade_core',
-  'motivate', 'repair_click', 'call_master', 'event_choice', 'fire',
-  'abandon',
-])
+// Команды протокола для itd.cmd() (ITGAME-30): единственный список —
+// COMMAND_TYPES в protocol.ts (ITGAME-39), zero дублей.
+const COMMANDS = new Set<string>(COMMAND_TYPES)
 
-const HELP = `itd — агентский API игры (ITGAME-24/25/26/30)
+const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/39)
   itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); menuReady — меню создано и активно
   itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt, reconnects, sid, sidSwitches
-  itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, visible, alpha, interactive, depth}
+  itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, visible, alpha, interactive, depth, active}
   itd.text()                        — nodes() с непустым текстом
-  itd.ids()                         — стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*, modal.*)
+  itd.ids()                         — стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*, modal.*) + active
+                                       active — состояние переключателя (btn.speed.*, nav.*, btn.skip_reports, btn.debug, menu.zoom.*), null у прочих; НЕ GameObject.active
   itd.click('btn.hire')             — клик по id: дергает pointerdown-обработчик напрямую, мимо input-слоя
   itd.hover('office.worker.0')      — наведение по id (тултипы)
   itd.key('1'|'enter'|'space'|'esc')— клавиша: 1-4 сложность в меню, enter/space/esc — отчёт дня
   itd.cmd('hire')                   — команда с квитанцией сервера: Promise<{ok, code?}> — первый state|error после отправки, по порядку команд; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
+  itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled, scenes}], sent[{type, office, …}] по порядку, recv[error/day_report…], transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, ok}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой)
   itd.warm()                        — прогреть кадр вручную (шаги лупа); в скрытой вкладке itd делает это сам
   itd.wait(s => s.day === 2)        — промис: поллинг state()/server() до условия (таймаут 5с, второй аргумент — свой); готовность меню — wait(s => s.menuReady), до старта партии state() null, но menuReady уже честен
-  itd.overlaps()                    — линтер вёрстки: пересечения видимых текстов одного depth
+  itd.overlaps()                    — линтер вёрстки: kind: text — тексты одного depth; occlusion — текст под непрозрачной плашкой; interactive — интерактив частично перекрыт интерактивом или текстом (вложенность целиком — не находка)
   itd.offscreen()                   — линтер: вылезание за канвас 1280×720
   itd.contrast()                    — линтер: контраст текста к фону ниже 3:1
   itd.tiny()                        — линтер: шрифт мельче 12px
-  itd.log(50)                       — журнал переходов (кольцевой на 200, переживает чистку консоли)
+  itd.log(50)                       — журнал переходов (кольцевой на 200, переживает чистку консоли); + {type:'sound', key:'sfx:bong', name, volume, scene, ok}, {type:'toast', text, where, ms, bg, scene}
+                                       Пример: itd.log(200).filter(e => e.type === 'sound').map(e => e.key)
   itd.errors()                      — ошибки страницы (window.onerror + unhandledrejection)
   itd.net(20)                       — последние сообщения WS в обе стороны + сокет/rtt/реконнекты
   itd.version                       — {sha, builtAt} сборки (+ <meta name="build"> в html)
-  itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне Sweetie-16, дубли ключей
+  itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне палитры манифеста ключа (hd32/sweetie16), дубли ключей
   itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк)
   itd.reset()                       — снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум, отчёты)
   itd.pause() / resume() / speed(n) — темп сессии: set_speed 0/1/0..3 (серверный, живёт в сейве); до коннекта — {ok:false, code:'not_connected'}
@@ -548,6 +792,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30)
   itd.meta()                        — статистика прогонов и состояние достижений (localStorage)
   itd.resetMeta()                   — сбросить мета-статистику и достижения
   itd.unlockAchievement('id')       — принудительно открыть ачивку: {ok:true, achievement} | {ok:false, code}
+  itd.contract()                    — машинный контракт API (методы, типы, коды ошибок); version.hash — цитировать в отчётах, а не пересказ help()
 Фоновая вкладка: RAF стоит, но itd сам ведёт луп (пульс 300мс + прогрев в каждом вызове) — ids()/nodes()/click() живут без скриншотов и без «принудительного кадра».
 Параллельные вкладки: sid берётся из sessionStorage РАНЬШЕ localStorage; в хранилища ключ попадает ТОЛЬКО с реальной партиёй (чтение его не пишет — «ПРОДОЛЖИТЬ» не врёт). Одна партия = один sid: агрессивным прогонам — sessionStorage.setItem('itd.sid', 'a-<имя>-'+Date.now()) (виден только вкладке, общий ключ не трогает; ЯВНО выставленный sid чтится и для новой партии), игроку достаётся localStorage + зеркало вкладки. Кнопка сложности/1-4 = НОВАЯ партия: без явного sessionStorage-sid берётся свежий sid, чужой сейв из общего ключа НЕ продолжается молча; «ПРОДОЛЖИТЬ»/Enter = восстановление текущего sid. server().sidSwitches > 0 — общий ключ перезаписала соседняя вкладка, реконнект ушёл бы в её партию.
 Пример: await itd.scenario('soft_lock'); itd.state().day
@@ -586,7 +831,7 @@ function makeApi(game: Phaser.Game): ItdApi {
     ids: () =>
       warmedNodes()
         .filter((n) => n.id !== null)
-        .map((n) => ({ id: n.id as string, scene: n.scene, type: n.type, text: n.text })),
+        .map((n) => ({ id: n.id as string, scene: n.scene, type: n.type, text: n.text, active: n.active })),
     click(id) {
       warmIfHidden()
       const hit = findById(game, id)
@@ -612,6 +857,10 @@ function makeApi(game: Phaser.Game): ItdApi {
         altKey: false, ctrlKey: false, shiftKey: false, metaKey: false,
         repeat: false, location: 0, timeStamp: performance.now(),
       }
+      // ITGAME-37: itd.trace() слушает клавиши itd.key() мимо DOM — ДО цикла
+      // emit, потому что обработчик может остановить/сменить сцену (см.
+      // handlerScenes в trace.ts, которому нужны сцены ДО обработки).
+      notifyItdKey(def.code)
       const scenes: string[] = []
       for (const scene of game.scene.getScenes(true)) {
         const kb = scene.input.keyboard
@@ -624,7 +873,8 @@ function makeApi(game: Phaser.Game): ItdApi {
     },
     cmd(type, office = 0, extra = {}) {
       // Квитанция сервера (ITGAME-30): ok=true только когда за командой
-      // пришёл state; отказ сервера виден кодом, а не молчанием.
+      // пришёл state; отказ сервера виден кодом, а не молчанием. Проверка
+      // рантайм-набора остаётся: itd.cmd() зовут из консоли, не из TS.
       if (!COMMANDS.has(type)) {
         return Promise.resolve({
           ok: false,
@@ -632,9 +882,10 @@ function makeApi(game: Phaser.Game): ItdApi {
         })
       }
       return client
-        .sendWithReceipt(type as import('../protocol').CommandType, office, extra)
+        .sendWithReceipt(type, office, extra)
         .then((r) => (r.ok ? r : { ...r, error: r.code }))
     },
+    trace: (action, windowMs = 1000) => runTrace(game, action, windowMs),
     warm: () => warmTicks(game, 10),
     wait(cond, timeoutMs = 5000) {
       return new Promise<AgentState>((resolve, reject) => {
@@ -812,6 +1063,17 @@ function makeApi(game: Phaser.Game): ItdApi {
       console.log(HELP)
       return HELP
     },
+    // itd.contract() (ITGAME-39): structuredClone — CONTRACT — единственный
+    // объект модуля, отдавать ссылку на него небезопасно (вызывающий может
+    // мутировать общий кэш). version подмешивает актуальный BUILD, а не
+    // {sha,builtAt} времени генерации contract.gen.ts — hash при этом
+    // остаётся хэшем самого контракта (methods/types), а не билда.
+    contract: () => structuredClone({
+      schema: CONTRACT.schema,
+      version: { ...BUILD, hash: CONTRACT.hash },
+      methods: CONTRACT.methods,
+      types: CONTRACT.types,
+    }),
   }
 }
 

@@ -10,9 +10,10 @@
 // ХУЖЕ эталона (известные проблемы ITGAME-16 живут в бейзлайне до их
 // отдельного фикса). Эталоны: scripts/visreg/baseline.json + shots/*.png.
 //
-// Self-serve: без BASE_URL поднимает Go-сервер на :4173 (static+ws+api из
-// client/dist) — как прод, одним процессом; бинаррь собирает сама (go в PATH).
-import { execFileSync, spawn } from 'node:child_process'
+// Self-serve: без BASE_URL поднимает Go-сервер на :4173 (VISREG_PORT
+// переопределяет порт — static+ws+api из client/dist) — как прод, одним
+// процессом; бинарь собирает сама (go в PATH). Общий self-serve —
+// client/scripts/lib/selfserve.mjs (проверка порта/dist до spawn).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -20,12 +21,13 @@ import { fileURLToPath } from 'node:url'
 import { PNG } from 'pngjs'
 import pixelmatch from 'pixelmatch'
 import puppeteer from 'puppeteer-core'
+import { selfServe } from './lib/selfserve.mjs'
 
 const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 const VISREG_DIR = join(CLIENT_DIR, 'scripts', 'visreg')
 const SHOTS_DIR = join(VISREG_DIR, 'shots')
 const BASELINE = join(VISREG_DIR, 'baseline.json')
-const SELF_PORT = 4173
+const SELF_PORT = Number(process.env.VISREG_PORT) || 4173
 const UPDATE = process.argv.includes('--update')
 
 // Сценарии = фикстуры ITGAME-26 + меню без сценария.
@@ -44,38 +46,6 @@ function chromePath() {
     process.exit(1)
   }
   return found
-}
-
-// ── Self-serve: Go раздаёт dist и держит /ws + /api одним процессом ───────
-let server = null
-async function selfServe() {
-  const dist = join(CLIENT_DIR, 'dist')
-  if (!existsSync(join(dist, 'index.html'))) {
-    console.error('VISREG FAIL: нет client/dist — сначала npm run build')
-    process.exit(1)
-  }
-  const bin = join(CLIENT_DIR, '..', 'bin', 'itdirector')
-  if (!existsSync(bin)) {
-    execFileSync('go', ['build', '-o', bin, './cmd/server'], {
-      cwd: join(CLIENT_DIR, '..', 'server'),
-      stdio: 'inherit',
-    })
-  }
-  server = spawn(bin, ['-addr', `127.0.0.1:${SELF_PORT}`, '-static', dist, '-saves', 'off'], {
-    stdio: 'ignore',
-  })
-  for (let i = 0; i < 40; i++) {
-    try {
-      const r = await fetch(`http://127.0.0.1:${SELF_PORT}/admin`)
-      if (r.ok) return
-      r.body.cancel()
-    } catch {
-      // поднимается
-    }
-    await delay(250)
-  }
-  console.error('VISREG FAIL: Go-сервер не поднялся на :' + SELF_PORT)
-  process.exit(1)
 }
 
 // ── Загрузка сцены: детерминированное состояние для скриншота ─────────────
@@ -142,8 +112,16 @@ const base = process.env.BASE_URL || `http://127.0.0.1:${SELF_PORT}`
 async function newBrowser() {
   return puppeteer.launch({ executablePath: chromePath(), args: ['--no-sandbox', '--disable-dev-shm-usage'] })
 }
+let stopServer = null
+if (!process.env.BASE_URL) {
+  try {
+    ;({ stop: stopServer } = await selfServe({ port: SELF_PORT, saves: 'off', label: 'VISREG' }))
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e))
+    process.exit(1)
+  }
+}
 try {
-  if (!process.env.BASE_URL) await selfServe()
   if (UPDATE) mkdirSync(SHOTS_DIR, { recursive: true })
   const baseline = existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, 'utf8')) : {}
 
@@ -204,7 +182,7 @@ try {
   }
   if (UPDATE) writeFileSync(BASELINE, JSON.stringify(baseline, null, 2) + '\n')
 } finally {
-  if (server) server.kill('SIGKILL')
+  if (stopServer) await stopServer()
 }
 
 const failed = results.filter((r) => !r.ok)

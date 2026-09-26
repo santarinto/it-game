@@ -1,0 +1,44 @@
+{
+  "palettes": {
+    "sweetie16": [
+      "1a1c2c", "333c57", "29366f", "5d275d", "257179", "b13e53", "ef7d57",
+      "38b764", "a7f070", "ffcd75", "566c86", "3b5dc9", "41a6f6", "73eff7",
+      "94b0c2", "f4f4f4"
+    ],
+    "hd32": [
+      "1a1c2c", "333c57", "29366f", "5d275d", "257179", "b13e53", "ef7d57",
+      "38b764", "a7f070", "ffcd75", "566c86", "3b5dc9", "41a6f6", "73eff7",
+      "94b0c2", "f4f4f4",
+      "272c42", "45546f", "758ea4", "c4d2db", "324a9c", "3e82e0", "5acbf7",
+      "873358", "d05e55", "f7a566", "fae1b5", "2f946f", "70d46a", "22294e",
+      "3c2245", "204753"
+    ]
+  },
+  "sprites": {
+    "desk_pc": { "size": 128, "frames": 1, "palette": "hd32", "class": "desk" },
+    "desk_pc_off": { "size": 128, "frames": 1, "palette": "hd32", "class": "desk", "fallback": "desk_pc" },
+    "desk_pc_broken": { "size": 128, "frames": 1, "palette": "hd32", "class": "desk", "fallback": "desk_pc" },
+    "desk_empty": { "size": 128, "frames": 1, "palette": "hd32", "class": "desk" },
+    "worker": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "includesDesk": false },
+    "worker_1": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "fallback": "worker" },
+    "worker_2": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "fallback": "worker" },
+    "worker_3": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "fallback": "worker" },
+    "boss": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "fallback": "worker" },
+    "boss_lunch": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "fallback": "boss" },
+    "router": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "rack" },
+    "rack_server": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "rack" },
+    "rack_empty": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "rack" },
+    "gateway": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "rack", "fallback": "router" },
+    "cooler": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "amenity" },
+    "fridge": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "amenity" },
+    "coffee_machine": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "amenity" },
+    "office_floor_tile": {
+      "size": 64, "frames": 1, "palette": "sweetie16", "class": "tile",
+      "maxSpecks": 4, "maxWhitePct": 60,
+      "note": "шахматка — светлый пол плитки, точки часть дизайна, перегенерировать не срочно"
+    },
+    "icon_money": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon" },
+    "icon_network": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon" }
+  },
+  "aliases": {}
+}

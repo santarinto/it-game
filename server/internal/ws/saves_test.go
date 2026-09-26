@@ -3,8 +3,10 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,11 +26,38 @@ func newTestStore(t *testing.T) *store.Store {
 	return s
 }
 
+// newSavesServer — httptest-сервер, чей cleanup дожидается хендлеров.
+// httptest.Server.Close не ждёт hijack-нутые (WS) соединения: актор,
+// дописывающий сейв после разрыва, гонялся с удалением t.TempDir
+// («directory not empty»). Cleanup регистрируется после создания стора,
+// поэтому отрабатывает раньше удаления каталога, а закрытия соединений
+// (регистрируются позже) — ещё раньше и останавливают акторов.
+func newSavesServer(t *testing.T, h http.Handler) *httptest.Server {
+	t.Helper()
+	var wg sync.WaitGroup
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wg.Add(1)
+		defer wg.Done()
+		h.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() {
+		// Close ждёт запросы до hijack — все wg.Add случились до Wait.
+		srv.Close()
+		done := make(chan struct{})
+		go func() { wg.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Error("хендлеры не завершились за 10с после закрытия сервера")
+		}
+	})
+	return srv
+}
+
 // dialSaves — сервер с включёнными сейвами; query адресует sid.
 func dialSaves(t *testing.T, saves *store.Store, cfg game.Config, tick time.Duration, query string) (*websocket.Conn, context.Context) {
 	t.Helper()
-	srv := httptest.NewServer(&Handler{Config: cfg, TickInterval: tick, Saves: saves})
-	t.Cleanup(srv.Close)
+	srv := newSavesServer(t, &Handler{Config: cfg, TickInterval: tick, Saves: saves})
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	t.Cleanup(cancel)
 	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+query, nil)
