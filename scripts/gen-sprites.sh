@@ -292,7 +292,8 @@ import json, sys
 d = json.load(sys.stdin)
 credits = d.get("credits") or {}
 sub = d.get("subscription") or {}
-print(f"Кредиты: ${credits.get(\"usd\", 0)} USD")
+usd = credits.get("usd", 0)
+print(f"Кредиты: ${usd} USD")
 print(
     "Подписка: статус={status}, план={plan}, осталось {gen}/{total} генераций".format(
         status=sub.get("status", "?"),
@@ -573,9 +574,11 @@ import json, sys
 u = json.loads(sys.argv[1])
 t = u.get("type", "usd")
 if t == "usd" and u.get("usd") is not None:
-    print(f"  usage: ${u[\"usd\"]} USD")
+    usd = u["usd"]
+    print(f"  usage: ${usd} USD")
 elif t == "generations" and u.get("generations") is not None:
-    print(f"  usage: {u[\"generations\"]} генераций")
+    gens = u["generations"]
+    print(f"  usage: {gens} генераций")
 else:
     print(f"  usage: {json.dumps(u, ensure_ascii=False)}")
 ' "$usage_json"
@@ -755,15 +758,34 @@ if (!b64) {
 writeFileSync(outPath, Buffer.from(b64, 'base64'))
 NODE_EOF
 
-  local remap_args=(--key "$key")
-  [[ "$m_found" != "1" ]] && remap_args+=(--size "$size" --palette "$palette")
-  node "$REMAP" "$OUT_DIR/$key.raw.png" "$OUT_DIR/$key.png" "${remap_args[@]}"
-
+  # Usage/счётчик — ДО remap: генерация уже оплачена и её стоимость нужно
+  # напечатать, даже если постобработка (remap) провалит контракт ниже.
+  # Раньше это шло после remap, и `node "$REMAP" …` под set -e при exit 1
+  # (например, нарушение specks) обрывал скрипт ДО print_usage — отчёт о
+  # стоимости оплаченной генерации терялся.
   local usage_json
   usage_json=$(json_field "$resp_file" usage)
   print_usage "$usage_json"
   echo "  (генераций в сессии: $GEN_COUNT/$MAX_GENERATIONS)"
-  echo "  готово (не в client/public): $OUT_DIR/$key.png — примите через --install $key $OUT_DIR/$key.png"
+
+  # --size/--palette всегда передаём явно: sprite-remap.mjs берёт их через
+  # `opts.size ?? spriteSpec.size` (и аналогично для palette), т.е. наши
+  # значения — уже вычисленные выше с учётом SIZE_OVERRIDE/PALETTE_OVERRIDE
+  # и манифеста — корректно перекрывают манифестные, а отчёт remap'а
+  # (checkSpriteImage) проверяет именно против них, а не против манифеста.
+  # Раньше при m_found=1 --size/--palette не передавались вовсе, и явные
+  # --size/--palette на CLI молча игнорировались remap'ом (see gen_one:
+  # size/palette=SIZE_OVERRIDE/PALETTE_OVERRIDE или манифест).
+  local remap_args=(--key "$key" --size "$size" --palette "$palette")
+  # Провал remap'а (контракт не пройден — specks/белый/прозрачность и т.п.)
+  # не должен обрывать весь прогон под set -e: генерация уже оплачена и
+  # сырой файл уже на диске — печатаем WARN с путём к нему и продолжаем
+  # (следующие ключи в PROMPTS_FILE всё ещё должны обработаться).
+  if ! node "$REMAP" "$OUT_DIR/$key.raw.png" "$OUT_DIR/$key.png" "${remap_args[@]}"; then
+    echo "  WARN: remap не прошёл контракт, сырой файл: $OUT_DIR/$key.raw.png" >&2
+  else
+    echo "  готово (не в client/public): $OUT_DIR/$key.png — примите через --install $key $OUT_DIR/$key.png"
+  fi
 }
 
 while IFS='|' read -r name prompt override_seed; do
