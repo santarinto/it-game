@@ -228,13 +228,29 @@ non-zero scroll purely to recentre the zoom — it no longer maps world
 Sprites come from a dev-time AI pipeline; the game itself is fully offline
 and the finished PNGs are committed.
 
-- **Generate:** `scripts/gen-sprites.sh [name]` — prompts from
-  `scripts/sprites/prompts.txt` → PixelLab API (64×64, transparent, stable
-  seed per name) → `scripts/sprites/remap.sh` (downscale + Sweetie-16
-  palette) → `client/public/assets/sprites/`. Optional `SPRITES_SIZE`
-  (default 64), `SPRITES_OUT`.
+- **Generate:** `scripts/gen-sprites.sh` — PixelLab API v2. `--balance`
+  (free) → `--dry-run [--engine pixen|pixflux|bitforge] [--hd] <key>`
+  prints the request without calling the API → a real run writes raw
+  PNG/JSON and the remapped PNG to `OUT_DIR` (a fresh `mktemp -d` by
+  default, never `client/public`) → review the PNGs → `--install <key>
+  <file>` re-checks the file against the manifest contract and only then
+  copies it to `client/public/assets/sprites/<key>.png`. Size/palette come
+  from the manifest per key (unchanged for the 14 current 64px keys);
+  `--hd`, or a key the manifest doesn't have yet, defaults to 128px/`hd32`
+  /isometric and reads `scripts/sprites/prompts-hd.txt`. `MAX_GENERATIONS`
+  (default 20) hard-stops real generation calls per session. The
+  pixflux/bitforge fields and the async-job response shape are
+  unconfirmed — check `/v2/openapi.json` before the first real call.
+  `SPRITES_API_KEY` is only required for a real call or `--balance`.
+- **Remap:** `client/scripts/sprite-remap.mjs` (pngjs — no ImageMagick, it
+  isn't installed in the container): alpha-threshold → nearest-palette
+  quantize (redmean) → optional despeckle → bbox → center/bottom-place on
+  a `size`×`size` canvas. No resampling, except an exact integer
+  `--downscale-nearest` factor. Shares its contract check with
+  `check-sprites.mjs` via `client/scripts/lib/sprite-check.mjs`.
 - **Edit:** `scripts/sprite-edit.sh <name> "<instruction>"` — Gemini
-  (`GEMINI_IMAGE_MODEL`, default `gemini-2.5-flash-image`) → remap to 64 px.
+  (`GEMINI_IMAGE_MODEL`, default `gemini-2.5-flash-image`) → remap;
+  overwrites the tracked PNG only if the result passes the contract.
 - **Keys** in `.env`: `SPRITES_API_KEY` (PixelLab), `GEMINI_API_KEY`.
 - **Contract:** transparent PNGs in the key's palette, no baked-in
   checkerboard — see the sprite manifest below; boot re-checks sizes.

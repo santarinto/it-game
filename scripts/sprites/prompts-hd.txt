@@ -1,0 +1,23 @@
+# HD-промпты (128px, hd32, isometric 3/4) — заготовка под будущий переход
+# персонажей и рабочих мест на HD-пиксель (решение владельца). Формат тот
+# же, что в prompts.txt: имя|описание[|seed-override]. Общий стилевой
+# суффикс (isometric/pixel-art/transparent/no text) добавляет
+# scripts/gen-sprites.sh (build_body), сюда — только предметное описание,
+# по-английски (модели генерации лучше понимают английские промпты).
+#
+# Ключи совпадают с именами существующих 64px-спрайтов (desk_pc, worker,
+# desk_empty, boss) — это HD-ЗАМЕНА той же сущности, не отдельный набор
+# ключей; пока эти ключи не добавлены в client/src/assets/sprites.json
+# как 128/hd32, gen-sprites.sh требует --hd (или явные --size 128
+# --palette hd32) — см. "если ключа в манифесте ещё нет" в шапке скрипта.
+#
+# desk_pc и worker рисуются РАЗДЕЛЬНО: desk_pc — пустой стол с ПК и
+# креслом (никого за столом), worker — сотрудник в кресле БЕЗ своего
+# стола (стол подкладывается отдельным спрайтом desk_pc, как и на 64px
+# сегодня для остальных ключей; на 64px only worker.includesDesk=true —
+# для HD-пары такое совмещение осознанно не переносим, чтобы стол и стул
+# не дублировались/не расходились при рендере в изометрии).
+desk_pc|isometric 3/4 office desk with desktop computer, monitor, keyboard and an empty office chair tucked in, no person, workspace unoccupied
+worker|isometric 3/4 office worker sitting in an office chair, seen from behind/three-quarter back angle, no desk, no monitor, chair and person only, mid torso and head visible
+desk_empty|isometric 3/4 office desk with absolutely nothing on it, bare wooden desktop surface only, no computer, no monitor, no keyboard, no chair, no person
+boss|isometric 3/4 office boss standing, shirt and tie, confident pose, full body, no desk, no chair
