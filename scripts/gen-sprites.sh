@@ -11,34 +11,62 @@
 #     outline/detail/view/direction, no_background, seed, enhance_prompt.
 #     Ответ: {usage, image, enhanced_prompt?, enhance_usage?} — нет
 #     shading/negative_description/text_guidance_scale/color_image.
+#     Background-варианта в /v2/openapi.json нет — --background для pixen
+#     ошибка ДО сети.
 #   • POST /v2/create-image-pixflux  — синхронный; тело: то же + isometric,
 #     negative_description, text_guidance_scale (≤20), shading, init_image,
 #     init_image_strength, color_image (принудительная палитра). Ответ:
 #     {usage, image}. image_size: 16..400.
+#   • POST /v2/create-image-pixflux-background — асинхронный близнец
+#     create-image-pixflux (флаг --background), ТЕ ЖЕ параметры тела.
+#     Ответ 202 {background_job_id, status:"processing", usage?} (схема
+#     CreateImagePixfluxBackgroundResponse). 429 — "too many concurrent
+#     jobs": одна пауза RETRY_SLEEP и повтор, как у 429/529 синхронного
+#     эндпоинта.
 #   • POST /v2/create-image-bitforge — синхронный; тело: как pixflux, плюс
 #     style_strength (ЦЕЛОЕ 0..100), style_image/inpainting_image/mask_image.
-#     Ответ: {usage, image}. image_size: 16..200.
+#     Ответ: {usage, image}. image_size: 16..200. Background-варианта в
+#     /v2/openapi.json нет — --background для bitforge ошибка ДО сети.
 #   • GET  /v2/balance — {credits:{usd}, subscription:{status,plan,
 #     generations,total}} — свободный вызов.
-#   • GET  /v2/background-jobs/{id} — {usage, id, status
-#     (processing|completed|failed), created_at, last_response} — опрос НА
-#     СЛУЧАЙ асинхронного ответа; сами create-image-* синхронны и его не
-#     требуют, но детектор асинхронности не гадает: срабатывает только если
-#     в ответе одновременно есть id И status (форма BackgroundJobResponse).
+#   • GET  /v2/background-jobs/{background_job_id} — {id, status
+#     (processing|completed|failed), created_at, last_response, usage?}
+#     (схема BackgroundJobResponse; usage — поле верхнего уровня, НЕ внутри
+#     last_response). Опрашивается: (а) после --background — по
+#     background_job_id из 202-ответа; (б) детектором асинхронности на
+#     ОБЫЧНОМ синхронном ответе, на случай если API когда-нибудь вернёт
+#     id+status вместо image (create-image-* синхронны и обычно этот путь
+#     не срабатывает); (в) вручную — `--fetch-job <job_id> <ключ>`.
 # image/style_image/color_image и т.п. — объект Base64Image
 # {"type":"base64","base64":"…","format":"png"}, НЕ голая строка.
-# Коды ошибок 401/402/422/429/529 обрабатывает do_create_request(): 402 —
-# нет кредитов/генераций, 429/529 — один повтор с паузой, 422 — печать
-# detail из тела ответа.
+# Коды ошибок 401/402/422/429/529 обрабатывает do_create_request()
+# (do_create_background_request() — для --background): 402 — нет
+# кредитов/генераций, 429/529 — один повтор с паузой, 422 — печать detail
+# из тела ответа.
+#
+# ГРАБЛЯ, из-за которой существует --background: синхронный
+# create-image-pixflux периодически отвечает 502 "upstream request failed"
+# (шлюз PixelLab не дожидается долгой генерации) — при этом генерация НА
+# ИХ СТОРОНЕ успешно завершается и СПИСЫВАЕТСЯ, а картинка теряется (в
+# ответе только 502, image.base64 никогда не приходит). --background это
+# обходит: 202 приходит быстро (без долго удерживаемого соединения), а
+# результат затем забирается отдельным(и) опросом(ами)
+# GET /v2/background-jobs/{id}, который можно повторять сколько угодно.
+# background_job_id пишется в $OUT_DIR/$key.job_id СРАЗУ после 202 — если
+# опрос оборвётся (Ctrl-C, сеть), результат не потерян:
+#   scripts/gen-sprites.sh --fetch-job <job_id> <ключ>
+# (только опрос/скачивание уже готового job, БЕЗ новой генерации — в
+# MAX_GENERATIONS не считается).
 #
 # Использование:
 #   scripts/gen-sprites.sh --balance
-#   scripts/gen-sprites.sh --dry-run [--engine pixen|pixflux|bitforge] [--hd] [имя]
-#   scripts/gen-sprites.sh [--engine …] [--hd] [--out-dir DIR] [имя]
+#   scripts/gen-sprites.sh --dry-run [--engine pixen|pixflux|bitforge] [--background] [--hd] [имя]
+#   scripts/gen-sprites.sh [--engine …] [--background] [--hd] [--out-dir DIR] [имя]
+#   scripts/gen-sprites.sh --fetch-job <job_id> <ключ>
 #   scripts/gen-sprites.sh --install <ключ> <файл.png>
 #
-# Ключ: SPRITES_API_KEY в .env корня (gitignored) или в окружении —
-# нужен только для реальных вызовов и --balance, НЕ для --dry-run/--install.
+# Ключ: SPRITES_API_KEY в .env корня (gitignored) или в окружении — нужен
+# для реальных вызовов, --balance и --fetch-job, НЕ для --dry-run/--install.
 # Промпты: scripts/sprites/prompts.txt (64px, sweetie16) или, с --hd,
 # scripts/sprites/prompts-hd.txt (128px, hd32, isometric). Без "имени" —
 # все строки выбранного файла (кроме закомментированных #).
@@ -46,7 +74,9 @@
 # Размер/палитра берутся из client/src/assets/sprites.json по ключу —
 # так текущие 64px-ключи не меняют поведение (обратная совместимость).
 # Если ключа в манифесте ещё нет (HD-заготовки), включается --hd
-# (128/hd32) либо явные --size/--palette.
+# (128/hd32) либо явные --size/--palette. То же самое действует для
+# --fetch-job (без сети — job уже оплачен и получен, нужны только
+# size/palette для remap).
 #
 # --lock-palette (по умолчанию включено для pixflux/bitforge, недоступно
 # для pixen — предупреждение вместо ошибки) собирает из палитры ключа
@@ -54,15 +84,23 @@
 # передаёт её как color_image — принудительная палитра генерации.
 # --no-lock-palette выключает.
 #
-# Результат каждой генерации (сырой PNG + JSON-ответ + remap-PNG) уходит в
-# OUT_DIR (по умолчанию свежий mktemp -d, можно задать OUT_DIR=… или
-# --out-dir) — НЕ в client/public. Чтобы принять конкретный файл в игру
-# (после ручного просмотра/куриции), явно: `--install <ключ> <файл>` —
-# он прогоняет тот же контракт, что check-sprites.mjs, и копирует файл
-# в client/public/assets/sprites/<ключ>.png только если контракт пройден.
+# Результат каждой генерации (сырой PNG + JSON-ответ + remap-PNG, а для
+# --background ещё и .job_id) уходит в OUT_DIR (по умолчанию свежий
+# mktemp -d, можно задать OUT_DIR=… или --out-dir) — НЕ в client/public.
+# Чтобы принять конкретный файл в игру (после ручного просмотра/куриции),
+# явно: `--install <ключ> <файл>` — он прогоняет тот же контракт, что
+# check-sprites.mjs, и копирует файл в client/public/assets/sprites/
+# <ключ>.png только если контракт пройден.
 #
 # MAX_GENERATIONS (по умолчанию 20) — жёсткий стоп на число реальных
-# вызовов генерации за сессию (--dry-run/--balance/--install не считаются).
+# вызовов генерации за сессию (--dry-run/--balance/--install/--fetch-job
+# не считаются; --background считается по факту успешного 202, а не по
+# завершению job — деньги списываются PixelLab уже на этом шаге).
+#
+# POLL_INTERVAL (опрос background-jobs) — 5s. POLL_TIMEOUT — 180s, а при
+# --background/--fetch-job (там ожидается более долгая генерация) — 300s,
+# если явно не задан SPRITES_POLL_TIMEOUT (он всегда в приоритете).
+# Переопределяются через SPRITES_POLL_INTERVAL/SPRITES_POLL_TIMEOUT.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -72,7 +110,7 @@ MAX_TIME=${SPRITES_MAX_TIME:-90}
 BALANCE_MAX_TIME=${SPRITES_BALANCE_MAX_TIME:-15}
 MAX_GENERATIONS=${MAX_GENERATIONS:-20}
 POLL_INTERVAL=${SPRITES_POLL_INTERVAL:-5}
-POLL_TIMEOUT=${SPRITES_POLL_TIMEOUT:-180}
+POLL_TIMEOUT=${SPRITES_POLL_TIMEOUT:-} # дефолт (180 / 300 для --background) — ниже, после разбора флагов
 JOB_STATUS_PATH=${SPRITES_JOB_STATUS_PATH:-/background-jobs/{id}}
 RETRY_SLEEP=${SPRITES_RETRY_SLEEP:-15}
 
@@ -101,19 +139,30 @@ SEED_OVERRIDE=""
 OUT_DIR=${OUT_DIR:-}
 INSTALL_KEY=""
 INSTALL_FILE=""
+BACKGROUND=0
+FETCH_JOB_ID=""
+FETCH_JOB_KEY=""
 ONLY=""
 
 usage() {
   cat <<'USAGE'
 Usage:
   scripts/gen-sprites.sh --balance
-  scripts/gen-sprites.sh --dry-run [--engine pixen|pixflux|bitforge] [--hd] [--size N] [--palette sweetie16|hd32] [имя]
-  scripts/gen-sprites.sh [--engine …] [--hd] [--out-dir DIR] [имя]
+  scripts/gen-sprites.sh --dry-run [--engine pixen|pixflux|bitforge] [--background] [--hd] [--size N] [--palette sweetie16|hd32] [имя]
+  scripts/gen-sprites.sh [--engine …] [--background] [--hd] [--out-dir DIR] [имя]
+  scripts/gen-sprites.sh --fetch-job <job_id> <ключ>
   scripts/gen-sprites.sh --install <ключ> <файл.png>
 
 Флаги:
   --dry-run              печатает эндпоинт+тело запроса (без ключа), не вызывает сеть
   --engine E             pixen (default) | pixflux | bitforge
+  --background            асинхронный create-image-<engine>-background вместо синхронного
+                          (обходит грабли с 502-и-списанием, см. шапку файла); СЕЙЧАС есть
+                          только у pixflux — для pixen/bitforge ошибка ДО сети. job_id
+                          сохраняется в $OUT_DIR/<ключ>.job_id сразу после 202
+  --fetch-job ID KEY      только опросить/докачать уже существующий background job (без
+                          новой генерации, не считается в MAX_GENERATIONS) и прогнать
+                          тот же remap-путь, что после обычной генерации
   --hd                   промпты из prompts-hd.txt, дефолт size=128 palette=hd32 isometric=true
   --prompts FILE          свой файл промптов вместо prompts.txt/prompts-hd.txt
   --size N / --palette P  переопределить размер/палитру (иначе — из манифеста, потом --hd/дефолт)
@@ -160,6 +209,12 @@ while [[ $# -gt 0 ]]; do
     --seed) SEED_OVERRIDE=${2:?--seed требует число}; shift 2 ;;
     --out-dir) OUT_DIR=${2:?--out-dir требует путь}; shift 2 ;;
     --balance) DO_BALANCE=1; shift ;;
+    --background) BACKGROUND=1; shift ;;
+    --fetch-job)
+      FETCH_JOB_ID=${2:?--fetch-job требует <job_id> <ключ>}
+      FETCH_JOB_KEY=${3:?--fetch-job требует <job_id> <ключ>}
+      shift 3
+      ;;
     --install)
       INSTALL_KEY=${2:?--install требует <ключ> <файл>}
       INSTALL_FILE=${3:?--install требует <ключ> <файл>}
@@ -176,6 +231,25 @@ case "$ENGINE" in
   pixen|pixflux|bitforge) ;;
   *) echo "неизвестный --engine '$ENGINE' (ожидается pixen|pixflux|bitforge)" >&2; exit 2 ;;
 esac
+
+# ── --background: только у pixflux есть асинхронный близнец в
+#    /v2/openapi.json (create-image-pixflux-background). У bitforge/pixen
+#    такого пути НЕТ — ошибка ДО сети, а не 404/422 от API.
+if [[ "$BACKGROUND" == "1" && "$ENGINE" != "pixflux" ]]; then
+  echo "--background недоступен для engine=$ENGINE (в /v2/openapi.json асинхронный create-image-$ENGINE-background не существует — есть только create-image-pixflux-background)" >&2
+  exit 2
+fi
+
+# ── POLL_TIMEOUT: дефолт зависит от того, используется ли background-путь
+#    (--background/--fetch-job) — там ожидается более долгая генерация;
+#    явный SPRITES_POLL_TIMEOUT всегда в приоритете (см. шапку файла).
+if [[ -z "$POLL_TIMEOUT" ]]; then
+  if [[ "$BACKGROUND" == "1" || -n "$FETCH_JOB_ID" ]]; then
+    POLL_TIMEOUT=300
+  else
+    POLL_TIMEOUT=180
+  fi
+fi
 
 # ── валидация enum-флагов по /v2/openapi.json (Outline/Shading/Detail/
 #    CameraView/Direction) — до сети, чтобы не тратить вызов на опечатку ──
@@ -276,9 +350,10 @@ NODE_EOF
   exit 0
 fi
 
-# ── ключ нужен только для сети (--balance или реальная генерация) ───────
+# ── ключ нужен только для сети (--balance, --fetch-job или реальная
+#    генерация) ────────────────────────────────────────────────────────
 KEY=""
-if [[ "$DO_BALANCE" == "1" || "$DRY_RUN" == "0" ]]; then
+if [[ "$DO_BALANCE" == "1" || "$DRY_RUN" == "0" || -n "$FETCH_JOB_ID" ]]; then
   source .env 2>/dev/null || true
   KEY=${SPRITES_API_KEY:?Нет SPRITES_API_KEY в .env корня репо (не нужен для --dry-run/--install)}
 fi
@@ -306,16 +381,19 @@ print(
   exit 0
 fi
 
-if [[ -z "$PROMPTS_FILE" ]]; then
-  if [[ "$HD" == "1" ]]; then
-    PROMPTS_FILE=scripts/sprites/prompts-hd.txt
-  else
-    PROMPTS_FILE=scripts/sprites/prompts.txt
+# --fetch-job не читает PROMPTS_FILE — он не запускает новую генерацию.
+if [[ -z "$FETCH_JOB_ID" ]]; then
+  if [[ -z "$PROMPTS_FILE" ]]; then
+    if [[ "$HD" == "1" ]]; then
+      PROMPTS_FILE=scripts/sprites/prompts-hd.txt
+    else
+      PROMPTS_FILE=scripts/sprites/prompts.txt
+    fi
   fi
+  [[ -f "$PROMPTS_FILE" ]] || { echo "нет файла промптов $PROMPTS_FILE" >&2; exit 1; }
 fi
-[[ -f "$PROMPTS_FILE" ]] || { echo "нет файла промптов $PROMPTS_FILE" >&2; exit 1; }
 
-if [[ "$DRY_RUN" != "1" ]]; then
+if [[ "$DRY_RUN" != "1" || -n "$FETCH_JOB_ID" ]]; then
   [[ -z "$OUT_DIR" ]] && OUT_DIR=$(mktemp -d)
   mkdir -p "$OUT_DIR"
   echo "OUT_DIR=$OUT_DIR (сырые PNG/JSON-ответы/remap — сюда, НЕ в $SPRITES_DIR)"
@@ -340,6 +418,28 @@ if spec:
 else:
     print('-', '-', 0)
 PY
+}
+
+# Возвращает "size palette found" для ключа: из манифеста, иначе --hd
+# (128/hd32) либо дефолт (64/sweetie16); --size/--palette всегда
+# переопределяют. Общий код для gen_one и --fetch-job (последнему сеть не
+# нужна — job уже оплачен и получен, нужны только size/palette для remap).
+resolve_size_palette() {
+  local key=$1
+  local m_size m_palette m_found
+  read -r m_size m_palette m_found < <(manifest_lookup "$key")
+  local size palette
+  if [[ "$m_found" == "1" ]]; then
+    size=${SIZE_OVERRIDE:-$m_size}
+    palette=${PALETTE_OVERRIDE:-$m_palette}
+  elif [[ "$HD" == "1" ]]; then
+    size=${SIZE_OVERRIDE:-128}
+    palette=${PALETTE_OVERRIDE:-hd32}
+  else
+    size=${SIZE_OVERRIDE:-64}
+    palette=${PALETTE_OVERRIDE:-sweetie16}
+  fi
+  echo "$size $palette $m_found"
 }
 
 # Собирает PNG-полоску N×1 из палитры ключа манифеста (--lock-palette),
@@ -496,6 +596,29 @@ print(json.dumps(body))
 PY
 }
 
+# Печатает detail из тела 422-ответа (список ошибок валидации FastAPI или
+# сырой JSON) в человекочитаемом виде. Общий код для синхронных и
+# background create-запросов.
+print_validation_detail() {
+  local resp_body=$1
+  printf '%s' "$resp_body" | python3 -c '
+import json, sys
+try:
+    d = json.loads(sys.argv[1])
+except Exception:
+    print("    (тело ответа не JSON)", file=sys.stderr)
+    sys.exit(0)
+detail = d.get("detail", d) if isinstance(d, dict) else d
+if isinstance(detail, list):
+    for e in detail:
+        loc = ".".join(str(p) for p in e.get("loc", [])) if isinstance(e, dict) else ""
+        msg = e.get("msg") if isinstance(e, dict) else e
+        print(f"    {loc}: {msg}", file=sys.stderr)
+else:
+    print(f"    {detail}", file=sys.stderr)
+' "$resp_body"
+}
+
 # POST create-image-<ENGINE>. Возвращает тело 200-ответа на stdout.
 # 402 — нет кредитов/генераций; 422 — печатает detail валидации; 429/529 —
 # один повтор после паузы; остальное — общая ошибка. Все — понятное
@@ -526,27 +649,64 @@ do_create_request() {
         ;;
       422)
         echo "  422: ошибка валидации тела запроса:" >&2
-        printf '%s' "$resp_body" | python3 -c '
-import json, sys
-try:
-    d = json.loads(sys.argv[1])
-except Exception:
-    print("    (тело ответа не JSON)", file=sys.stderr)
-    sys.exit(0)
-detail = d.get("detail", d) if isinstance(d, dict) else d
-if isinstance(detail, list):
-    for e in detail:
-        loc = ".".join(str(p) for p in e.get("loc", [])) if isinstance(e, dict) else ""
-        msg = e.get("msg") if isinstance(e, dict) else e
-        print(f"    {loc}: {msg}", file=sys.stderr)
-else:
-    print(f"    {detail}", file=sys.stderr)
-' "$resp_body"
+        print_validation_detail "$resp_body"
         exit 1
         ;;
       429|529)
         if [[ "$attempt" == "1" ]]; then
           echo "  HTTP $status: троттлинг, повтор через ${RETRY_SLEEP}с…" >&2
+          sleep "$RETRY_SLEEP"
+          continue
+        fi
+        echo "  HTTP $status: троттлинг после повтора — сдаюсь" >&2
+        exit 1
+        ;;
+      *)
+        echo "  HTTP $status: неожиданный ответ" >&2
+        printf '%s\n' "$resp_body" >&2
+        exit 1
+        ;;
+    esac
+  done
+}
+
+# POST create-image-<ENGINE>-background (только pixflux — проверено ДО
+# сети выше). Возвращает тело 202-ответа (200 — на всякий случай, схема
+# CreateImagePixfluxBackgroundResponse) на stdout. 429 — "too many
+# concurrent jobs": один повтор после паузы, как у 429/529 в
+# do_create_request. Остальные коды — как у do_create_request.
+do_create_background_request() {
+  local body=$1
+  local attempt raw status resp_body
+  for attempt in 1 2; do
+    raw=$(curl -sS --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" \
+      -w '\n%{http_code}' \
+      -X POST "$API/create-image-$ENGINE-background" \
+      -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+      -d "$body") || { echo "  сетевая ошибка запроса к $API/create-image-$ENGINE-background" >&2; exit 1; }
+    status=${raw##*$'\n'}
+    resp_body=${raw%$'\n'"$status"}
+    case "$status" in
+      202|200)
+        printf '%s' "$resp_body"
+        return 0
+        ;;
+      401)
+        echo "  401: неверный SPRITES_API_KEY" >&2
+        exit 1
+        ;;
+      402)
+        echo "  402: недостаточно кредитов/генераций на балансе (см. --balance)" >&2
+        exit 1
+        ;;
+      422)
+        echo "  422: ошибка валидации тела запроса:" >&2
+        print_validation_detail "$resp_body"
+        exit 1
+        ;;
+      429|529)
+        if [[ "$attempt" == "1" ]]; then
+          echo "  HTTP $status: троттлинг (too many concurrent jobs), повтор через ${RETRY_SLEEP}с…" >&2
           sleep "$RETRY_SLEEP"
           continue
         fi
@@ -621,6 +781,44 @@ poll_job() {
   return 1
 }
 
+# Извлекает image.base64 (синхронный ответ: r.image; background job:
+# r.last_response.image / r.last_response.images[0]) в PNG-файл. Общий код
+# для gen_one (с --background и без) и fetch_job.
+extract_image() {
+  local resp_file=$1 out_path=$2
+  node --input-type=module - "$resp_file" "$out_path" <<'NODE_EOF'
+import { readFileSync, writeFileSync } from 'node:fs'
+const [respPath, outPath] = process.argv.slice(2)
+const r = JSON.parse(readFileSync(respPath, 'utf8'))
+// Синхронный ответ: r.image.base64. Background-job (BackgroundJobResponse):
+// last_response.image.base64 / last_response.images[0].base64.
+let b64 = r?.image?.base64
+if (!b64) {
+  const lr = r?.last_response
+  b64 = lr?.image?.base64 ?? lr?.images?.[0]?.base64
+}
+if (!b64) {
+  console.error(`нет image.base64 (ни в ответе, ни в last_response.image/images[0]) в ${respPath} — сверить с /v2/openapi.json`)
+  process.exit(1)
+}
+writeFileSync(outPath, Buffer.from(b64, 'base64'))
+NODE_EOF
+}
+
+# Прогоняет $OUT_DIR/$key.raw.png через sprite-remap.mjs. Провал контракта
+# (specks/белый/прозрачность и т.п.) не должен обрывать весь прогон под
+# set -e: генерация уже оплачена и сырой файл уже на диске — печатаем WARN
+# с путём к нему и продолжаем (следующие ключи должны ещё обработаться).
+remap_and_report() {
+  local key=$1 size=$2 palette=$3
+  local remap_args=(--key "$key" --size "$size" --palette "$palette")
+  if ! node "$REMAP" "$OUT_DIR/$key.raw.png" "$OUT_DIR/$key.png" "${remap_args[@]}"; then
+    echo "  WARN: remap не прошёл контракт, сырой файл: $OUT_DIR/$key.raw.png" >&2
+  else
+    echo "  готово (не в client/public): $OUT_DIR/$key.png — примите через --install $key $OUT_DIR/$key.png"
+  fi
+}
+
 gen_one() {
   local key=$1 prompt=$2 override_seed=${3:-}
   local seed
@@ -632,20 +830,8 @@ gen_one() {
     seed=$(seed_of "$key")
   fi
 
-  local m_size m_palette m_found
-  read -r m_size m_palette m_found < <(manifest_lookup "$key")
-
-  local size palette isometric
-  if [[ "$m_found" == "1" ]]; then
-    size=${SIZE_OVERRIDE:-$m_size}
-    palette=${PALETTE_OVERRIDE:-$m_palette}
-  elif [[ "$HD" == "1" ]]; then
-    size=${SIZE_OVERRIDE:-128}
-    palette=${PALETTE_OVERRIDE:-hd32}
-  else
-    size=${SIZE_OVERRIDE:-64}
-    palette=${PALETTE_OVERRIDE:-sweetie16}
-  fi
+  local m_found size palette isometric
+  read -r size palette m_found < <(resolve_size_palette "$key")
   isometric=false
   [[ "$palette" == "hd32" ]] && isometric=true
 
@@ -689,9 +875,15 @@ gen_one() {
     "$STYLE_IMAGE" "$STYLE_STRENGTH" "$color_file" \
     "$NEGATIVE" "$GUIDANCE" "$OUTLINE" "$SHADING" "$DETAIL" "$VIEW" "$DIRECTION")
 
+  local endpoint="create-image-$ENGINE"
+  [[ "$BACKGROUND" == "1" ]] && endpoint="${endpoint}-background"
+
   if [[ "$DRY_RUN" == "1" ]]; then
-    echo "→ $key (dry-run, engine=$ENGINE, size=$size, palette=$palette, isometric=$isometric, seed=$seed, manifest=${m_found}, lock_palette=${want_lock})"
-    echo "  POST $API/create-image-$ENGINE"
+    echo "→ $key (dry-run, engine=$ENGINE, size=$size, palette=$palette, isometric=$isometric, seed=$seed, manifest=${m_found}, lock_palette=${want_lock}, background=${BACKGROUND})"
+    echo "  POST $API/$endpoint"
+    if [[ "$BACKGROUND" == "1" ]]; then
+      echo "  (202 → GET $API${JOB_STATUS_PATH} каждые ${POLL_INTERVAL}s, таймаут ${POLL_TIMEOUT}s)"
+    fi
     printf '%s' "$body" | python3 -c '
 import json, sys
 
@@ -718,51 +910,70 @@ print(json.dumps(shorten(body), indent=2, ensure_ascii=False))
     exit 1
   fi
 
-  echo "→ $key (engine=$ENGINE, size=$size, palette=$palette, isometric=$isometric, seed=$seed, lock_palette=${want_lock})"
+  echo "→ $key (engine=$ENGINE, size=$size, palette=$palette, isometric=$isometric, seed=$seed, lock_palette=${want_lock}, background=${BACKGROUND})"
   local resp resp_file
   resp_file="$OUT_DIR/$key.response.json"
-  resp=$(do_create_request "$body")
-  GEN_COUNT=$((GEN_COUNT + 1))
-  printf '%s' "$resp" > "$resp_file"
 
-  # Асинхронность определяем по факту (id+status в ответе, форма
-  # BackgroundJobResponse), не по догадкам — create-image-* синхронны и
-  # обычно этот путь не сработает.
-  local resp_id resp_status
-  resp_id=$(json_field "$resp_file" id)
-  resp_status=$(json_field "$resp_file" status)
-  if [[ -n "$resp_id" && -n "$resp_status" ]]; then
-    echo "  ответ выглядит асинхронным (id=$resp_id status=$resp_status) — опрашиваю $JOB_STATUS_PATH каждые ${POLL_INTERVAL}s (таймаут ${POLL_TIMEOUT}s)"
-    if ! poll_job "$resp_id" "$resp_file"; then
-      echo "  '$key': задача не завершилась успешно" >&2
+  if [[ "$BACKGROUND" == "1" ]]; then
+    resp=$(do_create_background_request "$body")
+    # GEN_COUNT — сразу после успешного 202: деньги на стороне PixelLab
+    # списываются уже на этом шаге (см. ГРАБЛЯ в шапке файла), независимо
+    # от того, чем завершится последующий опрос job'а.
+    GEN_COUNT=$((GEN_COUNT + 1))
+    printf '%s' "$resp" > "$resp_file"
+
+    local job_id
+    job_id=$(json_field "$resp_file" background_job_id)
+    [[ -z "$job_id" ]] && job_id=$(json_field "$resp_file" id)
+    if [[ -z "$job_id" ]]; then
+      echo "  '$key': в 202-ответе нет background_job_id/id — сверить с /v2/openapi.json (CreateImagePixfluxBackgroundResponse)" >&2
       exit 1
+    fi
+    # Пишем job_id СРАЗУ, до опроса: если опрос оборвётся, результат можно
+    # дозабрать через --fetch-job, не тратя новую генерацию.
+    printf '%s' "$job_id" > "$OUT_DIR/$key.job_id"
+    echo "  background_job_id=$job_id (сохранён в $OUT_DIR/$key.job_id — при обрыве опроса: --fetch-job $job_id $key)"
+
+    local usage_json_202
+    usage_json_202=$(json_field "$resp_file" usage)
+    print_usage "$usage_json_202"
+    echo "  (генераций в сессии: $GEN_COUNT/$MAX_GENERATIONS)"
+
+    echo "  опрашиваю $JOB_STATUS_PATH каждые ${POLL_INTERVAL}s (таймаут ${POLL_TIMEOUT}s)…"
+    if ! poll_job "$job_id" "$resp_file"; then
+      echo "  '$key': задача не завершилась успешно (можно дозабрать позже: --fetch-job $job_id $key)" >&2
+      exit 1
+    fi
+  else
+    resp=$(do_create_request "$body")
+    GEN_COUNT=$((GEN_COUNT + 1))
+    printf '%s' "$resp" > "$resp_file"
+
+    # Асинхронность определяем по факту (id+status в ответе, форма
+    # BackgroundJobResponse), не по догадкам — create-image-* синхронны и
+    # обычно этот путь не сработает.
+    local resp_id resp_status
+    resp_id=$(json_field "$resp_file" id)
+    resp_status=$(json_field "$resp_file" status)
+    if [[ -n "$resp_id" && -n "$resp_status" ]]; then
+      echo "  ответ выглядит асинхронным (id=$resp_id status=$resp_status) — опрашиваю $JOB_STATUS_PATH каждые ${POLL_INTERVAL}s (таймаут ${POLL_TIMEOUT}s)"
+      if ! poll_job "$resp_id" "$resp_file"; then
+        echo "  '$key': задача не завершилась успешно" >&2
+        exit 1
+      fi
     fi
   fi
 
-  node --input-type=module - "$resp_file" "$OUT_DIR/$key.raw.png" <<'NODE_EOF'
-import { readFileSync, writeFileSync } from 'node:fs'
-const [respPath, outPath] = process.argv.slice(2)
-const r = JSON.parse(readFileSync(respPath, 'utf8'))
-// Синхронный ответ: r.image.base64. Если каким-то образом пришла
-// асинхронная форма (last_response) — первое найденное из
-// last_response.image.base64 / last_response.images[0].base64.
-let b64 = r?.image?.base64
-if (!b64) {
-  const lr = r?.last_response
-  b64 = lr?.image?.base64 ?? lr?.images?.[0]?.base64
-}
-if (!b64) {
-  console.error(`нет image.base64 (ни в ответе, ни в last_response.image/images[0]) в ${respPath} — сверить с /v2/openapi.json`)
-  process.exit(1)
-}
-writeFileSync(outPath, Buffer.from(b64, 'base64'))
-NODE_EOF
+  extract_image "$resp_file" "$OUT_DIR/$key.raw.png"
 
   # Usage/счётчик — ДО remap: генерация уже оплачена и её стоимость нужно
   # напечатать, даже если постобработка (remap) провалит контракт ниже.
   # Раньше это шло после remap, и `node "$REMAP" …` под set -e при exit 1
   # (например, нарушение specks) обрывал скрипт ДО print_usage — отчёт о
-  # стоимости оплаченной генерации терялся.
+  # стоимости оплаченной генерации терялся. Для --background здесь читаем
+  # usage финального job-ответа (resp_file уже перезаписан poll_job'ом) —
+  # он может уточниться относительно usage из 202-ответа, напечатанного
+  # выше.
   local usage_json
   usage_json=$(json_field "$resp_file" usage)
   print_usage "$usage_json"
@@ -776,17 +987,39 @@ NODE_EOF
   # Раньше при m_found=1 --size/--palette не передавались вовсе, и явные
   # --size/--palette на CLI молча игнорировались remap'ом (see gen_one:
   # size/palette=SIZE_OVERRIDE/PALETTE_OVERRIDE или манифест).
-  local remap_args=(--key "$key" --size "$size" --palette "$palette")
-  # Провал remap'а (контракт не пройден — specks/белый/прозрачность и т.п.)
-  # не должен обрывать весь прогон под set -e: генерация уже оплачена и
-  # сырой файл уже на диске — печатаем WARN с путём к нему и продолжаем
-  # (следующие ключи в PROMPTS_FILE всё ещё должны обработаться).
-  if ! node "$REMAP" "$OUT_DIR/$key.raw.png" "$OUT_DIR/$key.png" "${remap_args[@]}"; then
-    echo "  WARN: remap не прошёл контракт, сырой файл: $OUT_DIR/$key.raw.png" >&2
-  else
-    echo "  готово (не в client/public): $OUT_DIR/$key.png — примите через --install $key $OUT_DIR/$key.png"
-  fi
+  remap_and_report "$key" "$size" "$palette"
 }
+
+# --fetch-job: опрос/докачка уже существующего background job (по его
+# background_job_id) без новой генерации — не считается в MAX_GENERATIONS.
+# Тот же remap-путь, что и после обычной генерации.
+fetch_job() {
+  local job_id=$1 key=$2
+  local resp_file="$OUT_DIR/$key.response.json"
+
+  echo "→ $key (fetch-job, job_id=$job_id, не считается в MAX_GENERATIONS)"
+  printf '%s' "$job_id" > "$OUT_DIR/$key.job_id"
+
+  if ! poll_job "$job_id" "$resp_file"; then
+    echo "  '$key': задача не завершилась успешно (job_id=$job_id)" >&2
+    exit 1
+  fi
+
+  extract_image "$resp_file" "$OUT_DIR/$key.raw.png"
+
+  local usage_json
+  usage_json=$(json_field "$resp_file" usage)
+  print_usage "$usage_json"
+
+  local size palette m_found
+  read -r size palette m_found < <(resolve_size_palette "$key")
+  remap_and_report "$key" "$size" "$palette"
+}
+
+if [[ -n "$FETCH_JOB_ID" ]]; then
+  fetch_job "$FETCH_JOB_ID" "$FETCH_JOB_KEY"
+  exit 0
+fi
 
 while IFS='|' read -r name prompt override_seed; do
   [[ -z "$name" || "$name" == \#* ]] && continue
