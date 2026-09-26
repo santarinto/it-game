@@ -120,10 +120,19 @@ linter (overlaps, offscreen, contrast, tiny) must not be worse than
 `occlusion` (text under an opaque plate) or `interactive` (an interactive
 container/sprite/checkbox partly covered by another interactive or by text;
 full containment doesn't count). Without `BASE_URL` it serves the build
-itself on :4173.
+itself on :4173 (`VISREG_PORT` overrides the port).
 Update baselines after intended UI changes: `npm run visreg -- --update`,
 then commit. Baselines depend on the machine (system `monospace` font);
 kill stray Chromium processes before a run — they starve software WebGL.
+
+All self-serving QA scripts (`visreg`, `qa:hud`, `qa:trace`, `qa:facade`,
+`qa:slots`, `qa:tabs`) share `client/scripts/lib/selfserve.mjs`: they refuse
+to start when their port is already taken by another process, and verify
+after boot that the server actually answers with the local `client/dist`
+build (not someone else's), so a busy port fails loudly instead of running
+the suite against the wrong server. `qa:tabs` (`qa-itgame35.mjs`) self-serves
+with a temporary saves directory, since its session-takeover scenario needs
+a real saves store (`-saves off` won't do).
 
 ## CI
 

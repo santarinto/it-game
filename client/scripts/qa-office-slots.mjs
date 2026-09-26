@@ -7,14 +7,15 @@
 // router). Стиль/selfServe — как client/scripts/qa-itgame16.mjs.
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (default 4177)
-// поверх client/dist + bin/itdirector (npm run build — заранее).
-import { execFileSync, spawn } from 'node:child_process'
+// поверх client/dist + bin/itdirector (npm run build — заранее). Общий
+// self-serve — client/scripts/lib/selfserve.mjs.
 import { existsSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer-core'
+import { selfServe } from './lib/selfserve.mjs'
 
 const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 const SELF_PORT = Number(process.env.QA_PORT || 4177)
@@ -32,38 +33,6 @@ function chromePath() {
   const found = cands.find((p) => existsSync(p))
   if (!found) throw new Error('chromium не найден — задайте CHROME_PATH')
   return found
-}
-
-// ── Self-serve: Go раздаёт dist + /ws + /api одним процессом (как qa-itgame16) ──
-let server = null
-async function selfServe() {
-  const dist = join(CLIENT_DIR, 'dist')
-  if (!existsSync(join(dist, 'index.html'))) {
-    console.error('QA-OFFICE-SLOTS FAIL: нет client/dist — сначала npm run build')
-    process.exit(1)
-  }
-  const bin = join(CLIENT_DIR, '..', 'bin', 'itdirector')
-  if (!existsSync(bin)) {
-    execFileSync('go', ['build', '-o', bin, './cmd/server'], {
-      cwd: join(CLIENT_DIR, '..', 'server'),
-      stdio: 'inherit',
-    })
-  }
-  server = spawn(bin, ['-addr', `127.0.0.1:${SELF_PORT}`, '-static', dist, '-saves', 'off'], {
-    stdio: 'ignore',
-  })
-  for (let i = 0; i < 40; i++) {
-    try {
-      const r = await fetch(`http://127.0.0.1:${SELF_PORT}/admin`)
-      if (r.ok) return
-      r.body?.cancel()
-    } catch {
-      // поднимается
-    }
-    await delay(250)
-  }
-  console.error('QA-OFFICE-SLOTS FAIL: Go-сервер не поднялся на :' + SELF_PORT)
-  process.exit(1)
 }
 
 const BASE = process.env.QA_BASE || `http://127.0.0.1:${SELF_PORT}`
@@ -334,7 +303,15 @@ async function caseServerRoomGateway(browser) {
 }
 
 // ── Главный прогон: свежий браузер на кейс (без утечек между сценариями) ────
-if (!process.env.QA_BASE) await selfServe()
+let stopServer = null
+if (!process.env.QA_BASE) {
+  try {
+    ;({ stop: stopServer } = await selfServe({ port: SELF_PORT, saves: 'off', label: 'QA-OFFICE-SLOTS' }))
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e))
+    process.exit(1)
+  }
+}
 
 try {
   for (const runCase of [caseFullOffice, caseLunch, caseBrokenPc, caseServerRoomGateway]) {
@@ -350,7 +327,7 @@ try {
     }
   }
 } finally {
-  if (server) server.kill('SIGKILL')
+  if (stopServer) await stopServer()
 }
 
 const failed = results.filter((r) => !r.pass)

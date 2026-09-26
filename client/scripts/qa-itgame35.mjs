@@ -3,11 +3,18 @@
 //
 // Запуск из корня проекта:
 //   node client/scripts/qa-itgame35.mjs
-
+//
+// Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
+// :4179) с временным каталогом сейвов (saves:'tmp', удаляется в конце).
+// ВАЖНО: вытеснение вкладки (session_taken) реализовано только через
+// серверный стор сейвов (server/internal/ws/session.go, ~строка 268,
+// store.Begin/kick) — внешнему серверу, заданному через QA_BASE, НУЖНЫ
+// сейвы (не запускайте его с -saves off, иначе шаги 5-7 не пройдут).
 import { existsSync } from 'node:fs'
 import puppeteer from 'puppeteer-core'
+import { selfServe } from './lib/selfserve.mjs'
 
-const BASE = process.env.QA_BASE || 'http://localhost:5173'
+const SELF_PORT = Number(process.env.QA_PORT) || 4179
 
 function chromePath() {
   const cands = [
@@ -20,6 +27,17 @@ function chromePath() {
   if (!found) throw new Error('chromium не найден — задайте CHROME_PATH')
   return found
 }
+
+let stopServer = null
+if (!process.env.QA_BASE) {
+  try {
+    ;({ stop: stopServer } = await selfServe({ port: SELF_PORT, saves: 'tmp', label: 'QA-ITGAME35' }))
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e))
+    process.exit(1)
+  }
+}
+const BASE = process.env.QA_BASE || `http://127.0.0.1:${SELF_PORT}`
 
 const browser = await puppeteer.launch({
   executablePath: chromePath(),
@@ -161,6 +179,7 @@ try {
   await tab2.close()
 } finally {
   await browser.close()
+  if (stopServer) await stopServer()
 }
 
 let failed = 0

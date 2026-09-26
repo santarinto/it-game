@@ -11,18 +11,19 @@
 //       игровые координаты не меняет)
 //   (f) на странице нет pageerror
 //
-// Self-serve: без QA_BASE поднимает Go-сервер на :4174 (dist + собранный
-// bin/itdirector, как visreg.mjs).
-import { execFileSync, spawn } from 'node:child_process'
+// Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
+// :4174 — dist + собранный bin/itdirector, как visreg.mjs). Общий
+// self-serve — client/scripts/lib/selfserve.mjs.
 import { existsSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer-core'
+import { selfServe } from './lib/selfserve.mjs'
 
 const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
-const SELF_PORT = 4174
+const SELF_PORT = Number(process.env.QA_PORT) || 4174
 const SHOTS_DIR = process.env.QA_SHOTS_DIR || join(tmpdir(), 'qa-itgame16')
 const HUD_H = 96
 const GAME_W = 1280
@@ -42,38 +43,6 @@ function chromePath() {
   const found = cands.find((p) => existsSync(p))
   if (!found) throw new Error('chromium не найден — задайте CHROME_PATH')
   return found
-}
-
-// ── Self-serve: Go раздаёт dist + /ws + /api одним процессом (как visreg) ──
-let server = null
-async function selfServe() {
-  const dist = join(CLIENT_DIR, 'dist')
-  if (!existsSync(join(dist, 'index.html'))) {
-    console.error('QA-ITGAME16 FAIL: нет client/dist — сначала npm run build')
-    process.exit(1)
-  }
-  const bin = join(CLIENT_DIR, '..', 'bin', 'itdirector')
-  if (!existsSync(bin)) {
-    execFileSync('go', ['build', '-o', bin, './cmd/server'], {
-      cwd: join(CLIENT_DIR, '..', 'server'),
-      stdio: 'inherit',
-    })
-  }
-  server = spawn(bin, ['-addr', `127.0.0.1:${SELF_PORT}`, '-static', dist, '-saves', 'off'], {
-    stdio: 'ignore',
-  })
-  for (let i = 0; i < 40; i++) {
-    try {
-      const r = await fetch(`http://127.0.0.1:${SELF_PORT}/admin`)
-      if (r.ok) return
-      r.body?.cancel()
-    } catch {
-      // поднимается
-    }
-    await delay(250)
-  }
-  console.error('QA-ITGAME16 FAIL: Go-сервер не поднялся на :' + SELF_PORT)
-  process.exit(1)
 }
 
 const BASE = process.env.QA_BASE || `http://127.0.0.1:${SELF_PORT}`
@@ -303,7 +272,15 @@ async function runCase(browser, zoom, def) {
 // ── Главный прогон ──────────────────────────────────────────────────────
 const ZOOMS = ['1', '1.4']
 
-if (!process.env.QA_BASE) await selfServe()
+let stopServer = null
+if (!process.env.QA_BASE) {
+  try {
+    ;({ stop: stopServer } = await selfServe({ port: SELF_PORT, saves: 'off', label: 'QA-ITGAME16' }))
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e))
+    process.exit(1)
+  }
+}
 
 try {
   for (const def of CASES) {
@@ -340,7 +317,7 @@ try {
       mismatches.length ? mismatches.join(', ') : 'ok')
   }
 } finally {
-  if (server) server.kill('SIGKILL')
+  if (stopServer) await stopServer()
 }
 
 const failed = results.filter((r) => !r.pass)
