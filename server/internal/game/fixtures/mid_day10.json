@@ -1,0 +1,30 @@
+{
+  "_описание": "день 10, полдень: 5 сотрудников с сетью (роутер тир 2, две стойки серверов), core ур.2, начальник, весь быт; $8000. Здоровая середина партии",
+  "day": 10,
+  "money": 8000,
+  "tickInDay": 12,
+  "dayIncome": 120,
+  "coreLevel": 2,
+  "offices": [
+    {
+      "Unlocked": true,
+      "PCs": 5,
+      "RouterTier": 2,
+      "Servers": [2, 1],
+      "Boss": "Ирина Соколова",
+      "Cooler": true,
+      "Fridge": true,
+      "CoffeeMachine": true,
+      "CoffeeEventTicks": [10, 40],
+      "Employees": [
+        { "Name": "Артём Никитин", "IncomePerTick": 9, "XP": 100 },
+        { "Name": "Мария Фёдорова", "IncomePerTick": 11, "XP": 200 },
+        { "Name": "Дмитрий Смирнов", "IncomePerTick": 12, "XP": 300 },
+        { "Name": "Анна Петрова", "IncomePerTick": 13, "XP": 400 },
+        { "Name": "Сергей Лебедев", "IncomePerTick": 14, "XP": 500 }
+      ]
+    },
+    { "Unlocked": false },
+    { "Unlocked": false }
+  ]
+}

@@ -1,0 +1,18 @@
+# Промпты спрайтов: имя|описание[|seed-override] (ITGAME-6).
+# Стиль-суффикс добавляет gen-sprites.sh; seed стабилен по имени,
+# третье поле — принудительный новый seed после брака куриции.
+# Тратят по 1 generation каждый (trial: 40; докупка — checkout).
+office_floor_tile|seamless grey-blue office carpet tile
+desk_pc|office desk with desktop computer, monitor and keyboard
+desk_empty|office desk with absolutely nothing on it, bare wooden desktop surface only, no computer, no laptop, no monitor, no keyboard, no mouse, no cup|51105
+router|small network router with two antennas
+rack_server|tall server rack with blinking status lights
+rack_empty|empty metal server rack frame
+cooler|water cooler with big blue water bottle
+fridge|small white office fridge
+coffee_machine|coffee machine with cup, steam
+gateway|network gateway device, small globe icon on case
+worker|office worker seen from behind, sitting posture
+boss|office boss in shirt and tie, standing
+icon_money|round coin with dollar sign
+icon_network|simple network diagram: three computers connected by lines, flat icon|5417

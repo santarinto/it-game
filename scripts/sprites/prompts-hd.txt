@@ -1,0 +1,80 @@
+# HD-промпты (128px, hd32, isometric 3/4) — заготовка под будущий переход
+# персонажей и рабочих мест на HD-пиксель (решение владельца). Формат тот
+# же, что в prompts.txt: имя|описание[|seed-override]. Общий стилевой
+# суффикс (isometric/pixel-art/transparent/no text) добавляет
+# scripts/gen-sprites.sh (build_body), сюда — только предметное описание,
+# по-английски (модели генерации лучше понимают английские промпты).
+#
+# Ключи совпадают с именами существующих 64px-спрайтов (desk_pc, worker,
+# desk_empty, boss) — это HD-ЗАМЕНА той же сущности, не отдельный набор
+# ключей (boss_lunch — исключение, новый ключ: та же сущность boss, но
+# «на обеде», второе состояние силуэта); пока эти ключи не добавлены в
+# client/src/assets/sprites.json как 128/hd32, gen-sprites.sh требует
+# --hd (или явные --size 128 --palette hd32) — см. "если ключа в
+# манифесте ещё нет" в шапке скрипта.
+#
+# desk_pc и worker рисуются РАЗДЕЛЬНО: desk_pc — пустой стол с ПК и
+# креслом (никого за столом), worker — сотрудник в кресле БЕЗ своего
+# стола (стол подкладывается отдельным спрайтом desk_pc, как и на 64px
+# сегодня для остальных ключей; на 64px only worker.includesDesk=true —
+# для HD-пары такое совмещение осознанно не переносим, чтобы стол и стул
+# не дублировались/не расходились при рендере в изометрии).
+#
+# Что реально дало результат (см. scripts/sprites/hd-src/*.raw.png):
+# движок pixflux, --hd (то есть --size 128 --palette hd32 --lock-palette),
+# outline "single color black outline", shading "medium shading", detail
+# "medium detail" — так получен desk_pc.raw.png (seed 2087953640).
+# worker.raw.png — тот же движок/палитра/outline/shading/detail, но
+# --size 80 и --direction north-west; результат смотрел вправо-вверх —
+# build-hd.sh зеркалит его (--flip-x) при ремапе в 128px. bitforge со
+# style_image-кропом стола (проба worker) дорисовал стол вопреки «no desk»
+# в промпте — стиль-референс тянет за собой композицию.
+# --negative (negative_description) у нас дважды приводил к 502 upstream
+# со списанием генерации без картинки (см. ниже про desk_empty).
+#
+# boss/boss_lunch — оба сгенерированы через --background
+# (create-image-pixflux-background + опрос /background-jobs/{id}, см.
+# docs/development.md «HD sprite pipeline»): синхронный create-image-pixflux
+# периодически отвечает 502 от шлюза PixelLab (таймаут шлюза на долгой
+# генерации, не зависит от --negative — 502 такой же бывает и без него), но
+# генерация при этом списывается; --background обходит это. --size 96
+# --palette hd32 --lock-palette, outline "single color black outline",
+# shading "medium shading", detail "medium detail", --seed 4099860094
+# (= cksum("boss")) — ОДИН И ТОТ ЖЕ seed для обоих промптов, чтобы
+# получился один и тот же персонаж в двух позах (работа/обед). Решение
+# владельца: начальник 128px, в тёмном костюме, с ноутбуком; на обеде —
+# он же, «как все» (кофе и сэндвич).
+desk_pc|isometric 3/4 office desk with desktop computer, monitor, keyboard and an empty office chair tucked in, no person, workspace unoccupied
+worker|isometric 3/4 office worker sitting in an office chair, seen from behind/three-quarter back angle, no desk, no monitor, chair and person only, mid torso and head visible
+# desk_empty в итоге НЕ генерируется: pixflux с seed якоря рисует ПК и
+# кресло даже при явных отрицаниях в тексте промпта («no computer, no
+# chair» — модель их игнорирует), а --negative (negative_description)
+# дважды вернул 502 upstream со списанием генерации без картинки. Вместо
+# генерации hd-src/desk_empty.png — детерминированная пиксельная правка
+# desk_pc.raw.png (стёрты предметы, закрытое ими восстановлено по геометрии
+# стола); build-hd.sh только ремапит её. Строка ниже — историческая
+# справка о промпте, который не сработал.
+desk_empty|isometric 3/4 office desk with absolutely nothing on it, bare wooden desktop surface only, no computer, no monitor, no keyboard, no chair, no person
+boss|isometric 3/4 office boss standing, wearing a dark business suit and tie, holding an open laptop in one hand and typing on it with the other, busy at work, three-quarter front view, full body
+boss_lunch|isometric 3/4 office boss standing, wearing a dark business suit and tie, on lunch break, holding a coffee cup and a sandwich, relaxed, three-quarter front view, full body
+#
+# Серверная (rack_server, gateway) и быт (cooler, fridge, coffee_machine)
+# + router (слот «сеть» в офисе) — HD-замена 64px sweetie16. Те же
+# движок/outline/shading/detail, что у boss (pixflux --background, hd32
+# --lock-palette); --size/--palette hd32 передаются ЯВНО — ключи уже есть
+# в манифесте как 64/sweetie16, и без явных флагов gen-sprites.sh взял бы
+# размер/палитру оттуда (и isometric=false). Холст генерации подобран под
+# экранный размер предмета (build-hd.sh вписывает его в 128×128 без
+# ресемплинга): стойка — 128, остальное — 96. rack_empty не генерируется:
+# отрицания («empty», «no servers») модель игнорирует так же, как у
+# desk_empty, — это пиксельная правка rack_server.
+rack_server|isometric 3/4 tall black server rack cabinet, front panel full of stacked rack-mounted servers with rows of small green and blue status lights, metal frame
+router|isometric 3/4 small office wifi router, dark grey plastic box with two antennas pointing up, row of green status lights and ethernet ports on the front
+gateway|isometric 3/4 network gateway appliance, wide flat dark metal box, blue globe emblem on the top panel, ethernet ports and status lights on the front edge
+cooler|isometric 3/4 office water cooler, white body with red and blue taps, big blue water bottle on top
+# fridge: первая генерация (тот же промпт без «large tall», seed по
+# умолчанию = cksum("fridge")) нарисовала холодильник крошечным — bbox
+# 26×48 на холсте 96, вдвое ниже кулера; перегенерирован с «large tall
+# … full height» и явным seed (третье поле).
+fridge|isometric 3/4 large tall white office refrigerator, full height, two doors with silver handles|20260926
+coffee_machine|isometric 3/4 espresso coffee machine, brushed steel and black body, white cup under the spout

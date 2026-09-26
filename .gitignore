@@ -1,0 +1,29 @@
+/bin/itdirector
+client/node_modules/
+client/dist/
+.env
+.env.*
+.idea/
+.vscode/
+.playwright-mcp/
+.DS_Store
+iter8-smoke-menu.png
+client/smoke-menu.png
+client/smoke-office.png
+client/smoke-*.png
+
+# сейвы сессий (dev по умолчанию, ITGAME-8)
+saves/
+.serena/
+
+# CSV-отчёты server/cmd/sim (--out) — не коммитим прогоны баланса
+*.csv
+
+# локальные MCP-конфиги и личный QA-скилл — не в репо
+.mcp.json
+opencode.json
+.claude/skills/generate-qa-promt-for-browser-agent/
+.claude/settings.local.json
+CLAUDE.local.md
+.superpowers/
+.agents/

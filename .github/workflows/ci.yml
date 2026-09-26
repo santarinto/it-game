@@ -1,0 +1,247 @@
+# CI + CD IT Director: тесты на каждый PR и пуш в main, деплой — только
+# из main и только после зелёных server/client.
+#
+# Секреты (Settings → Secrets and variables → Actions):
+#   • DEPLOY_HOOK_SECRET — HMAC-секрет on-box вебхука (bin/trigger-deploy.sh).
+#     Нет секрета — джоба deploy не падает, а пропускает выкат с warning
+#     (деплой остаётся ручным).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  # ── Сервер: Go vet + тесты (в т.ч. слой БД на живом Postgres) + sim-отчёт ──
+  server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: itd
+          POSTGRES_PASSWORD: itd
+          POSTGRES_DB: itdirector_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U itd -d itdirector_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # Без переменной тест internal/db молча SKIP — в CI он обязан идти.
+      TEST_DATABASE_URL: postgres://itd:itd@localhost:5432/itdirector_test
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - run: go vet ./...
+      - run: go test ./...
+      # sim (ITGAME-27) — отчёт баланса, джобу не роняет: исходы партий по
+      # сложностям в summary прогона, CSV — артефактом.
+      - name: sim — прогоны баланса (отчёт)
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/sim"
+          {
+            echo '### sim: исходы 30 дней, сиды 1..20, все политики'
+            echo '```'
+            for d in easy normal hard hardcore; do
+              go run ./cmd/sim --diff "$d" --seed 1..20 --days 30 --policy all --out "$RUNNER_TEMP/sim/$d.csv" 2>&1
+            done
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: sim-csv
+          path: ${{ runner.temp }}/sim/*.csv
+          if-no-files-found: ignore
+
+  # ── Клиент: typecheck + сборка (с check-sprites) + UI-смоук + live-check ────
+  client:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      # check-sprites (часть build), smoke-ui и visreg ищут Chromium по
+      # CHROME_PATH; на раннере предустановлен Google Chrome.
+      - name: Chrome для puppeteer
+        run: echo "CHROME_PATH=$(command -v google-chrome-stable || command -v google-chrome)" >> "$GITHUB_ENV"
+      - name: npm ci
+        working-directory: client
+        run: npm ci --no-audit --no-fund
+      # itd.contract() (ITGAME-39): сверяет contract.gen.ts с ItdApi и коды
+      # ошибок/команды протокола с ../server — до typecheck, чтобы отчёт был
+      # виден раньше и не терялся среди ошибок tsc.
+      - name: check:contract
+        working-directory: client
+        run: npm run check:contract
+      - name: typecheck
+        working-directory: client
+        run: npm run typecheck
+      - name: build (+ контракт спрайтов)
+        working-directory: client
+        run: npm run build
+      # UI-смоук (ITGAME-11): меню стартует, консоль чистая — «молчаливый
+      # чёрный экран» до прода не доедет.
+      - name: smoke-ui — меню (vite preview)
+        working-directory: client
+        run: timeout 300 npm run smoke-ui
+      # Дальше — как на проде: Go-сервер раздаёт dist и держит /ws.
+      - name: Go-сервер над dist
+        run: |
+          (cd server && go build -o "$RUNNER_TEMP/itdirector" ./cmd/server)
+          ITGAME_DEBUG=1 "$RUNNER_TEMP/itdirector" -addr 127.0.0.1:8091 -static client/dist \
+            -saves "$RUNNER_TEMP/saves" > "$RUNNER_TEMP/server.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -fs -o /dev/null http://127.0.0.1:8091/ && exit 0
+            sleep 1
+          done
+          echo "сервер не поднялся за 30с"; cat "$RUNNER_TEMP/server.log"; exit 1
+      - name: smoke-ui — сцена офиса через живой WS
+        working-directory: client
+        run: OFFICE=1 timeout 300 npm run smoke-ui -- http://127.0.0.1:8091
+      - name: live-check — сейвы, реконнект, офлайн-догон
+        run: timeout 180 node scripts/live-check-saves.mjs
+      - name: live-check — правила сложности (хардкор-кредит, рынок, норма)
+        run: timeout 240 node scripts/live-check-difficulty2.mjs
+      - name: лог сервера
+        if: failure()
+        run: cat "$RUNNER_TEMP/server.log" || true
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: smoke-screens
+          path: client/smoke-*.png
+          if-no-files-found: ignore
+
+  # ── visreg (ITGAME-27): пока ОТЧЁТ, не гейт ─────────────────────────────────
+  # Эталоны сняты на машине владельца: системный monospace рендерится иначе,
+  # и даже на коммите эталонов diff 0.3–0.65% при пороге 0.5%. Шаг не роняет
+  # CI; при расхождении кладёт в артефакт кадры, снятые В CI, — их можно
+  # принять эталонами (client/scripts/visreg/) и после этого сделать джобу
+  # обязательной, убрав continue-on-error.
+  visreg:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Chrome для puppeteer
+        run: echo "CHROME_PATH=$(command -v google-chrome-stable || command -v google-chrome)" >> "$GITHUB_ENV"
+      - name: npm ci + build
+        working-directory: client
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: visreg
+        id: visreg
+        continue-on-error: true
+        working-directory: client
+        run: |
+          set -o pipefail
+          timeout 600 npm run visreg 2>&1 | tee "$RUNNER_TEMP/visreg.log"
+      - name: visreg — отчёт и CI-кадры
+        if: steps.visreg.outcome == 'failure'
+        working-directory: client
+        run: |
+          {
+            echo '### visreg: расхождение с эталонами (не гейт)'
+            echo '```'
+            grep -E '^(FAIL|ok)' "$RUNNER_TEMP/visreg.log" || true
+            echo '```'
+            echo 'Кадры этого раннера — артефакт visreg-ci-shots.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning title=visreg::расхождение с эталонами — см. summary и артефакт visreg-ci-shots"
+          timeout 600 npm run visreg -- --update
+      - uses: actions/upload-artifact@v6
+        if: steps.visreg.outcome == 'failure'
+        with:
+          name: visreg-ci-shots
+          path: client/scripts/visreg/
+
+  # ── Деплой itgame.santarinto.com: пуш в main (или Run workflow на main) ────
+  # → протестированный SHA. Включается секретом: без него прод обновляется
+  # как раньше, вручную через bin/trigger-deploy.sh.
+  deploy:
+    needs: [server, client]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Деплои строго по одному; новый пуш не рвёт идущий выкат.
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+      - name: вебхук деплоя
+        id: hook
+        env:
+          DEPLOY_HOOK_SECRET: ${{ secrets.DEPLOY_HOOK_SECRET }}
+        run: |
+          if [ -z "$DEPLOY_HOOK_SECRET" ]; then
+            echo "::warning title=Деплой пропущен::нет секрета DEPLOY_HOOK_SECRET (Settings → Secrets and variables → Actions)"
+            echo "deployed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Гонка пайплайнов: если main уже ушёл вперёд, этот SHA устарел —
+          # выкатит прогон свежего коммита, иначе прод откатится назад.
+          head=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "::notice title=Деплой пропущен::main ушёл вперёд ($head) — выкатит его прогон"
+            echo "deployed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "деплой $(git log -1 --pretty='%h: %s')"
+          bash bin/trigger-deploy.sh "$GITHUB_SHA"
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
+      # Прод-чек после выката: меню на живом домене стартует, консоль чистая.
+      - uses: actions/setup-node@v5
+        if: steps.hook.outputs.deployed == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: smoke-ui — прод
+        if: steps.hook.outputs.deployed == 'true'
+        working-directory: client
+        run: |
+          npm ci --no-audit --no-fund
+          CHROME_PATH=$(command -v google-chrome-stable || command -v google-chrome) \
+            timeout 300 npm run smoke-ui -- https://itgame.santarinto.com

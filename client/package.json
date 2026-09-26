@@ -1,0 +1,35 @@
+{
+  "name": "it-director-client",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "node scripts/gen-contract.mjs --check && tsc --noEmit && vite build && node scripts/check-sprites.mjs",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview",
+    "smoke-ui": "node scripts/smoke-ui.mjs",
+    "qa:meta": "node scripts/qa-itgame10.mjs",
+    "qa:buttons": "node scripts/qa-itgame17.mjs",
+    "qa:tabs": "node scripts/qa-itgame35.mjs",
+    "qa:hud": "node scripts/qa-itgame16.mjs",
+    "qa:facade": "node scripts/qa-itgame38.mjs",
+    "qa:slots": "node scripts/qa-office-slots.mjs",
+    "qa:trace": "node scripts/qa-itgame37.mjs",
+    "qa:contract": "node scripts/qa-itgame39.mjs",
+    "check:sprites": "node scripts/check-sprites.mjs",
+    "gen:contract": "node scripts/gen-contract.mjs",
+    "check:contract": "node scripts/gen-contract.mjs --check",
+    "visreg": "node scripts/visreg.mjs"
+  },
+  "dependencies": {
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "pixelmatch": "^7.2.0",
+    "pngjs": "^7.0.0",
+    "puppeteer-core": "^25.9.0",
+    "typescript": "^5.6.0",
+    "vite": "^7.0.0"
+  }
+}
