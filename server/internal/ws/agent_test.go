@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -344,7 +343,5 @@ func startSavesAgentServer(t *testing.T, cfg game.Config) string {
 	mux.Handle("GET /ws", h)
 	mux.Handle("GET /ws/agent", http.HandlerFunc(h.ServeAgent))
 	mux.Handle("/api/debug/", http.HandlerFunc(h.ServeDebug))
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return srv.URL
+	return newSavesServer(t, mux).URL
 }
