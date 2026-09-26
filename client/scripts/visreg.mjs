@@ -79,18 +79,28 @@ async function selfServe() {
 }
 
 // ── Загрузка сцены: детерминированное состояние для скриншота ─────────────
+// window.itd появляется раньше, чем меню создаст кнопки: клик в этот зазор
+// молча промахивался (id не найден), и прогон висел 20с на connected.
+async function waitMenuReady(page) {
+  await page.waitForFunction(
+    () => window.itd != null && window.itd.ids().some((n) => n.id === 'menu.diff.normal'),
+    { timeout: 20000 },
+  )
+}
+
 async function loadScenario(page, base, name) {
   if (name === 'menu') {
     await page.goto(`${base}/?debug=1`)
-    await page.waitForFunction(() => window.itd != null, { timeout: 20000 })
+    await waitMenuReady(page)
     await delay(400) // логотип/кнопки устаканились
     return
   }
   await page.goto(`${base}/?scenario=${name}&seed=1&debug=1`)
-  await page.waitForFunction(() => window.itd != null, { timeout: 20000 })
+  await waitMenuReady(page)
   // уникальный sid на прогон: серверные сейвы живут 24ч и резюмятся
   await page.evaluate((sc) => localStorage.setItem('itd.sid', 'visreg-' + sc + '-' + Date.now().toString(36)), name)
-  await page.evaluate(() => window.itd.click('menu.diff.normal'))
+  const clicked = await page.evaluate(() => window.itd.click('menu.diff.normal'))
+  if (!clicked.ok) throw new Error(`${name}: клик menu.diff.normal не прошёл — ${clicked.error}`)
   await page.waitForFunction(() => window.itd.state().connected === true, { timeout: 20000 })
   await page.evaluate(() => window.itd.pause()) // время не меняет кадр
   await delay(500) // перерисовки после снапшота
