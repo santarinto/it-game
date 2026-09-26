@@ -192,14 +192,21 @@ try {
       }
 
       // (а) реальный hover мышью по office.worker.0 — тултип виден.
+      // Наводим в центр bounds (x/y узла — левый верхний угол) и ждём опросом:
+      // на software-WebGL в CI рендер 2× даёт единицы FPS, а Phaser разбирает
+      // движение мыши только на следующем кадре — фиксированной паузы мало.
       box = await canvasBox()
-      await page.mouse.move(box.x + worker0.x * box.k, box.y + worker0.y * box.k)
-      await delay(200)
-      const tooltipVisible = await page.evaluate(() => {
-        const scene = window.__itd.scene.getScene('office')
-        const c = scene.children.list.find((o) => o.type === 'Container')
-        return c ? c.visible : null
-      })
+      await page.mouse.move(box.x + (worker0.x + worker0.w / 2) * box.k, box.y + (worker0.y + worker0.h / 2) * box.k)
+      const tooltipVisible = await page
+        .waitForFunction(
+          () => {
+            const scene = window.__itd.scene.getScene('office')
+            const c = scene.children.list.find((o) => o.type === 'Container')
+            return c?.visible === true
+          },
+          { timeout: 5_000, polling: 100 },
+        )
+        .then(() => true, () => false)
       if (tooltipVisible !== true) {
         console.error(`SMOKE-UI FAIL (z=${z}): реальный hover по office.worker.0 не показал тултип`)
         process.exit(1)
@@ -209,9 +216,14 @@ try {
       const zoomNode = nodes.find((n) => n.id === 'btn.zoom')
       const cssWBefore = box.k * 1280
       await page.mouse.click(box.x + (zoomNode.x + zoomNode.w / 2) * box.k, box.y + (zoomNode.y + zoomNode.h / 2) * box.k)
-      await delay(200)
-      const cssWAfter = await page.evaluate(() => document.querySelector('canvas').getBoundingClientRect().width)
-      if (cssWAfter === cssWBefore) {
+      const zoomChanged = await page
+        .waitForFunction(
+          (before) => Math.abs(document.querySelector('canvas').getBoundingClientRect().width - before) > 0.5,
+          { timeout: 5_000, polling: 100 },
+          cssWBefore,
+        )
+        .then(() => true, () => false)
+      if (!zoomChanged) {
         console.error(`SMOKE-UI FAIL (z=${z}): реальный клик по btn.zoom не изменил CSS-ширину канваса`)
         process.exit(1)
       }
@@ -222,8 +234,9 @@ try {
       nodes = await page.evaluate(() => window.itd.nodes())
       const navSrv = nodes.find((n) => n.id === 'nav.serverRoom')
       await page.mouse.click(box.x + (navSrv.x + navSrv.w / 2) * box.k, box.y + (navSrv.y + navSrv.h / 2) * box.k)
-      await delay(300)
-      const srvActive = await page.evaluate(() => window.__itd.scene.isActive('serverRoom'))
+      const srvActive = await page
+        .waitForFunction(() => window.__itd.scene.isActive('serverRoom'), { timeout: 5_000, polling: 100 })
+        .then(() => true, () => false)
       if (srvActive !== true) {
         console.error(`SMOKE-UI FAIL (z=${z}): реальный клик по nav.serverRoom не переключил сцену`)
         process.exit(1)
