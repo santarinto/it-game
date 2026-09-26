@@ -135,8 +135,10 @@ export class OfficeScene extends Phaser.Scene {
       routerImg.on('pointerdown', () => this.openRouterModal(office, s))
       this.objects.push(
         routerImg,
-        this.add.text(rx, ry + 52, `роутер т${office.routerTier} · ${office.ports} порт.`, {
-          fontFamily: 'monospace', fontSize: '11px', color: '#41a6f6',
+        // Две строки: одной строкой подпись шириной ~130px заезжала на
+        // крайний стол ряда (линтер интерактивов ловит office.worker.3).
+        this.add.text(rx, ry + 58, `роутер т${office.routerTier}\n${office.ports} порт.`, {
+          fontFamily: 'monospace', fontSize: '11px', color: '#41a6f6', align: 'center',
         }).setOrigin(0.5),
       )
     } else {
