@@ -2,10 +2,11 @@ import Phaser from 'phaser'
 import { GAME_H, GAME_W } from '../layout'
 import { checkActiveNeighbor, client, hasSavedSession, prepareNewGame, savedDifficulty, sessionId } from '../net'
 import { activeZoom, applyZoom, ZOOM_OPTIONS } from '../uiscale'
-import { tag } from '../debug/agentApi'
+import { markActive, tag } from '../debug/agentApi'
 import { fmtMoney } from '../format'
 import { getAchievementsSummary, loadStats } from '../meta'
 import type { DifficultyId } from '../protocol'
+import { emitUi } from '../uibus'
 
 const CX = GAME_W / 2
 
@@ -119,11 +120,19 @@ export class MenuScene extends Phaser.Scene {
       const zTxt = this.add
         .text(x + 36, 665, o.label, { fontFamily: 'monospace', fontSize: '12px', color: '#f4f4f4' })
         .setOrigin(0.5)
-      const highlight = () => zBg.setStrokeStyle(2, activeZoom() === o.value ? 0x41a6f6 : 0x3a3f5c)
+      const highlight = () => {
+        const on = activeZoom() === o.value
+        zBg.setStrokeStyle(2, on ? 0x41a6f6 : 0x3a3f5c)
+        markActive(zBg, on)
+      }
       highlight()
       zBg.on('pointerdown', () => {
         applyZoom(this.game, o.value)
-        zoomBtns.forEach((b) => b.bg.setStrokeStyle(2, activeZoom() === b.value ? 0x41a6f6 : 0x3a3f5c))
+        zoomBtns.forEach((b) => {
+          const on = activeZoom() === b.value
+          b.bg.setStrokeStyle(2, on ? 0x41a6f6 : 0x3a3f5c)
+          markActive(b.bg, on)
+        })
       })
       zBg.on('pointerover', highlight)
       zBg.on('pointerout', highlight)
@@ -422,12 +431,16 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private toastStartError() {
+    const text = 'Не удалось начать игру — попробуйте ещё раз'
+    const ms = 3000
+    const bg = '#b13e53'
+    emitUi({ type: 'toast', text, where: 'bottom', ms, bg, scene: this.scene.key })
     const t = this.add
-      .text(CX, 700, 'Не удалось начать игру — попробуйте ещё раз', {
+      .text(CX, 700, text, {
         fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4',
-        backgroundColor: '#b13e53', padding: { x: 12, y: 6 },
+        backgroundColor: bg, padding: { x: 12, y: 6 },
       })
       .setOrigin(0.5)
-    this.time.delayedCall(3000, () => t.destroy())
+    this.time.delayedCall(ms, () => t.destroy())
   }
 }

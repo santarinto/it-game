@@ -5,9 +5,10 @@ import type { DayReportMessage, GameOverMessage, OfflineReportMessage, StateMess
 import { fmtMoney } from '../format'
 import { nav } from '../rooms'
 import { debug, drawDebugFrames, setDebug } from '../debug'
-import { tag } from '../debug/agentApi'
+import { markActive, tag } from '../debug/agentApi'
 import { showModal } from '../ui/modal'
 import { playSfx } from '../audio'
+import { emitUi } from '../uibus'
 import { activeZoom, applyZoom, ZOOM_OPTIONS, zoomLabel } from '../uiscale'
 import {
   checkAchievements,
@@ -250,15 +251,19 @@ export class HUDScene extends Phaser.Scene {
     this.hudInteractive.push(zoomBg)
     // ITGAME-22: только при ?debug=1; короткая подпись — «debug off» наезжала на ⌂
     if (debug.enabled) {
-      const dbg = tag(
-        this.add
-          .text(GAME_W - 280, 17, this.debugLabel(), { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
-          .setInteractive({ useHandCursor: true }),
-        'btn.debug',
+      const dbg = markActive(
+        tag(
+          this.add
+            .text(GAME_W - 280, 17, this.debugLabel(), { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
+            .setInteractive({ useHandCursor: true }),
+          'btn.debug',
+        ),
+        debug.enabled,
       )
       dbg.on('pointerdown', () => {
         setDebug(!debug.enabled)
         dbg.setText(this.debugLabel())
+        markActive(dbg, debug.enabled)
         client.reemit() // сцены перерисуются по последнему снапшоту
       })
       this.hudInteractive.push(dbg)
@@ -476,6 +481,7 @@ export class HUDScene extends Phaser.Scene {
     this.navItems.forEach((item, idx) => {
       const active = this.currentRoom === 'serverRoom' ? idx === 3 : idx === nav.activeOffice
       item.bg.setStrokeStyle(2, active ? 0x41a6f6 : 0x3a3f5c)
+      markActive(item.bg, active)
     })
   }
 
@@ -644,7 +650,11 @@ export class HUDScene extends Phaser.Scene {
       item.sub.setText(o.unlocked ? `${o.employees.length}/${s.officeSlots}` : fmtMoney(o.price))
     })
     this.highlightNav()
-    this.speedBtns.forEach((b) => b.bg.setStrokeStyle(2, b.speed === s.speed ? 0x41a6f6 : 0x3a3f5c))
+    this.speedBtns.forEach((b) => {
+      const on = b.speed === s.speed
+      b.bg.setStrokeStyle(2, on ? 0x41a6f6 : 0x3a3f5c)
+      markActive(b.bg, on)
+    })
     if (s.activeEvent && s.phase === 'running') {
       this.showEvent(s.activeEvent)
     } else {
@@ -835,8 +845,9 @@ export class HUDScene extends Phaser.Scene {
   // своя и чужие анимации конфликтовали бы кадр в кадр.
   private toast(text: string, ms = 1500, opts?: { top?: boolean; bg?: string }) {
     const where: 'top' | 'bottom' = opts?.top ? 'top' : 'bottom'
-    const startY = where === 'top' ? 175 : GAME_H - 40 // косметика до первой layoutToasts()
     const bg = opts?.bg ?? '#b13e53'
+    emitUi({ type: 'toast', text, where, ms, bg, scene: this.scene.key })
+    const startY = where === 'top' ? 175 : GAME_H - 40 // косметика до первой layoutToasts()
     const t = tag(
       this.add
         .text(CX, startY, text, {
@@ -1001,15 +1012,19 @@ export class HUDScene extends Phaser.Scene {
     const bodyText = this.add
       .text(CX, 0, body, { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8 })
       .setOrigin(0.5, 0).setDepth(52)
-    const checkbox = tag(
-      this.add
-        .text(CX, 0, this.checkboxLabel(), { fontFamily: 'monospace', fontSize: '14px', color: '#5d7275' })
-        .setOrigin(0.5, 0).setDepth(52).setInteractive({ useHandCursor: true }),
-      'btn.skip_reports',
+    const checkbox = markActive(
+      tag(
+        this.add
+          .text(CX, 0, this.checkboxLabel(), { fontFamily: 'monospace', fontSize: '14px', color: '#5d7275' })
+          .setOrigin(0.5, 0).setDepth(52).setInteractive({ useHandCursor: true }),
+        'btn.skip_reports',
+      ),
+      this.skipReports,
     )
     checkbox.on('pointerdown', () => {
       this.skipReports = !this.skipReports
       checkbox.setText(this.checkboxLabel())
+      markActive(checkbox, this.skipReports)
     })
     const btnBg = tag(
       this.add

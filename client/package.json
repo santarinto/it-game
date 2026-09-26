@@ -12,6 +12,7 @@
     "qa:buttons": "node scripts/qa-itgame17.mjs",
     "qa:tabs": "node scripts/qa-itgame35.mjs",
     "qa:hud": "node scripts/qa-itgame16.mjs",
+    "qa:facade": "node scripts/qa-itgame38.mjs",
     "check:sprites": "node scripts/check-sprites.mjs",
     "visreg": "node scripts/visreg.mjs"
   },

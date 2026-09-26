@@ -1,5 +1,6 @@
 import type Phaser from 'phaser'
 import { client } from '../net'
+import { onUi } from '../uibus'
 
 // Журнал переходов и ошибки страницы (ITGAME-25): кольцевой буфер на 200
 // записей переживает чистку консоли — свежая сессия агента видит историю.
@@ -70,6 +71,10 @@ export function startTelemetry(game: Phaser.Game): Telemetry {
     onDisconnect: (reason) => add('disconnect', { reason: reason ?? 'unknown' }),
     onReconnecting: (attempt) => add('reconnecting', { attempt }),
   })
+
+  // Звук и тосты (ITGAME-38): шина UI-событий (audio.ts, HUDScene.toast()) —
+  // { type: 'sound', ... } / { type: 'toast', ... } прямо в общий буфер.
+  onUi(({ type, ...rest }) => add(type, rest))
 
   // Переключения сцен: диф списка активных сцен раз в 500мс — ловит и
   // launch/stop, и возвраты в меню без хуков в сами сцены.

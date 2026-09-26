@@ -27,6 +27,15 @@ export function tag<T extends Phaser.GameObjects.GameObject>(obj: T, id: string)
   return obj
 }
 
+// Состояние переключателя для itd.nodes()/itd.ids() (ITGAME-38): рамка
+// активной скорости ⏸/1x/2x/3x, пункт навигации, чекбокс «пропускать
+// отчёты», тумблер debug, зум в меню. НЕ GameObject.active («объект жив» в
+// Phaser) — свой data-ключ 'active', читается в walkObjects().
+export function markActive<T extends Phaser.GameObjects.GameObject>(obj: T, on: boolean): T {
+  obj.setData('active', on)
+  return obj
+}
+
 // ── /api/debug/* (ITGAME-26) ───────────────────────────────────────────────
 
 // Ответ GET /api/debug/state и POST-мутаций: свежий снапшот + сейв.
@@ -240,6 +249,9 @@ export interface AgentNode {
   alpha: number
   interactive: boolean
   depth: number
+  // ITGAME-38: состояние переключателя (markActive) — true/false для
+  // контролов со сменным состоянием, null у всех прочих объектов.
+  active: boolean | null
 }
 
 export interface AgentResult {
@@ -264,7 +276,7 @@ export interface ItdApi {
   server(): AgentServer
   nodes(): AgentNode[]
   text(): AgentNode[]
-  ids(): { id: string; scene: string; type: string; text: string | null }[]
+  ids(): { id: string; scene: string; type: string; text: string | null; active: boolean | null }[]
   click(id: string): AgentResult & { id?: string; scene?: string }
   hover(id: string): AgentResult & { id?: string; scene?: string }
   key(k: string): AgentResult & { key?: string; scenes?: string[] }
@@ -433,6 +445,7 @@ function walkObjects(sceneKey: string, objects: Phaser.GameObjects.GameObject[],
       w = typeof o.width === 'number' ? o.width : 0
       h = typeof o.height === 'number' ? o.height : 0
     }
+    const act = o.getData?.('active')
     out.push({
       scene: sceneKey,
       type: o.type ?? 'unknown',
@@ -446,6 +459,7 @@ function walkObjects(sceneKey: string, objects: Phaser.GameObjects.GameObject[],
       alpha: typeof o.alpha === 'number' ? o.alpha : 1,
       interactive: o.input?.enabled === true,
       depth: typeof o.depth === 'number' ? o.depth : 0,
+      active: typeof act === 'boolean' ? act : null,
     })
     if (o.list) walkObjects(sceneKey, o.list, out)
   }
@@ -514,23 +528,25 @@ const COMMANDS = new Set<string>([
   'abandon',
 ])
 
-const HELP = `itd — агентский API игры (ITGAME-24/25/26/30)
+const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/38)
   itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); menuReady — меню создано и активно
   itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt, reconnects, sid, sidSwitches
-  itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, visible, alpha, interactive, depth}
+  itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, visible, alpha, interactive, depth, active}
   itd.text()                        — nodes() с непустым текстом
-  itd.ids()                         — стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*, modal.*)
+  itd.ids()                         — стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*, modal.*) + active
+                                       active — состояние переключателя (btn.speed.*, nav.*, btn.skip_reports, btn.debug, menu.zoom.*), null у прочих; НЕ GameObject.active
   itd.click('btn.hire')             — клик по id: дергает pointerdown-обработчик напрямую, мимо input-слоя
   itd.hover('office.worker.0')      — наведение по id (тултипы)
   itd.key('1'|'enter'|'space'|'esc')— клавиша: 1-4 сложность в меню, enter/space/esc — отчёт дня
   itd.cmd('hire')                   — команда с квитанцией сервера: Promise<{ok, code?}> — первый state|error после отправки, по порядку команд; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
   itd.warm()                        — прогреть кадр вручную (шаги лупа); в скрытой вкладке itd делает это сам
   itd.wait(s => s.day === 2)        — промис: поллинг state()/server() до условия (таймаут 5с, второй аргумент — свой); готовность меню — wait(s => s.menuReady), до старта партии state() null, но menuReady уже честен
-  itd.overlaps()                    — линтер вёрстки: пересечения видимых текстов одного depth
+  itd.overlaps()                    — линтер вёрстки: kind: text — тексты одного depth; occlusion — текст под непрозрачной плашкой; interactive — интерактив частично перекрыт интерактивом или текстом (вложенность целиком — не находка)
   itd.offscreen()                   — линтер: вылезание за канвас 1280×720
   itd.contrast()                    — линтер: контраст текста к фону ниже 3:1
   itd.tiny()                        — линтер: шрифт мельче 12px
-  itd.log(50)                       — журнал переходов (кольцевой на 200, переживает чистку консоли)
+  itd.log(50)                       — журнал переходов (кольцевой на 200, переживает чистку консоли); + {type:'sound', key:'sfx:bong', name, volume, scene, ok}, {type:'toast', text, where, ms, bg, scene}
+                                       Пример: itd.log(200).filter(e => e.type === 'sound').map(e => e.key)
   itd.errors()                      — ошибки страницы (window.onerror + unhandledrejection)
   itd.net(20)                       — последние сообщения WS в обе стороны + сокет/rtt/реконнекты
   itd.version                       — {sha, builtAt} сборки (+ <meta name="build"> в html)
@@ -586,7 +602,7 @@ function makeApi(game: Phaser.Game): ItdApi {
     ids: () =>
       warmedNodes()
         .filter((n) => n.id !== null)
-        .map((n) => ({ id: n.id as string, scene: n.scene, type: n.type, text: n.text })),
+        .map((n) => ({ id: n.id as string, scene: n.scene, type: n.type, text: n.text, active: n.active })),
     click(id) {
       warmIfHidden()
       const hit = findById(game, id)

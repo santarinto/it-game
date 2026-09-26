@@ -116,7 +116,11 @@ easy + greedy ≈ 2/3 wins.
 menu, screenshots the canvas and diffs it against
 `client/scripts/visreg/shots/` (>0.5% differing pixels fails); the layout
 linter (overlaps, offscreen, contrast, tiny) must not be worse than
-`baseline.json`. Without `BASE_URL` it serves the build itself on :4173.
+`baseline.json` — overlaps carry a `kind`: `text` (same-depth text vs text),
+`occlusion` (text under an opaque plate) or `interactive` (an interactive
+container/sprite/checkbox partly covered by another interactive or by text;
+full containment doesn't count). Without `BASE_URL` it serves the build
+itself on :4173.
 Update baselines after intended UI changes: `npm run visreg -- --update`,
 then commit. Baselines depend on the machine (system `monospace` font);
 kill stray Chromium processes before a run — they starve software WebGL.
@@ -176,6 +180,8 @@ and the finished PNGs are committed.
 - **Review:** silhouette readability via the local LocalMind vision model
   (`localmind_recognize` MCP), touch-ups in Aseprite.
 - **Sound:** SFX from [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds)
-  (CC0) in `client/public/assets/sfx/`, played by `client/src/audio.ts`.
+  (CC0) in `client/public/assets/sfx/`, played by `client/src/audio.ts`. Every
+  `playSfx` call and HUD toast is written to `itd.log()` (`{type:'sound', ...}` /
+  `{type:'toast', ...}`, via the `client/src/uibus.ts` event bus).
 - `client/src/pixelart.ts` generates fallback textures for any sprite
   without a PNG.
