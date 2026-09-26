@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { registerTextures } from '../pixelart'
 import { preloadSfx } from '../audio'
 import { GAME_W } from '../layout'
+import { HIRES_CAMERA } from '../render'
 import { AI_SPRITES, SPRITES } from '../assets/manifest'
 
 // AI-спрайты (ITGAME-6): PNG в public/assets/sprites, генерятся
@@ -16,7 +17,7 @@ export { AI_SPRITES }
 
 export class BootScene extends Phaser.Scene {
   constructor() {
-    super('boot')
+    super({ key: 'boot', cameras: HIRES_CAMERA })
   }
 
   preload() {

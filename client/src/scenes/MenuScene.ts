@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { GAME_H, GAME_W } from '../layout'
 import { checkActiveNeighbor, client, hasSavedSession, prepareNewGame, savedDifficulty, sessionId } from '../net'
 import { activeZoom, applyZoom, ZOOM_OPTIONS } from '../uiscale'
+import { HIRES_CAMERA } from '../render'
 import { markActive, tag } from '../debug/agentApi'
 import { fmtMoney } from '../format'
 import { getAchievementsSummary, loadStats } from '../meta'
@@ -26,7 +27,7 @@ export class MenuScene extends Phaser.Scene {
   private modalUI: Phaser.GameObjects.GameObject[] = []
 
   constructor() {
-    super('menu')
+    super({ key: 'menu', cameras: HIRES_CAMERA })
   }
 
   create() {

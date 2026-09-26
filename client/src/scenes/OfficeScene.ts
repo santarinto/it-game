@@ -11,6 +11,7 @@ import { coreFree, routerGain } from '../network-preview'
 import { playSfx } from '../audio'
 import { addSprite } from '../pixelart'
 import { SPRITES } from '../assets/manifest'
+import { HIRES_CAMERA } from '../render'
 
 const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
 // Оверлей «сломанный ПК» обязан перехватывать клики раньше спрайта
@@ -40,7 +41,7 @@ export class OfficeScene extends Phaser.Scene {
   private hoveredSlot = -1
 
   constructor() {
-    super('office')
+    super({ key: 'office', cameras: HIRES_CAMERA })
   }
 
   create() {

@@ -189,6 +189,40 @@ connection or migration error is fatal. Without it, the server starts
 normally and `/admin` shows a database-unavailable notice instead of the
 catalog.
 
+## Rendering
+
+The world stays 1280×720 (`GAME_W`/`GAME_H`, `layout.ts`) and every
+`itd`/debug coordinate (bounds, click, overlaps) is still in those world
+units — only the canvas is bigger. `client/src/render.ts` renders at 2×
+(`RENDER_SCALE`): the canvas is `GAME_W*RENDER_SCALE × GAME_H*RENDER_SCALE`,
+and each scene's camera (`HIRES_CAMERA`, passed as `super({ key, cameras })`
+so a scene restart keeps it) is configured with `zoom: RENDER_SCALE,
+roundPixels: true, scrollX: -GAME_W*(RENDER_SCALE-1)/2, scrollY:
+-GAME_H*(RENDER_SCALE-1)/2` — the only combination that both zooms in and
+keeps `camera.worldView` at `(0,0,1280,720)` (`CameraManager.fromJSON`
+always resets `roundPixels` to `false` unless the scene config sets it
+explicitly, so this can't be left to the game-level default). This is prep
+for HD sprites (128px art dropped into 64-world-px slots, see `hd32` in the
+sprite manifest below) and for crisp text under CSS zoom.
+
+Every `Text` object needs its own `resolution` — Phaser's default is 1
+regardless of camera zoom — so `installHiResText()` patches
+`GameObjectFactory.prototype.text` (the only place the codebase creates
+text; there's no `this.make.text`/`BitmapText` to also cover) to inject
+`resolution: RENDER_SCALE` before any scene runs. `uiscale.ts`'s "zoom" is
+CSS px per world px, unchanged in meaning; `setCssZoom(game, z)` divides by
+`RENDER_SCALE` before calling `game.scale.setZoom` (the canvas itself is
+already `RENDER_SCALE` bigger) and refreshes `canvas.style.imageRendering`:
+`pixelated` normally, `auto` (bilinear) when the effective downscale
+(`cssZoom * devicePixelRatio / RENDER_SCALE`) drops below 1, since nearest
+sampling then tears text strokes. `?rs=1` disables all of this for A/B
+comparisons and low-end machines (canvas back to 1:1 with the world).
+
+Caveat for future code: a camera-relative object (e.g. a future
+`setScrollFactor(0)` HUD element) will drift, because the camera now has a
+non-zero scroll purely to recentre the zoom — it no longer maps world
+`(0,0)` to camera-local `(0,0)`.
+
 ## Assets
 
 Sprites come from a dev-time AI pipeline; the game itself is fully offline

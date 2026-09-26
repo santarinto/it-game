@@ -7,13 +7,14 @@ import { tag } from '../debug/agentApi'
 import { showModal } from '../ui/modal'
 import { coreGain, serverGain } from '../network-preview'
 import { addSprite } from '../pixelart'
+import { HIRES_CAMERA } from '../render'
 import type { StateMessage } from '../protocol'
 
 export class ServerRoomScene extends Phaser.Scene {
   private objects: Phaser.GameObjects.GameObject[] = []
 
   constructor() {
-    super('serverRoom')
+    super({ key: 'serverRoom', cameras: HIRES_CAMERA })
   }
 
   create() {

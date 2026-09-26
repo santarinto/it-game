@@ -140,6 +140,102 @@ try {
       process.exit(1)
     }
     console.log('SMOKE-UI OK — сцена office стартовала, консоль чистая (скриншот client/smoke-office.png)')
+
+    // Рендер 2× (render.ts): itd.click() и itd.hover() обходят Phaser-хиттест
+    // (шлют события напрямую по id), так что камера со scroll/zoom (render.ts,
+    // HIRES_CAMERA) ими не проверяется — нужен РЕАЛЬНЫЙ курсор мыши, который
+    // идёт через настоящий Phaser input и трансформацию камеры. Проверяем на
+    // зумах 1× и 2× (localStorage 'itd.uiScale', см. uiscale.ts ZOOM_KEY):
+    // (а) наведение на office.worker.0 показывает тултип, (б) клик по
+    // btn.zoom меняет CSS-ширину канваса, (в) клик по nav.serverRoom
+    // переключает активную сцену. window.itd в проде требует ?debug=1.
+    const debugUrl = url + (url.includes('?') ? '&' : '?') + 'debug=1'
+    const canvasBox = () => page.evaluate(() => {
+      const c = document.querySelector('canvas')
+      const r = c.getBoundingClientRect()
+      return { x: r.x, y: r.y, k: r.width / 1280 }
+    })
+    for (const z of [1, 2]) {
+      await page.goto(debugUrl, { waitUntil: 'load' })
+      // localStorage И sessionStorage — hasSavedSession() (net.ts) читает оба
+      // ключа SID_KEY; без sessionStorage.clear() второй проход (второй zoom)
+      // видит «сохранённую» сессию с первого прохода, меню показывает
+      // «ПРОДОЛЖИТЬ» и сдвигает кнопки сложности вниз — клик по (640,336) мимо.
+      await page.evaluate((zz) => {
+        localStorage.clear()
+        sessionStorage.clear()
+        localStorage.setItem('itd.uiScale', String(zz))
+      }, z)
+      await page.reload({ waitUntil: 'load' })
+      await page.waitForFunction(
+        `window.itd && window.itd.ids().some((n) => n.id === 'menu.diff.normal')`,
+        { timeout: 20_000 },
+      )
+      await page.evaluate(() => localStorage.setItem('itd.sid', 'smoke-render2x-' + Date.now().toString(36)))
+      let box = await canvasBox()
+      await page.mouse.click(box.x + 640 * box.k, box.y + 336 * box.k)
+      await page.waitForFunction(`window.__itd && window.__itd.scene.isActive('office')`, { timeout: 20_000 })
+      await delay(500)
+
+      // Свежая сессия — офис пуст; itd.cmd() тут не проверка ввода, а
+      // подготовка фикстуры (нанять кого-то в слот 0 для реального hover).
+      let nodes = await page.evaluate(() => window.itd.nodes())
+      if (!nodes.some((n) => n.id === 'office.worker.0')) {
+        await page.evaluate(() => window.itd.cmd('hire'))
+        await delay(400)
+        nodes = await page.evaluate(() => window.itd.nodes())
+      }
+      const worker0 = nodes.find((n) => n.id === 'office.worker.0')
+      if (!worker0) {
+        console.error(`SMOKE-UI FAIL (z=${z}): office.worker.0 не появился после hire`)
+        process.exit(1)
+      }
+
+      // (а) реальный hover мышью по office.worker.0 — тултип виден.
+      box = await canvasBox()
+      await page.mouse.move(box.x + worker0.x * box.k, box.y + worker0.y * box.k)
+      await delay(200)
+      const tooltipVisible = await page.evaluate(() => {
+        const scene = window.__itd.scene.getScene('office')
+        const c = scene.children.list.find((o) => o.type === 'Container')
+        return c ? c.visible : null
+      })
+      if (tooltipVisible !== true) {
+        console.error(`SMOKE-UI FAIL (z=${z}): реальный hover по office.worker.0 не показал тултип`)
+        process.exit(1)
+      }
+
+      // (б) реальный клик по btn.zoom — CSS-ширина канваса меняется.
+      const zoomNode = nodes.find((n) => n.id === 'btn.zoom')
+      const cssWBefore = box.k * 1280
+      await page.mouse.click(box.x + (zoomNode.x + zoomNode.w / 2) * box.k, box.y + (zoomNode.y + zoomNode.h / 2) * box.k)
+      await delay(200)
+      const cssWAfter = await page.evaluate(() => document.querySelector('canvas').getBoundingClientRect().width)
+      if (cssWAfter === cssWBefore) {
+        console.error(`SMOKE-UI FAIL (z=${z}): реальный клик по btn.zoom не изменил CSS-ширину канваса`)
+        process.exit(1)
+      }
+
+      // (в) реальный клик по nav.serverRoom — активна сцена serverRoom
+      // (клик по btn.zoom поменял CSS-размер канваса — box пересчитываем).
+      box = await canvasBox()
+      nodes = await page.evaluate(() => window.itd.nodes())
+      const navSrv = nodes.find((n) => n.id === 'nav.serverRoom')
+      await page.mouse.click(box.x + (navSrv.x + navSrv.w / 2) * box.k, box.y + (navSrv.y + navSrv.h / 2) * box.k)
+      await delay(300)
+      const srvActive = await page.evaluate(() => window.__itd.scene.isActive('serverRoom'))
+      if (srvActive !== true) {
+        console.error(`SMOKE-UI FAIL (z=${z}): реальный клик по nav.serverRoom не переключил сцену`)
+        process.exit(1)
+      }
+
+      if (errors.length > 0) {
+        console.error(`SMOKE-UI FAIL (z=${z}): консоль не чистая после проверки ввода через камеру:`)
+        for (const e of errors) console.error('  ', e)
+        process.exit(1)
+      }
+      console.log(`SMOKE-UI OK — ввод мышью через камеру (zoom=${z}): hover office.worker.0, клик btn.zoom, клик nav.serverRoom`)
+    }
   }
 } finally {
   await browser.close()

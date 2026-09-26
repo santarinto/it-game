@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { GAME_H, GAME_W } from './layout'
+import { RENDER_SCALE, applyCanvasFilter } from './render'
 
 // Масштаб UI (ITGAME-15, ревью веб-агента): канвас жёстко 1280×720 CSS-пикселей
 // и на больших мониторах крошечный. Зумим канвас целиком (CSS-масштаб при
@@ -42,9 +43,18 @@ export function zoomNumber(): number {
   return v === FIT ? fitZoom() : v
 }
 
+// «Зум» всюду в этом модуле — CSS px на мировой (1280×720) px, как в
+// подписях переключателя. Канвас — RENDER_SCALE раз больше мира (render.ts),
+// поэтому CSS-зум самого канваса (Phaser scale.zoom) — z/RENDER_SCALE; заодно
+// пересчитываем image-rendering (нужен bilinear при сильном даунскейле).
+export function setCssZoom(game: Phaser.Game, z: number): void {
+  game.scale.setZoom(z / RENDER_SCALE)
+  applyCanvasFilter(game, z)
+}
+
 export function applyZoom(game: Phaser.Game, v: ZoomValue): void {
   localStorage.setItem(ZOOM_KEY, String(v))
-  game.scale.setZoom(v === FIT ? fitZoom() : v)
+  setCssZoom(game, v === FIT ? fitZoom() : v)
 }
 
 export function zoomLabel(v: ZoomValue): string {
@@ -52,11 +62,14 @@ export function zoomLabel(v: ZoomValue): string {
 }
 
 // Живой resize в режиме «по окну»: один слушатель на время жизни игры.
+// Ctrl± меняет devicePixelRatio без смены зума из настроек — фильтр канваса
+// пересчитываем при любом resize, зум камеры трогаем только в режиме «по окну».
 export function watchFit(game: Phaser.Game): void {
   if (watched) return
   watched = game
   addEventListener('resize', () => {
-    if (activeZoom() === FIT) game.scale.setZoom(fitZoom())
+    if (activeZoom() === FIT) setCssZoom(game, fitZoom())
+    else applyCanvasFilter(game, zoomNumber())
   })
 }
 

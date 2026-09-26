@@ -10,6 +10,7 @@ import { showModal } from '../ui/modal'
 import { playSfx } from '../audio'
 import { emitUi } from '../uibus'
 import { activeZoom, applyZoom, ZOOM_OPTIONS, zoomLabel } from '../uiscale'
+import { HIRES_CAMERA } from '../render'
 import {
   checkAchievements,
   getAchievementsSummary,
@@ -118,7 +119,7 @@ export class HUDScene extends Phaser.Scene {
   private toasts: Record<'top' | 'bottom', Phaser.GameObjects.Text[]> = { top: [], bottom: [] }
 
   constructor() {
-    super('hud')
+    super({ key: 'hud', cameras: HIRES_CAMERA })
   }
 
   create() {
