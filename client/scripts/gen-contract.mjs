@@ -55,7 +55,11 @@ const F =
 // потому что TS кеширует резолвленный тип на узле уже помеченным этим
 // symbol'ом. Нужен только в ветке 'alias' (замыкание по алфавиту, п.4).
 const F_ALIAS = F | ts.TypeFormatFlags.InTypeAlias
-const str = (t, node, flags = F) => checker.typeToString(t, node, flags)
+// Тип, не импортированный в файл объявления, TS печатает как
+// import("/абсолютный/путь/protocol").X — путь зависит от чекаута, и --check
+// на другой машине расходится. Оставляем только имя: оно и так есть в types.
+const stripImports = (s) => s.replace(/import\("[^"]*"\)\./g, '')
+const str = (t, node, flags = F) => stripImports(checker.typeToString(t, node, flags))
 const doc = (sym) => ts.displayPartsToString(sym.getDocumentationComment(checker)).trim()
 const examplesOf = (sym) =>
   sym

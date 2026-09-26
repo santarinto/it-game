@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "de8e042219b7",
+  "hash": "653fa8cd67bd",
   "methods": {
     "version": {
       "kind": "prop",
@@ -684,7 +684,7 @@ export const CONTRACT = {
           "doc": ""
         },
         "difficulty": {
-          "type": "import(\"/home/user/wt38/client/src/protocol\").DifficultyId | null",
+          "type": "DifficultyId | null",
           "optional": false,
           "doc": ""
         },
