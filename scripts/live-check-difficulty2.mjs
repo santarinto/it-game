@@ -6,6 +6,9 @@
 // завтрашний рынок виден заранее; поздний найм (после 12:00, до 15:00)
 // уводит вечерний ФОТ в долг — отчёт дня вместо game_over, кредит в логе,
 // день 2 продолжается. Норма: кредитов и рынка нет, цель — только деньги.
+//
+// Сид фиксирован: ролл выработки найма воспроизводим целиком. SEED=… —
+// проверить другой сид.
 let step = 0
 const ok = (name) => console.log(`ok ${++step} — ${name}`)
 const fail = (name, got) => {
@@ -15,17 +18,22 @@ const fail = (name, got) => {
 
 const SWING = [-15, -10, -5, 0, 5, 10, 15]
 
+// Фиксированный сид: ролл выработки найма воспроизводим. Без него ~1%
+// прогонов ловили «звезду» 14–17 $/тик — вечер в плюс, проверка долга падала.
+const SEED = process.env.SEED ?? '3' // сид 3: найм 8 $/тик без звезды, вечер −$135
+
 let phase = 'start'
 let lastState = null
 let prevTomorrow = null
-const ws = new WebSocket('ws://localhost:8091/ws?difficulty=hardcore')
+const ws = new WebSocket(`ws://localhost:8091/ws?difficulty=hardcore&seed=${SEED}`)
 const timeout = setTimeout(() => fail('таймаут 180с', { phase, day: lastState?.day }), 180_000)
 ws.onclose = () => fail('соединение закрылось до конца проверки', { phase })
+ws.onerror = () => fail('WebSocket error — сервер запущен на :8091?', null)
 
 ws.onmessage = (ev) => {
   const m = JSON.parse(ev.data)
   if (m.type === 'state') lastState = m
-  if (m.type === 'game_over') fail('хардкор: долг в пороге $10k, а пришёл game_over', m)
+  if (m.type === 'game_over') fail(`хардкор: долг в пороге $10k, а пришёл game_over (сид ${SEED})`, m)
 
   if (phase === 'start' && m.type === 'state') {
     const checks = {
@@ -38,6 +46,7 @@ ws.onmessage = (ev) => {
       winStaff: m.winStaff === 0,
       marketDay1: m.marketToday === 0,
       marketTomorrow: SWING.includes(m.marketTomorrow),
+      seed: m.seed === SEED,
     }
     for (const [k, v] of Object.entries(checks)) if (!v) fail(`хардкор state.${k}`, m)
     prevTomorrow = m.marketTomorrow
@@ -50,14 +59,17 @@ ws.onmessage = (ev) => {
   } else if (phase === 'wait_midday' && m.type === 'state') {
     const h = parseInt(m.clock.slice(0, 2), 10)
     if (h >= 12 && h < 15) {
-      // Найм до 15:00: зарплата сегодня, а доходных тиков мало — вечер
-      // гарантированно уводит в долг (7..11 × ~24 тика < $345 дефицита).
+      // Найм в 12:00: 36 продуктивных тиков (12 под жаждой ×0.85 и 24 под
+      // жаждой и голодом ×0.7225) — у обычного сотрудника (7..11 $/тик)
+      // это максимум ~$300 при дефиците $345, вечер гарантированно в долг.
       ws.send(JSON.stringify({ type: 'hire', office: 0 }))
       phase = 'wait_debt'
       console.log(`… наняли в ${m.clock}, ждём конец дня и отчёт с долгом`)
     }
   } else if (phase === 'wait_debt' && m.type === 'day_report') {
-    if (m.balance >= 0) fail('хардкор: ждали отрицательный баланс дня', m)
+    if (m.balance >= 0) {
+      fail(`хардкор: ждали отрицательный баланс дня (сид ${SEED}) — ролл найма, возьмите другой SEED`, m)
+    }
     if (!m.events.some((e) => e.includes('кредит'))) fail('в отчёте нет строки кредита', m.events)
     if (Math.abs(m.balance) > 10000) fail('долг за кредитным порогом', m)
     ok(`долг живой: баланс ${m.balance}, проценты в логе (${m.events.at(-1)})`)
@@ -80,8 +92,9 @@ ws.onmessage = (ev) => {
 }
 
 function normalCheck() {
-  const ws2 = new WebSocket('ws://localhost:8091/ws?difficulty=normal')
+  const ws2 = new WebSocket(`ws://localhost:8091/ws?difficulty=normal&seed=${SEED}`)
   const to = setTimeout(() => fail('норма: таймаут 20с', {}), 20_000)
+  ws2.onerror = () => fail('WebSocket error — сервер запущен на :8091?', null)
   ws2.onmessage = (ev) => {
     const m = JSON.parse(ev.data)
     if (m.type !== 'state') return

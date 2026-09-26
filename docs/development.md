@@ -97,11 +97,12 @@ Screenshots: `client/smoke-*.png` (gitignored).
     node scripts/live-check-activeday.mjs        # active day
     node scripts/live-check-events.mjs           # random events (SEED=3 by default)
     node scripts/live-check-employees2.mjs       # employees
-    node scripts/live-check-difficulty2.mjs      # difficulty rules
+    node scripts/live-check-difficulty2.mjs      # difficulty rules (SEED=3 by default)
 
-Each exits 0 with a final "… ОК". `live-check-difficulty2` depends on an
-income roll and occasionally fails — rerun it. `scripts/live-check.mjs` is
-outdated (expects old prices and targets) and fails.
+Each exits 0 with a final "… ОК". `live-check-events` and
+`live-check-difficulty2` pin a seed (`SEED=…` overrides), so runs are
+reproducible. `scripts/live-check.mjs` is outdated (expects old prices and
+targets) and fails.
 
 **sim** (`server/cmd/sim`) plays games with the real engine, e.g.
 `make sim ARGS="--diff hardcore --seed 1..50 --days 30 --policy all --out runs.csv"`.
