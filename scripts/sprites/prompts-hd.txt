@@ -57,3 +57,24 @@ worker|isometric 3/4 office worker sitting in an office chair, seen from behind/
 desk_empty|isometric 3/4 office desk with absolutely nothing on it, bare wooden desktop surface only, no computer, no monitor, no keyboard, no chair, no person
 boss|isometric 3/4 office boss standing, wearing a dark business suit and tie, holding an open laptop in one hand and typing on it with the other, busy at work, three-quarter front view, full body
 boss_lunch|isometric 3/4 office boss standing, wearing a dark business suit and tie, on lunch break, holding a coffee cup and a sandwich, relaxed, three-quarter front view, full body
+#
+# Серверная (rack_server, gateway) и быт (cooler, fridge, coffee_machine)
+# + router (слот «сеть» в офисе) — HD-замена 64px sweetie16. Те же
+# движок/outline/shading/detail, что у boss (pixflux --background, hd32
+# --lock-palette); --size/--palette hd32 передаются ЯВНО — ключи уже есть
+# в манифесте как 64/sweetie16, и без явных флагов gen-sprites.sh взял бы
+# размер/палитру оттуда (и isometric=false). Холст генерации подобран под
+# экранный размер предмета (build-hd.sh вписывает его в 128×128 без
+# ресемплинга): стойка — 128, остальное — 96. rack_empty не генерируется:
+# отрицания («empty», «no servers») модель игнорирует так же, как у
+# desk_empty, — это пиксельная правка rack_server.
+rack_server|isometric 3/4 tall black server rack cabinet, front panel full of stacked rack-mounted servers with rows of small green and blue status lights, metal frame
+router|isometric 3/4 small office wifi router, dark grey plastic box with two antennas pointing up, row of green status lights and ethernet ports on the front
+gateway|isometric 3/4 network gateway appliance, wide flat dark metal box, blue globe emblem on the top panel, ethernet ports and status lights on the front edge
+cooler|isometric 3/4 office water cooler, white body with red and blue taps, big blue water bottle on top
+# fridge: первая генерация (тот же промпт без «large tall», seed по
+# умолчанию = cksum("fridge")) нарисовала холодильник крошечным — bbox
+# 26×48 на холсте 96, вдвое ниже кулера; перегенерирован с «large tall
+# … full height» и явным seed (третье поле).
+fridge|isometric 3/4 large tall white office refrigerator, full height, two doors with silver handles|20260926
+coffee_machine|isometric 3/4 espresso coffee machine, brushed steel and black body, white cup under the spout
