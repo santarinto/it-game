@@ -311,20 +311,28 @@ non-zero scroll purely to recentre the zoom — it no longer maps world
 Sprites come from a dev-time AI pipeline; the game itself is fully offline
 and the finished PNGs are committed.
 
-- **Generate:** `scripts/gen-sprites.sh` — PixelLab API v2. `--balance`
-  (free) → `--dry-run [--engine pixen|pixflux|bitforge] [--hd] <key>`
-  prints the request without calling the API → a real run writes raw
-  PNG/JSON and the remapped PNG to `OUT_DIR` (a fresh `mktemp -d` by
-  default, never `client/public`) → review the PNGs → `--install <key>
-  <file>` re-checks the file against the manifest contract and only then
-  copies it to `client/public/assets/sprites/<key>.png`. Size/palette come
-  from the manifest per key (unchanged for the 14 current 64px keys);
-  `--hd`, or a key the manifest doesn't have yet, defaults to 128px/`hd32`
-  /isometric and reads `scripts/sprites/prompts-hd.txt`. `MAX_GENERATIONS`
-  (default 20) hard-stops real generation calls per session. The
-  pixflux/bitforge fields and the async-job response shape are
-  unconfirmed — check `/v2/openapi.json` before the first real call.
-  `SPRITES_API_KEY` is only required for a real call or `--balance`.
+- **Generate:** `scripts/gen-sprites.sh` — PixelLab API v2, fields checked
+  against `/v2/openapi.json`. `--balance` (free) → `--dry-run [--engine
+  pixen|pixflux|bitforge] [--hd] <key>` prints the request without calling
+  the API → a real run writes raw PNG/JSON and the remapped PNG to
+  `OUT_DIR` (a fresh `mktemp -d` by default, never `client/public`) →
+  review the PNGs → `--install <key> <file>` re-checks the file against the
+  manifest contract and only then copies it to
+  `client/public/assets/sprites/<key>.png`. Size/palette come from the
+  manifest per key (unchanged for the 14 current 64px keys); `--hd`, or a
+  key the manifest doesn't have yet, defaults to 128px/`hd32`/isometric and
+  reads `scripts/sprites/prompts-hd.txt`. Per-engine size caps are enforced
+  before the request (`pixen` ≤768, multiple of 4, area ≤512×512;
+  `pixflux` ≤400; `bitforge` ≤200). `--lock-palette` (on by default for
+  pixflux/bitforge, unavailable for pixen — warns instead of failing)
+  builds a 1px-tall PNG strip from the key's manifest palette and sends it
+  as `color_image` to force that palette; `--no-lock-palette` disables it.
+  Other pass-through flags: `--view`, `--outline`, `--shading`
+  (pixflux/bitforge only), `--detail`, `--direction`, `--negative`,
+  `--guidance` (pixflux/bitforge only), `--seed`, `--style-strength`
+  (bitforge, integer 0..100, default 40). `MAX_GENERATIONS` (default 20)
+  hard-stops real generation calls per session. `SPRITES_API_KEY` is only
+  required for a real call or `--balance`.
 - **Remap:** `client/scripts/sprite-remap.mjs` (pngjs — no ImageMagick, it
   isn't installed in the container): alpha-threshold → nearest-palette
   quantize (redmean) → optional despeckle → bbox → center/bottom-place on

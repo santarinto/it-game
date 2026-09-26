@@ -4,21 +4,32 @@
 # client/public/assets/sprites/ — этот скрипт их туда не пишет напрямую,
 # см. "Установка" ниже.
 #
-# ДОПУЩЕНИЯ ОБ API (не подтверждены офиц. доками — сверить с
-# GET /v2/openapi.json перед первым реальным вызовом; ключа/сети сейчас
-# нет, весь скрипт разрабатывался и тестировался только через --dry-run):
-#   • эндпоинты генерации: POST /v2/create-image-{pixen,pixflux,bitforge};
-#     pixen — как раньше (description/image_size/no_background/seed);
-#     pixflux — плюс "isometric": bool; bitforge — плюс опциональные
-#     "style_image" (base64) и "style_strength" (0..1);
-#   • ответ — либо сразу {"image":{"base64":...}, "usage"/"credits"/"cost":…},
-#     либо асинхронная задача: наличие "background_job_id"/"job_id" или
-#     status тела в {"processing","pending","queued"} означает "опроси
-#     статус"; путь опроса ПРЕДПОЛОЖИТЕЛЬНО GET /v2/generate-image/<id>
-#     (SPRITES_JOB_STATUS_PATH переопределяет шаблон, "{id}" — подстановка);
-#   • терминальные статусы опроса: succeeded/completed/done/success (успех),
-#     failed/error (провал), всё прочее — ещё в процессе;
-#   • баланс: GET /v2/balance, бесплатный вызов, ответ — произвольный JSON.
+# Поля запросов и форма ответа сверены с /v2/openapi.json (снятым
+# 2026-09-26). Эндпоинты, которые использует скрипт:
+#   • POST /v2/create-image-pixen    — синхронный; тело: description,
+#     image_size{width,height} (кратно 4, 16..768, площадь ≤512×512),
+#     outline/detail/view/direction, no_background, seed, enhance_prompt.
+#     Ответ: {usage, image, enhanced_prompt?, enhance_usage?} — нет
+#     shading/negative_description/text_guidance_scale/color_image.
+#   • POST /v2/create-image-pixflux  — синхронный; тело: то же + isometric,
+#     negative_description, text_guidance_scale (≤20), shading, init_image,
+#     init_image_strength, color_image (принудительная палитра). Ответ:
+#     {usage, image}. image_size: 16..400.
+#   • POST /v2/create-image-bitforge — синхронный; тело: как pixflux, плюс
+#     style_strength (ЦЕЛОЕ 0..100), style_image/inpainting_image/mask_image.
+#     Ответ: {usage, image}. image_size: 16..200.
+#   • GET  /v2/balance — {credits:{usd}, subscription:{status,plan,
+#     generations,total}} — свободный вызов.
+#   • GET  /v2/background-jobs/{id} — {usage, id, status
+#     (processing|completed|failed), created_at, last_response} — опрос НА
+#     СЛУЧАЙ асинхронного ответа; сами create-image-* синхронны и его не
+#     требуют, но детектор асинхронности не гадает: срабатывает только если
+#     в ответе одновременно есть id И status (форма BackgroundJobResponse).
+# image/style_image/color_image и т.п. — объект Base64Image
+# {"type":"base64","base64":"…","format":"png"}, НЕ голая строка.
+# Коды ошибок 401/402/422/429/529 обрабатывает do_create_request(): 402 —
+# нет кредитов/генераций, 429/529 — один повтор с паузой, 422 — печать
+# detail из тела ответа.
 #
 # Использование:
 #   scripts/gen-sprites.sh --balance
@@ -36,6 +47,12 @@
 # так текущие 64px-ключи не меняют поведение (обратная совместимость).
 # Если ключа в манифесте ещё нет (HD-заготовки), включается --hd
 # (128/hd32) либо явные --size/--palette.
+#
+# --lock-palette (по умолчанию включено для pixflux/bitforge, недоступно
+# для pixen — предупреждение вместо ошибки) собирает из палитры ключа
+# (palettes.<palette> в манифесте) PNG-полоску N×1 пикселей на pngjs и
+# передаёт её как color_image — принудительная палитра генерации.
+# --no-lock-palette выключает.
 #
 # Результат каждой генерации (сырой PNG + JSON-ответ + remap-PNG) уходит в
 # OUT_DIR (по умолчанию свежий mktemp -d, можно задать OUT_DIR=… или
@@ -56,7 +73,8 @@ BALANCE_MAX_TIME=${SPRITES_BALANCE_MAX_TIME:-15}
 MAX_GENERATIONS=${MAX_GENERATIONS:-20}
 POLL_INTERVAL=${SPRITES_POLL_INTERVAL:-5}
 POLL_TIMEOUT=${SPRITES_POLL_TIMEOUT:-180}
-JOB_STATUS_PATH=${SPRITES_JOB_STATUS_PATH:-/v2/generate-image/{id}}
+JOB_STATUS_PATH=${SPRITES_JOB_STATUS_PATH:-/background-jobs/{id}}
+RETRY_SLEEP=${SPRITES_RETRY_SLEEP:-15}
 
 MANIFEST=client/src/assets/sprites.json
 REMAP=client/scripts/sprite-remap.mjs
@@ -70,7 +88,16 @@ PROMPTS_FILE=""
 SIZE_OVERRIDE=""
 PALETTE_OVERRIDE=""
 STYLE_IMAGE=""
-STYLE_STRENGTH=${SPRITES_STYLE_STRENGTH:-0.5}
+STYLE_STRENGTH=${SPRITES_STYLE_STRENGTH:-40}
+LOCK_PALETTE=auto
+VIEW=""
+OUTLINE=""
+SHADING=""
+DETAIL=""
+DIRECTION=""
+NEGATIVE=""
+GUIDANCE=""
+SEED_OVERRIDE=""
 OUT_DIR=${OUT_DIR:-}
 INSTALL_KEY=""
 INSTALL_FILE=""
@@ -90,8 +117,21 @@ Usage:
   --hd                   промпты из prompts-hd.txt, дефолт size=128 palette=hd32 isometric=true
   --prompts FILE          свой файл промптов вместо prompts.txt/prompts-hd.txt
   --size N / --palette P  переопределить размер/палитру (иначе — из манифеста, потом --hd/дефолт)
-  --style-image FILE      bitforge: файл-референс стиля (base64 в тело)
-  --style-strength F      bitforge: сила стиля 0..1 (default 0.5)
+  --style-image FILE      bitforge: файл-референс стиля (Base64Image в тело)
+  --style-strength N      bitforge: сила стиля, целое 0..100 (default 40)
+  --lock-palette          принудительная палитра ключа как color_image (default: вкл для
+                          pixflux/bitforge; для pixen недоступно — предупреждение)
+  --no-lock-palette       выключить --lock-palette
+  --view V                CameraView: side | "low top-down" | "high top-down"
+  --outline V             Outline: "single color black outline" | "single color outline" |
+                          "selective outline" | lineless
+  --shading V             Shading (pixflux/bitforge): "flat shading" | "basic shading" |
+                          "medium shading" | "detailed shading" | "highly detailed shading"
+  --detail V              Detail: "low detail" | "medium detail" | "highly detailed"
+  --direction V           Direction: north|north-east|east|south-east|south|south-west|west|north-west
+  --negative TEXT         negative_description (pixflux/bitforge)
+  --guidance N            text_guidance_scale, 1..20 (pixflux/bitforge)
+  --seed N                переопределить вычисляемый seed
   --out-dir DIR           куда класть сырые/промежуточные файлы (default: mktemp -d)
   --balance               GET /v2/balance и выход (бесплатно)
   --install KEY FILE      скопировать уже прошедший remap FILE в client/public/assets/sprites/KEY.png
@@ -108,6 +148,16 @@ while [[ $# -gt 0 ]]; do
     --palette) PALETTE_OVERRIDE=${2:?--palette требует значение}; shift 2 ;;
     --style-image) STYLE_IMAGE=${2:?--style-image требует путь}; shift 2 ;;
     --style-strength) STYLE_STRENGTH=${2:?--style-strength требует число}; shift 2 ;;
+    --lock-palette) LOCK_PALETTE=on; shift ;;
+    --no-lock-palette) LOCK_PALETTE=off; shift ;;
+    --view) VIEW=${2:?--view требует значение}; shift 2 ;;
+    --outline) OUTLINE=${2:?--outline требует значение}; shift 2 ;;
+    --shading) SHADING=${2:?--shading требует значение}; shift 2 ;;
+    --detail) DETAIL=${2:?--detail требует значение}; shift 2 ;;
+    --direction) DIRECTION=${2:?--direction требует значение}; shift 2 ;;
+    --negative) NEGATIVE=${2:?--negative требует текст}; shift 2 ;;
+    --guidance) GUIDANCE=${2:?--guidance требует число}; shift 2 ;;
+    --seed) SEED_OVERRIDE=${2:?--seed требует число}; shift 2 ;;
     --out-dir) OUT_DIR=${2:?--out-dir требует путь}; shift 2 ;;
     --balance) DO_BALANCE=1; shift ;;
     --install)
@@ -126,6 +176,58 @@ case "$ENGINE" in
   pixen|pixflux|bitforge) ;;
   *) echo "неизвестный --engine '$ENGINE' (ожидается pixen|pixflux|bitforge)" >&2; exit 2 ;;
 esac
+
+# ── валидация enum-флагов по /v2/openapi.json (Outline/Shading/Detail/
+#    CameraView/Direction) — до сети, чтобы не тратить вызов на опечатку ──
+validate_enum() {
+  local flag=$1 value=$2; shift 2
+  local v
+  for v in "$@"; do
+    [[ "$value" == "$v" ]] && return 0
+  done
+  echo "неверное значение --$flag '$value' (ожидается одно из: $*)" >&2
+  exit 2
+}
+[[ -n "$OUTLINE" ]] && validate_enum outline "$OUTLINE" \
+  "single color black outline" "single color outline" "selective outline" "lineless"
+[[ -n "$SHADING" ]] && validate_enum shading "$SHADING" \
+  "flat shading" "basic shading" "medium shading" "detailed shading" "highly detailed shading"
+[[ -n "$DETAIL" ]] && validate_enum detail "$DETAIL" \
+  "low detail" "medium detail" "highly detailed"
+[[ -n "$VIEW" ]] && validate_enum view "$VIEW" \
+  "side" "low top-down" "high top-down"
+[[ -n "$DIRECTION" ]] && validate_enum direction "$DIRECTION" \
+  north north-east east south-east south south-west west north-west
+
+if ! [[ "$STYLE_STRENGTH" =~ ^[0-9]+$ ]] || (( STYLE_STRENGTH < 0 || STYLE_STRENGTH > 100 )); then
+  echo "--style-strength должен быть целым 0..100 (получено '$STYLE_STRENGTH')" >&2
+  exit 2
+fi
+if [[ -n "$GUIDANCE" ]]; then
+  if ! [[ "$GUIDANCE" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "--guidance должен быть числом 1..20 (получено '$GUIDANCE')" >&2
+    exit 2
+  fi
+  if ! awk -v g="$GUIDANCE" 'BEGIN { exit !(g >= 1 && g <= 20) }'; then
+    echo "--guidance должен быть в диапазоне 1..20 (получено '$GUIDANCE')" >&2
+    exit 2
+  fi
+fi
+if [[ -n "$SEED_OVERRIDE" ]] && ! [[ "$SEED_OVERRIDE" =~ ^-?[0-9]+$ ]]; then
+  echo "--seed должен быть целым числом (получено '$SEED_OVERRIDE')" >&2
+  exit 2
+fi
+
+# ── поля, которых нет в схеме выбранного движка — ошибка до сети ────────
+if [[ "$ENGINE" == "pixen" ]]; then
+  [[ -n "$SHADING" ]] && { echo "--shading недоступен для engine=pixen (нет поля shading в CreateImagePixenRequest)" >&2; exit 2; }
+  [[ -n "$NEGATIVE" ]] && { echo "--negative недоступен для engine=pixen (нет negative_description)" >&2; exit 2; }
+  [[ -n "$GUIDANCE" ]] && { echo "--guidance недоступен для engine=pixen (нет text_guidance_scale)" >&2; exit 2; }
+fi
+if [[ "$ENGINE" != "bitforge" && -n "$STYLE_IMAGE" ]]; then
+  echo "--style-image доступен только для engine=bitforge" >&2
+  exit 2
+fi
 
 # ── --install: отдельная команда, никакой сети ──────────────────────────
 if [[ -n "$INSTALL_KEY" ]]; then
@@ -183,9 +285,23 @@ fi
 
 # ── --balance: единственный бесплатный сетевой вызов ────────────────────
 if [[ "$DO_BALANCE" == "1" ]]; then
-  curl -sS --fail-with-body --connect-timeout "$CONNECT_TIMEOUT" --max-time "$BALANCE_MAX_TIME" \
-    "$API/balance" -H "Authorization: Bearer $KEY"
-  echo
+  resp=$(curl -sS --fail-with-body --connect-timeout "$CONNECT_TIMEOUT" --max-time "$BALANCE_MAX_TIME" \
+    "$API/balance" -H "Authorization: Bearer $KEY")
+  printf '%s' "$resp" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+credits = d.get("credits") or {}
+sub = d.get("subscription") or {}
+print(f"Кредиты: ${credits.get(\"usd\", 0)} USD")
+print(
+    "Подписка: статус={status}, план={plan}, осталось {gen}/{total} генераций".format(
+        status=sub.get("status", "?"),
+        plan=sub.get("plan") or "-",
+        gen=sub.get("generations", "?"),
+        total=sub.get("total", "?"),
+    )
+)
+'
   exit 0
 fi
 
@@ -225,59 +341,40 @@ else:
 PY
 }
 
-# Одна функция сборки тела запроса на движок — правьте поля здесь, сверяя
-# с /v2/openapi.json (эндпоинты и поля НЕ подтверждены, см. шапку файла).
-build_body() {
-  local engine=$1 description=$2 size=$3 seed=$4 isometric=$5 style_b64_file=$6 style_strength=$7
-  python3 - "$engine" "$description" "$size" "$seed" "$isometric" "$style_b64_file" "$style_strength" <<'PY'
-import base64
-import json
-import sys
+# Собирает PNG-полоску N×1 из палитры ключа манифеста (--lock-palette),
+# пишет во временный файл и печатает его путь. Используется как color_image
+# (принудительная палитра) для pixflux/bitforge — pixen такого поля не
+# принимает (см. валидацию в gen_one).
+palette_image_file() {
+  local palette=$1
+  local out
+  out=$(mktemp --suffix=.png)
+  if ! node --input-type=module - "$MANIFEST" "$palette" "$out" <<'NODE_EOF'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { PNG } from './client/node_modules/pngjs/lib/png.js'
 
-engine, desc, size, seed, isometric, style_file, style_strength = sys.argv[1:8]
-size = int(size)
-seed = int(seed) % 2147483647
-isometric = isometric == 'true'
-# HD-ключи (isometric=true, см. gen_one: привязано к palette==hd32) несут
-# свой стилевой суффикс — общий для всех промптов из prompts-hd.txt.
-if isometric:
-    full_desc = desc + ", HD isometric pixel art game asset, 128px, clean readable silhouette, transparent background, no text"
-else:
-    full_desc = desc + ", flat pixel art game sprite, clean readable silhouette, few colors, no text"
-
-if engine == 'pixen':
-    body = {
-        "description": full_desc,
-        "image_size": {"width": size, "height": size},
-        "no_background": True,
-        "seed": seed,
-    }
-elif engine == 'pixflux':
-    body = {
-        "description": full_desc,
-        "image_size": {"width": size, "height": size},
-        "isometric": isometric,
-        "no_background": True,
-        "seed": seed,
-    }
-elif engine == 'bitforge':
-    body = {
-        "description": full_desc,
-        "image_size": {"width": size, "height": size},
-        "isometric": isometric,
-        "no_background": True,
-        "seed": seed,
-    }
-    if style_file:
-        with open(style_file, 'rb') as f:
-            body["style_image"] = base64.b64encode(f.read()).decode()
-        body["style_strength"] = float(style_strength)
-else:
-    print(f"неизвестный engine {engine}", file=sys.stderr)
-    sys.exit(1)
-
-print(json.dumps(body))
-PY
+const [manifestPath, paletteName, outPath] = process.argv.slice(2)
+const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+const colors = manifest.palettes?.[paletteName]
+if (!colors || !colors.length) {
+  console.error(`palette_image: неизвестная палитра '${paletteName}' в ${manifestPath}`)
+  process.exit(1)
+}
+const png = new PNG({ width: colors.length, height: 1 })
+colors.forEach((hex, i) => {
+  const idx = i * 4
+  png.data[idx] = parseInt(hex.slice(0, 2), 16)
+  png.data[idx + 1] = parseInt(hex.slice(2, 4), 16)
+  png.data[idx + 2] = parseInt(hex.slice(4, 6), 16)
+  png.data[idx + 3] = 255
+})
+writeFileSync(outPath, PNG.sync.write(png))
+NODE_EOF
+  then
+    echo "lock-palette: не удалось собрать PNG-палитру для '$palette'" >&2
+    exit 1
+  fi
+  printf '%s' "$out"
 }
 
 json_field() {
@@ -304,8 +401,190 @@ print(cur if isinstance(cur, (str, int, float)) else json.dumps(cur))
 PY
 }
 
-# Опрос асинхронной задачи. Форма ответа НЕ подтверждена (см. шапку файла) —
-# разбор нарочно гибкий: любое поле status, любой из "терминальных" наборов.
+# Одна функция сборки тела запроса на движок, сверена с /v2/openapi.json
+# (см. шапку файла). Входы — через переменные окружения, а не argv: часть
+# значений (--negative, описание) — произвольный текст, и так не нужно
+# городить bash-экранирование для кавычек/спецсимволов.
+build_body() {
+  BODY_ENGINE=$1 BODY_DESC=$2 BODY_SIZE=$3 BODY_SEED=$4 BODY_ISO=$5 \
+  BODY_STYLE_FILE=$6 BODY_STYLE_STRENGTH=$7 BODY_COLOR_FILE=$8 \
+  BODY_NEGATIVE=$9 BODY_GUIDANCE=${10} BODY_OUTLINE=${11} BODY_SHADING=${12} \
+  BODY_DETAIL=${13} BODY_VIEW=${14} BODY_DIRECTION=${15} \
+  python3 - <<'PY'
+import base64
+import json
+import os
+
+
+def b64_image(path):
+    with open(path, 'rb') as f:
+        data = f.read()
+    fmt = 'jpeg' if path.lower().endswith(('.jpg', '.jpeg')) else 'png'
+    return {"type": "base64", "base64": base64.b64encode(data).decode(), "format": fmt}
+
+
+engine = os.environ['BODY_ENGINE']
+desc = os.environ['BODY_DESC']
+size = int(os.environ['BODY_SIZE'])
+seed = int(os.environ['BODY_SEED']) % 2147483647
+isometric = os.environ['BODY_ISO'] == 'true'
+style_file = os.environ['BODY_STYLE_FILE']
+style_strength = os.environ['BODY_STYLE_STRENGTH']
+color_file = os.environ['BODY_COLOR_FILE']
+negative = os.environ['BODY_NEGATIVE']
+guidance = os.environ['BODY_GUIDANCE']
+outline = os.environ['BODY_OUTLINE']
+shading = os.environ['BODY_SHADING']
+detail = os.environ['BODY_DETAIL']
+view = os.environ['BODY_VIEW']
+direction = os.environ['BODY_DIRECTION']
+
+# HD-ключи (isometric=true, см. gen_one: привязано к palette==hd32) несут
+# свой стилевой суффикс — общий для всех промптов из prompts-hd.txt.
+if isometric:
+    full_desc = desc + ", HD isometric pixel art game asset, 128px, clean readable silhouette, transparent background, no text"
+else:
+    full_desc = desc + ", flat pixel art game sprite, clean readable silhouette, few colors, no text"
+
+body = {
+    "description": full_desc,
+    "image_size": {"width": size, "height": size},
+    "no_background": True,
+    "seed": seed,
+}
+# Общие для всех трёх движков (см. /v2/openapi.json).
+if outline:
+    body["outline"] = outline
+if detail:
+    body["detail"] = detail
+if view:
+    body["view"] = view
+if direction:
+    body["direction"] = direction
+
+if engine == 'pixen':
+    pass  # pixen не знает isometric/shading/negative_description/
+          # text_guidance_scale/color_image/style_image — не добавляем
+elif engine == 'pixflux':
+    body["isometric"] = isometric
+    if negative:
+        body["negative_description"] = negative
+    if guidance:
+        body["text_guidance_scale"] = float(guidance)
+    if shading:
+        body["shading"] = shading
+    if color_file:
+        body["color_image"] = b64_image(color_file)
+elif engine == 'bitforge':
+    body["isometric"] = isometric
+    body["style_strength"] = int(style_strength)
+    if negative:
+        body["negative_description"] = negative
+    if guidance:
+        body["text_guidance_scale"] = float(guidance)
+    if shading:
+        body["shading"] = shading
+    if style_file:
+        body["style_image"] = b64_image(style_file)
+    if color_file:
+        body["color_image"] = b64_image(color_file)
+else:
+    raise SystemExit(f"неизвестный engine {engine}")
+
+print(json.dumps(body))
+PY
+}
+
+# POST create-image-<ENGINE>. Возвращает тело 200-ответа на stdout.
+# 402 — нет кредитов/генераций; 422 — печатает detail валидации; 429/529 —
+# один повтор после паузы; остальное — общая ошибка. Все — понятное
+# сообщение + exit 1, без сырого вывода curl.
+do_create_request() {
+  local body=$1
+  local attempt raw status resp_body
+  for attempt in 1 2; do
+    raw=$(curl -sS --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" \
+      -w '\n%{http_code}' \
+      -X POST "$API/create-image-$ENGINE" \
+      -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+      -d "$body") || { echo "  сетевая ошибка запроса к $API/create-image-$ENGINE" >&2; exit 1; }
+    status=${raw##*$'\n'}
+    resp_body=${raw%$'\n'"$status"}
+    case "$status" in
+      200)
+        printf '%s' "$resp_body"
+        return 0
+        ;;
+      401)
+        echo "  401: неверный SPRITES_API_KEY" >&2
+        exit 1
+        ;;
+      402)
+        echo "  402: недостаточно кредитов/генераций на балансе (см. --balance)" >&2
+        exit 1
+        ;;
+      422)
+        echo "  422: ошибка валидации тела запроса:" >&2
+        printf '%s' "$resp_body" | python3 -c '
+import json, sys
+try:
+    d = json.loads(sys.argv[1])
+except Exception:
+    print("    (тело ответа не JSON)", file=sys.stderr)
+    sys.exit(0)
+detail = d.get("detail", d) if isinstance(d, dict) else d
+if isinstance(detail, list):
+    for e in detail:
+        loc = ".".join(str(p) for p in e.get("loc", [])) if isinstance(e, dict) else ""
+        msg = e.get("msg") if isinstance(e, dict) else e
+        print(f"    {loc}: {msg}", file=sys.stderr)
+else:
+    print(f"    {detail}", file=sys.stderr)
+' "$resp_body"
+        exit 1
+        ;;
+      429|529)
+        if [[ "$attempt" == "1" ]]; then
+          echo "  HTTP $status: троттлинг, повтор через ${RETRY_SLEEP}с…" >&2
+          sleep "$RETRY_SLEEP"
+          continue
+        fi
+        echo "  HTTP $status: троттлинг после повтора — сдаюсь" >&2
+        exit 1
+        ;;
+      *)
+        echo "  HTTP $status: неожиданный ответ" >&2
+        printf '%s\n' "$resp_body" >&2
+        exit 1
+        ;;
+    esac
+  done
+}
+
+# Печатает Usage {type: usd|generations, usd, generations} по-человечески.
+print_usage() {
+  local usage_json=$1
+  if [[ -z "$usage_json" || "$usage_json" == "null" ]]; then
+    echo "  usage: н/д"
+    return 0
+  fi
+  python3 -c '
+import json, sys
+u = json.loads(sys.argv[1])
+t = u.get("type", "usd")
+if t == "usd" and u.get("usd") is not None:
+    print(f"  usage: ${u[\"usd\"]} USD")
+elif t == "generations" and u.get("generations") is not None:
+    print(f"  usage: {u[\"generations\"]} генераций")
+else:
+    print(f"  usage: {json.dumps(u, ensure_ascii=False)}")
+' "$usage_json"
+}
+
+# Опрос GET /background-jobs/{id} (BackgroundJobResponse: id, status,
+# created_at, last_response). Статусы по /v2/openapi.json: processing —
+# ждём, completed — успех, failed — провал; что-то ещё — тоже ждём, но
+# предупреждаем (на случай, если API расширит набор статусов).
 # resp_file перезаписывается на каждом опросе; при успехе в нём остаётся
 # финальный ответ задачи (читает его вызывающий код через json_field).
 poll_job() {
@@ -326,12 +605,13 @@ poll_job() {
     st=$(json_field "$resp_file" status)
     echo "  poll job=$job_id status=${st:-?} (${waited}s/${POLL_TIMEOUT}s)"
     case "$st" in
-      succeeded|completed|done|success) return 0 ;;
-      failed|error)
-        echo "job $job_id: терминальный статус '$st' — провал" >&2
+      completed) return 0 ;;
+      failed)
+        echo "job $job_id: терминальный статус 'failed' — провал" >&2
         return 1
         ;;
-      *) ;; # processing/pending/queued/пусто — ждём дальше
+      processing|"") ;; # ещё в процессе
+      *) echo "  poll: незнакомый статус '$st' — продолжаю ждать" >&2 ;;
     esac
   done
   echo "job $job_id: таймаут ${POLL_TIMEOUT}s без терминального статуса" >&2
@@ -341,7 +621,13 @@ poll_job() {
 gen_one() {
   local key=$1 prompt=$2 override_seed=${3:-}
   local seed
-  seed=${override_seed:-$(seed_of "$key")}
+  if [[ -n "$SEED_OVERRIDE" ]]; then
+    seed=$SEED_OVERRIDE
+  elif [[ -n "$override_seed" ]]; then
+    seed=$override_seed
+  else
+    seed=$(seed_of "$key")
+  fi
 
   local m_size m_palette m_found
   read -r m_size m_palette m_found < <(manifest_lookup "$key")
@@ -360,13 +646,67 @@ gen_one() {
   isometric=false
   [[ "$palette" == "hd32" ]] && isometric=true
 
+  # Лимиты image_size по движку (/v2/openapi.json). Наши размеры всегда
+  # квадратные (одно --size на обе стороны), так что правило pixen
+  # "width==height при стороне <32" выполняется автоматически.
+  case "$ENGINE" in
+    bitforge)
+      (( size >= 16 && size <= 200 )) || { echo "bitforge: size=$size вне допустимых 16..200" >&2; exit 1; }
+      ;;
+    pixflux)
+      (( size >= 16 && size <= 400 )) || { echo "pixflux: size=$size вне допустимых 16..400" >&2; exit 1; }
+      ;;
+    pixen)
+      (( size >= 16 && size <= 768 )) || { echo "pixen: size=$size вне допустимых 16..768" >&2; exit 1; }
+      (( size % 4 == 0 )) || { echo "pixen: size=$size должен быть кратен 4" >&2; exit 1; }
+      (( size * size <= 512 * 512 )) || { echo "pixen: площадь ${size}x${size} превышает лимит 512x512" >&2; exit 1; }
+      ;;
+  esac
+
+  # --lock-palette: по умолчанию (auto) включено для pixflux/bitforge и
+  # выключено для pixen без единого слова — там просто нет color_image.
+  # Явный --lock-palette при engine=pixen — предупреждение, а не отказ.
+  local want_lock=0
+  case "$LOCK_PALETTE" in
+    on)
+      if [[ "$ENGINE" == "pixen" ]]; then
+        echo "  WARN: --lock-palette недоступен для pixen (нет color_image в CreateImagePixenRequest) — игнорирую" >&2
+      else
+        want_lock=1
+      fi
+      ;;
+    off) want_lock=0 ;;
+    auto) [[ "$ENGINE" != "pixen" ]] && want_lock=1 ;;
+  esac
+  local color_file=""
+  [[ "$want_lock" == "1" ]] && color_file=$(palette_image_file "$palette")
+
   local body
-  body=$(build_body "$ENGINE" "$prompt" "$size" "$seed" "$isometric" "$STYLE_IMAGE" "$STYLE_STRENGTH")
+  body=$(build_body "$ENGINE" "$prompt" "$size" "$seed" "$isometric" \
+    "$STYLE_IMAGE" "$STYLE_STRENGTH" "$color_file" \
+    "$NEGATIVE" "$GUIDANCE" "$OUTLINE" "$SHADING" "$DETAIL" "$VIEW" "$DIRECTION")
 
   if [[ "$DRY_RUN" == "1" ]]; then
-    echo "→ $key (dry-run, engine=$ENGINE, size=$size, palette=$palette, isometric=$isometric, seed=$seed, manifest=${m_found})"
+    echo "→ $key (dry-run, engine=$ENGINE, size=$size, palette=$palette, isometric=$isometric, seed=$seed, manifest=${m_found}, lock_palette=${want_lock})"
     echo "  POST $API/create-image-$ENGINE"
-    echo "$body" | python3 -m json.tool | sed 's/^/  /'
+    printf '%s' "$body" | python3 -c '
+import json, sys
+
+def shorten(obj):
+    if isinstance(obj, dict):
+        if obj.get("type") == "base64" and "base64" in obj:
+            obj = dict(obj)
+            b64 = obj["base64"]
+            obj["base64"] = f"{b64[:32]}... (len={len(b64)})"
+            return obj
+        return {k: shorten(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [shorten(v) for v in obj]
+    return obj
+
+body = json.load(sys.stdin)
+print(json.dumps(shorten(body), indent=2, ensure_ascii=False))
+' | sed 's/^/  /'
     return 0
   fi
 
@@ -375,33 +715,22 @@ gen_one() {
     exit 1
   fi
 
-  echo "→ $key (engine=$ENGINE, size=$size, palette=$palette, isometric=$isometric, seed=$seed)"
+  echo "→ $key (engine=$ENGINE, size=$size, palette=$palette, isometric=$isometric, seed=$seed, lock_palette=${want_lock})"
   local resp resp_file
   resp_file="$OUT_DIR/$key.response.json"
-  resp=$(curl -sS --fail-with-body --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" \
-    -X POST "$API/create-image-$ENGINE" \
-    -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
-    -d "$body")
+  resp=$(do_create_request "$body")
   GEN_COUNT=$((GEN_COUNT + 1))
   printf '%s' "$resp" > "$resp_file"
 
-  # Асинхронная задача? Проверяем оба гибких признака: явный job id или
-  # status в незавершённом наборе (см. допущения в шапке файла).
-  local job_id status
-  job_id=$(json_field "$resp_file" background_job_id)
-  [[ -z "$job_id" ]] && job_id=$(json_field "$resp_file" job_id)
-  status=$(json_field "$resp_file" status)
-  case "$status" in
-    processing|pending|queued) ;;
-    *) status="" ;;
-  esac
-  if [[ -n "$job_id" || -n "$status" ]]; then
-    if [[ -z "$job_id" ]]; then
-      echo "  ответ выглядит асинхронным (status=$status), но нет job id (background_job_id/job_id) — не могу опросить" >&2
-      exit 1
-    fi
-    echo "  асинхронная задача job=$job_id — опрашиваю $JOB_STATUS_PATH каждые ${POLL_INTERVAL}s (таймаут ${POLL_TIMEOUT}s)"
-    if ! poll_job "$job_id" "$resp_file"; then
+  # Асинхронность определяем по факту (id+status в ответе, форма
+  # BackgroundJobResponse), не по догадкам — create-image-* синхронны и
+  # обычно этот путь не сработает.
+  local resp_id resp_status
+  resp_id=$(json_field "$resp_file" id)
+  resp_status=$(json_field "$resp_file" status)
+  if [[ -n "$resp_id" && -n "$resp_status" ]]; then
+    echo "  ответ выглядит асинхронным (id=$resp_id status=$resp_status) — опрашиваю $JOB_STATUS_PATH каждые ${POLL_INTERVAL}s (таймаут ${POLL_TIMEOUT}s)"
+    if ! poll_job "$resp_id" "$resp_file"; then
       echo "  '$key': задача не завершилась успешно" >&2
       exit 1
     fi
@@ -411,10 +740,16 @@ gen_one() {
 import { readFileSync, writeFileSync } from 'node:fs'
 const [respPath, outPath] = process.argv.slice(2)
 const r = JSON.parse(readFileSync(respPath, 'utf8'))
-// Форма ответа не подтверждена (см. шапку файла): предполагаем image.base64.
-const b64 = r?.image?.base64
+// Синхронный ответ: r.image.base64. Если каким-то образом пришла
+// асинхронная форма (last_response) — первое найденное из
+// last_response.image.base64 / last_response.images[0].base64.
+let b64 = r?.image?.base64
 if (!b64) {
-  console.error(`нет image.base64 в ${respPath} — сверить форму ответа с /v2/openapi.json`)
+  const lr = r?.last_response
+  b64 = lr?.image?.base64 ?? lr?.images?.[0]?.base64
+}
+if (!b64) {
+  console.error(`нет image.base64 (ни в ответе, ни в last_response.image/images[0]) в ${respPath} — сверить с /v2/openapi.json`)
   process.exit(1)
 }
 writeFileSync(outPath, Buffer.from(b64, 'base64'))
@@ -426,9 +761,8 @@ NODE_EOF
 
   local usage_json
   usage_json=$(json_field "$resp_file" usage)
-  [[ -z "$usage_json" ]] && usage_json=$(json_field "$resp_file" credits)
-  [[ -z "$usage_json" ]] && usage_json=$(json_field "$resp_file" cost)
-  echo "  usage/cost: ${usage_json:-н/д} (генераций в сессии: $GEN_COUNT/$MAX_GENERATIONS)"
+  print_usage "$usage_json"
+  echo "  (генераций в сессии: $GEN_COUNT/$MAX_GENERATIONS)"
   echo "  готово (не в client/public): $OUT_DIR/$key.png — примите через --install $key $OUT_DIR/$key.png"
 }
 
