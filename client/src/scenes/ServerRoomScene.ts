@@ -6,7 +6,7 @@ import { drawDebugFrames } from '../debug'
 import { tag } from '../debug/agentApi'
 import { showModal } from '../ui/modal'
 import { coreGain, serverGain } from '../network-preview'
-import { SPRITE_TARGET, spriteScale } from '../pixelart'
+import { addSprite } from '../pixelart'
 import type { StateMessage } from '../protocol'
 
 export class ServerRoomScene extends Phaser.Scene {
@@ -52,7 +52,7 @@ export class ServerRoomScene extends Phaser.Scene {
     this.objects.push(coreZone)
     if (s.core.level > 0) {
       this.objects.push(
-        this.add.image(cx, cy, 'rack_server').setScale(spriteScale(this, 'rack_server', SPRITE_TARGET.rack)),
+        addSprite(this, cx, cy, 'rack_server', 'rack'),
         this.add.text(cx, cy + 58, `ур.${s.core.level} · ${s.core.connected}/${s.core.capacity} мест`, {
           fontFamily: 'monospace', fontSize: '11px', color: '#41a6f6',
         }).setOrigin(0.5),
@@ -73,8 +73,7 @@ export class ServerRoomScene extends Phaser.Scene {
       for (let sl = 0; sl < o.serverSlots; sl++) {
         const x = 430 + sl * 150
         const srv = o.servers[sl]
-        const img = this.add.image(x, gy, srv ? 'rack_server' : 'rack_empty')
-          .setScale(spriteScale(this, srv ? 'rack_server' : 'rack_empty', SPRITE_TARGET.rack))
+        const img = addSprite(this, x, gy, srv ? 'rack_server' : 'rack_empty', 'rack')
         this.objects.push(img)
         if (!o.unlocked) {
           img.setAlpha(0.3)
@@ -113,7 +112,10 @@ export class ServerRoomScene extends Phaser.Scene {
     )
     if (s.gateway) {
       this.objects.push(
-        this.add.image(gx, gy, 'router').setScale(spriteScale(this, 'router', SPRITE_TARGET.rack)),
+        // Слот шлюза раньше рисовал текстуру 'router', хотя
+        // gateway.png давно грузится и не используется — теперь свой спрайт
+        // (fallback на router через spriteKey, если gateway вдруг не загрузится).
+        addSprite(this, gx, gy, 'gateway', 'rack'),
         this.add.text(gx, gy + 52, 'интернет ×1.2', { fontFamily: 'monospace', fontSize: '11px', color: '#38b764' }).setOrigin(0.5),
       )
     } else {

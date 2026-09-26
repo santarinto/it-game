@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { spriteKey } from './assets/manifest'
 
 // Палитра в духе Sweetie-16. Точка — прозрачный пиксель.
 const PALETTE: Record<string, string> = {
@@ -212,15 +213,36 @@ export function registerTextures(scene: Phaser.Scene): void {
 // смена разрешения арта ничего не сдвинет.
 export const SPRITE_TARGET = {
   desk: 64, // стол в слоте 80×64
-  person: 80, // сотрудник и начальник
+  person: 64, // сотрудник и начальник: ровно ×1 для 64px и ×0.5 для будущих 128px
   rack: 64, // стойки, core, роутер, шлюз
   amenity: 48, // быт-устройства на полке
+  icon: 32, // мелкие UI-иконки (icon_money, icon_network) — пока нигде не рисуются
+  tile: 64, // плитка пола (office_floor_tile) — пока нигде не рисуется
 } as const
 
 // spriteScale — множитель для add.image(...).setScale(...): во сколько
-// раз текстуру растянуть до targetPx на экране.
+// раз текстуру растянуть до targetPx на экране. Считаем от ширины кадра 0
+// (а не всей текстуры!) — иначе будущий спрайтшит (frames>1 в манифесте)
+// отмасштабируется так, будто все кадры — один широкий спрайт.
 export function spriteScale(scene: Phaser.Scene, key: string, targetPx: number): number {
   if (!scene.textures.exists(key)) return 1 // неизвестная текстура — как есть
-  const w = scene.textures.get(key).getSourceImage().width
-  return w > 0 ? targetPx / w : 1
+  const tex = scene.textures.get(key)
+  const frame = tex.has('0') ? tex.get('0') : tex.get()
+  return frame.width > 0 ? targetPx / frame.width : 1
+}
+
+// addSprite — единая точка входа для AI-спрайтов в сценах офиса/серверной:
+// резолвит fallback через spriteKey() (manifest — aliases/fallback, пока
+// не найдётся существующая в сцене текстура), берёт кадр 0 и сразу ставит
+// масштаб под целевой класс. Id/tag/интерактивность — за вызывающим кодом,
+// addSprite отдаёт обычный Image, с ним можно делать что угодно дальше.
+export function addSprite(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  key: string,
+  cls: keyof typeof SPRITE_TARGET,
+): Phaser.GameObjects.Image {
+  const resolved = spriteKey(scene, key)
+  return scene.add.image(x, y, resolved).setScale(spriteScale(scene, resolved, SPRITE_TARGET[cls]))
 }

@@ -9,10 +9,15 @@ import { tag } from '../debug/agentApi'
 import { showModal } from '../ui/modal'
 import { coreFree, routerGain } from '../network-preview'
 import { playSfx } from '../audio'
-import { SPRITE_TARGET, spriteScale } from '../pixelart'
+import { addSprite } from '../pixelart'
+import { SPRITES } from '../assets/manifest'
 
 const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
-const LUNCH_SHIFT = 24 // на обеде сотрудник отходит от стола
+// Оверлей «сломанный ПК» обязан перехватывать клики раньше спрайта
+// сотрудника — иначе левая треть зоны ремонта кликает мотивацию вместо
+// ремонта: для Phaser-хиттеста при равных depth побеждает
+// последний в списке рендера, так что явный depth надёжнее порядка create().
+const REPAIR_OVERLAY_DEPTH = 5
 
 // Метки причин отсутствия сети над столом (итерация 11).
 const OFFLINE_LABELS: Record<string, string> = {
@@ -126,8 +131,7 @@ export class OfficeScene extends Phaser.Scene {
       this.add.text(rx, ry - 56, 'сеть', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
     )
     if (office.routerTier > 0) {
-      const routerImg = this.add.image(rx, ry, 'router')
-        .setScale(spriteScale(this, 'router', SPRITE_TARGET.rack)).setInteractive({ useHandCursor: true })
+      const routerImg = addSprite(this, rx, ry, 'router', 'rack').setInteractive({ useHandCursor: true })
       routerImg.on('pointerdown', () => this.openRouterModal(office, s))
       this.objects.push(
         routerImg,
@@ -151,9 +155,11 @@ export class OfficeScene extends Phaser.Scene {
       this.add.text(bx, by - 56, 'начальник', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
     )
     if (office.boss !== '') {
+      // Слот начальника раньше рисовал текстуру 'worker' — теперь свой
+      // спрайт boss.png (fallback на worker через spriteKey,
+      // если boss вдруг не загрузится); id office.boss не меняем.
       const bossImg = tag(
-        this.add.image(bx, by, 'worker')
-          .setScale(spriteScale(this, 'worker', SPRITE_TARGET.person)).setInteractive({ useHandCursor: true }),
+        addSprite(this, bx, by, 'boss', 'person').setInteractive({ useHandCursor: true }),
         'office.boss',
       )
       bossImg.on('pointerover', () => this.showBossTooltip(office, s, bx, by))
@@ -178,15 +184,26 @@ export class OfficeScene extends Phaser.Scene {
         )
         continue
       }
-      const desk = this.add.image(x, y, i < office.pcs ? 'desk_pc' : 'desk_empty')
-        .setScale(spriteScale(this, i < office.pcs ? 'desk_pc' : 'desk_empty', SPRITE_TARGET.desk))
-      this.objects.push(desk)
       const e = office.employees[i]
+      const hasPc = i < office.pcs
+      // worker.png сам содержит стол/монитор/системник/кресло — занятое
+      // место рисует ТОЛЬКО его, без отдельного desk_pc под ним (иначе два
+      // стола в разных ракурсах). Будущий HD-worker без стола (includesDesk:false в
+      // манифесте) вернёт старую пару desk_pc + человек поверх.
+      const workerIncludesDesk = SPRITES.worker?.includesDesk === true
+      const showWorkerOnly = hasPc && !!e && !s.isLunch && workerIncludesDesk
+      if (!showWorkerOnly) {
+        this.objects.push(addSprite(this, x, y, hasPc ? 'desk_pc' : 'desk_empty', 'desk'))
+      }
       // Сломанный ПК: доход места 0; клики по столу чинят, мастер чинит за деньги.
       if (e?.pcBroken) {
         const overlay = tag(
           this.add.rectangle(x, y - 8, 76, 56, 0xb13e53, 0.3)
-            .setInteractive({ useHandCursor: true }),
+            .setInteractive({ useHandCursor: true })
+            // Выше сотрудника: иначе спрайт сотрудника (создаётся ниже, и
+            // при показе desk_pc+worker перекрывает левую треть зоны) крадёт
+            // клик по ремонту, отправляя мотивацию вместо repair_click.
+            .setDepth(REPAIR_OVERLAY_DEPTH),
           `office.repair.${i}`,
         )
         overlay.on('pointerdown', () => {
@@ -216,14 +233,33 @@ export class OfficeScene extends Phaser.Scene {
         )
       }
       if (e) {
-        // На обеде сотрудник отходит от стола.
-        const wx = s.isLunch ? x - 52 + LUNCH_SHIFT : x - 52
-        const wy = s.isLunch ? y - 6 + LUNCH_SHIFT : y - 6
-        const worker = tag(
-          this.add.image(wx, wy, 'worker')
-            .setScale(spriteScale(this, 'worker', SPRITE_TARGET.person)).setInteractive({ useHandCursor: true }),
-          `office.worker.${i}`,
-        )
+        // Слот-картинка занятого места: на обеде — пустой стол с ПК и
+        // подписью «обед» (сотрудник отошёл, LUNCH_SHIFT убран — стол
+        // никуда не двигается); иначе — сам сотрудник, в позиции стола
+        // (includesDesk) или поверх отдельного desk_pc (легаси-раскладка).
+        let wx: number
+        let wy: number
+        let slotImg: Phaser.GameObjects.Image
+        if (s.isLunch) {
+          wx = x
+          wy = y
+          slotImg = addSprite(this, wx, wy, 'desk_pc', 'desk')
+          this.objects.push(this.add.text(x, y + 40, 'обед', {
+            fontFamily: 'monospace', fontSize: '12px', color: '#94b0c2',
+          }).setOrigin(0.5))
+        } else if (workerIncludesDesk) {
+          wx = x
+          wy = y
+          slotImg = addSprite(this, wx, wy, 'worker', 'desk')
+        } else {
+          wx = x - 52
+          wy = y - 6
+          slotImg = addSprite(this, wx, wy, 'worker', 'person')
+        }
+        // id office.worker.i и обработчики висят на картинке слота (worker
+        // или desk_pc на обеде) — itd.click('office.worker.i') и тултип
+        // продолжают работать и на обеде.
+        const worker = tag(slotImg.setInteractive({ useHandCursor: true }), `office.worker.${i}`)
         // ЛКМ по сотруднику — мотивация: +25% на 3 часа с кулдауном.
         // ПКМ (правый клик) — модалка увольнения (итерация 15).
         worker.on('pointerdown', (p: Phaser.Input.Pointer) => {
@@ -297,8 +333,7 @@ export class OfficeScene extends Phaser.Scene {
       this.objects.push(box)
       if (a.owned) {
         const img = tag(
-          this.add.image(ax, ay, a.key)
-            .setScale(spriteScale(this, a.key, SPRITE_TARGET.amenity)).setInteractive({ useHandCursor: true }),
+          addSprite(this, ax, ay, a.key, 'amenity').setInteractive({ useHandCursor: true }),
           `office.amenity.${a.key}`,
         )
         img.on('pointerover', () => this.showTextTooltip(`${a.label}\n${a.hint}`, ax, ay - 40))

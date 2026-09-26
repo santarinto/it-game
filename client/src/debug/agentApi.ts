@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { client, sessionId } from '../net'
 import type { StateMessage } from '../protocol'
 import { AI_SPRITES } from '../scenes/BootScene'
+import { SWEETIE16 } from '../assets/manifest'
 import { findLowContrast, findOffscreen, findOverlaps, findTiny } from './lint'
 import type { ContrastEntry, OffscreenEntry, OverlapEntry, TinyEntry } from './lint'
 import { startTelemetry } from './telemetry'
@@ -68,13 +69,8 @@ export interface DebugAdvanceResult {
 // момент старта vite). Плюс <meta name="build"> в index.html.
 export const BUILD = { sha: __BUILD_SHA__, builtAt: __BUILD_AT__ }
 
-// Sweetie-16 (GrafxKid) — палитра арт-пайплайна (scripts/sprites/remap.sh);
-// вне её цветов в спрайтах быть не должно.
-const SWEETIE16 = new Set([
-  '#1a1c2c', '#333c57', '#29366f', '#5d275d', '#257179', '#b13e53', '#ef7d57',
-  '#38b764', '#a7f070', '#ffcd75', '#566c86', '#3b5dc9', '#41a6f6', '#73eff7',
-  '#94b0c2', '#f4f4f4',
-])
+// Палитра Sweetie-16 (SWEETIE16) — из манифеста ассетов, общего с
+// check-sprites.mjs: вне её цветов в 64px-спрайтах быть не должно.
 
 // Служебные текстуры Phaser — не ассеты: встроенные (__*) и растеризации
 // Text-объектов (Phaser 3.60+ даёт каждой UUID-ключ). Палитра на

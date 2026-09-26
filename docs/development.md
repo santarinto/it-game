@@ -174,9 +174,8 @@ and the finished PNGs are committed.
 - **Edit:** `scripts/sprite-edit.sh <name> "<instruction>"` — Gemini
   (`GEMINI_IMAGE_MODEL`, default `gemini-2.5-flash-image`) → remap to 64 px.
 - **Keys** in `.env`: `SPRITES_API_KEY` (PixelLab), `GEMINI_API_KEY`.
-- **Contract:** every PNG is 64×64, transparent, Sweetie-16, with no baked-in
-  checkerboard — enforced by `client/scripts/check-sprites.mjs` in
-  `npm run build`; boot re-checks size and transparency.
+- **Contract:** transparent PNGs in the key's palette, no baked-in
+  checkerboard — see the sprite manifest below; boot re-checks sizes.
 - **Review:** silhouette readability via the local LocalMind vision model
   (`localmind_recognize` MCP), touch-ups in Aseprite.
 - **Sound:** SFX from [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds)
@@ -185,3 +184,41 @@ and the finished PNGs are committed.
   `{type:'toast', ...}`, via the `client/src/uibus.ts` event bus).
 - `client/src/pixelart.ts` generates fallback textures for any sprite
   without a PNG.
+
+### Sprite manifest
+
+`client/src/assets/sprites.json` is the single source of truth for AI
+sprites: `BootScene` loads its keys, `check-sprites.mjs` checks them, scenes
+scale by them. `client/src/assets/manifest.ts` adds types, `AI_SPRITES`,
+`SWEETIE16` and `spriteKey()`. Per key:
+
+- `size`, `frames` — the PNG is exactly `size·frames × size` (frames side by
+  side; `frames > 1` is registered as a spritesheet).
+- `palette` — `sweetie16` (all current 64px art) or `hd32` (Sweetie-16 plus
+  16 in-between shades, reserved for the future 128px HD sprites).
+- `class` — target on-screen size from `SPRITE_TARGET` in
+  `client/src/pixelart.ts`; `addSprite()` scales from frame 0.
+- `includesDesk` — the sprite draws its own desk (today's `worker`): an
+  occupied slot shows only it, no `desk_pc` underneath.
+- `fallback` — texture to use if this one is missing (`boss` → `worker`,
+  `gateway` → `router`); `aliases` maps alternate names the same way.
+- `maxSpecks`, `maxWhitePct`, `note` — per-key thresholds with the reason.
+
+A new key ships only together with its PNG and vice versa: a key without a
+file 404s at boot and fails `smoke-ui`.
+
+`check-sprites.mjs` (part of `npm run build`) decodes PNGs with pngjs, no
+browser needed. It fails on: key ⇄ file mismatch, dangling
+`aliases`/`fallback`, `hd32` not a superset of `sweetie16` or over 32
+colors, wrong size, colors outside the key's palette, <5% transparency,
+semi-transparent pixels, too much `#f4f4f4`, and noise — 8-connected
+opaque components of area ≤ `4·(size/64)²` beyond `maxSpecks` (default 0).
+Only `desk_empty` (98 specks) and `office_floor_tile` (4) carry baked-in
+checkerboard remnants today; their counts are recorded, the art is left for
+regeneration.
+
+`npm run qa:slots` (`client/scripts/qa-office-slots.mjs`, port 4177)
+checks slot rendering on `full_office`: one image per occupied desk, `boss`
+and `gateway` textures in their slots, lunch shows `desk_pc` + «обед», and
+real mouse clicks on a broken PC's repair zone send `repair_click`, not
+`motivate`.

@@ -2,21 +2,17 @@ import Phaser from 'phaser'
 import { registerTextures } from '../pixelart'
 import { preloadSfx } from '../audio'
 import { GAME_W } from '../layout'
+import { AI_SPRITES, SPRITES } from '../assets/manifest'
 
-// AI-спрайты (ITGAME-6): 64×64 PNG в public/assets/sprites, генерятся
+// AI-спрайты (ITGAME-6): PNG в public/assets/sprites, генерятся
 // scripts/gen-sprites.sh (PixelLab + Sweetie-16). Загружаем ПОСЛЕ
 // кодогена: при наличии PNG ключ текстуры перезатирается — кодоген
 // остаётся фолбэком для всего, что ещё не перегенерено.
-// Список экспортируется для itd.assetSet() (ITGAME-28).
-export const AI_SPRITES = [
-  'desk_pc', 'desk_empty', 'worker', 'boss',
-  'router', 'rack_server', 'rack_empty', 'gateway',
-  'cooler', 'fridge', 'coffee_machine',
-  'office_floor_tile', 'icon_money', 'icon_network',
-]
-
-// Контракт арт-пайплайна: каждый PNG ровно этого размера (ITGAME-12).
-const AI_SPRITE_SIZE = 64
+// Список ключей и их размер/кадры/палитра теперь в едином манифесте
+// client/src/assets/sprites.json — здесь только
+// реэкспорт для обратной совместимости (agentApi.ts и другие импортируют
+// AI_SPRITES отсюда же, для itd.assetSet()).
+export { AI_SPRITES }
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -53,7 +49,17 @@ export class BootScene extends Phaser.Scene {
         if (!this.textures.exists('ai:' + key)) continue
         const img = this.textures.get('ai:' + key).getSourceImage()
         if (this.textures.exists(key)) this.textures.remove(key)
-        this.textures.addImage(key, img as HTMLImageElement)
+        const spec = SPRITES[key]
+        if (spec.frames > 1) {
+          // Спрайтшит: кадры frameWidth×frameHeight подряд по горизонтали.
+          // Сейчас ни у одного ключа frames>1 — ветка на будущее (HD-спрайты
+          // с анимацией), поведение для нынешних PNG не меняется.
+          this.textures.addSpriteSheet(key, img as HTMLImageElement, {
+            frameWidth: spec.size, frameHeight: spec.size,
+          })
+        } else {
+          this.textures.addImage(key, img as HTMLImageElement)
+        }
         substituted.push(key)
       } catch (e) {
         console.error(`спрайт ${key}: PNG не подменён, остаётся плейсхолдер`, e)
@@ -63,24 +69,29 @@ export class BootScene extends Phaser.Scene {
     this.scene.start('menu')
   }
 
-  // Контракт ассетов (инцидент ITGAME-12): подменённый PNG обязан быть
-  // ровно 64×64 и иметь прозрачные пиксели — иначе арт-пайплайн привёз
-  // мусор (запечённый фон, чужой размер), и это ошибка, а не «стол
-  // вдруг втрое шире слота». console.error ловит CI-смоук: релиз с
-  // битым контрактом до прода не доедет.
+  // Контракт арт-пайплайна (инцидент ITGAME-12): подменённый PNG обязан
+  // быть ровно size·frames × size (по манифесту ключа) и иметь прозрачные
+  // пиксели — иначе арт-пайплайн привёз мусор (запечённый фон, чужой
+  // размер), и это ошибка, а не «стол вдруг втрое шире слота».
+  // console.error ловит CI-смоук: релиз с битым контрактом до прода не доедет.
   private checkAssetContract(substituted: string[]) {
     const canvas = document.createElement('canvas')
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     for (const key of substituted) {
+      const spec = SPRITES[key]
+      const w = spec.size * spec.frames
+      const h = spec.size
       const img = this.textures.get(key).getSourceImage() as HTMLImageElement
-      if (img.width !== AI_SPRITE_SIZE || img.height !== AI_SPRITE_SIZE) {
-        console.error(`спрайт ${key}: ${img.width}×${img.height}, контракт — ${AI_SPRITE_SIZE}×${AI_SPRITE_SIZE}`)
+      if (img.width !== w || img.height !== h) {
+        console.error(`спрайт ${key}: ${img.width}×${img.height}, контракт — ${w}×${h}`)
         continue
       }
-      ctx.clearRect(0, 0, AI_SPRITE_SIZE, AI_SPRITE_SIZE)
+      canvas.width = w
+      canvas.height = h
+      ctx.clearRect(0, 0, w, h)
       ctx.drawImage(img, 0, 0)
-      const data = ctx.getImageData(0, 0, AI_SPRITE_SIZE, AI_SPRITE_SIZE).data
+      const data = ctx.getImageData(0, 0, w, h).data
       let hasAlpha = false
       for (let i = 3; i < data.length; i += 4) {
         if (data[i] < 255) {
