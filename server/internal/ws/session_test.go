@@ -412,6 +412,9 @@ func TestEventsProtocol(t *testing.T) {
 	cfg.EventSecondPct = 0
 	cfg.BreakdownChancePct = 0
 	cfg.SalaryPerDay = 0 // не банкротимся за два дня
+	// Аудит дня 2 без шлюза штрафует, долг банкротит партию: вместо отчёта
+	// дня приходит game_over, и тест висел до таймаута (~5% сидов).
+	cfg.AuditPenalty = 0
 	c, ctx := dialTestServer(t, cfg, 20*time.Millisecond)
 
 	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" })
