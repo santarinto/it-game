@@ -14,6 +14,7 @@
     "qa:hud": "node scripts/qa-itgame16.mjs",
     "qa:facade": "node scripts/qa-itgame38.mjs",
     "qa:slots": "node scripts/qa-office-slots.mjs",
+    "qa:trace": "node scripts/qa-itgame37.mjs",
     "check:sprites": "node scripts/check-sprites.mjs",
     "visreg": "node scripts/visreg.mjs"
   },

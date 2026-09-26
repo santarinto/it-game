@@ -7,6 +7,9 @@ import { findLowContrast, findOffscreen, findOverlaps, findTiny } from './lint'
 import type { ContrastEntry, OffscreenEntry, OverlapEntry, TinyEntry } from './lint'
 import { startTelemetry } from './telemetry'
 import type { ErrorEntry, LogEntry } from './telemetry'
+import { notifyItdKey, runTrace } from './trace'
+import type { TraceResult } from './trace'
+export type { TraceResult }
 import {
   ACHIEVEMENTS,
   getAchievementsSummary,
@@ -278,6 +281,9 @@ export interface ItdApi {
   key(k: string): AgentResult & { key?: string; scenes?: string[] }
   // ITGAME-30: команда с квитанцией сервера — Promise<{ok, code?}>.
   cmd(type: string, office?: number, extra?: Record<string, number>): Promise<CmdReceipt>
+  // ITGAME-37: живая трассировка окна вокруг action — реальный путь игрока
+  // без поллинга (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().
+  trace(action: () => unknown, windowMs?: number): Promise<TraceResult>
   // ITGAME-30: прогреть кадр вручную (сколько шагов лупа сделали).
   warm(): number
   wait(cond: (s: AgentState, srv: AgentServer) => boolean, timeoutMs?: number): Promise<AgentState>
@@ -524,7 +530,7 @@ const COMMANDS = new Set<string>([
   'abandon',
 ])
 
-const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/38)
+const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38)
   itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); menuReady — меню создано и активно
   itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt, reconnects, sid, sidSwitches
   itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, visible, alpha, interactive, depth, active}
@@ -535,6 +541,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/38)
   itd.hover('office.worker.0')      — наведение по id (тултипы)
   itd.key('1'|'enter'|'space'|'esc')— клавиша: 1-4 сложность в меню, enter/space/esc — отчёт дня
   itd.cmd('hire')                   — команда с квитанцией сервера: Promise<{ok, code?}> — первый state|error после отправки, по порядку команд; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
+  itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled, scenes}], sent[{type, office, …}] по порядку, recv[error/day_report…], transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, ok}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой)
   itd.warm()                        — прогреть кадр вручную (шаги лупа); в скрытой вкладке itd делает это сам
   itd.wait(s => s.day === 2)        — промис: поллинг state()/server() до условия (таймаут 5с, второй аргумент — свой); готовность меню — wait(s => s.menuReady), до старта партии state() null, но menuReady уже честен
   itd.overlaps()                    — линтер вёрстки: kind: text — тексты одного depth; occlusion — текст под непрозрачной плашкой; interactive — интерактив частично перекрыт интерактивом или текстом (вложенность целиком — не находка)
@@ -624,6 +631,10 @@ function makeApi(game: Phaser.Game): ItdApi {
         altKey: false, ctrlKey: false, shiftKey: false, metaKey: false,
         repeat: false, location: 0, timeStamp: performance.now(),
       }
+      // ITGAME-37: itd.trace() слушает клавиши itd.key() мимо DOM — ДО цикла
+      // emit, потому что обработчик может остановить/сменить сцену (см.
+      // handlerScenes в trace.ts, которому нужны сцены ДО обработки).
+      notifyItdKey(def.code)
       const scenes: string[] = []
       for (const scene of game.scene.getScenes(true)) {
         const kb = scene.input.keyboard
@@ -647,6 +658,7 @@ function makeApi(game: Phaser.Game): ItdApi {
         .sendWithReceipt(type as import('../protocol').CommandType, office, extra)
         .then((r) => (r.ok ? r : { ...r, error: r.code }))
     },
+    trace: (action, windowMs = 1000) => runTrace(game, action, windowMs),
     warm: () => warmTicks(game, 10),
     wait(cond, timeoutMs = 5000) {
       return new Promise<AgentState>((resolve, reject) => {

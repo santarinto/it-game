@@ -182,6 +182,16 @@ and the finished PNGs are committed.
   (CC0) in `client/public/assets/sfx/`, played by `client/src/audio.ts`. Every
   `playSfx` call and HUD toast is written to `itd.log()` (`{type:'sound', ...}` /
   `{type:'toast', ...}`, via the `client/src/uibus.ts` event bus).
+- **Live trace:** `itd.trace(() => itd.key('enter'), 1500)` (ITGAME-37) is a
+  *live* subscription, not a slice of the `itd.log()`/`itd.net()` ring
+  buffers — it wires up listeners before `action` runs and keeps them for
+  `windowMs` ms (0..10000, default 1000) after it finishes, so it never
+  misses an event that happens between two `itd.*()` reads. The result
+  reports the keys the scene received (DOM or `itd.key()`, with the
+  handling scene), the commands sent to the server in send order, non-state
+  server replies (`error`, `day_report`, …), phase/speed/day/scene
+  transitions, and the toasts/sounds that fired — enough to assert on a
+  real player action end-to-end without polling `state()`/`net()` by hand.
 - `client/src/pixelart.ts` generates fallback textures for any sprite
   without a PNG.
 

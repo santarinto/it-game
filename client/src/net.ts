@@ -139,6 +139,10 @@ export interface NeighborSessionInfo {
   day?: number
 }
 
+// Запись эфира WS (ITGAME-25/37): краткая выжимка сообщения (logWire ужимает
+// снапшоты до нужных полей — полный raw живёт только в аргументе tapWire).
+export type WireEntry = { dir: 'in' | 'out'; at: number; type: string; info: Record<string, unknown> }
+
 // checkActiveNeighbor (ITGAME-35): опрашивает соседние вкладки через BroadcastChannel('itd').
 // Возвращает { active: true, day?: number } если живая соседняя вкладка ответила,
 // либо { active: false } если за timeoutMs ответа не поступило.
@@ -206,7 +210,12 @@ export class GameClient {
     sidSwitches: 0, // ITGAME-30: sid сменился между соединениями (гарда вкладок)
   }
   // Эфир WS для itd.net(): последние сообщения в обе стороны (ITGAME-25).
-  readonly wire: { dir: 'in' | 'out'; at: number; type: string; info: Record<string, unknown> }[] = []
+  readonly wire: WireEntry[] = []
+  // Живая подписка на эфир для itd.trace() (ITGAME-37): в отличие от wire
+  // (срез кольцевого буфера), тут вызывающий видит КАЖДОЕ сообщение с
+  // момента подписки — trace.ts ставит tapWire ДО action и не пропускает
+  // события, случившиеся между чтениями itd.net().
+  private wireTaps = new Set<(e: WireEntry, raw: Record<string, unknown>) => void>()
   private commandSentAt: number | null = null
   private ws!: WebSocket
   private listeners: Listener[] = []
@@ -291,8 +300,28 @@ export class GameClient {
     } else {
       brief.code = m.code
     }
-    this.wire.push({ dir, at: Date.now(), type, info: brief })
+    const entry: WireEntry = { dir, at: Date.now(), type, info: brief }
+    this.wire.push(entry)
     if (this.wire.length > 100) this.wire.splice(0, this.wire.length - 100)
+    // try обязателен: logWire('in') зовётся ДО раздачи снапшота слушателям
+    // (this.listeners) — упавший тап не должен срывать доставку state/error.
+    for (const fn of this.wireTaps) {
+      try {
+        fn(entry, m)
+      } catch (e) {
+        console.error('[net] tapWire', e)
+      }
+    }
+  }
+
+  // Живая подписка на эфир (ITGAME-37, itd.trace): вызывающий получает
+  // brief-запись (как itd.net()) + сырое сообщение raw — полная команда для
+  // sent, снапшот НЕ хранится для recv (см. trace.ts). Возвращает отписку.
+  tapWire(fn: (e: WireEntry, raw: Record<string, unknown>) => void): () => void {
+    this.wireTaps.add(fn)
+    return () => {
+      this.wireTaps.delete(fn)
+    }
   }
 
   connect(difficulty: DifficultyId): void {
@@ -432,6 +461,7 @@ export class GameClient {
     this.sessionSid = null // смена sid здесь запланирована
     if (this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'abandon' }))
+      this.logWire('out', 'abandon', { type: 'abandon' })
     }
     clearSession()
     this.disconnect()
