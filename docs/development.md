@@ -286,11 +286,12 @@ scrollX: -GAME_W*(RENDER_SCALE-1)/2, scrollY: -GAME_H*(RENDER_SCALE-1)/2` —
 the only combination that both zooms in and keeps `camera.worldView` at
 `(0,0,1280,720)` (`CameraManager.fromJSON` always resets `roundPixels` to
 `false` unless the scene config sets it explicitly). HD sprites are in use
-today: `desk_pc`/`desk_pc_off`/`desk_pc_broken`, `desk_empty` and
-`worker`/`worker_1..3` are 128px `hd32` art (see the sprite manifest below)
-drawn at ×0.5 into 64-world-px slots — `spriteScale()` computes that factor
-from the texture's real width against `SPRITE_TARGET` (`pixelart.ts`), so at
-2× render one texture texel lands on exactly one canvas pixel. Also for
+today: `desk_pc`/`desk_pc_off`/`desk_pc_broken`, `desk_empty`,
+`worker`/`worker_1..3` and `boss`/`boss_lunch` are 128px `hd32` art (see the
+sprite manifest below) drawn at ×0.5 into 64-world-px slots —
+`spriteScale()` computes that factor from the texture's real width against
+`SPRITE_TARGET` (`pixelart.ts`), so at 2× render one texture texel lands on
+exactly one canvas pixel. Also for
 crisp text under CSS zoom.
 
 Every `Text` object needs its own `resolution` (Phaser defaults it to 1
@@ -365,15 +366,17 @@ and the finished PNGs are committed.
 ### HD sprite pipeline
 
 `scripts/sprites/hd-src/` holds the raw generations (`desk_pc.raw.png`,
-`worker.raw.png`) plus `desk_empty.png`, a hand-edited source (not a
-generation — see below). `scripts/sprites/build-hd.sh` deterministically
-rebuilds every HD asset from those sources with no network and no AI: it
-calls `sprite-remap.mjs` (`--flip-x`/`--place` bake the worker's mirror and
-its manual chair-to-chair alignment onto `desk_pc` into the PNG) and
-`client/scripts/sprite-recolor.mjs` — a one-line CLI, hex→hex replacement
-inside an optional `--region`, used for the monitor-screen states
-(`desk_pc`/`_off`/`_broken`) and the worker's shirt-color levels
-(`worker_1..3`). Run `scripts/sprites/build-hd.sh` (no args), then
+`worker.raw.png`, `boss.raw.png`, `boss_lunch.raw.png`) plus
+`desk_empty.png`, a hand-edited source (not a generation — see below).
+`scripts/sprites/build-hd.sh` deterministically rebuilds every HD asset
+from those sources with no network and no AI: it calls `sprite-remap.mjs`
+(`--flip-x`/`--place` bake the worker's mirror and its manual
+chair-to-chair alignment onto `desk_pc` into the PNG, `--bottom-margin`
+lines up `boss`/`boss_lunch`'s feet) and `client/scripts/sprite-recolor.mjs`
+— a one-line CLI, hex→hex replacement inside an optional `--region`, used
+for the monitor-screen states (`desk_pc`/`_off`/`_broken`) and the
+worker's shirt-color levels (`worker_1..3`). Run
+`scripts/sprites/build-hd.sh` (no args), then
 `cd client && node scripts/check-sprites.mjs`.
 
 What actually produced usable art (prompts and detail in
@@ -382,19 +385,47 @@ hd32 --lock-palette`), outline "single color black outline", shading
 "medium shading", detail "medium detail", for `desk_pc`; the same engine/
 palette/outline/shading/detail for `worker`, but `--size 80 --direction
 north-west` — it faced right, so `build-hd.sh` mirrors it with `--flip-x`.
+`boss` and `boss_lunch` used the same outline/shading/detail too, but
+`--size 96` and one shared `--seed 4099860094` (`cksum` of the key name
+`boss`) for both prompts, so the two poses (working with a laptop, on
+lunch with coffee and a sandwich) render as the same character; both went
+through `--background` (see below) rather than the synchronous endpoint.
+`build-hd.sh` then remaps each raw PNG onto the 128×128 canvas with the
+same `--bottom-margin` for both, so their feet land on the same canvas row
+and the figure doesn't jump when `OfficeScene.ts` switches the slot
+between the two on lunch.
+
+Long pixflux generations occasionally trip a gateway timeout: the
+synchronous `create-image-pixflux` call periodically comes back as a 502
+upstream error from PixelLab's gateway — while still charging the
+generation, with no image produced — regardless of `--negative`/
+`negative_description`; it's the gateway's timeout on a slow generation,
+not the presence of `negative_description` (the `desk_empty` attempts
+below happened to use `--negative` and hit 502 twice, which looked like
+the flag was the cause, but `boss`/`boss_lunch`, generated later with no
+`--negative` at all, hit the same 502 on the synchronous endpoint before
+switching to `--background`). `scripts/gen-sprites.sh --background` sends
+the same request body to the async twin
+(`create-image-pixflux-background`) and polls `GET
+/v2/background-jobs/{id}` instead, which isn't subject to that request
+timeout. The `background_job_id` from the 202 response is written to
+`$OUT_DIR/<key>.job_id` immediately, before polling starts, so a dropped
+poll doesn't waste the paid generation — resume it with
+`scripts/gen-sprites.sh --fetch-job <job_id> <key>`.
+
 `desk_empty` was never generated: pixflux with the anchor seed draws a
 computer and chair even with "no computer, no chair" in the prompt
 (negations in prompt text are ignored by the model), and `--negative`
-(`negative_description`) twice came back as a 502
-upstream error that still charged a generation with no image produced.
-`desk_empty.png` is instead a deterministic pixel edit of `desk_pc.raw.png`
-(monitor/keyboard/mouse/chair erased, the desk surface/edge/right-cabinet
-pixels they covered restored from the desk's isometric geometry), remapped
-like any other HD source. Other gotchas: bitforge's `style_image` must be
-exactly the output's size or the API returns 500, and a style_image crop of
-the desk made bitforge draw a desk into the `worker` despite "no desk" in
-the prompt — the reference drags its composition along. Check the credit balance
-with `scripts/gen-sprites.sh --balance` before and after a batch of
+(`negative_description`) twice came back as the 502 described above, with
+no image produced despite the charge. `desk_empty.png` is instead a
+deterministic pixel edit of `desk_pc.raw.png` (monitor/keyboard/mouse/chair
+erased, the desk surface/edge/right-cabinet pixels they covered restored
+from the desk's isometric geometry), remapped like any other HD source.
+Other gotchas: bitforge's `style_image` must be exactly the output's size
+or the API returns 500, and a style_image crop of the desk made bitforge
+draw a desk into the `worker` despite "no desk" in the prompt — the
+reference drags its composition along. Check the credit balance with
+`scripts/gen-sprites.sh --balance` before and after a batch of
 generations.
 
 ### Sprite manifest
@@ -419,16 +450,19 @@ scale by them. `client/src/assets/manifest.ts` adds types, `AI_SPRITES`,
   an occupied slot then shows only it, no `desk_pc` underneath
   (`SLOT_LAYOUT_LEGACY`, sized for that fuller 64×64 frame instead).
 - `fallback` — texture to use if this one is missing (`boss` → `worker`,
-  `gateway` → `router`); `aliases` maps alternate names the same way.
-  `desk_pc_off`/`desk_pc_broken` fall back to `desk_pc`, `worker_1..3` to
-  `worker`.
+  `boss_lunch` → `boss` → `worker`, `gateway` → `router`); `aliases` maps
+  alternate names the same way. `desk_pc_off`/`desk_pc_broken` fall back to
+  `desk_pc`, `worker_1..3` to `worker`.
 - `maxSpecks`, `maxWhitePct`, `note` — per-key thresholds with the reason.
 
 State keys for the desk/worker slot: `desk_pc` (screen lit — an occupied
 workspace, and also what lunch shows), `desk_pc_off` (a PC bought but no
 employee assigned yet), `desk_pc_broken` (a breakdown), and `worker_1..3`
 for employee level 1..3 (`worker` itself is level 0) — see
-[Assets](#assets) above for how the states/levels are produced.
+[Assets](#assets) above for how the states/levels are produced. The boss
+slot has its own pair of state keys the same way: `boss` (at work, laptop
+in hand) and `boss_lunch` (on lunch, coffee and a sandwich) — same
+character, same seed, `OfficeScene.ts` swaps between them on `s.isLunch`.
 
 A new key ships only together with its PNG and vice versa: a key without a
 file 404s at boot and fails `smoke-ui`.
@@ -448,6 +482,7 @@ regeneration.
 `full_office`: each occupied desk draws `worker`/`worker_N` (by employee
 level) over exactly one `desk_pc`/`desk_pc_broken` at the same point, `boss`
 and `gateway` textures land in their slots, lunch turns a slot into a single
-`desk_pc` with no employee plus the «обед» label, a breakdown shows
-`desk_pc_broken`, and real mouse clicks on a broken PC's repair zone send
+`desk_pc` with no employee plus the «обед» label and switches the boss slot
+to `boss_lunch`, a breakdown shows `desk_pc_broken`, and real mouse clicks
+on a broken PC's repair zone send
 `repair_click`, not `motivate`.

@@ -15,6 +15,18 @@
 #     seed по умолчанию (scripts/gen-sprites.sh: cksum от имени ключа
 #     "worker"). Сотрудник в кресле, вид со спины 3/4, смотрит
 #     вправо-вверх — --flip-x зеркалит его влево-вверх, к монитору.
+#   • boss.raw.png / boss_lunch.raw.png — по 96×96, PixelLab
+#     /v2/create-image-pixflux-background (--background: синхронный
+#     эндпойнт периодически отдаёт 502 от шлюза со списанием генерации —
+#     см. docs/development.md), --size 96 --palette hd32 --lock-palette,
+#     outline "single color black outline", shading "medium shading",
+#     detail "medium detail", seed 4099860094 (= cksum("boss")) — ОДИН И
+#     ТОТ ЖЕ seed для обоих, чтобы это был один и тот же персонаж в двух
+#     позах. boss — в тёмном костюме с галстуком, стоит и печатает на
+#     открытом ноутбуке (решение владельца: начальник 128px, в костюме, с
+#     ноутбуком). boss_lunch — тот же начальник на обеде, с кофе и
+#     сэндвичем («как все», см. desk_pc на обеде у сотрудников). Промпты —
+#     scripts/sprites/prompts-hd.txt.
 #
 # desk_pc_off/desk_pc/desk_pc_broken — один и тот же стол, три состояния
 # экрана монитора (выкл/вкл-синий/сбой-красный) — sprite-recolor.mjs
@@ -92,6 +104,22 @@ node "$RECOLOR" "$OUT/worker.png" "$OUT/worker_3.png" \
   --key worker_3 --size 128 --palette hd32 \
   --map f4f4f4=d05e55,c4d2db=b13e53,94b0c2=873358,758ea4=5d275d
 
+# ── boss / boss_lunch: тот же начальник, две позы (работа/обед) ─────────
+# --bottom-margin 18 ОДИНАКОВ для обоих — bbox непрозрачных пикселей у
+# исходников разной высоты (boss 42×91, boss_lunch 34×94 на холсте
+# 96×96), но одинаковый margin кладёт НИЖНИЙ край bbox на одну и ту же
+# строку холста (128 − 18 = 110) в обоих PNG: при переключении
+# работа↔обед (OfficeScene.ts, s.isLunch) ноги не «прыгают», меняется
+# только сама фигура над ними. По той же формуле фигура остаётся
+# примерно по центру холста 128×128 (полу-разница высот 91 и 94 — то
+# небольшое смещение центра масс, которое и даёт разброс margin 17–18,
+# см. комментарий в шапке файла).
+node "$REMAP" "$SRC/boss.raw.png" "$OUT/boss.png" \
+  --key boss --size 128 --palette hd32 --bottom-margin 18
+
+node "$REMAP" "$SRC/boss_lunch.raw.png" "$OUT/boss_lunch.png" \
+  --key boss_lunch --size 128 --palette hd32 --bottom-margin 18
+
 echo
-echo "готово: $OUT/{desk_pc_off,desk_pc,desk_pc_broken,desk_empty,worker,worker_1,worker_2,worker_3}.png"
+echo "готово: $OUT/{desk_pc_off,desk_pc,desk_pc_broken,desk_empty,worker,worker_1,worker_2,worker_3,boss,boss_lunch}.png"
 echo "проверка контракта: cd client && node scripts/check-sprites.mjs"

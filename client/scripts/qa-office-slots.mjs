@@ -244,6 +244,12 @@ async function caseLunch(browser) {
     check('lunch: office.worker.0 на обеде рисует desk_pc', worker0?.key === 'desk_pc',
       worker0 ? `key=${worker0.key}` : 'office.worker.0 не найден')
 
+    // Начальник на обеде — та же фигура, но с кофе и сэндвичем (boss_lunch),
+    // как и у сотрудников (см. OfficeScene.ts, s.isLunch).
+    const boss = images.find((n) => n.id === 'office.boss')
+    check('lunch: office.boss на обеде рисует boss_lunch', boss?.key === 'boss_lunch',
+      boss ? `key=${boss.key}` : 'office.boss не найден')
+
     // Сотрудника в точке нет (обед убирает только его, стол остаётся) —
     // и desk_pc нарисован РОВНО один раз, а не дважды под одним слотом
     // (office.worker.0 и есть тот единственный desk_pc — двойной отрисовки

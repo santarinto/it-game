@@ -237,10 +237,15 @@ export class OfficeScene extends Phaser.Scene {
     )
     if (office.boss !== '') {
       // Слот начальника раньше рисовал текстуру 'worker' — теперь свой
-      // спрайт boss.png (fallback на worker через spriteKey,
-      // если boss вдруг не загрузится); id office.boss не меняем.
+      // спрайт boss.png/boss_lunch.png (fallback на worker через
+      // spriteKey, если оба вдруг не загрузятся); id office.boss не
+      // меняем. На обеде — тот же начальник с кофе и сэндвичем
+      // (boss_lunch), как и у сотрудников (s.isLunch, см. deskKey выше);
+      // оба спрайта 128px/hd32 с одинаковым --bottom-margin в build-hd.sh —
+      // ноги на одной строке, смены обед↔работа не «прыгают».
+      const bossKey = s.isLunch ? 'boss_lunch' : 'boss'
       const bossImg = tag(
-        addSprite(this, bx, by, 'boss', 'person').setInteractive({ useHandCursor: true }),
+        addSprite(this, bx, by, bossKey, 'person').setInteractive({ useHandCursor: true }),
         'office.boss',
       )
       bossImg.on('pointerover', () => this.showBossTooltip(office, s, bx, by))
