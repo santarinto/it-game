@@ -5,7 +5,8 @@ import { COMMAND_TYPES } from '../protocol'
 import type { CommandType, ServerErrorCode, StateMessage } from '../protocol'
 import { CONTRACT } from './contract.gen'
 import { AI_SPRITES } from '../scenes/BootScene'
-import { SWEETIE16 } from '../assets/manifest'
+import { PALETTES, SPRITES } from '../assets/manifest'
+import type { PaletteName } from '../assets/manifest'
 import { findLowContrast, findOffscreen, findOverlaps, findTiny } from './lint'
 import type { ContrastEntry, OffscreenEntry, OverlapEntry, TinyEntry } from './lint'
 import { startTelemetry } from './telemetry'
@@ -75,8 +76,22 @@ export interface DebugAdvanceResult {
 // момент старта vite). Плюс <meta name="build"> в index.html.
 export const BUILD = { sha: __BUILD_SHA__, builtAt: __BUILD_AT__ }
 
-// Палитра Sweetie-16 (SWEETIE16) — из манифеста ассетов, общего с
-// check-sprites.mjs: вне её цветов в 64px-спрайтах быть не должно.
+// Палитра «вне палитры» — по манифесту ключа (manifest.palettes[spec.palette]),
+// а не жёстко Sweetie-16: HD-спрайты (desk_pc, worker, …) заявлены с
+// palette: 'hd32' и проверяются по hd32, легаси 64px-спрайты — по sweetie16.
+// Ключ вне манифеста (или 'ai:'-обёртка) падает на sweetie16 — как было
+// раньше для всех ключей.
+const paletteSetCache = new Map<PaletteName, ReadonlySet<string>>()
+function paletteSetFor(key: string): ReadonlySet<string> {
+  const bareKey = key.startsWith('ai:') ? key.slice(3) : key
+  const paletteName: PaletteName = SPRITES[bareKey]?.palette ?? 'sweetie16'
+  let set = paletteSetCache.get(paletteName)
+  if (!set) {
+    set = new Set((PALETTES[paletteName] ?? PALETTES.sweetie16).map((h) => `#${h}`))
+    paletteSetCache.set(paletteName, set)
+  }
+  return set
+}
 
 // Служебные текстуры Phaser — не ассеты: встроенные (__*) и растеризации
 // Text-объектов (Phaser 3.60+ даёт каждой UUID-ключ). Палитра на
@@ -91,7 +106,7 @@ export interface AssetReport {
   h: number
   transparentPct: number // доля прозрачных пикселей (alpha < 26)
   f4Pct: number // доля #f4f4f4: детектор запечённого чекерборда/фона
-  offPalette: string[] // цвета вне Sweetie-16 (у кодогена пусто всегда)
+  offPalette: string[] // цвета вне палитры манифеста этого ключа (у кодогена пусто всегда)
 }
 
 export interface AssetSetEntry {
@@ -119,6 +134,7 @@ function analyzeTexture(
   if (!ctx) return null
   ctx.drawImage(src as CanvasImageSource, 0, 0)
   const data = ctx.getImageData(0, 0, w, h).data
+  const paletteSet = paletteSetFor(key)
   let transparent = 0
   let f4 = 0
   const off = new Map<string, number>()
@@ -131,7 +147,7 @@ function analyzeTexture(
     const hex =
       '#' + [data[i], data[i + 1], data[i + 2]].map((v) => v.toString(16).padStart(2, '0')).join('')
     if (hex === '#f4f4f4') f4++
-    if (!SWEETIE16.has(hex)) off.set(hex, (off.get(hex) ?? 0) + 1)
+    if (!paletteSet.has(hex)) off.set(hex, (off.get(hex) ?? 0) + 1)
   }
   const total = w * h
   // Подпись контента (без ключа — для поиска дублей): бинарная строка
@@ -415,7 +431,8 @@ export interface ItdApi {
   tiny(): TinyEntry[]
   /**
    * Аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне
-   * Sweetie-16, дубли ключей.
+   * палитры манифеста этого ключа (manifest.palettes[spec.palette]), дубли
+   * ключей.
    * @example itd.assets()
    */
   assets(): {
@@ -761,7 +778,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.errors()                      — ошибки страницы (window.onerror + unhandledrejection)
   itd.net(20)                       — последние сообщения WS в обе стороны + сокет/rtt/реконнекты
   itd.version                       — {sha, builtAt} сборки (+ <meta name="build"> в html)
-  itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне Sweetie-16, дубли ключей
+  itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне палитры манифеста ключа (hd32/sweetie16), дубли ключей
   itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк)
   itd.reset()                       — снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум, отчёты)
   itd.pause() / resume() / speed(n) — темп сессии: set_speed 0/1/0..3 (серверный, живёт в сейве); до коннекта — {ok:false, code:'not_connected'}

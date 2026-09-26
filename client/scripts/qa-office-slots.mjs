@@ -1,15 +1,20 @@
 // qa-office-slots — регрессия слотов офиса/серверной после единого
-// манифеста ассетов: занятое место рисует РОВНО одну
-// картинку (worker, без отдельного desk_pc — includesDesk), на обеде
-// слот превращается в desk_pc + подпись «обед», сломанный ПК кликается
-// мышью по всей зоне ремонта (не только по краям — раньше сотрудник
-// перехватывал левую треть), слот шлюза серверной рисует gateway (не
-// router). Стиль/selfServe — как client/scripts/qa-itgame16.mjs.
+// манифеста ассетов: занятое место рисует ОДНУ картинку сотрудника
+// (worker — includesDesk=true, легаси 64px) либо стол
+// desk_pc/_broken + сотрудника поверх в ТОЙ ЖЕ точке (includesDesk=false,
+// HD 128px), на обеде слот превращается в desk_pc + подпись «обед» (стол
+// рисуется РОВНО один раз, не дважды), сломанный ПК кликается мышью по
+// всей зоне ремонта (не только по краям — раньше сотрудник перехватывал
+// левую треть), слот шлюза серверной рисует gateway (не router).
+// Стиль/selfServe — как client/scripts/qa-itgame16.mjs.
+//
+// includesDesk читаем из манифеста напрямую (не из сцены) — ожидания
+// кейсов зависят от текущего режима ассетов (легаси 64px vs HD 128px).
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (default 4177)
 // поверх client/dist + bin/itdirector (npm run build — заранее). Общий
 // self-serve — client/scripts/lib/selfserve.mjs.
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -22,6 +27,15 @@ const SELF_PORT = Number(process.env.QA_PORT || 4177)
 const SHOTS_DIR = process.env.QA_SHOTS_DIR || join(tmpdir(), 'qa-office-slots')
 const GAME_W = 1280
 const GAME_H = 720
+
+// Ключ office.worker.i рисует стол сам (легаси 64px) или нет (HD 128px,
+// стол — отдельный desk_pc/_off/_broken в той же точке слота): см.
+// OfficeScene.ts (workerIncludesDesk) и client/src/assets/manifest.ts.
+const spriteManifest = JSON.parse(
+  readFileSync(join(CLIENT_DIR, 'src', 'assets', 'sprites.json'), 'utf8'),
+)
+const WORKER_INCLUDES_DESK = spriteManifest.sprites.worker?.includesDesk === true
+const WORKER_KEY_RE = /^worker(_[1-3])?$/
 
 function chromePath() {
   const cands = [
@@ -144,17 +158,58 @@ async function caseFullOffice(browser) {
     const workers = images.filter((n) => n.id && /^office\.worker\.\d+$/.test(n.id))
     check('full_office: 12 занятых слотов рисуют office.worker.i', workers.length === 12,
       `n=${workers.length}`)
-    // includesDesk=true (worker.png содержит свой стол) — слот рисует
-    // ТОЛЬКО worker, никакого desk_pc/desk_empty в той же точке.
-    const wrongTexture = workers.filter((w) => w.key !== 'worker')
-    check('full_office: office.worker.i рисует текстуру worker', wrongTexture.length === 0,
-      wrongTexture.length ? JSON.stringify(wrongTexture) : 'ok')
-    const stacked = workers.filter((w) =>
-      images.some((img) => img !== w && !img.id
-        && Math.abs(img.x - w.x) < 1 && Math.abs(img.y - w.y) < 1
-        && (img.key === 'desk_pc' || img.key === 'desk_empty')))
-    check('full_office: нет desk_pc/desk_empty под office.worker.i (два стола)', stacked.length === 0,
-      stacked.length ? JSON.stringify(stacked) : 'ok')
+    // includesDesk=true (легаси 64px, worker.png содержит свой стол) — слот
+    // рисует ТОЛЬКО worker; includesDesk=false (HD 128px) — worker/worker_1..3
+    // по уровню сотрудника, поверх отдельного desk_pc/_broken в той же точке
+    // (см. OfficeScene.ts).
+    const badKey = workers.filter((w) => !WORKER_KEY_RE.test(w.key))
+    check('full_office: office.worker.i рисует worker/worker_1..3', badKey.length === 0,
+      badKey.length ? JSON.stringify(badKey) : 'ok')
+
+    // Текстура должна соответствовать уровню сотрудника (0 → worker, 1..3 →
+    // worker_N в HD-режиме) — уровень берём из snapshot() (level — производная
+    // от XP, считает сервер), а не из фикстуры.
+    const snap = await page.evaluate(() => window.itd.snapshot())
+    const employees = snap.state.offices[0].employees
+    const levelOf = (id) => employees[Number(id.split('.').pop())]?.level ?? 0
+    const mismatched = workers.filter((w) => {
+      const level = levelOf(w.id)
+      const expected = !WORKER_INCLUDES_DESK && level >= 1 && level <= 3 ? `worker_${level}` : 'worker'
+      return w.key !== expected
+    })
+    check('full_office: текстура office.worker.i соответствует уровню сотрудника', mismatched.length === 0,
+      mismatched.length
+        ? JSON.stringify(mismatched.map((w) => ({ id: w.id, key: w.key, level: levelOf(w.id) })))
+        : 'ok')
+
+    if (WORKER_INCLUDES_DESK) {
+      // Легаси: стол запечён в worker.png — под office.worker.i не должно
+      // быть НИКАКОГО desk_* (иначе два стола в разных ракурсах).
+      const stacked = workers.filter((w) =>
+        images.some((img) => img !== w && !img.id
+          && Math.abs(img.x - w.x) < 1 && Math.abs(img.y - w.y) < 1
+          && /^desk_/.test(img.key)))
+      check('full_office (includesDesk=true): нет стола под office.worker.i (два стола)', stacked.length === 0,
+        stacked.length ? JSON.stringify(stacked) : 'ok')
+    } else {
+      // HD: РОВНО один desk_pc/_broken в той же точке слота.
+      const badDesk = workers.filter((w) => {
+        const deskHere = images.filter((img) => img !== w && !img.id
+          && Math.abs(img.x - w.x) < 1 && Math.abs(img.y - w.y) < 1
+          && (img.key === 'desk_pc' || img.key === 'desk_pc_broken'))
+        return deskHere.length !== 1
+      })
+      check('full_office (includesDesk=false): ровно один desk_pc/_broken под office.worker.i', badDesk.length === 0,
+        badDesk.length ? JSON.stringify(badDesk) : 'ok')
+    }
+    // Все 12 мест заняты (PCs=12=Employees) — desk_empty (нет ПК) и
+    // desk_pc_off (ПК есть, не нанят) нигде быть не должно. Фикстура
+    // full_office не заводит слот «ПК без сотрудника», так что отдельного
+    // кейса на desk_pc_off здесь нет — добавить, когда появится фикстура.
+    const stray = images.filter((img) => img.key === 'desk_empty' || img.key === 'desk_pc_off')
+    check('full_office: нет desk_empty/desk_pc_off — все места заняты', stray.length === 0,
+      stray.length ? JSON.stringify(stray) : 'ok')
+
     const boss = images.find((n) => n.id === 'office.boss')
     check('full_office: office.boss рисуется текстурой boss', boss?.key === 'boss',
       boss ? `key=${boss.key}` : 'office.boss не найден')
@@ -188,6 +243,19 @@ async function caseLunch(browser) {
     const worker0 = images.find((n) => n.id === 'office.worker.0')
     check('lunch: office.worker.0 на обеде рисует desk_pc', worker0?.key === 'desk_pc',
       worker0 ? `key=${worker0.key}` : 'office.worker.0 не найден')
+
+    // Сотрудника в точке нет (обед убирает только его, стол остаётся) —
+    // и desk_pc нарисован РОВНО один раз, а не дважды под одним слотом
+    // (office.worker.0 и есть тот единственный desk_pc — двойной отрисовки
+    // desk_pc «под собой» на обеде быть не должно).
+    const samePoint = worker0
+      ? images.filter((img) => Math.abs(img.x - worker0.x) < 1 && Math.abs(img.y - worker0.y) < 1)
+      : []
+    const deskCount = samePoint.filter((img) => img.key === 'desk_pc').length
+    check('lunch: desk_pc в точке слота ровно один', deskCount === 1, `n=${deskCount}`)
+    const strayWorker = samePoint.filter((img) => img !== worker0 && WORKER_KEY_RE.test(img.key))
+    check('lunch: сотрудника в точке слота нет', strayWorker.length === 0,
+      strayWorker.length ? JSON.stringify(strayWorker) : 'ok')
 
     const texts = await dumpTexts(page, 'office')
     const lunchLabel = texts.find((t) => t.text === 'обед')
@@ -235,6 +303,21 @@ async function caseBrokenPc(browser) {
 
     const repair = await page.evaluate(() => window.itd.nodes().find((n) => n.id === 'office.repair.0'))
     if (!repair) throw new Error('office.repair.0 не найден после restore(PCBroken=true)')
+
+    if (!WORKER_INCLUDES_DESK) {
+      // HD: стол слота — desk_pc_broken (экран красный), сотрудник поверх
+      // него в той же точке (легаси-режим брокенность десктопа не рисует —
+      // только мигающий оверлей поверх запечённого worker.png).
+      const images = await dumpImages(page, 'office')
+      const worker0 = images.find((n) => n.id === 'office.worker.0')
+      const deskHere = worker0
+        ? images.find((img) => img !== worker0 && !img.id
+            && Math.abs(img.x - worker0.x) < 1 && Math.abs(img.y - worker0.y) < 1)
+        : null
+      check('broken_pc: в точке слота стол desk_pc_broken', deskHere?.key === 'desk_pc_broken',
+        deskHere ? `key=${deskHere.key}` : 'стол не найден в точке слота')
+    }
+
     const box = await canvasBox(page)
     const spots = [
       { label: 'центр', wx: repair.x, wy: repair.y },

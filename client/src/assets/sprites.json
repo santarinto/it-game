@@ -15,13 +15,18 @@
     ]
   },
   "sprites": {
-    "desk_pc": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "desk" },
+    "desk_pc": { "size": 128, "frames": 1, "palette": "hd32", "class": "desk" },
+    "desk_pc_off": { "size": 128, "frames": 1, "palette": "hd32", "class": "desk", "fallback": "desk_pc" },
+    "desk_pc_broken": { "size": 128, "frames": 1, "palette": "hd32", "class": "desk", "fallback": "desk_pc" },
     "desk_empty": {
       "size": 64, "frames": 1, "palette": "sweetie16", "class": "desk",
       "maxSpecks": 98,
       "note": "шахматка — остатки запечённого фона превью, перегенерировать"
     },
-    "worker": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "person", "includesDesk": true },
+    "worker": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "includesDesk": false },
+    "worker_1": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "fallback": "worker" },
+    "worker_2": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "fallback": "worker" },
+    "worker_3": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "fallback": "worker" },
     "boss": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "person", "fallback": "worker" },
     "router": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "rack" },
     "rack_server": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "rack" },

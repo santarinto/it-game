@@ -213,7 +213,7 @@ export function registerTextures(scene: Phaser.Scene): void {
 // смена разрешения арта ничего не сдвинет.
 export const SPRITE_TARGET = {
   desk: 64, // стол в слоте 80×64
-  person: 64, // сотрудник и начальник: ровно ×1 для 64px и ×0.5 для будущих 128px
+  person: 64, // сотрудник и начальник: ровно ×1 для 64px (sweetie16) и ×0.5 для HD 128px (hd32)
   rack: 64, // стойки, core, роутер, шлюз
   amenity: 48, // быт-устройства на полке
   icon: 32, // мелкие UI-иконки (icon_money, icon_network) — пока нигде не рисуются

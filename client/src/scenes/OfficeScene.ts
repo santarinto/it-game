@@ -189,14 +189,32 @@ export class OfficeScene extends Phaser.Scene {
       }
       const e = office.employees[i]
       const hasPc = i < office.pcs
-      // worker.png сам содержит стол/монитор/системник/кресло — занятое
-      // место рисует ТОЛЬКО его, без отдельного desk_pc под ним (иначе два
-      // стола в разных ракурсах). Будущий HD-worker без стола (includesDesk:false в
-      // манифесте) вернёт старую пару desk_pc + человек поверх.
+      // includesDesk=true — старый 64px worker.png уже содержит свой
+      // стол/монитор/системник/кресло (легаси-раскладка, живёт для отката
+      // на старые PNG): занятое место рисует ТОЛЬКО его, без отдельного
+      // desk_pc под ним (иначе два стола в разных ракурсах). includesDesk=
+      // false — HD 128px worker без стола: слот всегда рисует отдельный
+      // desk_pc/_off/_broken в (x,y), сотрудник — поверх него, В ТОЙ ЖЕ
+      // точке (кресло на worker.png нарисовано так, что ложится ровно на
+      // кресло desk_pc — выравнивание запечено в PNG, смещений не нужно).
       const workerIncludesDesk = SPRITES.worker?.includesDesk === true
       const showWorkerOnly = hasPc && !!e && !s.isLunch && workerIncludesDesk
+      // Стол слота: без ПК — desk_empty; на обеде — всегда desk_pc (экран
+      // горит, кресло пустое — обед убирает только сотрудника, не стол);
+      // ПК куплен, но не нанят — desk_pc_off; сотрудник на месте —
+      // desk_pc/_broken по e.pcBroken. Легаси showWorkerOnly стол не рисует
+      // вовсе — он запечён в worker.png.
+      let deskImg: Phaser.GameObjects.Image | null = null
       if (!showWorkerOnly) {
-        this.objects.push(addSprite(this, x, y, hasPc ? 'desk_pc' : 'desk_empty', 'desk'))
+        const deskKey = !hasPc
+          ? 'desk_empty'
+          : s.isLunch
+            ? 'desk_pc'
+            : !e
+              ? 'desk_pc_off'
+              : e.pcBroken ? 'desk_pc_broken' : 'desk_pc'
+        deskImg = addSprite(this, x, y, deskKey, 'desk')
+        this.objects.push(deskImg)
       }
       // Сломанный ПК: доход места 0; клики по столу чинят, мастер чинит за деньги.
       if (e?.pcBroken) {
@@ -236,17 +254,20 @@ export class OfficeScene extends Phaser.Scene {
         )
       }
       if (e) {
-        // Слот-картинка занятого места: на обеде — пустой стол с ПК и
-        // подписью «обед» (сотрудник отошёл, LUNCH_SHIFT убран — стол
-        // никуда не двигается); иначе — сам сотрудник, в позиции стола
-        // (includesDesk) или поверх отдельного desk_pc (легаси-раскладка).
+        // Слот-картинка занятого места (id office.worker.i, тултип/клик):
+        // на обеде — тот же стол desk_pc, что уже нарисован выше (без
+        // второго стола: сотрудник отошёл, LUNCH_SHIFT убран — стол никуда
+        // не двигается); иначе — сотрудник, в позиции стола (includesDesk,
+        // легаси) либо поверх отдельного desk_pc в ТОЙ ЖЕ точке (HD).
         let wx: number
         let wy: number
         let slotImg: Phaser.GameObjects.Image
         if (s.isLunch) {
           wx = x
           wy = y
-          slotImg = addSprite(this, wx, wy, 'desk_pc', 'desk')
+          // deskImg гарантированно создан выше: showWorkerOnly требует
+          // !s.isLunch, значит на обеде всегда проходим ветку !showWorkerOnly.
+          slotImg = deskImg as Phaser.GameObjects.Image
           this.objects.push(this.add.text(x, y + 40, 'обед', {
             fontFamily: 'monospace', fontSize: '12px', color: '#94b0c2',
           }).setOrigin(0.5))
@@ -255,9 +276,10 @@ export class OfficeScene extends Phaser.Scene {
           wy = y
           slotImg = addSprite(this, wx, wy, 'worker', 'desk')
         } else {
-          wx = x - 52
-          wy = y - 6
-          slotImg = addSprite(this, wx, wy, 'worker', 'person')
+          wx = x
+          wy = y
+          const workerKey = e.level >= 1 && e.level <= 3 ? `worker_${e.level}` : 'worker'
+          slotImg = addSprite(this, wx, wy, workerKey, 'person')
         }
         // id office.worker.i и обработчики висят на картинке слота (worker
         // или desk_pc на обеде) — itd.click('office.worker.i') и тултип
@@ -281,7 +303,10 @@ export class OfficeScene extends Phaser.Scene {
           this.hoveredSlot = -1
           this.hideTooltip()
         })
-        this.objects.push(worker)
+        // На обеде slotImg === deskImg — тот стол уже в this.objects (пушился
+        // при отрисовке стола выше); повторный push задвоил бы объект и
+        // вызвал бы двойной destroy()/killTweensOf() на следующей перерисовке.
+        if (slotImg !== deskImg) this.objects.push(worker)
         // Спрайт пересоздан — восстанавливаем тултип, но только если курсор
         // реально над спрайтом: pointerout не срабатывает по уничтоженному
         // объекту, и без этой проверки hoveredSlot «залипает».

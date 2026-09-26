@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "653fa8cd67bd",
+  "hash": "16467ef139d7",
   "methods": {
     "version": {
       "kind": "prop",
@@ -214,7 +214,7 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "{ textures: AssetReport[]; duplicates: { keys: string[]; expected: boolean; }[]; textTextures: number; }",
-      "doc": "Аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне\nSweetie-16, дубли ключей.",
+      "doc": "Аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне\nпалитры манифеста этого ключа (manifest.palettes[spec.palette]), дубли\nключей.",
       "examples": [
         "itd.assets()"
       ]
@@ -851,7 +851,7 @@ export const CONTRACT = {
         "offPalette": {
           "type": "string[]",
           "optional": false,
-          "doc": "цвета вне Sweetie-16 (у кодогена пусто всегда)"
+          "doc": "цвета вне палитры манифеста этого ключа (у кодогена пусто всегда)"
         }
       }
     },
