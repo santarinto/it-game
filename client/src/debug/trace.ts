@@ -19,8 +19,11 @@ export interface TraceResult {
   t1: number // epoch ms — момент закрытия окна
   windowMs: number
   actionMs: number // rel() сразу после await action()
-  // handled — в активной сцене есть подписчик keydown-<KEY>/keydown; acted — сцены,
-  // реально отработавшие клавишу; [] при handled:true — guard обработчика её отбросил
+  /**
+   * handled — в активной сцене есть подписчик keydown-<KEY>/keydown; acted —
+   * сцены, реально отработавшие клавишу; [] при handled:true — guard обработчика
+   * её отбросил.
+   */
   keys: { t: number; key: string; source: 'dom' | 'itd'; repeat: boolean; handled: boolean; scenes: string[]; acted: { scene: string; action: string }[] }[]
   sent: { t: number; type: string; office?: number; [k: string]: unknown }[] // полная команда, по порядку отправки
   recv: { t: number; type: string; info: Record<string, unknown> }[] // не-state входящие: error/day_report/game_over/…

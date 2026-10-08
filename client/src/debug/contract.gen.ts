@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "1c9c31f38f55",
+  "hash": "7dba4e7f7bd9",
   "methods": {
     "version": {
       "kind": "prop",
@@ -184,7 +184,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "OverlapEntry[]",
-      "doc": "Линтер вёрстки: kind text — тексты одного depth; occlusion — текст под\nнепрозрачной плашкой; interactive — интерактив частично перекрыт\nинтерактивом или текстом (вложенность целиком — не находка). Каждая\nпара: ratio — площадь пересечения / площадь меньшего из пары (occlusion —\n/ площадь текста), threshold — порог, с которым сравнили. minAreaRatio\n0..1 заменяет пороги по умолчанию (text и interactive — 0, occlusion —\n0.25 и >50% по каждой оси); 0 — строгий режим, вне 0..1 — RangeError.",
+      "doc": "Линтер вёрстки: kind text — тексты одного depth; occlusion — текст под\nнепрозрачной плашкой; interactive — интерактив частично перекрыт\nинтерактивом или текстом (вложенность целиком — не находка). Каждая\nпара: ratio — площадь пересечения / площадь меньшего из пары (occlusion —\n/ площадь текста), threshold — порог, с которым сравнили. minAreaRatio\n0..1 заменяет пороги по умолчанию для всех kind (text и interactive — 0,\nocclusion — 0.25 и >50% по каждой оси: заданный minAreaRatio снимает и\nправило по осям, находок может стать больше, чем без него); 0 — строгий\nрежим, вне 0..1 — RangeError.",
       "examples": [
         "itd.overlaps()",
         "itd.overlaps({ minAreaRatio: 0 })"
@@ -1518,7 +1518,7 @@ export const CONTRACT = {
         "minAreaRatio": {
           "type": "number",
           "optional": true,
-          "doc": "0..1: пара — находка при ratio ≥ minAreaRatio; задан — заменяет пороги всех kind (0 — строгий режим), не задан — DEFAULT_MIN_AREA_RATIO"
+          "doc": "0..1: пара — находка при ratio ≥ minAreaRatio; задан — заменяет пороги всех kind, у occlusion и правило >50% по осям (0 — строгий режим), не задан — DEFAULT_MIN_AREA_RATIO"
         }
       }
     },
@@ -1858,7 +1858,7 @@ export const CONTRACT = {
         "keys": {
           "type": "{ t: number; key: string; source: 'dom' | 'itd'; repeat: boolean; handled: boolean; scenes: string[]; acted: { scene: string; action: string; }[]; }[]",
           "optional": false,
-          "doc": ""
+          "doc": "handled — в активной сцене есть подписчик keydown-<KEY>/keydown; acted —\nсцены, реально отработавшие клавишу; [] при handled:true — guard обработчика\nеё отбросил."
         },
         "sent": {
           "type": "{ [k: string]: unknown; t: number; type: string; office?: number; }[]",

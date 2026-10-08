@@ -13,7 +13,7 @@ export type OverlapKind = 'text' | 'occlusion' | 'interactive'
 
 // Опции itd.overlaps() (ITGAME-38 п.5).
 export interface OverlapOptions {
-  minAreaRatio?: number // 0..1: пара — находка при ratio ≥ minAreaRatio; задан — заменяет пороги всех kind (0 — строгий режим), не задан — DEFAULT_MIN_AREA_RATIO
+  minAreaRatio?: number // 0..1: пара — находка при ratio ≥ minAreaRatio; задан — заменяет пороги всех kind, у occlusion и правило >50% по осям (0 — строгий режим), не задан — DEFAULT_MIN_AREA_RATIO
 }
 
 // Пороги по умолчанию — поведение overlaps() без опций НЕ меняется:
