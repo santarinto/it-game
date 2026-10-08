@@ -41,7 +41,7 @@ on:
 
 env:
   OBS_TOKEN: ${{ secrets.OBS_TOKEN }}
-  DEPLOY_ENABLED: "0"
+  DEPLOY_ENABLED: "1"
 
 jobs:
   test-server:
