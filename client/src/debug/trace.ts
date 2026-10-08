@@ -19,7 +19,9 @@ export interface TraceResult {
   t1: number // epoch ms — момент закрытия окна
   windowMs: number
   actionMs: number // rel() сразу после await action()
-  keys: { t: number; key: string; source: 'dom' | 'itd'; repeat: boolean; handled: boolean; scenes: string[] }[]
+  // handled — в активной сцене есть подписчик keydown-<KEY>/keydown; acted — сцены,
+  // реально отработавшие клавишу; [] при handled:true — guard обработчика её отбросил
+  keys: { t: number; key: string; source: 'dom' | 'itd'; repeat: boolean; handled: boolean; scenes: string[]; acted: { scene: string; action: string }[] }[]
   sent: { t: number; type: string; office?: number; [k: string]: unknown }[] // полная команда, по порядку отправки
   recv: { t: number; type: string; info: Record<string, unknown> }[] // не-state входящие: error/day_report/game_over/…
   transitions: { t: number; kind: 'phase' | 'speed' | 'day' | 'scenes'; from: string | number | null; to: string | number | null }[]
@@ -108,7 +110,7 @@ export async function runTrace(game: Phaser.Game, action: () => unknown, windowM
   // ── keys: itd.key() (мимо DOM) ────────────────────────────────────────
   const onItdKey = (name: string) => {
     const scenes = handlerScenes(game, name)
-    r.keys.push({ t: rel(), key: name, source: 'itd', repeat: false, handled: scenes.length > 0, scenes })
+    r.keys.push({ t: rel(), key: name, source: 'itd', repeat: false, handled: scenes.length > 0, scenes, acted: [] })
   }
   itdKeyListeners.add(onItdKey)
   offs.push(() => itdKeyListeners.delete(onItdKey))
@@ -117,7 +119,7 @@ export async function runTrace(game: Phaser.Game, action: () => unknown, windowM
   const onDomKeydown = (ev: KeyboardEvent) => {
     const name = KEY_NAME[ev.keyCode] ?? ev.code
     const scenes = handlerScenes(game, name)
-    r.keys.push({ t: rel(), key: name, source: 'dom', repeat: ev.repeat, handled: scenes.length > 0, scenes })
+    r.keys.push({ t: rel(), key: name, source: 'dom', repeat: ev.repeat, handled: scenes.length > 0, scenes, acted: [] })
   }
   window.addEventListener('keydown', onDomKeydown, true)
   offs.push(() => window.removeEventListener('keydown', onDomKeydown, true))
@@ -168,8 +170,14 @@ export async function runTrace(game: Phaser.Game, action: () => unknown, windowM
     const t = rel()
     if (e.type === 'sound') {
       r.sounds.push({ t, name: e.name, key: e.key, volume: e.volume, ok: e.ok, scene: e.scene })
-    } else {
+    } else if (e.type === 'toast') {
       r.toasts.push({ t, text: e.text, where: e.where, ms: e.ms, scene: e.scene })
+    } else if (e.type === 'key') {
+      // сигнал приходит синхронно сразу за записью keys (DOM: capture → Phaser →
+      // обработчик; itd: notifyItdKey → emit) — привязываем к последней с тем же именем
+      for (let i = r.keys.length - 1; i >= 0; i--) {
+        if (r.keys[i].key === e.key) { r.keys[i].acted.push({ scene: e.scene, action: e.action }); break }
+      }
     }
   })
   offs.push(untapUi)

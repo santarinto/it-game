@@ -306,10 +306,11 @@ export class HUDScene extends Phaser.Scene {
     // пока отчёт открыт. itd.key('enter') дергает те же обработчики.
     const kb = this.input.keyboard
     if (kb) {
-      const nextDay = () => this.proceedNextDay()
-      kb.on('keydown-ENTER', nextDay)
-      kb.on('keydown-SPACE', nextDay)
-      kb.on('keydown-ESC', nextDay)
+      for (const name of ['ENTER', 'SPACE', 'ESC'] as const) {
+        kb.on(`keydown-${name}`, () => {
+          if (this.proceedNextDay()) emitUi({ type: 'key', key: name, scene: this.scene.key, action: 'next_day' })
+        })
+      }
       this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
         kb.removeCapture(REPORT_KEYS)
         kb.removeAllListeners()
@@ -1080,8 +1081,8 @@ export class HUDScene extends Phaser.Scene {
     this.reportUI.push(...drawDebugFrames(this, this.reportUI))
   }
 
-  private proceedNextDay() {
-    if (this.reportUI.length === 0) return
+  private proceedNextDay(): boolean {
+    if (this.reportUI.length === 0) return false
     if (this.speedBeforeReport !== null) {
       // Восстанавливаем скорость, только если во время отчёта не было внешних
       // изменений скорости (например, itd.pause(), itd.speed(0) или клик по HUD).
@@ -1092,6 +1093,7 @@ export class HUDScene extends Phaser.Scene {
     }
     client.send('next_day')
     this.closeReport()
+    return true
   }
 
   private checkboxLabel(): string {

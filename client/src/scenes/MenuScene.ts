@@ -304,27 +304,39 @@ export class MenuScene extends Phaser.Scene {
 
   // Клавиатура меню (ITGAME-24): 1-4 — сложность, Enter — «Продолжить»
   // (или «НОРМА», если сейва нет). itd.key() дергает те же обработчики.
+  // сигнал «клавишу реально отработали» для itd.trace (ITGAME-37): шлём только после guard'ов
+  private acted(key: string, action: string) {
+    emitUi({ type: 'key', key, scene: this.scene.key, action })
+  }
+
   private registerKeys() {
     const kb = this.input.keyboard
     if (!kb) return
-    kb.on('keydown-ONE', () => { if (this.modalUI.length === 0) this.startGame('easy', true) })
-    kb.on('keydown-TWO', () => { if (this.modalUI.length === 0) this.startGame('normal', true) })
-    kb.on('keydown-THREE', () => { if (this.modalUI.length === 0) this.startGame('hard', true) })
-    kb.on('keydown-FOUR', () => { if (this.modalUI.length === 0) this.startGame('hardcore', true) })
+    kb.on('keydown-ONE', () => { if (this.modalUI.length === 0 && !this.started) { this.acted('ONE', 'start_easy'); this.startGame('easy', true) } })
+    kb.on('keydown-TWO', () => { if (this.modalUI.length === 0 && !this.started) { this.acted('TWO', 'start_normal'); this.startGame('normal', true) } })
+    kb.on('keydown-THREE', () => { if (this.modalUI.length === 0 && !this.started) { this.acted('THREE', 'start_hard'); this.startGame('hard', true) } })
+    kb.on('keydown-FOUR', () => { if (this.modalUI.length === 0 && !this.started) { this.acted('FOUR', 'start_hardcore'); this.startGame('hardcore', true) } })
     kb.on('keydown-ENTER', () => {
       if (this.modalUI.length === 0) {
         if (hasSavedSession()) {
+          if (!this.started && !this.checkingNeighbor) this.acted('ENTER', 'continue')
           this.onContinueClick()
         } else {
+          if (!this.started) this.acted('ENTER', 'start_normal')
           this.startGame('normal', true)
         }
       } else {
         // Если модалка открыта, Enter безопасно закрывает её (отмена).
         // Деструктивный перехват чужой сессии (takeover) доступен только по клику.
+        this.acted('ENTER', 'close_modal')
         this.closeModal()
       }
     })
-    kb.on('keydown-ESC', () => this.closeModal())
+    kb.on('keydown-ESC', () => {
+      const had = this.modalUI.length > 0
+      this.closeModal()
+      if (had) this.acted('ESC', 'close_modal')
+    })
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.closeModal()
       kb.removeAllListeners()

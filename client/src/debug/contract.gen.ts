@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "2dfb1ac0e5f6",
+  "hash": "ea39f03d9aea",
   "methods": {
     "version": {
       "kind": "prop",
@@ -1848,7 +1848,7 @@ export const CONTRACT = {
           "doc": "rel() сразу после await action()"
         },
         "keys": {
-          "type": "{ t: number; key: string; source: 'dom' | 'itd'; repeat: boolean; handled: boolean; scenes: string[]; }[]",
+          "type": "{ t: number; key: string; source: 'dom' | 'itd'; repeat: boolean; handled: boolean; scenes: string[]; acted: { scene: string; action: string; }[]; }[]",
           "optional": false,
           "doc": ""
         },

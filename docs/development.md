@@ -155,7 +155,8 @@ documenting separately:
   and keeps them for `windowMs` ms (0..10000, default 1000) after `action`
   finishes, so it never misses an event that happens between two
   `itd.*()` reads. Reports the keys the scene received (DOM or `itd.key()`,
-  with the handling scene), the commands sent to the server in send order,
+  with the scenes that have a listener, and `acted` — the scenes that
+  actually handled it; `[]` means the handler's guard dropped it), the commands sent to the server in send order,
   non-state server replies (`error`, `day_report`, …), phase/speed/day/scene
   transitions, and the toasts/sounds that fired — enough to assert on a
   real player action end-to-end without polling `state()`/`net()` by hand.

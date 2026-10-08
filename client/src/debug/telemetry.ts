@@ -74,7 +74,7 @@ export function startTelemetry(game: Phaser.Game): Telemetry {
 
   // Звук и тосты (ITGAME-38): шина UI-событий (audio.ts, HUDScene.toast()) —
   // { type: 'sound', ... } / { type: 'toast', ... } прямо в общий буфер.
-  onUi(({ type, ...rest }) => add(type, rest))
+  onUi((e) => { if (e.type === 'key') return; const { type, ...rest } = e; add(type, rest) })
 
   // Переключения сцен: диф списка активных сцен раз в 500мс — ловит и
   // launch/stop, и возвраты в меню без хуков в сами сцены.

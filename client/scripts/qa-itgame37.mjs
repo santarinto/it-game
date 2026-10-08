@@ -24,6 +24,12 @@
 //      [set_speed{speed:2}, next_day] (proceedNextDay восстанавливает
 //      скорость ДО отчёта, затем next_day), transition phase
 //      day_report → running
+//  10b каноническая форма: key('enter') на открытом отчёте → ENTER itd
+//      handled:true, acted [{hud,next_day}], sent [set_speed, next_day]
+//  10c каноническая форма: click('btn.next_day') → ok, sent
+//      [set_speed, next_day], keys пуст (клик — не клавиша)
+//  10d отчёт закрыт, игра идёт: key('enter') → handled:true, acted [],
+//      sent пуст (клавиша дошла до HUD, guard отбросил)
 //  11  trace(() => throw, 100) → {ok:false, error:'boom'}; следом
 //      trace(() => key('esc')) даёт ровно 1 key — подписки не утекли
 //  12  windowMs −1 и 20000 → reject
@@ -139,7 +145,7 @@ async function run() {
       t2.sent[0]?.type === 'buy_pc' && t2.sent[0]?.office === 0,
       JSON.stringify(t2.sent),
     )
-    check('2: sounds содержит name select', t2.sounds.some((s) => s.name === 'select'), JSON.stringify(t2.sounds))
+    check('2: sounds содержит name select, key sfx:select', t2.sounds.some((s) => s.name === 'select' && s.key === 'sfx:select'), JSON.stringify(t2.sounds))
 
     // ── 3: отказ сервера — recv error/not_enough_money, тост, звук error
     await page.evaluate(() => window.itd.set({ money: 0 }))
@@ -156,7 +162,7 @@ async function run() {
       t3.toasts.some((tt) => tt.text === 'Не хватает денег'),
       JSON.stringify(t3.toasts),
     )
-    check('3: sounds содержит name error', t3.sounds.some((s) => s.name === 'error'), JSON.stringify(t3.sounds))
+    check('3: sounds содержит name error, key sfx:error', t3.sounds.some((s) => s.name === 'error' && s.key === 'sfx:error'), JSON.stringify(t3.sounds))
 
     // Деньги обратно — иначе конец дня в п.10 уйдёт в deadlock/game_over,
     // а не в day_report (см. отчёт qa-itgame38 про MinCostToEarn).
@@ -238,14 +244,15 @@ async function run() {
     const t8esc = await page.evaluate(() => window.itd.trace(() => window.itd.key('esc'), 300))
     const keyT8esc = t8esc.keys[0]
     check(
-      "8: key('esc') → {key:'ESC', source:'itd', handled:true, scenes:['hud']}",
+      "8: key('esc') → {key:'ESC', source:'itd', handled:true, scenes:['hud']}, acted:[] (отчёт закрыт — guard)",
       keyT8esc?.key === 'ESC' && keyT8esc?.source === 'itd' && keyT8esc?.handled === true &&
-        JSON.stringify(keyT8esc?.scenes) === JSON.stringify(['hud']),
+        JSON.stringify(keyT8esc?.scenes) === JSON.stringify(['hud']) &&
+        JSON.stringify(keyT8esc?.acted) === '[]',
       JSON.stringify(keyT8esc),
     )
     const t8one = await page.evaluate(() => window.itd.trace(() => window.itd.key('1'), 300))
     const keyT8one = t8one.keys[0]
-    check("8: key('1') в игре → handled:false", keyT8one?.handled === false, JSON.stringify(keyT8one))
+    check("8: key('1') в игре → handled:false, acted:[]", keyT8one?.handled === false && JSON.stringify(keyT8one?.acted) === '[]', JSON.stringify(keyT8one))
 
     // ── 9: реальная клавиатура — Escape (handled), KeyA (не обработана)
     await page.evaluate(() => {
@@ -286,6 +293,11 @@ async function run() {
     const t10 = await page.evaluate(() => window.__tr10)
     const keyT10 = t10.keys.find((k) => k.source === 'dom' && k.key === 'ENTER')
     check('10: DOM Enter → handled:true', keyT10?.handled === true, JSON.stringify(keyT10))
+    check(
+      '10: DOM Enter → acted [{hud,next_day}]',
+      JSON.stringify(keyT10?.acted) === JSON.stringify([{ scene: 'hud', action: 'next_day' }]),
+      JSON.stringify(keyT10),
+    )
     const sentTypesT10 = t10.sent.map((e) => e.type)
     check(
       '10: sent строго [set_speed, next_day] (speed:2 → 0)',
@@ -299,6 +311,51 @@ async function run() {
       JSON.stringify(phaseT10),
     )
 
+    // ── 10b/10c: две канонические формы вызова из задачи; скорость после п.10 уже 2
+    const openReport = async () => {
+      await page.evaluate(() => window.itd.set({ money: 20000 }))
+      await page.waitForFunction(() => window.itd.state().balance === 20000, { timeout: 5000 })
+      await page.evaluate(() => window.itd.set({ tickInDay: 53 }))
+      await page.waitForFunction(() => window.itd.ids().some((n) => n.id === 'btn.next_day'), { timeout: 30000 })
+      await delay(300)
+    }
+    await openReport()
+    const t10b = await page.evaluate(() => window.itd.trace(() => window.itd.key('enter'), 1500))
+    const keyT10b = t10b.keys[0]
+    check(
+      '10b: key(enter) → {ENTER, itd, handled:true}, acted [{hud,next_day}]',
+      keyT10b?.key === 'ENTER' && keyT10b?.source === 'itd' && keyT10b?.handled === true &&
+        JSON.stringify(keyT10b?.acted) === JSON.stringify([{ scene: 'hud', action: 'next_day' }]),
+      JSON.stringify(keyT10b),
+    )
+    check(
+      '10b: sent строго [set_speed, next_day], speed:2',
+      JSON.stringify(t10b.sent.map((e) => e.type)) === JSON.stringify(['set_speed', 'next_day']) && t10b.sent[0]?.speed === 2,
+      JSON.stringify(t10b.sent),
+    )
+    const phT10b = t10b.transitions.find((tr) => tr.kind === 'phase')
+    check('10b: transition phase day_report → running', phT10b?.from === 'day_report' && phT10b?.to === 'running', JSON.stringify(phT10b))
+
+    await openReport()
+    const t10c = await page.evaluate(() => window.itd.trace(() => window.itd.click('btn.next_day'), 1000))
+    check('10c: click(btn.next_day) ok', t10c.result?.ok === true, JSON.stringify(t10c.result))
+    check(
+      '10c: sent строго [set_speed, next_day]',
+      JSON.stringify(t10c.sent.map((e) => e.type)) === JSON.stringify(['set_speed', 'next_day']),
+      JSON.stringify(t10c.sent),
+    )
+    const phT10c = t10c.transitions.find((tr) => tr.kind === 'phase')
+    check('10c: transition phase day_report → running', phT10c?.from === 'day_report' && phT10c?.to === 'running', JSON.stringify(phT10c))
+    check('10c: keys пуст (клик — не клавиша)', t10c.keys.length === 0, JSON.stringify(t10c.keys))
+
+    // ── 10d: отчёт закрыт, игра идёт — клавиша дошла до HUD, guard отбросил
+    const t10d = await page.evaluate(() => window.itd.trace(() => window.itd.key('enter'), 300))
+    check(
+      '10d: key(enter) при закрытом отчёте → handled:true, acted [], sent пуст',
+      t10d.keys[0]?.handled === true && t10d.keys[0]?.acted.length === 0 && t10d.sent.length === 0,
+      JSON.stringify(t10d),
+    )
+
     // ── 11: ошибка в action не глотает окно; подписки не текут
     const t11 = await page.evaluate(() =>
       window.itd.trace(() => {
@@ -306,8 +363,28 @@ async function run() {
       }, 100),
     )
     check('11: ok:false, error:boom', t11.ok === false && t11.error === 'boom', JSON.stringify(t11))
-    const t11b = await page.evaluate(() => window.itd.trace(() => window.itd.key('esc')))
-    check('11: следующий trace даёт ровно 1 key (нет утечки)', t11b.keys.length === 1, JSON.stringify(t11b.keys))
+    // утечка: объект закрытого окна не меняется от новых событий; контроль — те же
+    // раздражители видны живому окну
+    const leak = await page.evaluate(async () => {
+      const itd = window.itd
+      const closed = await itd.trace(() => { throw new Error('boom') }, 100)
+      const before = JSON.stringify(closed)
+      await itd.set({ money: 0 }); await itd.wait((s) => s.balance === 0)
+      const live = await itd.trace(async () => {
+        itd.key('esc') // itd-клавиша
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA' })) // DOM
+        itd.resume(); await itd.wait((s) => s.speed === 1) // sent + transition
+        itd.pause(); await itd.wait((s) => s.speed === 0)
+        await itd.cmd('buy_pc') // error → тост + звук
+      }, 300)
+      return { same: JSON.stringify(closed) === before, live: {
+        keys: live.keys.length, sent: live.sent.length, tr: live.transitions.length,
+        toasts: live.toasts.length, sounds: live.sounds.length } }
+    })
+    check('11: закрытое окно не растёт (все 6 подписок сняты)', leak.same, JSON.stringify(leak.live))
+    check('11: контроль — раздражители видны живому окну',
+      leak.live.keys >= 2 && leak.live.sent >= 3 && leak.live.tr >= 2 && leak.live.toasts >= 1 && leak.live.sounds >= 1,
+      JSON.stringify(leak.live))
 
     // ── 12: windowMs вне 0..10000 — reject
     const rejNeg = await page.evaluate(() =>

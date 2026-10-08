@@ -1,5 +1,5 @@
-// Шина UI-событий (ITGAME-38): листовой модуль без импортов — audio.ts и
-// сцены эмитят, telemetry.ts подписывается и кладёт в кольцевой буфер
+// Шина UI-событий (ITGAME-38) и факта обработки клавиш (ITGAME-37): листовой
+// модуль без импортов — audio.ts и сцены эмитят, telemetry.ts подписывается и кладёт в кольцевой буфер
 // itd.log(). Отдельно от itd.trace (ITGAME-37, следующая задача) — та
 // переиспользует эту же шину для команд/снапшотов, здесь только звук/тосты.
 // JSON-контракт (ITGAME-39) держит типы экспортируемыми TS-типами.
@@ -7,6 +7,9 @@
 export type UiEvent =
   | { type: 'sound'; key: string; name: string; volume: number; scene: string; ok: boolean }
   | { type: 'toast'; text: string; where: 'top' | 'bottom'; ms: number; bg: string; scene: string }
+  // сцена реально отработала клавишу (обработчик прошёл свои guard'ы); key — имя
+  // Phaser (ENTER/SPACE/ESC/ONE…), action — что сделано
+  | { type: 'key'; key: string; scene: string; action: string }
 
 const listeners = new Set<(e: UiEvent) => void>()
 
