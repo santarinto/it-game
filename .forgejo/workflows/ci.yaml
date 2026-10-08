@@ -1,0 +1,107 @@
+# Forgejo Actions — it-game tests + deploy (MINIPC-206, the platform chain:
+# minipc MINIPC-164 / sntbot MINIPC-209 pattern).
+#
+# Tests run on the ci-cd-srv docker runner (label minipc-test) on EVERY push
+# (any branch). The deploy job runs on the minipc HOST runner (label
+# minipc-deploy) and is ONE ssh line per target — stage first, prod after —
+# to the loader on the game-box (ci-cd-srv itself): forced command
+# deploy-project itgame-stage / itgame, transient user unit, recipe
+# tools/deploy (contract v1) from the deployed SHA.
+#
+# Checkout is a plain `git clone` with the job token, NOT actions/checkout:
+# node-free where possible, and this runner serves no v4 artifact API
+# (minipc recipe note, MINIPC-164). The docker runner's config carries
+# add-host git.lan→10.8.1.12 — containers resolve the platform by mesh IP.
+#
+# Server tests need PostgreSQL (parity with the retired GitHub CI): the
+# service container is reachable by the service name `postgres`.
+#
+# Observability (MINIPC-78/87 parity): every job reports start/finish via
+# tools/ci-notify.sh (vendored from the minipc repo, OBS_PROJECT=itgame);
+# finish-unless-done in an always()-tail separates "failed" from "never ran".
+# Without OBS_TOKEN the script is a silent no-op.
+#
+# DEPLOY_ENABLED is the CT1 latch, "0" until the owner's word: the deploy
+# job then reports the skip and finishes GREEN (tests prove themselves, both
+# targets stay untouched). The first live deploy flips it to 1 — owner's
+# call, not a CI change.
+name: ci
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "deploy | rollback"
+        required: false
+        default: "deploy"
+      ref:
+        description: "SHA (40 hex), default: the pushed commit"
+        required: false
+        default: ""
+
+env:
+  OBS_TOKEN: ${{ secrets.OBS_TOKEN }}
+  DEPLOY_ENABLED: "0"
+
+jobs:
+  test-server:
+    runs-on: minipc-test
+    container: golang:1.26
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: itd
+          POSTGRES_PASSWORD: itd
+          POSTGRES_DB: itdirector_test
+    env:
+      TEST_DATABASE_URL: postgres://itd:itd@postgres:5432/itdirector_test
+    steps:
+      - run: git clone --depth 1 --branch "$GITHUB_REF_NAME" "https://x-access-token:${{ github.token }}@git.lan.santarinto.com/${GITHUB_REPOSITORY}.git" .
+      - run: |
+          sh tools/ci-notify.sh test-server start || true
+          cd server && go test ./...
+          sh ../tools/ci-notify.sh test-server finish success || true
+      - if: always()
+        run: sh tools/ci-notify.sh test-server finish-unless-done || true
+
+  test-client:
+    runs-on: minipc-test
+    container: node:22
+    steps:
+      - run: git clone --depth 1 --branch "$GITHUB_REF_NAME" "https://x-access-token:${{ github.token }}@git.lan.santarinto.com/${GITHUB_REPOSITORY}.git" .
+      - run: |
+          sh tools/ci-notify.sh test-client start || true
+          cd client && npm ci --no-audit --no-fund && npm run build
+          sh ../tools/ci-notify.sh test-client finish success || true
+      - if: always()
+        run: sh tools/ci-notify.sh test-client finish-unless-done || true
+
+  deploy:
+    runs-on: minipc-deploy
+    needs: [test-server, test-client]
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    steps:
+      - run: |
+          # Host runner, no container: tools/ci-notify.sh needs only POSIX sh
+          # and curl; the clone is best-effort — the deploy itself does not
+          # need the checkout, the ssh line carries both words.
+          git clone --depth 1 --branch "$GITHUB_REF_NAME" "https://x-access-token:${{ github.token }}@git.lan.santarinto.com/${GITHUB_REPOSITORY}.git" . || true
+      - env:
+          REF: "${{ inputs.ref || github.sha }}"
+          MODE: "${{ inputs.mode || 'deploy' }}"
+        run: |
+          set -eu
+          sh tools/ci-notify.sh deploy-job start || true
+          if [ "${DEPLOY_ENABLED}" != "1" ]; then
+            echo "DEPLOY_ENABLED != 1 — деплой не зовётся (CT1-защёлка, MINIPC-206). Тесты зелёные, stage и прод не тронуты."
+            sh tools/ci-notify.sh deploy-job finish success || true
+            exit 0
+          fi
+          printf '%s' "$REF"  | grep -Eq '^[0-9a-f]{40}$' || { echo "bad ref"; exit 1; }
+          printf '%s' "$MODE" | grep -Eq '^(deploy|rollback)$' || { echo "bad mode"; exit 1; }
+          ssh -o BatchMode=yes deploy-itgame-stage "$MODE" "$REF"
+          ssh -o BatchMode=yes deploy-itgame "$MODE" "$REF"
+          sh tools/ci-notify.sh deploy-job finish success || true
+      - if: always()
+        run: sh tools/ci-notify.sh deploy-job finish-unless-done || true

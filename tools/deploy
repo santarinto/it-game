@@ -1,0 +1,167 @@
+#!/bin/bash
+# deploy-contract: 1
+# itgame deploy recipe (MINIPC-206). Executed ON ci-cd-srv (the game-box) by
+# deploy-project from the archive of the SHA being deployed — the platform
+# pattern (localmind MINIPC-157, minipc MINIPC-164, sntbot MINIPC-209): every
+# commit ships its own deploy logic. The loader owns fetch/reachability/
+# checkout; this script owns everything after the checkout move.
+#
+# Ported from bin/deploy-local.sh (the gitflic-webhook era, retired with the
+# gitflic chain): same release shape (git-archive tree + built client dist +
+# bin/itdirector), same atomic current swap (rename(2)), same KEEP=3 pruning,
+# same "saves live in shared/ and survive releases". The host has NO go/node
+# toolchains — builds run in throwaway docker containers (santarinto is in the
+# docker group). Build caches are BIND mounts under /opt/itgame/cache, not
+# named volumes: a fresh named volume comes up root-owned and a --user build
+# cannot write into it (csr-docker-prune never touches these paths anyway).
+#
+# One recipe, two targets: the loader project names its target by the CHECKOUT
+# basename —
+#   itgame       -> /opt/itgame       (unit itgame,       127.0.0.1:8080)
+#   itgame-stage -> /opt/itgame-stage (unit itgame-stage, 127.0.0.1:8081)
+# The workflow deploys stage FIRST, prod after it.
+#
+# Rollback never builds: it points current at an ALREADY BUILT release found
+# by the short sha in the release dir name. --dry-run is read-only mechanism
+# checks. A failure AFTER the current swap (health check) leaves prod on the
+# new release and reports loudly — the remedy is a rollback, not silence.
+set -euo pipefail
+
+CHECKOUT=${DEPLOY_CHECKOUT:?DEPLOY_CHECKOUT not set by the loader}
+TOOLS=${DEPLOY_TOOLS_DIR:-}
+GO_IMAGE=golang:1.26
+NODE_IMAGE=node:22
+CACHE=/opt/itgame/cache
+KEEP=3
+
+say() { printf '%s\n' "deploy: $*"; }
+fail() { printf '%s\n' "ОШИБКА (deploy): $*" >&2; exit "${2:-1}"; }
+usage() { fail "usage: tools/deploy <deploy|rollback> <sha40> [--dry-run]" 64; }
+
+dry=0
+for a in "$@"; do [ "$a" = "--dry-run" ] && dry=1; done
+[ $# -ge 2 ] && [ $# -le 3 ] || usage
+mode=$1; sha=$2
+[ "$mode" = deploy ] || [ "$mode" = rollback ] || usage
+printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$' || fail "sha не 40 hex: $sha" 64
+sha7=${sha:0:7}
+
+case "${CHECKOUT##*/}" in
+    itgame)       ROOT=/opt/itgame;       UNIT=itgame;       PORT=8080 ;;
+    itgame-stage) ROOT=/opt/itgame-stage; UNIT=itgame-stage; PORT=8081 ;;
+    *) fail "не знаю цель для чекаута $CHECKOUT (basename должен быть itgame|itgame-stage)" 64 ;;
+esac
+RELEASES=$ROOT/releases
+LOG=$ROOT/shared/deploy.log
+
+# Observability: the CI job carries OBS_TOKEN in env; a manual run reads it
+# from shared/obs.env (both roots hold a copy; the SERVICE env file stays
+# free of it). No token — ci-notify is a silent no-op, never a failure.
+if [ -z "${OBS_TOKEN:-}" ] && [ -r "$ROOT/shared/obs.env" ]; then
+    OBS_TOKEN=$(sed -n 's/^OBS_TOKEN=//p' "$ROOT/shared/obs.env" | tail -1)
+    export OBS_TOKEN
+fi
+notify() { if [ -n "${TOOLS:-}" ] && [ -f "$TOOLS/ci-notify.sh" ]; then sh "$TOOLS/ci-notify.sh" "$@" || true; fi; }
+
+mkdir -p "$(dirname "$LOG")"
+exec > >(tee -a "$LOG") 2>&1
+
+find_release() { ls -1 "$RELEASES" 2>/dev/null | grep -E -- "-${sha7}\$" | head -1 || true; }
+
+# Atomic current swap: build the symlink aside, rename(2) it into place —
+# readers never observe a missing/partial current (old deploy-local.sh).
+swap_to() {
+    ln -sfn "$1" "$ROOT/current.tmp"
+    mv -T "$ROOT/current.tmp" "$ROOT/current"
+}
+
+# Restart + local port probe. The Go server binds 127.0.0.1:$PORT and serves
+# the client at / — vhost-independent, so LE/DNS state cannot fake the check.
+# A failure HERE is post-swap: the target already runs the new release; the
+# loud failure + event is the signal to rollback, not to redeploy blindly.
+health_and_finish() {
+    mkdir -p "$ROOT/shared/saves"
+    sudo -n systemctl restart "$UNIT"
+    say "health: жду ответа на 127.0.0.1:$PORT (до 20 с)"
+    local ok=0 i
+    for i in $(seq 1 20); do
+        if curl -fsS -o /dev/null "http://127.0.0.1:$PORT/"; then ok=1; break; fi
+        sleep 1
+    done
+    if [ "$ok" != 1 ]; then
+        say "СЕРВИС НЕ ОТВЕТИЛ на :$PORT после свопа — цель на НОВОМ релизе, лечится rollback"
+        notify deploy finish fail
+        exit 1
+    fi
+    say "готово: $1, $UNIT отвечает"
+    notify deploy finish success
+}
+
+if [ "$dry" = 1 ]; then
+    say "dry-run: цель $UNIT (checkout ${CHECKOUT##*/}), режим $mode, sha $sha"
+    docker info >/dev/null 2>&1 || fail "docker недоступен для $(id -un) (группа/демон?)"
+    git -C "$CHECKOUT" cat-file -e "${sha}^{commit}" 2>/dev/null || fail "sha $sha отсутствует в чекауте после fetch"
+    [ -d "$RELEASES" ] || fail "нет каталога $RELEASES"
+    [ -w "$RELEASES" ] || fail "$RELEASES не доступен на запись"
+    systemctl cat "$UNIT" >/dev/null 2>&1 || fail "юнит $UNIT не известен systemd"
+    command -v curl >/dev/null || fail "нет curl для health-проверки"
+    if [ "$mode" = rollback ]; then
+        rel=$(find_release)
+        [ -n "$rel" ] || fail "rollback: в $RELEASES нет собранного релиза с sha $sha7"
+        say "dry-run: rollback нашёл релиз $rel"
+    fi
+    say "dry-run: всё на месте, ничего не тронуто"
+    exit 0
+fi
+
+notify deploy start
+ID="$(date +%Y%m%d-%H%M%S)-${sha7}"
+REL="$RELEASES/$ID"
+
+cleanup_failed() {
+    [ -d "$REL" ] && rm -rf "${REL:?}"
+    say "ДЕПЛОЙ УПАЛ до свопа — current не тронут, цель работает на старом релизе"
+    notify deploy finish fail
+}
+trap cleanup_failed ERR
+
+if [ "$mode" = rollback ]; then
+    rel=$(find_release)
+    [ -n "$rel" ] || { trap - ERR; fail "rollback: в $RELEASES нет собранного релиза с sha $sha7"; }
+    say "rollback: current -> $rel (без сборки)"
+    trap - ERR   # точка невозврата: своп делаем при любой погоде,cleanup не нужен
+    swap_to "$RELEASES/$rel"
+    health_and_finish "rollback на $rel"
+    exit 0
+fi
+
+say "релиз $ID: $(git -C "$CHECKOUT" log -1 --pretty=%s "$sha")"
+mkdir -p "$REL" "$CACHE/go" "$CACHE/npm" "$CACHE/go/pkg" "$CACHE/go/build"
+git -C "$CHECKOUT" archive "$sha" | tar -x -C "$REL"
+
+uid=$(id -u); gid=$(id -g)
+
+say "1/4 сборка клиента (docker $NODE_IMAGE, кэш $CACHE/npm)"
+docker run --rm --user "$uid:$gid" -e HOME=/tmp \
+    -v "$CACHE/npm:/tmp/.npm" -v "$REL/client:/work" -w /work "$NODE_IMAGE" \
+    sh -c 'npm ci --no-audit --no-fund && npm run build'
+rm -rf "$REL/client/node_modules"
+
+say "2/4 сборка сервера (docker $GO_IMAGE, кэш $CACHE/go)"
+docker run --rm --user "$uid:$gid" -e HOME=/tmp \
+    -e GOMODCACHE=/tmp/go/pkg/mod -e GOCACHE=/tmp/go/build -e GOFLAGS=-mod=readonly \
+    -v "$CACHE/go:/tmp/go" -v "$REL:/src" -w /src/server "$GO_IMAGE" \
+    go build -trimpath -o /src/bin/itdirector ./cmd/server
+[ -x "$REL/bin/itdirector" ] || fail "bin/itdirector не собрался"
+
+say "3/4 атомарный своп current -> $ID + рестарт $UNIT"
+trap - ERR   # ТОЧКА НЕВОЗВРАТА: дальше current меняется, cleanup уже опасен
+swap_to "$REL"
+health_and_finish "релиз $ID"
+
+say "4/4 чистка: держу последние $KEEP релизов (current не трогаю)"
+cur=$(readlink "$ROOT/current")
+ls -1 "$RELEASES" | sort | head -n -"$KEEP" | while read -r old; do
+    [ "$RELEASES/$old" = "$cur" ] && continue
+    rm -rf "${RELEASES:?}/${old:?}" && say "удалён старый релиз $old"
+done
