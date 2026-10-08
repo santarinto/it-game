@@ -47,8 +47,8 @@ printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$' || fail "sha не 40 hex: $sha" 6
 sha7=${sha:0:7}
 
 case "${CHECKOUT##*/}" in
-    itgame)       ROOT=/opt/itgame;       UNIT=itgame;       PORT=8080 ;;
-    itgame-stage) ROOT=/opt/itgame-stage; UNIT=itgame-stage; PORT=8081 ;;
+    itgame)       ROOT=/opt/itgame;       UNIT=itgame;       PORT=8080; URL=https://itgame.santarinto.ru ;;
+    itgame-stage) ROOT=/opt/itgame-stage; UNIT=itgame-stage; PORT=8081; URL=https://stage.itgame.santarinto.ru ;;
     *) fail "не знаю цель для чекаута $CHECKOUT (basename должен быть itgame|itgame-stage)" 64 ;;
 esac
 RELEASES=$ROOT/releases
@@ -75,25 +75,29 @@ swap_to() {
     mv -T "$ROOT/current.tmp" "$ROOT/current"
 }
 
-# Restart + local port probe. The Go server binds 127.0.0.1:$PORT and serves
-# the client at / — vhost-independent, so LE/DNS state cannot fake the check.
-# A failure HERE is post-swap: the target already runs the new release; the
-# loud failure + event is the signal to rollback, not to redeploy blindly.
+# Restart + health. The Go server binds 127.0.0.1:$PORT but does NOT serve
+# `/` there (404 — nginx owns the static; the raw port only proves itself on
+# /ws → 426). The honest check is the public vhost URL: 200 through nginx +
+# static + proxy (measured 08.10: both instances 404 on / at the raw ports,
+# https 200 through the vhosts). A failure HERE is post-swap: the target
+# already runs the new release; the loud failure + event is the signal to
+# rollback, not to redeploy blindly.
 health_and_finish() {
     mkdir -p "$ROOT/shared/saves"
     sudo -n systemctl restart "$UNIT"
-    say "health: жду ответа на 127.0.0.1:$PORT (до 20 с)"
-    local ok=0 i
-    for i in $(seq 1 20); do
-        if curl -fsS -o /dev/null "http://127.0.0.1:$PORT/"; then ok=1; break; fi
+    say "health: жду 200 от $URL (до 30 с)"
+    local ok=0 i code
+    for i in $(seq 1 30); do
+        code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 "$URL" || true)
+        if [ "$code" = 200 ]; then ok=1; break; fi
         sleep 1
     done
     if [ "$ok" != 1 ]; then
-        say "СЕРВИС НЕ ОТВЕТИЛ на :$PORT после свопа — цель на НОВОМ релизе, лечится rollback"
+        say "СЕРВИС НЕ ОТВЕТИЛ 200 на $URL (последний код $code, raw :$PORT /ws=$(curl -s -o /dev/null -w '%{http_code}' -m 3 "http://127.0.0.1:$PORT/ws" || true)) — цель на НОВОМ релизе, лечится rollback"
         notify deploy finish fail
         exit 1
     fi
-    say "готово: $1, $UNIT отвечает"
+    say "готово: $1, $URL отвечает 200"
     notify deploy finish success
 }
 
