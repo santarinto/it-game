@@ -11,6 +11,20 @@ import { GAME_H, GAME_W } from '../layout'
 // интерактивом или текстом (JSON-контракт для агента/моста — ITGAME-39).
 export type OverlapKind = 'text' | 'occlusion' | 'interactive'
 
+// Опции itd.overlaps() (ITGAME-38 п.5).
+export interface OverlapOptions {
+  minAreaRatio?: number // 0..1: пара — находка при ratio ≥ minAreaRatio; задан — заменяет пороги всех kind (0 — строгий режим), не задан — DEFAULT_MIN_AREA_RATIO
+}
+
+// Пороги по умолчанию — поведение overlaps() без опций НЕ меняется:
+// text/interactive — любое пересечение >1px по обеим осям; occlusion —
+// 0.25 по площади И прежнее правило «>50% текста по каждой оси».
+export const DEFAULT_MIN_AREA_RATIO: Readonly<Record<OverlapKind, number>> = {
+  text: 0,
+  occlusion: 0.25,
+  interactive: 0,
+}
+
 export interface OverlapEntry {
   scene: string
   kind: OverlapKind
@@ -18,6 +32,8 @@ export interface OverlapEntry {
   b: string
   overlap: { w: number; h: number }
   at: { x: number; y: number }
+  ratio: number // доля перекрытия 0..1: площадь пересечения / площадь меньшего из пары (occlusion — / площадь текста), 3 знака
+  threshold: number // порог, с которым сравнили ratio: minAreaRatio из вызова или DEFAULT_MIN_AREA_RATIO[kind]
 }
 
 export interface OffscreenEntry {
@@ -72,7 +88,8 @@ function nameOf(o: Node0): string {
 
 // Пересечения видимых текстов одной сцены на одном depth, а также закрытие
 // текста непрозрачным узлом (Rectangle/Image), отрисованным выше по depth или display list.
-export function findOverlaps(game: Phaser.Game): OverlapEntry[] {
+export function findOverlaps(game: Phaser.Game, rawOpts?: OverlapOptions | null): OverlapEntry[] {
+  const opts = normalizeOverlapOptions(rawOpts)
   const out: OverlapEntry[] = []
   for (const scene of game.scene.getScenes(true)) {
     const list = scene.children.list
@@ -86,7 +103,9 @@ export function findOverlaps(game: Phaser.Game): OverlapEntry[] {
         const rb = b.getBounds()
         const w = Math.min(ra.right, rb.right) - Math.max(ra.x, rb.x)
         const h = Math.min(ra.bottom, rb.bottom) - Math.max(ra.y, rb.y)
-        if (w > 1 && h > 1) {
+        const ratio = ratioOf(w, h, Math.min(areaOf(ra), areaOf(rb)))
+        const threshold = thresholdOf('text', opts)
+        if (w > 1 && h > 1 && ratio >= threshold) {
           out.push({
             scene: scene.scene.key,
             kind: 'text',
@@ -94,6 +113,8 @@ export function findOverlaps(game: Phaser.Game): OverlapEntry[] {
             b: nameOf(b),
             overlap: { w: Math.round(w), h: Math.round(h) },
             at: { x: Math.round(Math.max(ra.x, rb.x)), y: Math.round(Math.max(ra.y, rb.y)) },
+            ratio: round3(ratio),
+            threshold,
           })
         }
       }
@@ -119,7 +140,13 @@ export function findOverlaps(game: Phaser.Game): OverlapEntry[] {
         const ro = o.getBounds()
         const w = Math.min(rt.right, ro.right) - Math.max(rt.x, ro.x)
         const h = Math.min(rt.bottom, ro.bottom) - Math.max(rt.y, ro.y)
-        if (w > rt.width * 0.5 && h > rt.height * 0.5) {
+        const threshold = thresholdOf('occlusion', opts)
+        const ratio = ratioOf(w, h, areaOf(rt))
+        const hit =
+          opts.minAreaRatio === undefined
+            ? w > rt.width * 0.5 && h > rt.height * 0.5 // прежнее правило — дефолт не меняется
+            : w > 1 && h > 1 && ratio >= threshold
+        if (hit) {
           out.push({
             scene: scene.scene.key,
             kind: 'occlusion',
@@ -127,12 +154,14 @@ export function findOverlaps(game: Phaser.Game): OverlapEntry[] {
             b: nameOf(o),
             overlap: { w: Math.round(w), h: Math.round(h) },
             at: { x: Math.round(Math.max(rt.x, ro.x)), y: Math.round(Math.max(rt.y, ro.y)) },
+            ratio: round3(ratio),
+            threshold,
           })
         }
       }
     }
 
-    out.push(...findInteractiveOverlaps(scene))
+    out.push(...findInteractiveOverlaps(scene, opts))
   }
   return out
 }
@@ -185,6 +214,22 @@ function overlapWH(ra: Phaser.Geom.Rectangle, rb: Phaser.Geom.Rectangle): { w: n
   }
 }
 
+const round3 = (v: number): number => Math.round(v * 1000) / 1000
+const areaOf = (r: Phaser.Geom.Rectangle): number => r.width * r.height
+function ratioOf(w: number, h: number, base: number): number {
+  return base > 0 && w > 0 && h > 0 ? Math.min(1, (w * h) / base) : 0
+}
+function normalizeOverlapOptions(opts: OverlapOptions | null | undefined): OverlapOptions {
+  const m = opts?.minAreaRatio
+  if (m === undefined) return {}
+  if (typeof m !== 'number' || !Number.isFinite(m) || m < 0 || m > 1) {
+    throw new RangeError(`itd.overlaps: minAreaRatio — число 0..1, получено ${String(m)}`)
+  }
+  return { minAreaRatio: m }
+}
+const thresholdOf = (kind: OverlapKind, opts: OverlapOptions): number =>
+  opts.minAreaRatio ?? DEFAULT_MIN_AREA_RATIO[kind]
+
 // Прямоугольник a целиком внутри b (+1px допуск на округление) — вложенность,
 // не находка (иконка внутри своей кнопки и т.п.).
 function insideRect(a: Phaser.Geom.Rectangle, b: Phaser.Geom.Rectangle): boolean {
@@ -200,7 +245,7 @@ function sameTextPair(a: WalkNode, b: WalkNode): boolean {
   )
 }
 
-function findInteractiveOverlaps(scene: Phaser.Scene): OverlapEntry[] {
+function findInteractiveOverlaps(scene: Phaser.Scene, opts: OverlapOptions): OverlapEntry[] {
   const out: OverlapEntry[] = []
   const all: Phaser.GameObjects.GameObject[] = []
   collectAll(scene.children.list, all)
@@ -236,6 +281,9 @@ function findInteractiveOverlaps(scene: Phaser.Scene): OverlapEntry[] {
       const { w, h } = overlapWH(ra, rb)
       if (w <= 1 || h <= 1) continue
       if (insideRect(ra, rb) || insideRect(rb, ra)) continue
+      const ratio = ratioOf(w, h, Math.min(areaOf(ra), areaOf(rb)))
+      const threshold = thresholdOf('interactive', opts)
+      if (ratio < threshold) continue
       out.push({
         scene: scene.scene.key,
         kind: 'interactive',
@@ -243,6 +291,8 @@ function findInteractiveOverlaps(scene: Phaser.Scene): OverlapEntry[] {
         b: nameOf(b as unknown as Node0),
         overlap: { w: Math.round(w), h: Math.round(h) },
         at: { x: Math.round(Math.max(ra.x, rb.x)), y: Math.round(Math.max(ra.y, rb.y)) },
+        ratio: round3(ratio),
+        threshold,
       })
     }
   }
@@ -258,6 +308,9 @@ function findInteractiveOverlaps(scene: Phaser.Scene): OverlapEntry[] {
       const { w, h } = overlapWH(ra, rt)
       if (w <= 1 || h <= 1) continue
       if (insideRect(ra, rt) || insideRect(rt, ra)) continue
+      const ratio = ratioOf(w, h, Math.min(areaOf(ra), areaOf(rt)))
+      const threshold = thresholdOf('interactive', opts)
+      if (ratio < threshold) continue
       out.push({
         scene: scene.scene.key,
         kind: 'interactive',
@@ -265,6 +318,8 @@ function findInteractiveOverlaps(scene: Phaser.Scene): OverlapEntry[] {
         b: nameOf(nt),
         overlap: { w: Math.round(w), h: Math.round(h) },
         at: { x: Math.round(Math.max(ra.x, rt.x)), y: Math.round(Math.max(ra.y, rt.y)) },
+        ratio: round3(ratio),
+        threshold,
       })
     }
   }

@@ -138,7 +138,12 @@ documenting separately:
   (ITGAME-38): `text` (two same-depth texts), `occlusion` (text under an
   opaque plate), or `interactive` (an interactive container/sprite/checkbox
   partly covered by another interactive or by text — full containment
-  doesn't count).
+  doesn't count). Every finding also carries `ratio` (intersection area over
+  the area of the smaller box of the pair; for `occlusion`, over the text's
+  area) and `threshold` it was compared against.
+  `itd.overlaps({ minAreaRatio })` (0..1) replaces the default thresholds
+  (`text`/`interactive` 0, `occlusion` 0.25 plus the old >50%-on-each-axis
+  rule); `0` is the strict mode, a value outside 0..1 throws `RangeError`.
 - **`itd.log(n)`** — the ring buffer (200 entries, survives a console
   clear) of state/day/phase/speed/scene transitions, server errors and page
   errors, plus, since ITGAME-38, every `playSfx` call and HUD toast

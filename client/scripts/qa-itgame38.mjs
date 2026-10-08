@@ -11,7 +11,14 @@
 //   C2  без skipReports: та же промотка дня → модалка отчёта без interactive-находок;
 //       btn.skip_reports active меняется false→true по клику, localStorage синхронизирован
 //   C3  сдвиг btn.next_day на строку отчёта → находка {kind:'interactive'} с ним
-//   C4  сдвиг menu.zoom.1 на соседа → находка {kind:'interactive'} с ним
+//   C4  сдвиг menu.zoom.1 на соседа → находка {kind:'interactive'} с ним;
+//       C4a ratio/threshold в каждой записи (ratio ≈ 0.58, threshold 0),
+//       C4b minAreaRatio 0.6 отсекает пару, C4c 0.5 пропускает, C4d 2 → RangeError
+//   C7  minAreaRatio 0: текст, на 40% закрытый плашкой, — occlusion (по умолчанию нет)
+//   C8  сдвиг спрайта room.rack.0.0 на room.core (serverRoom) → interactive с обоими id
+//   C5  сдвиг btn.skip_reports на строку отчёта → находка с ним (канон ITGAME-18)
+//   A6  btn.debug active: true → false → true по кликам
+//   A7  рестарт партии без перезагрузки: speed/nav active живые, нет pageerror (D2)
 //   + на странице нет pageerror
 //
 // Отклонения от буквального сценария в трекере (см. отчёт агента):
@@ -163,12 +170,60 @@ async function run() {
     const hitC4 = ovC4.find((e) => e.kind === 'interactive' && (e.a === 'menu.zoom.1' || e.b === 'menu.zoom.1'))
     check('C4: сдвиг menu.zoom.1 на соседа → overlaps kind interactive', !!moveC4 && !!hitC4, JSON.stringify(hitC4 ?? ovC4.slice(0, 5)))
     if (moveC4) {
+      const pairC4 = ovC4.find((e) => e.kind === 'interactive' && [e.a, e.b].includes('menu.zoom.1') && [e.a, e.b].includes('menu.zoom.1.4'))
+      check(
+        'C4a: ratio ≈ 0.58, threshold 0; у всех записей 0 < ratio ≤ 1 и ratio ≥ threshold',
+        !!pairC4 && pairC4.threshold === 0 && pairC4.ratio >= 0.55 && pairC4.ratio <= 0.62 &&
+          ovC4.every((e) => typeof e.ratio === 'number' && typeof e.threshold === 'number' && e.ratio > 0 && e.ratio <= 1 && e.ratio >= e.threshold),
+        JSON.stringify(pairC4 ?? ovC4.slice(0, 5)),
+      )
+      const ovC4b = await page.evaluate(() => window.itd.overlaps({ minAreaRatio: 0.6 }))
+      check(
+        'C4b: minAreaRatio 0.6 отсекает пару, threshold у всех 0.6',
+        !ovC4b.some((e) => [e.a, e.b].includes('menu.zoom.1') && [e.a, e.b].includes('menu.zoom.1.4')) &&
+          ovC4b.every((e) => e.threshold === 0.6),
+        JSON.stringify(ovC4b.slice(0, 5)),
+      )
+      const ovC4c = await page.evaluate(() => window.itd.overlaps({ minAreaRatio: 0.5 }))
+      const pairC4c = ovC4c.find((e) => [e.a, e.b].includes('menu.zoom.1') && [e.a, e.b].includes('menu.zoom.1.4'))
+      check('C4c: minAreaRatio 0.5 пропускает пару, threshold 0.5', !!pairC4c && pairC4c.threshold === 0.5, JSON.stringify(pairC4c ?? ovC4c.slice(0, 5)))
+      const errC4d = await page.evaluate(() => {
+        try {
+          window.itd.overlaps({ minAreaRatio: 2 })
+          return null
+        } catch (e) {
+          return e.message
+        }
+      })
+      check('C4d: minAreaRatio 2 → RangeError с minAreaRatio в сообщении', typeof errC4d === 'string' && errC4d.includes('minAreaRatio'), String(errC4d))
+    }
+    if (moveC4) {
       await page.evaluate((x) => {
         const scene = window.__itd.scene.getScene('menu')
         const a = scene.children.list.find((o) => o.getData && o.getData('id') === 'menu.zoom.1')
         a.x = x
       }, moveC4.origX)
     }
+
+    // ── C7: строгий режим для occlusion (в меню; всё внутри одного evaluate)
+    const c7 = await page.evaluate(() => {
+      const scene = window.__itd.scene.getScene('menu')
+      const t = scene.children.list.find((o) => o.text === 'IT DIRECTOR')
+      if (!t) return null
+      const tb = t.getBounds()
+      const r = scene.add.rectangle(tb.x, tb.y, tb.width, tb.height * 0.4, 0x000000).setOrigin(0).setDepth(10)
+      const def = window.itd.overlaps()
+      const strict = window.itd.overlaps({ minAreaRatio: 0 })
+      r.destroy()
+      return { def, strict }
+    })
+    const occDef = c7?.def.find((e) => e.kind === 'occlusion' && e.a === 'IT DIRECTOR')
+    const occStrict = c7?.strict.find((e) => e.kind === 'occlusion' && e.a === 'IT DIRECTOR')
+    check(
+      'C7: occlusion 40% — по умолчанию нет, при minAreaRatio 0 есть (threshold 0, ratio ≈ 0.4)',
+      !!c7 && !occDef && !!occStrict && occStrict.threshold === 0 && occStrict.ratio >= 0.35 && occStrict.ratio <= 0.45,
+      JSON.stringify({ occDef, occStrict }),
+    )
 
     // ── Старт партии (норма, fresh) — дальше HUD/офис
     const clickedNormal = await page.evaluate(() => window.itd.click('menu.diff.normal'))
@@ -207,12 +262,40 @@ async function run() {
         navIdsA4.find((n) => n.id === 'nav.office0')?.active === false,
       JSON.stringify(navIdsA4),
     )
+    // ── C8: спрайт × контейнер/прямоугольник в serverRoom → interactive с обоими id
+    const c8 = await page.evaluate(() => {
+      const scene = window.__itd.scene.getScene('serverRoom')
+      const find = (id) => scene.children.list.find((o) => o.getData && o.getData('id') === id)
+      const rack = find('room.rack.0.0')
+      const core = find('room.core')
+      if (!rack || !core) return null
+      const { x, y } = rack
+      rack.x = core.x + core.width / 2 // половинное перекрытие
+      rack.y = core.y
+      const ov = window.itd.overlaps()
+      rack.x = x
+      rack.y = y
+      return ov
+    })
+    const hitC8 = c8?.find((e) => e.kind === 'interactive' && [e.a, e.b].includes('room.rack.0.0') && [e.a, e.b].includes('room.core'))
+    check('C8: сдвиг спрайта room.rack.0.0 на room.core → interactive', !!hitC8, JSON.stringify(hitC8 ?? c8?.slice(0, 5) ?? null))
     await page.evaluate(() => window.itd.click('nav.office0'))
     await delay(300)
 
     // ── A5: обычная кнопка покупки — не переключатель
     const pcIds = await page.evaluate(() => window.itd.ids().filter((n) => n.id === 'btn.pc'))
     check('A5: btn.pc.active===null', pcIds[0]?.active === null, JSON.stringify(pcIds))
+
+    // ── A6: тумблер debug — переключатель (страница открыта с debug=1)
+    const dbgA6 = []
+    dbgA6.push((await page.evaluate(() => window.itd.ids().find((n) => n.id === 'btn.debug')))?.active)
+    await page.evaluate(() => window.itd.click('btn.debug'))
+    await delay(150)
+    dbgA6.push((await page.evaluate(() => window.itd.ids().find((n) => n.id === 'btn.debug')))?.active)
+    await page.evaluate(() => window.itd.click('btn.debug'))
+    await delay(150)
+    dbgA6.push((await page.evaluate(() => window.itd.ids().find((n) => n.id === 'btn.debug')))?.active)
+    check('A6: btn.debug active true → false → true', JSON.stringify(dbgA6) === '[true,false,true]', JSON.stringify(dbgA6))
 
     // ── C1: до всяких читов — overlaps() валиден и без interactive-находок
     const ovC1 = await page.evaluate(() => window.itd.overlaps())
@@ -230,7 +313,9 @@ async function run() {
     const lastSoundB1 = soundLogB1[soundLogB1.length - 1]
     check(
       'B1: последняя sound-запись — sfx:error/hud/ok',
-      lastSoundB1?.key === 'sfx:error' && lastSoundB1?.scene === 'hud' && lastSoundB1?.ok === true,
+      lastSoundB1?.key === 'sfx:error' && lastSoundB1?.scene === 'hud' && lastSoundB1?.ok === true &&
+        lastSoundB1?.name === 'error' && typeof lastSoundB1?.volume === 'number' &&
+        lastSoundB1.volume > 0 && lastSoundB1.volume <= 1,
       JSON.stringify(lastSoundB1),
     )
 
@@ -318,6 +403,54 @@ async function run() {
         btn.y = y
       }, moveC3.origY)
     }
+
+    // ── C5: канон ITGAME-18 — чекбокс «пропускать отчёты» на строку отчёта
+    const c5 = await page.evaluate(() => {
+      const scene = window.__itd.scene.getScene('hud')
+      const cb = scene.children.list.find((o) => o.getData && o.getData('id') === 'btn.skip_reports')
+      const body = scene.reportUI?.[3]
+      if (!cb || !body) return null
+      const tb = body.getBounds()
+      const y = cb.y
+      cb.y = tb.y + tb.height / 2 - cb.height / 2 // origin (0.5, 0)
+      const ov = window.itd.overlaps()
+      cb.y = y
+      return ov
+    })
+    const hitC5 = c5?.find((e) => [e.a, e.b].includes('btn.skip_reports') && (e.kind === 'text' || e.kind === 'interactive'))
+    check('C5: чекбокс на строке отчёта → находка с btn.skip_reports', !!hitC5, JSON.stringify(hitC5 ?? c5?.slice(0, 5) ?? null))
+
+    // ── A7: повторная партия в той же вкладке (сцена hud переживает рестарт) —
+    // active скоростей/навигации живой, refresh() не падает (D2)
+    if ((await page.evaluate(() => window.itd.state().phase)) === 'day_report') {
+      await page.evaluate(() => window.itd.key('enter'))
+      await page.waitForFunction(() => window.itd.state().phase === 'running', { timeout: 10000 })
+    }
+    const menuClickA7 = await page.evaluate(() => window.itd.click('btn.menu'))
+    await delay(300)
+    const saveClickA7 = await page.evaluate(() => window.itd.click('modal.btn.0'))
+    await page.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
+    const contClickA7 = await page.evaluate(() => window.itd.click('menu.continue'))
+    await page.waitForFunction(() => window.itd.state().connected === true, { timeout: 20000 })
+    await delay(300)
+    await page.evaluate(() => window.itd.speed(2))
+    await page.waitForFunction(() => window.itd.state().speed === 2, { timeout: 5000 })
+    await delay(150)
+    const idsA7 = await ids(page)
+    const speedA7 = byPrefix(idsA7, 'btn.speed.')
+    const navA7 = byPrefix(idsA7, 'nav.')
+    check(
+      'A7: после рестарта партии — 4 btn.speed.*, active только у btn.speed.2',
+      menuClickA7.ok && saveClickA7.ok && contClickA7.ok && speedA7.length === 4 &&
+        speedA7.find((n) => n.id === 'btn.speed.2')?.active === true &&
+        speedA7.filter((n) => n.active === true).length === 1,
+      JSON.stringify({ speedA7, clicks: [menuClickA7, saveClickA7, contClickA7] }),
+    )
+    check(
+      'A7: после рестарта партии — 4 nav.*, nav.office0 active',
+      navA7.length === 4 && navA7.find((n) => n.id === 'nav.office0')?.active === true,
+      JSON.stringify(navA7),
+    )
 
     // ── нет ошибок на странице за весь прогон
     check('на странице нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))

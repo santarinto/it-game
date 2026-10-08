@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "6fefca57b094",
+  "hash": "2dfb1ac0e5f6",
   "methods": {
     "version": {
       "kind": "prop",
@@ -176,11 +176,18 @@ export const CONTRACT = {
     },
     "overlaps": {
       "kind": "method",
-      "params": [],
+      "params": [
+        {
+          "name": "opts",
+          "type": "OverlapOptions",
+          "optional": true
+        }
+      ],
       "returns": "OverlapEntry[]",
-      "doc": "Линтер вёрстки: kind text — тексты одного depth; occlusion — текст под\nнепрозрачной плашкой; interactive — интерактив частично перекрыт\nинтерактивом или текстом (вложенность целиком — не находка).",
+      "doc": "Линтер вёрстки: kind text — тексты одного depth; occlusion — текст под\nнепрозрачной плашкой; interactive — интерактив частично перекрыт\nинтерактивом или текстом (вложенность целиком — не находка). Каждая\nпара: ratio — площадь пересечения / площадь меньшего из пары (occlusion —\n/ площадь текста), threshold — порог, с которым сравнили. minAreaRatio\n0..1 заменяет пороги по умолчанию (text и interactive — 0, occlusion —\n0.25 и >50% по каждой оси); 0 — строгий режим, вне 0..1 — RangeError.",
       "examples": [
-        "itd.overlaps()"
+        "itd.overlaps()",
+        "itd.overlaps({ minAreaRatio: 0 })"
       ]
     },
     "offscreen": {
@@ -1484,6 +1491,16 @@ export const CONTRACT = {
           "type": "{ x: number; y: number; }",
           "optional": false,
           "doc": ""
+        },
+        "ratio": {
+          "type": "number",
+          "optional": false,
+          "doc": "доля перекрытия 0..1: площадь пересечения / площадь меньшего из пары (occlusion — / площадь текста), 3 знака"
+        },
+        "threshold": {
+          "type": "number",
+          "optional": false,
+          "doc": "порог, с которым сравнили ratio: minAreaRatio из вызова или DEFAULT_MIN_AREA_RATIO[kind]"
         }
       }
     },
@@ -1494,6 +1511,16 @@ export const CONTRACT = {
         "occlusion",
         "text"
       ]
+    },
+    "OverlapOptions": {
+      "kind": "object",
+      "fields": {
+        "minAreaRatio": {
+          "type": "number",
+          "optional": true,
+          "doc": "0..1: пара — находка при ratio ≥ minAreaRatio; задан — заменяет пороги всех kind (0 — строгий режим), не задан — DEFAULT_MIN_AREA_RATIO"
+        }
+      }
     },
     "ParamSpec": {
       "kind": "object",

@@ -124,6 +124,14 @@ export class HUDScene extends Phaser.Scene {
 
   create() {
     this.toasts = { top: [], bottom: [] }
+    // Сцена hud переживает рестарт (returnToMenu → scene.start('menu') →
+    // MenuScene.startGame → launch('hud') на том же экземпляре): коллекции
+    // прошлой партии держат уничтоженные объекты — refresh() падал на
+    // s.offices[4], active скоростей/навигации врал (ITGAME-38).
+    this.navItems = []
+    this.speedBtns = []
+    this.hudInteractive = []
+    this.currentRoom = 'office' // MenuScene.startGame стартует сцену 'office'
     // Верхняя панель.
     this.add.rectangle(0, 0, GAME_W, HUD_H, 0x14162b).setOrigin(0)
     this.moneyText = tag(this.add.text(16, 10, '$…', {
