@@ -142,8 +142,12 @@ git -C "$CHECKOUT" archive "$sha" | tar -x -C "$REL"
 uid=$(id -u); gid=$(id -g)
 
 say "1/4 сборка клиента (docker $NODE_IMAGE, кэш $CACHE/npm)"
+# Mount the WHOLE release dir and run from client/: scripts/gen-contract.mjs
+# cross-checks contract codes/commands against the sibling ../server — a
+# client-only mount fails it with «нет /server» (caught by the first live
+# stage deploy, 08.10).
 docker run --rm --user "$uid:$gid" -e HOME=/tmp \
-    -v "$CACHE/npm:/tmp/.npm" -v "$REL/client:/work" -w /work "$NODE_IMAGE" \
+    -v "$CACHE/npm:/tmp/.npm" -v "$REL:/work" -w /work/client "$NODE_IMAGE" \
     sh -c 'npm ci --no-audit --no-fund && npm run build'
 rm -rf "$REL/client/node_modules"
 
