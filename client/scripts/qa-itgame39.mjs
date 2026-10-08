@@ -4,11 +4,14 @@
 //   A3  Object.keys(contract().methods) (сортированные) === Object.keys(window.itd)
 //       (сортированные) — контракт описывает РОВНО факасад, без дублей/пропусков
 //   A4  у каждого метода в contract().methods — непустой doc
-//   A5  types содержит AgentNode, CmdReceipt, AgentServer, ServerErrorCode
+//   A5  types содержит AgentNode, CmdReceipt, AgentServer, ServerErrorCode,
+//       TransportErrorCode, SocketStatus
 //   A6  types.ServerErrorCode — enum, значения включают equipment_already
 //   A7  contract() — новый объект при каждом вызове (structuredClone):
 //       мутация результата не протекает во второй вызов
 //   A8  hash стабилен между двумя вызовами contract() в одной сессии
+//   A9  types.SocketStatus — enum [closed, open, reconnecting]; itd.server().socket ∈ values
+//   A10 types.TransportErrorCode.values === [disconnected, not_connected, receipt_timeout]
 //   + на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
@@ -93,9 +96,10 @@ async function run() {
         c3StateDoc: c3.methods.state.doc,
         itdKeys: Object.keys(window.itd),
         itdVersion: window.itd.version,
+        socketNow: window.itd.server().socket,
       }
     })
-    const { c1: contract, c2Hash, c3StateDoc, itdKeys, itdVersion } = data
+    const { c1: contract, c2Hash, c3StateDoc, itdKeys, itdVersion, socketNow } = data
 
     // ── A1: schema
     check('A1: schema === 1', contract.schema === 1, `schema=${contract.schema}`)
@@ -131,9 +135,9 @@ async function run() {
     check('A4: у каждого метода contract().methods — непустой doc', emptyDocs.length === 0, JSON.stringify(emptyDocs))
 
     // ── A5: обязательные типы присутствуют
-    const requiredTypes = ['AgentNode', 'CmdReceipt', 'AgentServer', 'ServerErrorCode']
+    const requiredTypes = ['AgentNode', 'CmdReceipt', 'AgentServer', 'ServerErrorCode', 'TransportErrorCode', 'SocketStatus']
     const missingTypes = requiredTypes.filter((t) => !(t in contract.types))
-    check('A5: types содержит AgentNode/CmdReceipt/AgentServer/ServerErrorCode', missingTypes.length === 0, JSON.stringify(missingTypes))
+    check('A5: types содержит AgentNode/CmdReceipt/AgentServer/ServerErrorCode/TransportErrorCode/SocketStatus', missingTypes.length === 0, JSON.stringify(missingTypes))
 
     // ── A6: ServerErrorCode — enum с equipment_already
     const sec = contract.types.ServerErrorCode
@@ -152,6 +156,24 @@ async function run() {
 
     // ── A8: hash стабилен между вызовами в одной сессии
     check('A8: hash стабилен между вызовами contract()', contract.version.hash === c2Hash, `${contract.version.hash} vs ${c2Hash}`)
+
+    // ── A9: SocketStatus — enum, текущий статус сокета ∈ values
+    const ss = contract.types.SocketStatus
+    check(
+      'A9: types.SocketStatus — enum [closed, open, reconnecting], itd.server().socket ∈ values',
+      ss?.kind === 'enum' &&
+        JSON.stringify(ss.values) === JSON.stringify(['closed', 'open', 'reconnecting']) &&
+        ss.values.includes(socketNow),
+      JSON.stringify({ ss, socketNow }),
+    )
+
+    // ── A10: TransportErrorCode — enum из трёх транспортных кодов
+    const tec = contract.types.TransportErrorCode
+    check(
+      'A10: types.TransportErrorCode.values === [disconnected, not_connected, receipt_timeout]',
+      JSON.stringify(tec?.values) === JSON.stringify(['disconnected', 'not_connected', 'receipt_timeout']),
+      JSON.stringify(tec),
+    )
 
     // ── нет ошибок на странице за весь прогон
     check('на странице нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))

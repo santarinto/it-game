@@ -8,6 +8,12 @@ export const TRANSPORT_ERROR_CODES = ['not_connected', 'receipt_timeout', 'disco
 
 export type TransportErrorCode = (typeof TRANSPORT_ERROR_CODES)[number]
 
+// Статусы сокета (ITGAME-39): источник истины для itd.server().socket,
+// itd.net().socket и enum SocketStatus в itd.contract().
+export const SOCKET_STATUSES = ['open', 'reconnecting', 'closed'] as const
+
+export type SocketStatus = (typeof SOCKET_STATUSES)[number]
+
 export interface Listener {
   onState(s: StateMessage): void
   onError(code: ServerErrorCode): void
@@ -280,7 +286,7 @@ export class GameClient {
   private sessionSid: string | null = null
 
   // Статус сокета одним словом — для itd.server() и баннеров.
-  socketStatus(): 'open' | 'reconnecting' | 'closed' {
+  socketStatus(): SocketStatus {
     if (this.takenOver || this.intentionalClose) return 'closed'
     const rs = this.ws?.readyState
     if (rs === WebSocket.OPEN) return 'open'

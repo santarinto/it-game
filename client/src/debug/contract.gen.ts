@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "ea39f03d9aea",
+  "hash": "1c9c31f38f55",
   "methods": {
     "version": {
       "kind": "prop",
@@ -1608,6 +1608,14 @@ export const CONTRACT = {
           "doc": ""
         }
       }
+    },
+    "SocketStatus": {
+      "kind": "enum",
+      "values": [
+        "closed",
+        "open",
+        "reconnecting"
+      ]
     },
     "StateMessage": {
       "kind": "object",

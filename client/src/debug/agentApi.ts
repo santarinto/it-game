@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import { client, sessionId } from '../net'
-import type { TransportErrorCode } from '../net'
+import type { SocketStatus, TransportErrorCode } from '../net'
 import { COMMAND_TYPES } from '../protocol'
 import type { CommandType, ServerErrorCode, StateMessage } from '../protocol'
 import { CONTRACT } from './contract.gen'
@@ -242,7 +242,7 @@ export interface AgentState {
 
 // server(): последний снапшот целиком + телеметрия сокета.
 export interface AgentServer {
-  socket: 'open' | 'reconnecting' | 'closed'
+  socket: SocketStatus
   lastEventId: number // счётчик принятых сообщений (своих id у протокола нет)
   rtt: number | null // мс от последней команды до ближайшего ответа
   reconnects: number
