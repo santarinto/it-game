@@ -18,6 +18,9 @@
 //   C7  minAreaRatio 0: текст, на 40% закрытый плашкой, — occlusion (по умолчанию нет)
 //   C8  сдвиг спрайта room.rack.0.0 на room.core (serverRoom) → interactive с обоими id
 //   C5  сдвиг btn.skip_reports на строку отчёта → находка с ним (канон ITGAME-18)
+//   Z1  uiScale '2' из старой версии → в меню ровно menu.zoom.1/1.4/fit, active — fit, ключ переписан в 'fit' (ITGAME-61)
+//   Z2  окно 1237×700, «по окну» — у #app нет горизонтального скролла
+//   Z4  btn.zoom в HUD: три клика обходят 1 → 1.4 → fit по кругу и возвращают исходный
 //   A6  btn.debug active: true → false → true по кликам
 //   A7  рестарт партии без перезагрузки: speed/nav active живые, нет pageerror (D2)
 //   D1  mid_day10 на паузе, itd.step до 12:00/14:00/17:00 → hud.dayProfit одинаков (±$50), > 0
@@ -321,6 +324,22 @@ async function run() {
     const pcIds = await page.evaluate(() => window.itd.ids().filter((n) => n.id === 'btn.pc'))
     check('A5: btn.pc.active===null', pcIds[0]?.active === null, JSON.stringify(pcIds))
 
+    // ── Z4 (ITGAME-61): btn.zoom обходит три масштаба по кругу (2× убран)
+    const zoomKey = () => page.evaluate(() => localStorage.getItem('itd.uiScale'))
+    const zoomStart = (await zoomKey()) ?? '1.4' // null — значение по умолчанию
+    const zoomSeq = []
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate(() => window.itd.click('btn.zoom'))
+      await delay(150)
+      zoomSeq.push(await zoomKey())
+    }
+    check(
+      'Z4: btn.zoom обходит 1/1.4/fit по кругу',
+      [...zoomSeq].sort().join() === ['1', '1.4', 'fit'].sort().join() && zoomSeq[2] === zoomStart &&
+        !zoomSeq.includes('2'),
+      `start=${zoomStart} seq=${zoomSeq.join('→')}`,
+    )
+
     // ── A6: тумблер debug — переключатель (страница открыта с debug=1)
     const dbgA6 = []
     dbgA6.push((await page.evaluate(() => window.itd.ids().find((n) => n.id === 'btn.debug')))?.active)
@@ -556,6 +575,30 @@ async function run() {
         stepD3.day === 11 && stepD3.tickInDay === 18 && stD3.day === 11 && stD3.tickInDay === 18,
       JSON.stringify({ stepD3, stD3 }),
     )
+
+    // ── Z1/Z2 (ITGAME-61): сохранённый 2× из старой версии — отдельная вкладка, окно как у владельца
+    const pz = await browser.newPage()
+    pz.on('pageerror', (e) => pageErrors.push(String(e)))
+    await pz.setViewport({ width: 1237, height: 700 })
+    await pz.goto(`${BASE}/?debug=1`, { waitUntil: 'domcontentloaded' })
+    await waitMenuReady(pz)
+    await pz.evaluate(() => localStorage.setItem('itd.uiScale', '2'))
+    await pz.reload({ waitUntil: 'domcontentloaded' })
+    await waitMenuReady(pz)
+    const zoomZ1 = byPrefix(await ids(pz), 'menu.zoom.')
+    const keyZ1 = await pz.evaluate(() => localStorage.getItem('itd.uiScale'))
+    check(
+      'Z1: сохранённый 2× → menu.zoom.1/1.4/fit, active fit, ключ переписан в fit',
+      zoomZ1.map((n) => n.id).join() === 'menu.zoom.1,menu.zoom.1.4,menu.zoom.fit' &&
+        zoomZ1.filter((n) => n.active === true).map((n) => n.id).join() === 'menu.zoom.fit' && keyZ1 === 'fit',
+      `${JSON.stringify(zoomZ1)} key=${keyZ1}`,
+    )
+    const scrollZ2 = await pz.evaluate(() => {
+      const a = document.getElementById('app')
+      return { sw: a.scrollWidth, cw: a.clientWidth }
+    })
+    check('Z2: окно 1237×700, «по окну» — у #app нет горизонтального скролла', scrollZ2.sw <= scrollZ2.cw, JSON.stringify(scrollZ2))
+    await pz.close()
 
     // ── нет ошибок на странице за весь прогон
     check('на странице нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))

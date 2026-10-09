@@ -8,14 +8,15 @@ import { RENDER_SCALE, applyCanvasFilter } from './render'
 // перерисовкой текстов в нативном разрешении отдельным шагом, если приёмка
 // покажет мыло). Центрирование — CSS-флекс #app (index.html), autoCenter Phaser
 // не используется: он работает через margin и конфликтует с flex-родителем.
+// ITGAME-61: 2× убран — на 2× канвас шире окна ноутбука и #app скроллится вбок;
+// большие экраны покрывает «по окну».
 export const ZOOM_KEY = 'itd.uiScale'
 export const FIT = 'fit' // «по окну»: зум = min(w/1280, h/720), живой resize
-export type ZoomValue = 1 | 1.4 | 2 | typeof FIT
+export type ZoomValue = 1 | 1.4 | typeof FIT
 
 export const ZOOM_OPTIONS: { value: ZoomValue; label: string }[] = [
   { value: 1, label: '1×' },
   { value: 1.4, label: '1.4×' },
-  { value: 2, label: '2×' },
   { value: FIT, label: 'по окну' },
 ]
 
@@ -24,8 +25,14 @@ const DEFAULT_ZOOM: ZoomValue = 1.4
 export function activeZoom(): ZoomValue {
   const raw = localStorage.getItem(ZOOM_KEY)
   if (raw === FIT) return FIT
+  if (raw === '2') {
+    // 2× убран из цикла (ITGAME-61): «по окну» — самый крупный масштаб, что влезает в окно.
+    // Переписываем ключ, чтобы миграция была одноразовой.
+    localStorage.setItem(ZOOM_KEY, FIT)
+    return FIT
+  }
   const n = Number(raw)
-  if (n === 1 || n === 1.4 || n === 2) return n
+  if (n === 1 || n === 1.4) return n
   return DEFAULT_ZOOM
 }
 

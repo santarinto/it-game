@@ -273,7 +273,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:buttons` | HUD buy-button enabled/tooltip/alpha states (ITGAME-17) | :4180, self-serve |
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35) | :4179, self-serve + temp saves dir |
 | `npm run qa:hud` | HUD layout column, toast stack, no overlaps (ITGAME-16) | :4174, self-serve |
-| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56) | :4175, self-serve |
+| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну» (ITGAME-61) | :4175, self-serve |
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
@@ -422,6 +422,11 @@ the effective downscale (`cssZoom * devicePixelRatio / RENDER_SCALE`) drops
 below 1, since nearest sampling then tears text strokes. `?rs=1` disables
 all of this for A/B comparisons and low-end machines (canvas back to 1:1
 with the world).
+
+The UI-scale cycle is 1×, 1.4× (default) and «по окну» (fit the window); 2×
+was dropped in ITGAME-61 — the canvas outgrew a laptop window and `#app`
+scrolled sideways — and a stored `itd.uiScale = '2'` is read as «по окну» and
+rewritten once.
 
 Caveat for future code: a camera-relative object (e.g. a future
 `setScrollFactor(0)` HUD element) will drift, because the camera now has a

@@ -145,7 +145,9 @@ try {
     // (шлют события напрямую по id), так что камера со scroll/zoom (render.ts,
     // HIRES_CAMERA) ими не проверяется — нужен РЕАЛЬНЫЙ курсор мыши, который
     // идёт через настоящий Phaser input и трансформацию камеры. Проверяем на
-    // зумах 1× и 2× (localStorage 'itd.uiScale', см. uiscale.ts ZOOM_KEY):
+    // зумах 1× и «по окну» (2× убран из цикла, ITGAME-61; «по окну» даёт нецелый
+    // зум камеры, а клик по btn.zoom с него — на 1× — гарантированно меняет ширину
+    // канваса) (localStorage 'itd.uiScale', см. uiscale.ts ZOOM_KEY):
     // (а) наведение на office.worker.0 показывает тултип, (б) клик по
     // btn.zoom меняет CSS-ширину канваса, (в) клик по nav.serverRoom
     // переключает активную сцену. window.itd в проде требует ?debug=1.
@@ -155,7 +157,7 @@ try {
       const r = c.getBoundingClientRect()
       return { x: r.x, y: r.y, k: r.width / 1280 }
     })
-    for (const z of [1, 2]) {
+    for (const z of [1, 'fit']) {
       await page.goto(debugUrl, { waitUntil: 'load' })
       // localStorage И sessionStorage — hasSavedSession() (net.ts) читает оба
       // ключа SID_KEY; без sessionStorage.clear() второй проход (второй zoom)
