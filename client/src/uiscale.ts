@@ -28,7 +28,13 @@ export function activeZoom(): ZoomValue {
   if (raw === '2') {
     // 2× убран из цикла (ITGAME-61): «по окну» — самый крупный масштаб, что влезает в окно.
     // Переписываем ключ, чтобы миграция была одноразовой.
-    localStorage.setItem(ZOOM_KEY, FIT)
+    // Запись в try/catch: activeZoom() вызывается при старте, а хранилище может быть
+    // закрыто на запись или переполнено — миграция не должна ронять загрузку.
+    try {
+      localStorage.setItem(ZOOM_KEY, FIT)
+    } catch {
+      // не вышло — вернём FIT всё равно, перепишем при следующем запуске
+    }
     return FIT
   }
   const n = Number(raw)
