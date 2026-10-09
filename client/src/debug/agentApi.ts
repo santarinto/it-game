@@ -439,8 +439,11 @@ export interface ItdApi {
    */
   overlaps(opts?: OverlapOptions): OverlapEntry[]
   /**
-   * Линтер: вылезание за канвас 1280×720.
+   * Линтер: вылезание за канвас 1280×720 (мировые px). Плюс одна запись
+   * {scene:'page', type:'canvas', id:null} — сам канвас не влез в видимую область
+   * окна (bounds/out — CSS px окна): масштаб UI крупнее окна, страница скроллится.
    * @example itd.offscreen()
+   * @example itd.offscreen().filter(e => e.scene === 'page')
    */
   offscreen(): OffscreenEntry[]
   /**
@@ -828,7 +831,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.warm()                        — прогреть кадр вручную (шаги лупа); в скрытой вкладке itd делает это сам
   itd.wait(s => s.day === 2)        — промис: поллинг state()/server() до условия (таймаут 5с, второй аргумент — свой); готовность меню — wait(s => s.menuReady), до старта партии state() null, но menuReady уже честен
   itd.overlaps({minAreaRatio}?)     — линтер вёрстки: kind: text — тексты одного depth; occlusion — текст под непрозрачной плашкой; interactive — интерактив частично перекрыт интерактивом или текстом (вложенность целиком — не находка); пара {scene, kind, a, b, overlap{w,h}, at{x,y}, ratio, threshold}: ratio — площадь пересечения / площадь меньшего из пары (occlusion — / площадь текста), threshold — порог сравнения; minAreaRatio 0..1 заменяет пороги по умолчанию (text/interactive 0, occlusion 0.25 + >50% по каждой оси; заданный minAreaRatio заменяет и правило по осям — для occlusion находок может стать больше): 0 — строгий режим, 0.3 — порог по площади для всех kind
-  itd.offscreen()                   — линтер: вылезание за канвас 1280×720
+  itd.offscreen()                   — линтер: вылезание за канвас 1280×720; + {scene:'page', type:'canvas'} — канвас не влез в окно (CSS px)
   itd.contrast()                    — линтер: контраст текста к фону ниже 3:1
   itd.tiny()                        — линтер: шрифт мельче 12px
   itd.log(50)                       — журнал переходов (кольцевой на 200, переживает чистку консоли); + {type:'sound', key:'sfx:bong', name, volume, scene, ok}, {type:'toast', text, where, ms, bg, scene}

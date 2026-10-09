@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "5daaefc13755",
+  "hash": "55c6fd411831",
   "methods": {
     "version": {
       "kind": "prop",
@@ -194,9 +194,10 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "OffscreenEntry[]",
-      "doc": "Линтер: вылезание за канвас 1280×720.",
+      "doc": "Линтер: вылезание за канвас 1280×720 (мировые px). Плюс одна запись\n{scene:'page', type:'canvas', id:null} — сам канвас не влез в видимую область\nокна (bounds/out — CSS px окна): масштаб UI крупнее окна, страница скроллится.",
       "examples": [
-        "itd.offscreen()"
+        "itd.offscreen()",
+        "itd.offscreen().filter(e => e.scene === 'page')"
       ]
     },
     "contrast": {
@@ -1436,7 +1437,7 @@ export const CONTRACT = {
         "scene": {
           "type": "string",
           "optional": false,
-          "doc": ""
+          "doc": "ключ сцены; 'page' — сам канвас против окна (ITGAME-61)"
         },
         "type": {
           "type": "string",
@@ -1461,7 +1462,7 @@ export const CONTRACT = {
         "out": {
           "type": "{ left: number; right: number; top: number; bottom: number; }",
           "optional": false,
-          "doc": "на сколько вылез, px"
+          "doc": "на сколько вылез, px; у scene 'page' — CSS px окна"
         }
       }
     },

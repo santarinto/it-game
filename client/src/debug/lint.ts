@@ -37,12 +37,12 @@ export interface OverlapEntry {
 }
 
 export interface OffscreenEntry {
-  scene: string
+  scene: string // ключ сцены; 'page' — сам канвас против окна (ITGAME-61)
   type: string
   id: string | null
   text: string | null
   bounds: { x: number; y: number; w: number; h: number }
-  out: { left: number; right: number; top: number; bottom: number } // на сколько вылез, px
+  out: { left: number; right: number; top: number; bottom: number } // на сколько вылез, px; у scene 'page' — CSS px окна
 }
 
 export interface ContrastEntry {
@@ -326,7 +326,28 @@ function findInteractiveOverlaps(scene: Phaser.Scene, opts: OverlapOptions): Ove
   return out
 }
 
-// Вылезание за канвас 1280×720 (bounds учитывают масштаб объекта).
+// Канвас против видимой области окна (ITGAME-61): «по окну» вписывает, но 1×/1.4×
+// на узком окне вылезают — #app скроллится. CSS px; clientWidth/Height — без полос прокрутки.
+function canvasOffWindow(game: Phaser.Game): OffscreenEntry | null {
+  const r = game.canvas.getBoundingClientRect()
+  const vw = document.documentElement.clientWidth
+  const vh = document.documentElement.clientHeight
+  const out = {
+    left: Math.round(Math.max(0, -r.left)),
+    right: Math.round(Math.max(0, r.right - vw)),
+    top: Math.round(Math.max(0, -r.top)),
+    bottom: Math.round(Math.max(0, r.bottom - vh)),
+  }
+  if (out.left === 0 && out.right === 0 && out.top === 0 && out.bottom === 0) return null
+  return {
+    scene: 'page', type: 'canvas', id: null, text: null,
+    bounds: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) },
+    out,
+  }
+}
+
+// Вылезание за канвас 1280×720 (мировые px; bounds учитывают масштаб объекта)
+// + сам канвас за окном (ITGAME-61, CSS px).
 export function findOffscreen(game: Phaser.Game): OffscreenEntry[] {
   const out: OffscreenEntry[] = []
   for (const scene of game.scene.getScenes(true)) {
@@ -361,6 +382,8 @@ export function findOffscreen(game: Phaser.Game): OffscreenEntry[] {
       })
     }
   }
+  const page = canvasOffWindow(game)
+  if (page) out.push(page)
   return out
 }
 

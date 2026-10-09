@@ -20,6 +20,7 @@
 //   C5  сдвиг btn.skip_reports на строку отчёта → находка с ним (канон ITGAME-18)
 //   Z1  uiScale '2' из старой версии → в меню ровно menu.zoom.1/1.4/fit, active — fit, ключ переписан в 'fit' (ITGAME-61)
 //   Z2  окно 1237×700, «по окну» — у #app нет горизонтального скролла
+//   Z3  окно 1237×700: на 1.4× itd.offscreen() даёт одну запись {scene:'page', type:'canvas'}, out.right > 0, out.left 0; на «по окну» её нет (ITGAME-61)
 //   Z4  btn.zoom в HUD: три клика обходят 1 → 1.4 → fit по кругу и возвращают исходный
 //   A6  btn.debug active: true → false → true по кликам
 //   A7  рестарт партии без перезагрузки: speed/nav active живые, нет pageerror (D2)
@@ -598,6 +599,24 @@ async function run() {
       return { sw: a.scrollWidth, cw: a.clientWidth }
     })
     check('Z2: окно 1237×700, «по окну» — у #app нет горизонтального скролла', scrollZ2.sw <= scrollZ2.cw, JSON.stringify(scrollZ2))
+    // Z3: канвас шире окна → одна запись scene 'page' и настоящий скролл #app; «по окну» — записи нет
+    await pz.evaluate(() => window.itd.click('menu.zoom.1.4'))
+    await delay(150)
+    const pageZ3 = (await pz.evaluate(() => window.itd.offscreen())).filter((e) => e.scene === 'page')
+    const scrollZ3 = await pz.evaluate(() => {
+      const a = document.getElementById('app')
+      return { sw: a.scrollWidth, cw: a.clientWidth }
+    })
+    check(
+      'Z3: 1237×700, 1.4× → одна запись page/canvas, out.right>0, out.left 0, #app скроллится',
+      pageZ3.length === 1 && pageZ3[0].type === 'canvas' && pageZ3[0].out.right > 0 && pageZ3[0].out.left === 0 &&
+        scrollZ3.sw > scrollZ3.cw,
+      `${JSON.stringify(pageZ3)} scroll=${JSON.stringify(scrollZ3)}`,
+    )
+    await pz.evaluate(() => window.itd.click('menu.zoom.fit'))
+    await delay(150)
+    const pageZ3fit = (await pz.evaluate(() => window.itd.offscreen())).filter((e) => e.scene === 'page')
+    check('Z3: «по окну» — записи page нет', pageZ3fit.length === 0, JSON.stringify(pageZ3fit))
     await pz.close()
 
     // ── нет ошибок на странице за весь прогон
