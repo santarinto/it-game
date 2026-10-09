@@ -5,8 +5,12 @@ the README; game design — `docs/design/gdd.md`.
 
 ## Deploy
 
-Production runs on a single box: nginx (TLS, static files, `/ws`, `/admin`
-behind basic auth) → Go binary on `127.0.0.1:8080`, systemd unit `itgame`.
+Production runs on a single box: nginx (TLS, static files, `/ws`) → Go
+binary on `127.0.0.1:8080`, systemd unit `itgame`. `/admin` is not exposed
+on the public domain: the proxy in front (outside this repo) answers
+`404 {"detail":"not_exposed"}` with or without credentials (checked
+2026-10-09); the Go handler itself has no auth, and `deploy-local.sh`
+probes it on `127.0.0.1:8080`.
 
 A deploy is triggered by an HMAC-signed webhook (`bin/trigger-deploy.sh`).
 The box builds an atomic release with `bin/deploy-local.sh`:
@@ -120,8 +124,8 @@ independent gates:
 always under `?debug=1`, otherwise gated by `localStorage.itd.admin` (set
 once via `?admin=1`, cleared via `?admin=0`; the `admin` query param is
 stripped immediately after reading, so a shared link with the flag doesn't
-linger in the URL). Cosmetic only: `/admin` on production is behind nginx
-basic auth regardless.
+linger in the URL). Cosmetic only: `/admin` is not exposed on the public
+domain regardless (see [Deploy](#deploy)).
 
 `itd.help()` prints the full command reference in the console. Worth
 documenting separately:
