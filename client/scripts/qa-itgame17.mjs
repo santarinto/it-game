@@ -1,12 +1,19 @@
+// qa-itgame17 — кнопки покупки HUD: затемнение alpha, тултипы дефицита,
+// клик по недоступной кнопке, скрытие тултипа модалом, линтер (ITGAME-17).
+//
+// Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
+// :4180 — 4173…4179 заняты соседними скриптами) с ITGAME_DEBUG=1 (скрипт
+// зовёт itd.set() → /api/debug/*). Общий self-serve —
+// client/scripts/lib/selfserve.mjs; нужен client/dist (npm run build).
+// QA_BASE — прогон против внешнего сервера. saves: 'off' — партия всегда
+// свежая, уникальный sid не нужен.
 import { existsSync } from 'node:fs'
-import { dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { spawn } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import puppeteer from 'puppeteer-core'
+import { selfServe } from './lib/selfserve.mjs'
 
-const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
-const BASE = process.env.QA_BASE || 'http://localhost:4173'
+const SELF_PORT = Number(process.env.QA_PORT) || 4180
+const BASE = process.env.QA_BASE || `http://127.0.0.1:${SELF_PORT}`
 
 function chromePath() {
   const cands = [
@@ -20,40 +27,29 @@ function chromePath() {
   return found
 }
 
-let preview = null
-async function selfServe() {
-  preview = spawn('npx', ['vite', 'preview', '--port', '4173', '--strictPort'], {
-    cwd: CLIENT_DIR,
-    stdio: 'ignore',
-    detached: true,
-  })
-  for (let i = 0; i < 60; i++) {
-    try {
-      const r = await fetch(BASE)
-      if (r.ok) return
-    } catch {}
-    await delay(500)
-  }
-  throw new Error('vite preview не поднялся')
-}
-
 const results = []
 const check = (name, pass, fact) => {
   results.push({ name, pass, fact })
   console.log(`${pass ? 'PASS' : 'FAIL'}: ${name} — ${fact}`)
 }
 
+let stopServer = null
 if (!process.env.QA_BASE) {
-  await selfServe()
+  try {
+    ;({ stop: stopServer } = await selfServe({ port: SELF_PORT, saves: 'off', label: 'QA-ITGAME17' }))
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e))
+    process.exit(1)
+  }
 }
 
-const browser = await puppeteer.launch({
-  executablePath: chromePath(),
-  headless: 'new',
-  args: ['--no-sandbox', '--disable-dev-shm-usage'],
-})
-
+let browser = null
 try {
+  browser = await puppeteer.launch({
+    executablePath: chromePath(),
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  })
   const page = await browser.newPage()
   await page.setViewport({ width: 1920, height: 1080 })
   const pageErrors = []
@@ -310,14 +306,8 @@ try {
   check('Ошибок на странице нет', pageErrors.length === 0, `errors=${pageErrors.length}`)
 
 } finally {
-  await browser.close()
-  if (preview) {
-    try {
-      process.kill(-preview.pid)
-    } catch {
-      try { preview.kill() } catch {}
-    }
-  }
+  if (browser) await browser.close()
+  if (stopServer) await stopServer()
 }
 
 const failed = results.filter((r) => !r.pass)

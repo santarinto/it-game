@@ -87,7 +87,7 @@ self-serve `bin/itdirector` — see the QA table below), and the CI `client`
 job's "Go-сервер над dist" step (`OFFICE=1 smoke-ui` doesn't itself call
 `/api/debug/*` or `/ws/agent`, but the flag is set anyway for consistency
 with the other self-served runs). If you start the server by hand for
-`qa:meta`/`qa:buttons` (which proxy through `vite preview` to a Go server
+`qa:meta` (which proxies through `vite preview` to a Go server
 you run separately) or for `OFFICE=1 npm run smoke-ui` against a manual
 server, set it yourself: `ITGAME_DEBUG=1 go run ./cmd/server`.
 
@@ -203,7 +203,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | Command | Checks | Port (`QA_PORT`/…) |
 |---|---|---|
 | `npm run qa:meta` | stats/achievements modals | :4173, `vite preview` — needs a Go server already on :8080 |
-| `npm run qa:buttons` | HUD buy-button enabled/tooltip/alpha states | :4173, `vite preview` — same |
+| `npm run qa:buttons` | HUD buy-button enabled/tooltip/alpha states (ITGAME-17) | :4180, self-serve |
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35) | :4179, self-serve + temp saves dir |
 | `npm run qa:hud` | HUD layout column, toast stack, no overlaps (ITGAME-16) | :4174, self-serve |
 | `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38) | :4175, self-serve |
@@ -213,25 +213,23 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |
 | `npm run visreg` | screenshot diff + layout linter per fixture scenario | :4173, self-serve, `VISREG_PORT` overrides |
 
-`qa:hud`/`qa:facade`/`qa:slots`/`qa:trace`/`qa:contract`/`qa:tabs`/`visreg`
-share `client/scripts/lib/selfserve.mjs`: it builds/runs `bin/itdirector`
+`qa:buttons`/`qa:hud`/`qa:facade`/`qa:slots`/`qa:trace`/`qa:contract`/`qa:tabs`/
+`visreg` share `client/scripts/lib/selfserve.mjs`: it builds/runs `bin/itdirector`
 over `client/dist`, refuses to start when its port is already taken by
 another process, and verifies after boot that the server actually answers
 with the local `client/dist` build (not someone else's) — a busy port fails
 loudly instead of running the suite against the wrong server. It also sets
 `ITGAME_DEBUG=1` on the spawned `bin/itdirector` (see [Agent bridge](
 #agent-bridge-wsagent)), since `itd.set()`/`itd.advance()`/… — used by
-`qa:hud`, `qa:trace`, `qa:facade`, `qa:slots` — need `/api/debug/*`
+`qa:buttons`, `qa:hud`, `qa:trace`, `qa:facade`, `qa:slots` — need `/api/debug/*`
 registered. `qa:tabs` additionally self-serves with a temporary saves
 directory, since its session-takeover scenario needs a real saves store
 (`-saves off` won't do).
-`qa:meta`/`qa:buttons`/`smoke-ui` instead self-serve a plain `vite preview`
-over `dist` on :4173, which proxies `/ws`/`/admin`/`/api` to
-`localhost:8080` (`vite.config.ts`) — so `qa:meta`/`qa:buttons` need a Go
-server already running there for their gameplay checks to pass (`qa:buttons`
-calls `itd.set()`, so that server needs `ITGAME_DEBUG=1` too:
-`ITGAME_DEBUG=1 go run ./cmd/server`); `QA_BASE`/`BASE_URL` points any
-script at an already-running server instead.
+`qa:meta`/`smoke-ui` instead self-serve a plain `vite preview` over `dist`
+on :4173, which proxies `/ws`/`/admin`/`/api` to `localhost:8080`
+(`vite.config.ts`) — so `qa:meta` needs a Go server already running there
+for its gameplay checks to pass; `QA_BASE`/`BASE_URL` points any script at
+an already-running server instead.
 
 **Live protocol checks** — a real WebSocket client against a running server:
 

@@ -1,6 +1,7 @@
-// selfserve — общий self-serve для QA-скриптов (visreg, qa-itgame16/37/38,
-// qa-office-slots, qa-itgame35): поднимает bin/itdirector со static=dist,
-// чтобы сценарии крутились без внешнего сервера.
+// selfserve — общий self-serve для QA-скриптов (visreg,
+// qa-itgame16/17/37/38/39, qa-office-slots, qa-itgame35): поднимает
+// bin/itdirector со static=dist, чтобы сценарии крутились без внешнего
+// сервера.
 //
 // Раньше каждый скрипт носил свою копию selfServe() с тремя дырами:
 //  - готовность проверялась только GET /admin === 200 — если порт уже
