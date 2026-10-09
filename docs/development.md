@@ -131,8 +131,8 @@ server, set it yourself: `ITGAME_DEBUG=1 go run ./cmd/server`.
 Its browser-side counterpart is the `window.itd` facade — see
 [Debug API](#debug-api-windowitd); that one is a *client*-side, separate
 gate (`?debug=1`/dev build) and doesn't require `ITGAME_DEBUG` by itself —
-only the `/api/debug/*` calls some of its methods make (`set`, `advance`,
-`scenario`, …) need the server flag to succeed.
+only the `/api/debug/*` calls some of its methods make (`set`, `step`,
+`advanceDays`, `scenario`, …) need the server flag to succeed.
 
 ## Debug API (`window.itd`)
 
@@ -221,7 +221,13 @@ documenting separately:
   a normal `next_day`. `step` pauses first (`set_speed 0`, left at 0) and takes
   either milliseconds (`itd.step(2000)` = 2 ticks, up to 10 ticks — the old
   form) or ticks (`itd.step({ticks: 60})`, 1..10000, the server's limit);
-  `advanceDays(n)` moves n whole days (1..90) and leaves the speed alone. The
+  `advanceDays(n)` moves n whole days (1..90) and sends no `set_speed` itself.
+  From an open day report the HUD sees the `running` snapshot, closes the
+  report and restores the pre-report speed (nobody else sent `set_speed`, so
+  its `speedSeq` rule holds), exactly as the «next day» button does — the
+  party then runs live; call `itd.pause()` *before* `advanceDays` if you need
+  it paused (its `set_speed 0` bumps `speedSeq`, so the HUD restores nothing;
+  `step` is not affected for the same reason: its own `set_speed 0` bumps it). The
   summary comes back in `.advance` (`{ticks, days, income, payroll, balance,
   gameOver, victory, reason?}`) and lands as one «debug · advance» line in
   `itd.snapshot().events`; `itd.log()` only sees the snapshot transitions

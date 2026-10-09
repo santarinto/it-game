@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "0a475c539210",
+  "hash": "b8e6aee4784e",
   "methods": {
     "version": {
       "kind": "prop",
@@ -343,7 +343,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<DebugAdvanceResult>",
-      "doc": "Промотка n целых дней (1..90) ОФЛАЙН-движком через /api/debug/advance:\nдень N → N+n, тик дня тот же; скорость не трогает. Из фазы day_report\nсервер сначала делает обычный next_day (итог — день N+1+n, тик 0).\nОфлайн-движок: без кофе-роллов, событий, поломок и XP; дни закрываются\nбез day_report и offline_report — отчётов дней в itd.log() НЕТ, там только\nсмена дня (type 'day') и game_over/victory при финале. Сводка {ticks,\ndays, income, payroll, balance, …} — в ответе .advance и строкой\n«debug · advance» в itd.snapshot().events. Вне фазы running (например\ngame_over) сервер отвечает 200 с advance.ticks 0 — ничего не промотано.",
+      "doc": "Промотка n целых дней (1..90) ОФЛАЙН-движком через /api/debug/advance:\nдень N → N+n, тик дня тот же; set_speed сама не шлёт. Из фазы day_report\nсервер сначала делает обычный next_day (итог — день N+1+n, тик 0), а HUD,\nувидев running, закрывает отчёт и возвращает скорость до отчёта, как кнопка\n«Дальше» (никто другой set_speed не слал) — партия побежит живьём, тик 0 не\nгарантирован. Нужна пауза — itd.pause() ДО вызова (его set_speed сдвигает\nсчётчик, и HUD скорость не вернёт) или itd.step(): он сам ставит паузу.\nОфлайн-движок: без кофе-роллов, событий, поломок и XP; дни закрываются\nбез day_report и offline_report — отчётов дней в itd.log() НЕТ, там только\nсмена дня (type 'day') и game_over/victory при финале. Сводка {ticks,\ndays, income, payroll, balance, …} — в ответе .advance и строкой\n«debug · advance» в itd.snapshot().events. Вне фазы running (например\ngame_over) сервер отвечает 200 с advance.ticks 0 — ничего не промотано.",
       "examples": [
         "itd.advanceDays(3)"
       ]
