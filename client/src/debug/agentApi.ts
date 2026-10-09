@@ -518,7 +518,9 @@ export interface ItdApi {
    * сначала делает обычный next_day. Сводка {ticks, days, income, payroll,
    * balance, gameOver, victory, reason?} — в ответе .advance (+ .state) и строкой
    * «debug · advance» в itd.snapshot().events; в itd.log() — только переходы
-   * снапшота (day/phase) и game_over/victory при финале. Настоящий отчёт дня —
+   * снапшота (day/phase/speed — пауза step на идущей игре тоже даёт speed) и
+   * game_over/victory при финале. Вне фазы running (например game_over) сервер
+   * отвечает 200 с advance.ticks 0 — ничего не промотано. Настоящий отчёт дня —
    * промотать до последнего тика и дать ему пройти вживую.
    * @example itd.step(2000)
    * @example itd.step({ticks: 60})
@@ -532,7 +534,8 @@ export interface ItdApi {
    * без day_report и offline_report — отчётов дней в itd.log() НЕТ, там только
    * смена дня (type 'day') и game_over/victory при финале. Сводка {ticks,
    * days, income, payroll, balance, …} — в ответе .advance и строкой
-   * «debug · advance» в itd.snapshot().events.
+   * «debug · advance» в itd.snapshot().events. Вне фазы running (например
+   * game_over) сервер отвечает 200 с advance.ticks 0 — ничего не промотано.
    * @example itd.advanceDays(3)
    */
   advanceDays(n: number): Promise<DebugAdvanceResult>
@@ -829,7 +832,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк)
   itd.reset()                       — снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум, отчёты)
   itd.pause() / resume() / speed(n) — темп сессии: set_speed 0/1/0..3 (серверный, живёт в сейве); до коннекта — {ok:false, code:'not_connected'}
-  itd.step(2000) / step({ticks:60}) — пауза + промотка офлайн-движком (без кофе/событий/поломок/XP, день закрывается без day_report): мс (1 тик = 1000 мс, до 10 тиков) или {ticks: 1..10000}; из фазы отчёта — сначала next_day; сводка — в .advance и «debug · advance» в itd.snapshot().events
+  itd.step(2000) / step({ticks:60}) — пауза + промотка офлайн-движком (без кофе/событий/поломок/XP, день закрывается без day_report): мс (1 тик = 1000 мс, до 10 тиков) или {ticks: 1..10000}; из фазы отчёта — сначала next_day; сводка — в .advance и «debug · advance» в itd.snapshot().events; вне running (game_over) — 200 с advance.ticks 0, ничего не промотано
   itd.advanceDays(3)                — промотка дней офлайн-движком: день N → N+3 (из фазы отчёта — сначала next_day), без day_report; сводка {days, income, payroll, balance} — в ответе .advance и строкой «debug · advance» в itd.snapshot().events, в itd.log() — только смена дня
   itd.set({money: 50000})           — читы живой сессии: {money, day, tickInDay}
   itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs; сбрасывает клиентское состояние партии (офис → О1)

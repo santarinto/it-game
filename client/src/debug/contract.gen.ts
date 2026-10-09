@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "7e944f6aaddc",
+  "hash": "620eeb5361c7",
   "methods": {
     "version": {
       "kind": "prop",
@@ -326,7 +326,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<DebugAdvanceResult>",
-      "doc": "Пауза (set_speed 0 — так и остаётся) + промотка тиков ОФЛАЙН-движком через\n/api/debug/advance. Две формы: step(ms) — мс, 1 тик = 1000 мс, округление до\nцелых, 500..10000 мс (1..10 тиков); step({ticks}) — целое 1..10000 тиков за\nвызов. Офлайн-движок — сводная формула: без кофе-роллов, событий, поломок и\nXP; конец дня закрывается без day_report и без роллов next_day (ни\nday_report, ни offline_report не приходят). Из фазы day_report сервер\nсначала делает обычный next_day. Сводка {ticks, days, income, payroll,\nbalance, gameOver, victory, reason?} — в ответе .advance (+ .state) и строкой\n«debug · advance» в itd.snapshot().events; в itd.log() — только переходы\nснапшота (day/phase) и game_over/victory при финале. Настоящий отчёт дня —\nпромотать до последнего тика и дать ему пройти вживую.",
+      "doc": "Пауза (set_speed 0 — так и остаётся) + промотка тиков ОФЛАЙН-движком через\n/api/debug/advance. Две формы: step(ms) — мс, 1 тик = 1000 мс, округление до\nцелых, 500..10000 мс (1..10 тиков); step({ticks}) — целое 1..10000 тиков за\nвызов. Офлайн-движок — сводная формула: без кофе-роллов, событий, поломок и\nXP; конец дня закрывается без day_report и без роллов next_day (ни\nday_report, ни offline_report не приходят). Из фазы day_report сервер\nсначала делает обычный next_day. Сводка {ticks, days, income, payroll,\nbalance, gameOver, victory, reason?} — в ответе .advance (+ .state) и строкой\n«debug · advance» в itd.snapshot().events; в itd.log() — только переходы\nснапшота (day/phase/speed — пауза step на идущей игре тоже даёт speed) и\ngame_over/victory при финале. Вне фазы running (например game_over) сервер\nотвечает 200 с advance.ticks 0 — ничего не промотано. Настоящий отчёт дня —\nпромотать до последнего тика и дать ему пройти вживую.",
       "examples": [
         "itd.step(2000)",
         "itd.step({ticks: 60})"
@@ -342,7 +342,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<DebugAdvanceResult>",
-      "doc": "Промотка n целых дней (1..90) ОФЛАЙН-движком через /api/debug/advance:\nдень N → N+n, тик дня тот же; скорость не трогает. Из фазы day_report\nсервер сначала делает обычный next_day (итог — день N+1+n, тик 0).\nОфлайн-движок: без кофе-роллов, событий, поломок и XP; дни закрываются\nбез day_report и offline_report — отчётов дней в itd.log() НЕТ, там только\nсмена дня (type 'day') и game_over/victory при финале. Сводка {ticks,\ndays, income, payroll, balance, …} — в ответе .advance и строкой\n«debug · advance» в itd.snapshot().events.",
+      "doc": "Промотка n целых дней (1..90) ОФЛАЙН-движком через /api/debug/advance:\nдень N → N+n, тик дня тот же; скорость не трогает. Из фазы day_report\nсервер сначала делает обычный next_day (итог — день N+1+n, тик 0).\nОфлайн-движок: без кофе-роллов, событий, поломок и XP; дни закрываются\nбез day_report и offline_report — отчётов дней в itd.log() НЕТ, там только\nсмена дня (type 'day') и game_over/victory при финале. Сводка {ticks,\ndays, income, payroll, balance, …} — в ответе .advance и строкой\n«debug · advance» в itd.snapshot().events. Вне фазы running (например\ngame_over) сервер отвечает 200 с advance.ticks 0 — ничего не промотано.",
       "examples": [
         "itd.advanceDays(3)"
       ]

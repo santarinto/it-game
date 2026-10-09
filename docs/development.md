@@ -198,8 +198,11 @@ documenting separately:
   summary comes back in `.advance` (`{ticks, days, income, payroll, balance,
   gameOver, victory, reason?}`) and lands as one «debug · advance» line in
   `itd.snapshot().events`; `itd.log()` only sees the snapshot transitions
-  (`day`, `phase`) plus `game_over`/`victory` on a finale. For a real day
-  report, stop a tick short and let the last tick run live (`qa:facade` D1).
+  (`day`, `phase`, `speed` — `step`'s own pause shows up there on a running
+  game) plus `game_over`/`victory` on a finale. Outside the `running` phase
+  (e.g. `game_over`) the server answers 200 with `advance.ticks` 0 and nothing
+  moves. For a real day report, stop a tick short and let the last tick run
+  live (`qa:facade` D1).
 - **`itd.trace(action, windowMs)`** (ITGAME-37) is a *live* subscription,
   not a slice of `log()`/`net()`: it wires up listeners before `action` runs
   and keeps them for `windowMs` ms (0..10000, default 1000) after `action`
