@@ -60,7 +60,14 @@ written `<sid>.json`. On reconnect with the same `sid` within the TTL
   away" report; bankruptcy or victory can happen offline;
 - game endings and `abandon` delete the save; another tab with the same
   `sid` takes the session over and the old one is closed with
-  `session_taken`.
+  `session_taken`;
+- if the server has no save for the `sid` (expired, deleted, never existed),
+  «Continue» still connects and the server starts a **new** game under the
+  same `sid`. The first snapshot of every connection carries `resumed`
+  (`true` only for a restored save), so the client resets its party state
+  (active office → office 0, `client/src/party.ts`) when that first snapshot
+  says `resumed: false` — otherwise the new game would open on the office the
+  previous game in the tab left open, possibly a locked one (ITGAME-54).
 
 The start menu reads the save's facts through `/ws?peek=1&sid=…`
 (ITGAME-19): the server sends one `save_summary` (`exists`, `alive`,
@@ -136,6 +143,10 @@ independent gates:
 its guard swallowed the click (HUD `switchRoom` debounce, 250 ms of game
 time) it answers `ok:false` with `code: 'debounced'` — retry after a pause
 (ITGAME-58).
+
+`itd.scenario(name)` recreates the game on the server and also resets the
+client's party state (active office → office 0), so the screen does not stay
+on «Office 2 closed» after a fixture (ITGAME-55).
 
 **«Админка» link** (ITGAME-22): shown over the canvas only to the owner —
 always under `?debug=1`, otherwise gated by `localStorage.itd.admin` (set
@@ -231,7 +242,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
-| `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47) | :4181, self-serve + temp saves dir |
+| `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55) | :4181, self-serve + temp saves dir |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |
 | `npm run visreg` | screenshot diff + layout linter per fixture scenario | :4173, self-serve, `VISREG_PORT` overrides |
 

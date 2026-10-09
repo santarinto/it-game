@@ -1,3 +1,4 @@
+import { resetForNewGame } from './party'
 import type { CommandType, DayReportMessage, DifficultyId, GameOverMessage, OfflineReportMessage, SaveSummaryMessage, ServerErrorCode, ServerMessage, StateMessage, VictoryMessage } from './protocol'
 
 // Транспортные коды отказа (ITGAME-39): квитанция команды (sendWithReceipt)
@@ -289,6 +290,8 @@ export class GameClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectAttempt = 0
   private takenOver = false
+  // Следующий state — первый на текущем сокете (в нём resumed значим, ITGAME-54).
+  private firstOfSocket = false
   private difficulty: DifficultyId = 'normal'
   private broadcastChannel: BroadcastChannel | null = null
 
@@ -437,6 +440,7 @@ export class GameClient {
     // не наши: запоздалый close старого сокета запустил бы реконнект и
     // войну session_taken с новым.
     const ws = this.ws
+    this.firstOfSocket = true
     this.ws.onmessage = (ev) => {
       if (ws !== this.ws) return
       this.stats.messages++
@@ -458,6 +462,14 @@ export class GameClient {
         this.receipts.shift()?.({ ok: true })
         // соединение живое: банк экспоненты сброс
         this.reconnectAttempt = 0
+        // ITGAME-54: «Продолжить» на сейве, которого у сервера уже нет, стартует
+        // НОВУЮ партию под тем же sid (resumed: false в первом снапшоте сокета) —
+        // клиентское состояние прошлой партии вкладки (активный офис) не её.
+        // Только первый снапшот сокета: дальше resumed всегда false (в т.ч. пуш отладки).
+        if (this.firstOfSocket) {
+          this.firstOfSocket = false
+          if (!msg.resumed) resetForNewGame()
+        }
         this.latest = msg
         this.listeners.forEach((l) => l.onState(msg))
       } else if (msg.type === 'error') {

@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { client, sessionId } from '../net'
+import { resetForNewGame } from '../party'
 import type { SocketStatus, TransportErrorCode } from '../net'
 import { COMMAND_TYPES } from '../protocol'
 import type { CommandType, ServerErrorCode, StateMessage } from '../protocol'
@@ -525,7 +526,8 @@ export interface ItdApi {
   set(patch: { money?: number; day?: number; tickInDay?: number }): Promise<DebugState>
   /**
    * Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|
-   * soft_lock|pre_victory|spare_pcs.
+   * soft_lock|pre_victory|spare_pcs. Сбрасывает и клиентское состояние партии
+   * (активный офис → О1, ITGAME-55).
    * @example itd.scenario('soft_lock')
    */
   scenario(name: string): Promise<DebugState>
@@ -813,7 +815,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.step(2000)                    — пауза + промотка 2с игровых тиков (2000мс = 2 тика) через /api/debug/advance
   itd.advanceDays(3)                — промотка дней офлайн-движком: день N → N+3; сводка {days, income, payroll, balance} — в ответе .advance и строкой «debug · advance» в itd.snapshot().events, смена дня — в itd.log()
   itd.set({money: 50000})           — читы живой сессии: {money, day, tickInDay}
-  itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs
+  itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs; сбрасывает клиентское состояние партии (офис → О1)
   itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы
   itd.restore(save)                 — вернуть состояние из snapshot().save (дельта над текущим)
   itd.quiet()                       — стоп твитов/миганий для стабильных скриншотов
@@ -1058,8 +1060,13 @@ function makeApi(game: Phaser.Game): ItdApi {
       }
       return debugFetch<DebugState>('POST', '/state', { ...patch })
     },
-    scenario(name) {
-      return debugFetch<DebugState>('POST', '/state', { scenario: name })
+    async scenario(name) {
+      const r = await debugFetch<DebugState>('POST', '/state', { scenario: name })
+      // ITGAME-55: сервер пересоздал партию, а клиентское состояние прошлой (активный
+      // офис) осталось. Снапшот пуша мог уже дойти — переигрываем его со сбросом.
+      resetForNewGame()
+      client.reemit()
+      return r
     },
     snapshot() {
       return debugFetch<DebugState>('GET', '/state')

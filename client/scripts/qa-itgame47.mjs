@@ -16,10 +16,18 @@
 //   P2f  nav.office0 возвращает офис; itd.click ответил ok:true
 //   P2g  два nav-клика в одном evaluate: первый ok:true, второй ok:false + code 'debounced'
 //        (дребезг switchRoom проглотил клик — ITGAME-58); итог — первая комната, не вторая
+//   S1   itd.scenario('fresh') из «Офис 2» (nav.office1 active): после него nav.office0 active,
+//        nav.office1 нет (ITGAME-55)
+//   S2   в офисе нет «закрыт», есть «ОФИС 1», день 1 (ITGAME-55)
 //   C1   пауза, set({money:12345}), тот же выход в меню — «Продолжить» есть
 //   C2   «Продолжить»: тот же sid, balance 12345, тот же день (партия не сбрасывается)
 //   C3   nav.office0 active (партия осталась в офисе 0)
 //   C4   nav.serverRoom работает и после «Продолжить»
+//   E1   выход из «Офис 2» в меню, sid в хранилище подменён на неизвестный серверу,
+//        «Продолжить» — сервер создал новую партию под этим sid, день 1 (ITGAME-54)
+//   E2   после этого nav.office0 active, nav.office1 нет (ITGAME-54)
+//   E3   в офисе нет «закрыт», есть «ОФИС 1» (ITGAME-54)
+//   E4   btn.pc шлёт buy_pc с office 0, нет office_locked (ITGAME-54)
 //   Z    на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию :4181; порт не из
@@ -259,6 +267,28 @@ async function run() {
     await page.evaluate(() => window.itd.click('nav.office0'))
     await delay(400)
 
+    // ── S: itd.scenario() из «Офис 2» (ITGAME-55) ──────────────────────────
+    await waitSwitchIdle()
+    await page.evaluate(() => window.itd.click('nav.office1'))
+    await delay(400)
+    const s0 = await navIds()
+    const s1Pre = isActive(s0, 'nav.office1')
+    await page.evaluate(() => window.itd.scenario('fresh'))
+    await delay(300)
+    const s1Nav = await navIds()
+    check(
+      'S1: itd.scenario("fresh") из «Офис 2» — nav.office0 active, nav.office1 нет (ITGAME-55)',
+      s1Pre && isActive(s1Nav, 'nav.office0') && !isActive(s1Nav, 'nav.office1'),
+      `pre=${s1Pre} nav=${JSON.stringify(s1Nav.map((n) => `${n.id}:${n.active}`))}`,
+    )
+    const s2Texts = await officeTexts()
+    const s2Day = await page.evaluate(() => window.itd.state().day)
+    check(
+      'S2: после scenario нет «закрыт», есть «ОФИС 1», день 1 (ITGAME-55)',
+      !s2Texts.some((t) => /закрыт/.test(t)) && s2Texts.some((t) => t === 'ОФИС 1') && s2Day === 1,
+      `day=${s2Day} texts=${JSON.stringify(s2Texts)}`,
+    )
+
     // ── «Продолжить»: сбрасываться нечему ──────────────────────────────────
     const c1 = await page.evaluate(async () => {
       await window.itd.pause()
@@ -299,6 +329,70 @@ async function run() {
     await delay(400)
     const c4 = await navIds()
     check('C4: после «Продолжить» nav.serverRoom работает (ITGAME-42)', isActive(c4, 'nav.serverRoom'), JSON.stringify(c4.map((n) => `${n.id}:${n.active}`)))
+
+    // ── E: «Продолжить» на сейве, которого у сервера уже нет (ITGAME-54) ────
+    await waitSwitchIdle()
+    await page.evaluate(() => window.itd.click('nav.office1'))
+    await delay(400)
+    await waitSwitchIdle()
+    const e0 = await fastExit()
+    await waitMenu()
+    const e0Menu = await page.evaluate(() => window.itd.ids().map((n) => n.id))
+    // sid, которого сервер не знает: сейв «истёк/удалён». Файл в каталоге сейвов не трогаем —
+    // стор держит записи в памяти, так что подмена sid в хранилище вкладки — чистый способ.
+    const gone = 'qa54-gone-' + Date.now()
+    await page.evaluate((g) => {
+      sessionStorage.setItem('itd.sid', g)
+      sessionStorage.setItem('itd.sid.auto', g)
+    }, gone)
+    await page.evaluate(async () => {
+      window.itd.click('menu.continue')
+      try {
+        await window.itd.wait((s) => s.connected === true, 15000)
+      } catch {
+        /* читаем и пишем FAIL ниже */
+      }
+    })
+    await delay(300)
+    const e1 = await page.evaluate(() => ({
+      sid: window.itd.server().sid,
+      day: window.itd.state().day,
+      connected: window.itd.state().connected,
+    }))
+    check(
+      'E1: выход из «Офис 2», «Продолжить» на неизвестном серверу sid — новая партия под тем же sid, день 1 (ITGAME-54)',
+      e0.a.ok && e0.b.ok && e0.c.ok && e0Menu.includes('menu.continue') && e1.connected === true && e1.sid === gone && e1.day === 1,
+      JSON.stringify({ e0ok: [e0.a.ok, e0.b.ok, e0.c.ok], hasContinue: e0Menu.includes('menu.continue'), gone, e1 }),
+    )
+    const e2 = await navIds()
+    check(
+      'E2: nav.office0 active, nav.office1 нет (ITGAME-54)',
+      isActive(e2, 'nav.office0') && !isActive(e2, 'nav.office1'),
+      JSON.stringify(e2.map((n) => `${n.id}:${n.active}`)),
+    )
+    const e3Texts = await officeTexts()
+    check(
+      'E3: в офисе нет «закрыт», есть «ОФИС 1» (ITGAME-54)',
+      !e3Texts.some((t) => /закрыт/.test(t)) && e3Texts.some((t) => t === 'ОФИС 1'),
+      JSON.stringify(e3Texts),
+    )
+    await page.evaluate(async () => {
+      await window.itd.set({ money: 5000 })
+      try {
+        await window.itd.wait((s) => s.balance === 5000, 5000)
+      } catch {
+        /* читаем ниже */
+      }
+    })
+    await delay(200)
+    const e4tr = await page.evaluate(() => window.itd.trace(() => window.itd.click('btn.pc'), 1500))
+    await delay(300)
+    const e4buy = e4tr.sent.find((m) => m.type === 'buy_pc')
+    check(
+      'E4: btn.pc шлёт buy_pc с office 0, нет office_locked (ITGAME-54)',
+      e4buy?.office === 0 && !JSON.stringify(e4tr.recv).includes('office_locked'),
+      JSON.stringify({ sent: e4tr.sent, recv: e4tr.recv }),
+    )
   } catch (e) {
     check('сценарий выполнен без исключений', false, e instanceof Error ? e.message : String(e))
   } finally {

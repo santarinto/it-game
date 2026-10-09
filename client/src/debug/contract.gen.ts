@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "4f6b00aec527",
+  "hash": "02e1328fd790",
   "methods": {
     "version": {
       "kind": "prop",
@@ -371,7 +371,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<DebugState>",
-      "doc": "Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|\nsoft_lock|pre_victory|spare_pcs.",
+      "doc": "Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|\nsoft_lock|pre_victory|spare_pcs. Сбрасывает и клиентское состояние партии\n(активный офис → О1, ITGAME-55).",
       "examples": [
         "itd.scenario('soft_lock')"
       ]
