@@ -171,7 +171,7 @@ export class HUDScene extends Phaser.Scene {
     this.debtText = tag(this.add.text(170, 84, '', {
       fontFamily: 'monospace', fontSize: '12px', color: '#b13e53',
     }), 'hud.debt')
-    // Темп дня одним взглядом: прогноз прибыли «сейчас до вечера».
+    // Темп дня одним взглядом: прибыль дня (= «Прибыль» отчёта), ровная весь день.
     this.dayProfitText = tag(this.add.text(16, 84, '', {
       fontFamily: 'monospace', fontSize: '15px', color: '#38b764',
     }), 'hud.dayProfit')
@@ -587,8 +587,10 @@ export class HUDScene extends Phaser.Scene {
     } else {
       this.debtText.setText('')
     }
-    // Прогноз считает сервер: остаток дохода дня минус вечерний ФОТ.
-    const dayProfit = s.forecastEndOfDay - s.money
+    // Прибыль дня — как «Прибыль» в отчёте: доход с утра + остаток дохода до
+    // вечера − вечерний ФОТ (остаток и ФОТ в прогнозе считает сервер — обед,
+    // дебаффы). Покупки и штрафы днём сокращаются: они и в money, и в прогнозе.
+    const dayProfit = s.dayIncome + s.forecastEndOfDay - s.money
     this.dayProfitText.setText(`${dayProfit >= 0 ? '+' : ''}${fmtMoney(dayProfit)}/день`)
     this.dayProfitText.setColor(dayProfit >= 0 ? '#38b764' : '#b13e53')
     this.netText.setText(`Сотрудники: ${employees.length} · в сети ${s.core.connected}/${employees.length}`)

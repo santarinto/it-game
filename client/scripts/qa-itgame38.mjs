@@ -19,6 +19,8 @@
 //   C5  сдвиг btn.skip_reports на строку отчёта → находка с ним (канон ITGAME-18)
 //   A6  btn.debug active: true → false → true по кликам
 //   A7  рестарт партии без перезагрузки: speed/nav active живые, нет pageerror (D2)
+//   D1  mid_day10 на паузе, itd.step до 12:00/14:00/17:00 → hud.dayProfit одинаков (±$50), > 0
+//       и равен day_report.profit дня 10 (последний тик — живой, ради настоящего отчёта)
 //   + на странице нет pageerror
 //
 // Отклонения от буквального сценария в трекере (см. отчёт агента):
@@ -78,6 +80,23 @@ async function waitMenuReady(page) {
 const ids = (page) => page.evaluate(() => window.itd.ids())
 const byPrefix = (list, prefix) => list.filter((n) => n.id.startsWith(prefix))
 const oneOf = (list) => list.find((n) => n.active === true)
+
+const D1_TOL = 50 // $: один живой тик 53 может поймать поломку ПК; офлайн-промотка детерминирована
+// «+$3,266/день» / «-$526/день» → 3266 / -526 (формат fmtMoney)
+const parseMoney = (text) => (typeof text === 'string' && /\d/.test(text) ? Number(text.replace(/[^\d-]/g, '')) : NaN)
+const dayProfitNow = (page) =>
+  page.evaluate(() => window.itd.nodes().find((n) => n.id === 'hud.dayProfit')?.text ?? null)
+// Честная промотка офлайн-движком (itd.step → /api/debug/advance), ≤ 10 тиков за вызов.
+async function advanceTo(page, target) {
+  for (let i = 0; i < 20; i++) {
+    const t = await page.evaluate(() => window.itd.state().tickInDay)
+    if (t >= target) return t
+    const n = Math.min(10, target - t)
+    await page.evaluate((ms) => window.itd.step(ms), n * 1000)
+    await page.waitForFunction((tt) => window.itd.state().tickInDay >= tt, { timeout: 5000 }, t + n)
+  }
+  return page.evaluate(() => window.itd.state().tickInDay)
+}
 
 async function run() {
   let stopServer = null
@@ -450,6 +469,48 @@ async function run() {
       'A7: после рестарта партии — 4 nav.*, nav.office0 active',
       navA7.length === 4 && navA7.find((n) => n.id === 'nav.office0')?.active === true,
       JSON.stringify(navA7),
+    )
+
+    // ── D1 (ITGAME-49): «+X/день» — прибыль дня, а не остаток дня.
+    // Сначала пауза (A7 оставил speed 2): живые тики дали бы кофе/поломки.
+    await page.evaluate(() => window.itd.pause())
+    await page.waitForFunction(() => window.itd.state().speed === 0, { timeout: 5000 })
+    await page.evaluate(() => window.itd.scenario('mid_day10'))
+    await page.waitForFunction(
+      () => window.itd.state().scenario === 'mid_day10' && window.itd.state().tickInDay === 12,
+      { timeout: 10000 },
+    )
+    await delay(200)
+    const d1 = []
+    for (const tick of [12, 24, 42]) {
+      const at = await advanceTo(page, tick)
+      await delay(200)
+      const st = await page.evaluate(() => window.itd.state())
+      const text = await dayProfitNow(page)
+      d1.push({ tick: at, clock: st.clock, text, value: parseMoney(text) })
+    }
+    const vals = d1.map((p) => p.value)
+    check(
+      `D1: hud.dayProfit на mid_day10 в 12:00/14:00/17:00 одинаков (±$${D1_TOL})`,
+      d1.every((p, i) => p.tick === [12, 24, 42][i]) && vals.every(Number.isFinite) &&
+        Math.max(...vals) - Math.min(...vals) <= D1_TOL,
+      JSON.stringify(d1),
+    )
+    check('D1: hud.dayProfit положителен во всех трёх точках', vals.every((v) => v > 0), JSON.stringify(vals))
+    // Промотка через конец дня отчёта не даёт — последний тик живой.
+    await advanceTo(page, 53)
+    await page.evaluate(() => window.itd.speed(1))
+    await page.waitForFunction(
+      () => window.itd.log(200).some((e) => e.type === 'day_report' && e.day === 10),
+      { timeout: 15000 },
+    )
+    const reportD1 = (await page.evaluate(() => window.itd.log(200)))
+      .filter((e) => e.type === 'day_report' && e.day === 10).pop()
+    await page.evaluate(() => window.itd.pause())
+    check(
+      `D1: hud.dayProfit в 12:00 = day_report.profit дня 10 (±$${D1_TOL})`,
+      !!reportD1 && Number.isFinite(vals[0]) && Math.abs(reportD1.profit - vals[0]) <= D1_TOL,
+      `hud12=${vals[0]} report=${JSON.stringify(reportD1)}`,
     )
 
     // ── нет ошибок на странице за весь прогон
