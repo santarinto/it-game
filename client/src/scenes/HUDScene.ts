@@ -188,8 +188,8 @@ export class HUDScene extends Phaser.Scene {
     this.debtText = tag(this.add.text(170, 84, '', {
       fontFamily: 'monospace', fontSize: '12px', color: '#b13e53',
     }), 'hud.debt')
-    // Темп дня одним взглядом: прибыль дня (= «Прибыль» отчёта), ровная весь
-    // день — кроме объявленного аудита со штрафом (см. refresh, ITGAME-50).
+    // Темп дня одним взглядом: прибыль дня (= «Прибыль» отчёта), считает
+    // сервер (dayProfit, ITGAME-53).
     this.dayProfitText = tag(this.add.text(16, 84, '', {
       fontFamily: 'monospace', fontSize: '15px', color: '#38b764',
     }), 'hud.dayProfit')
@@ -605,16 +605,14 @@ export class HUDScene extends Phaser.Scene {
     } else {
       this.debtText.setText('')
     }
-    // Прибыль дня — как «Прибыль» в отчёте: доход с утра + остаток дохода до
-    // вечера − вечерний ФОТ (остаток и ФОТ в прогнозе считает сервер — обед,
-    // дебаффы). Штрафы и разовые деньги событий днём сокращаются: они бьют
-    // только в money, а прогноз их несёт тем же числом. Найм и покупка ПК
-    // число двигают — меняют будущий доход и ФОТ (это и есть прибыль дня).
-    // Исключение — аудит со штрафом (ITGAME-50): от его тика до проверки в
-    // 18:00 ForecastEndOfDay уже вычитает ожидающий штраф, а money ещё не
-    // тронут, поэтому строка показывает прибыль минус штраф и в 18:00 скачет
-    // обратно к «Прибыли» отчёта (штраф списан, прогноз тот же).
-    const dayProfit = s.dayIncome + s.forecastEndOfDay - s.money
+    // Прибыль дня — как «Прибыль» в отчёте, с прогнозом до вечера; считает
+    // сервер (dayProfit, ITGAME-53): доход с утра + деньги исходов событий +
+    // остаток дохода − вечерний ФОТ − объявленный штраф аудита. Исход события
+    // двигает строку в момент, когда случился (выбор, дедлайн в 17:00), а
+    // штраф аудита — с тоста; в 18:00 он из прогноза уходит в деньги событий,
+    // и строка не скачет. Найм и покупка ПК двигают её через будущий доход и
+    // ФОТ; цена покупки, в том числе найма звезды, в прибыль не входит.
+    const dayProfit = s.dayProfit
     this.dayProfitText.setText(`${dayProfit >= 0 ? '+' : ''}${fmtMoney(dayProfit)}/день`)
     this.dayProfitText.setColor(dayProfit >= 0 ? '#38b764' : '#b13e53')
     this.netText.setText(`Сотрудники: ${employees.length} · в сети ${s.core.connected}/${employees.length}`)
@@ -1034,10 +1032,13 @@ export class HUDScene extends Phaser.Scene {
       `Доход:     ${fmtMoney(r.income)}`,
       `Зарплата: -${fmtMoney(r.payroll)}`,
       ...(r.gatewayOpex > 0 ? [`Интернет: -${fmtMoney(r.gatewayOpex)}`] : []),
+      // Деньги исходов событий входят в прибыль (ITGAME-53); расшифровка —
+      // в журнале ниже.
+      ...(r.eventMoney ? [`События:  ${r.eventMoney > 0 ? '+' : ''}${fmtMoney(r.eventMoney)}`] : []),
       `Прибыль:   ${fmtMoney(r.profit)}`,
       `Баланс:    ${fmtMoney(r.balance)}`,
       ...(r.incidents > 0 ? [`Поломки:   ${r.incidents} (−${fmtMoney(r.lostIncome)})`] : []),
-      ...(r.events?.length ? ['', 'События:', ...r.events.map((e) => `· ${e}`)] : []),
+      ...(r.events?.length ? ['', 'Журнал событий:', ...r.events.map((e) => `· ${e}`)] : []),
     ].join('\n')
 
     // Подложка interactive: глушит клики по кнопкам HUD под модалкой (depth 50).

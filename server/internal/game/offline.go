@@ -172,6 +172,7 @@ func (g *Game) resetForNextDay() {
 		o.CoffeeEventTicks = nil
 	}
 	g.DayIncome = 0
+	g.DayEventMoney = 0
 	g.DayIncidents = 0
 	g.DayLostIncome = 0
 	g.DayEvents = nil

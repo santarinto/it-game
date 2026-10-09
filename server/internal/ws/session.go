@@ -496,6 +496,6 @@ func dayReportMsg(r *game.DayReport) dayReportMessage {
 		events = []string{}
 	}
 	return dayReportMessage{Type: "day_report", Day: r.Day, Income: r.Income, Payroll: r.Payroll,
-		GatewayOpex: r.GatewayOpex, Profit: r.Profit, Balance: r.Balance,
+		GatewayOpex: r.GatewayOpex, EventMoney: r.EventMoney, Profit: r.Profit, Balance: r.Balance,
 		Incidents: r.Incidents, LostIncome: r.LostIncome, Events: events}
 }

@@ -221,11 +221,11 @@ func (g *Game) tickEvents(income int) {
 			g.DeadlineOn = false
 			if g.DeadlineGot >= g.DeadlineGoal {
 				reward := int(deadlineRewardShare * float64(g.DeadlineGoal) / g.cfg.EventK)
-				g.Money += reward
+				g.eventMoney(reward)
 				g.logEvent(fmt.Sprintf("дедлайн выполнен (+$%d)", reward))
 			} else {
 				fine := int(deadlineFineShare * float64(g.DeadlineGoal) * g.cfg.EventK)
-				g.Money -= fine
+				g.eventMoney(-fine)
 				g.logEvent(fmt.Sprintf("дедлайн провален (−$%d)", fine))
 			}
 		}
@@ -239,11 +239,11 @@ func (g *Game) tickEvents(income int) {
 		if g.TickInDay >= g.cfg.auditTick() {
 			ev.Resolved = true
 			if g.auditPasses() {
-				g.Money += g.cfg.AuditReward
+				g.eventMoney(g.cfg.AuditReward)
 				g.logEvent(fmt.Sprintf("аудит пройден (+$%d)", g.cfg.AuditReward))
 			} else {
 				fine := g.auditFine()
-				g.Money -= fine
+				g.eventMoney(-fine)
 				g.logEvent(fmt.Sprintf("аудит провален (−$%d)", fine))
 			}
 		}
@@ -332,7 +332,7 @@ func (g *Game) ChooseEvent(option int) error {
 			if g.Money < g.cfg.VirusPrice {
 				return ErrNotEnoughMoney
 			}
-			g.Money -= g.cfg.VirusPrice
+			g.eventMoney(-g.cfg.VirusPrice)
 			g.Offices[ev.Office].VirusUntil = 0
 			g.logEvent(fmt.Sprintf("вирус: куплен антивирус (−$%d)", g.cfg.VirusPrice))
 		} else if option == 1 {
@@ -349,7 +349,7 @@ func (g *Game) ChooseEvent(option int) error {
 			g.logEvent(fmt.Sprintf("дедлайн принят: цель $%d", g.DeadlineGoal))
 		case 1:
 			fine := int(deadlineRefuseShare * float64(g.deadlineGoalFor()) * g.cfg.EventK)
-			g.Money -= fine
+			g.eventMoney(-fine)
 			g.logEvent(fmt.Sprintf("дедлайн отклонён (−$%d)", fine))
 		default:
 			return ErrBadOption
@@ -408,6 +408,13 @@ func (g *Game) ChooseEvent(option int) error {
 	ev.Resolved = true
 	g.ActiveEvent = nil
 	return nil
+}
+
+// eventMoney — деньги исхода события: в баланс и в «Прибыль» дня
+// (ITGAME-53). Найм звезды — покупка, идёт мимо, как обычный найм.
+func (g *Game) eventMoney(delta int) {
+	g.Money += delta
+	g.DayEventMoney += delta
 }
 
 func (g *Game) logEvent(s string) {

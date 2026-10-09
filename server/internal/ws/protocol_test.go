@@ -174,3 +174,27 @@ func TestSnapshotServersNeverNull(t *testing.T) {
 		t.Error("в снапшоте нет объекта core")
 	}
 }
+
+// Деньги событий и прибыль дня доходят до клиента (ITGAME-53): eventMoney
+// в отчёте, dayProfit в снапшоте — то же число, что считает игра.
+func TestProtocolDayProfitAndEventMoney(t *testing.T) {
+	data, err := json.Marshal(dayReportMsg(&game.DayReport{EventMoney: -150, Profit: 10}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rep map[string]any
+	if err := json.Unmarshal(data, &rep); err != nil {
+		t.Fatal(err)
+	}
+	if rep["eventMoney"] != float64(-150) {
+		t.Errorf("day_report.eventMoney = %v, хотим -150", rep["eventMoney"])
+	}
+	g := game.New(game.DefaultConfig())
+	if err := g.Hire(0); err != nil {
+		t.Fatal(err)
+	}
+	g.Tick()
+	if got, want := snapshot(g, 1, false, "").DayProfit, g.DayProfit(); got != want {
+		t.Errorf("state.dayProfit = %d, хотим %d", got, want)
+	}
+}

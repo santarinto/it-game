@@ -105,6 +105,7 @@ export interface StateMessage {
   scenario: string // фикстура старта (ITGAME-26); '' — обычная партия
   tickInDay: number // тик текущего дня (ITGAME-26)
   dayIncome: number // доход, накопленный за текущий день (ITGAME-26)
+  dayProfit: number // прибыль дня с прогнозом до вечера, = «Прибыль» отчёта (ITGAME-53)
   difficulty: DifficultyId
   winTarget: number // денежная часть цели, $
   winStaff: number // комбо-цель: сотрудников (0 — нет; сложность 2.0)
@@ -170,7 +171,8 @@ export interface DayReportMessage {
   day: number
   income: number
   payroll: number
-  profit: number
+  eventMoney: number // деньги исходов событий дня, со знаком (ITGAME-53)
+  profit: number // доход + деньги событий − ФОТ − опекс
   balance: number
   gatewayOpex: number
   incidents: number // поломок ПК за день

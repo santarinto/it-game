@@ -31,6 +31,7 @@ type Save struct {
 	Day               int        `json:"day"`
 	TickInDay         int        `json:"tickInDay"`
 	DayIncome         int        `json:"dayIncome"`
+	DayEventMoney     int        `json:"dayEventMoney"` // деньги событий дня (ITGAME-53)
 	PrevDayIncome     int        `json:"prevDayIncome"` // доход прошлого закрытого дня (ITGAME-50)
 	PeakIncomePerTick int        `json:"peakIncomePerTick"`
 	DayIncidents      int        `json:"dayIncidents"`
@@ -50,7 +51,7 @@ func (g *Game) Export() Save {
 	s := Save{
 		Config: g.cfg, Seed: g.Seed, Money: g.Money, Offices: g.Offices, CoreLevel: g.CoreLevel,
 		Gateway: g.Gateway, Phase: g.Phase, Day: g.Day, TickInDay: g.TickInDay,
-		DayIncome: g.DayIncome, PrevDayIncome: g.PrevDayIncome, PeakIncomePerTick: g.PeakIncomePerTick,
+		DayIncome: g.DayIncome, DayEventMoney: g.DayEventMoney, PrevDayIncome: g.PrevDayIncome, PeakIncomePerTick: g.PeakIncomePerTick,
 		DayIncidents: g.DayIncidents, DayLostIncome: g.DayLostIncome,
 		EventLog:   g.EventLog,
 		DeadlineOn: g.DeadlineOn, DeadlineGot: g.DeadlineGot, DeadlineGoal: g.DeadlineGoal,
@@ -129,7 +130,7 @@ func Restore(s Save) (*Game, error) {
 		cfg: s.Config, Seed: s.Seed,
 		Money: s.Money, Offices: s.Offices, CoreLevel: s.CoreLevel, Gateway: s.Gateway,
 		Phase: s.Phase, Day: s.Day, TickInDay: s.TickInDay,
-		DayIncome: s.DayIncome, PrevDayIncome: s.PrevDayIncome, PeakIncomePerTick: s.PeakIncomePerTick,
+		DayIncome: s.DayIncome, DayEventMoney: s.DayEventMoney, PrevDayIncome: s.PrevDayIncome, PeakIncomePerTick: s.PeakIncomePerTick,
 		DayIncidents: s.DayIncidents, DayLostIncome: s.DayLostIncome,
 		EventLog:   s.EventLog,
 		DeadlineOn: s.DeadlineOn, DeadlineGot: s.DeadlineGot, DeadlineGoal: s.DeadlineGoal,

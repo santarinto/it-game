@@ -58,6 +58,7 @@ type Game struct {
 	Day               int // номер игрового дня, с 1
 	TickInDay         int // тиков прошло в текущем дне
 	DayIncome         int // доход, накопленный за текущий день (для отчёта)
+	DayEventMoney     int // деньги исходов событий за день, со знаком (ITGAME-53)
 	PrevDayIncome     int // доход последнего закрытого дня — база штрафа аудита (ITGAME-50)
 	PeakIncomePerTick int // максимум дохода за тик за игру (для итогов банкротства)
 	DayIncidents      int // поломок ПК за текущий день (для отчёта)
@@ -416,13 +417,23 @@ func (g *Game) ForecastEndOfDay() int {
 	return total - g.PayrollPerDay() - g.pendingAuditFine()
 }
 
+// DayProfit — прибыль дня, как «Прибыль» отчёта, с прогнозом до вечера:
+// доход с утра + деньги событий + остаток дохода − ФОТ − объявленный штраф
+// аудита (ITGAME-53). Покупки число не двигают сами по себе — только
+// через будущий доход и ФОТ. Штраф аудита виден с тоста, а в 18:00
+// переходит из прогноза в деньги событий, и линия не скачет.
+func (g *Game) DayProfit() int {
+	return g.DayIncome + g.DayEventMoney + g.ForecastEndOfDay() - g.Money
+}
+
 // DayReport — итоги дня для сообщения протокола.
 type DayReport struct {
 	Day         int
 	Income      int
 	Payroll     int // зарплаты людей (сотрудники + боссы)
 	GatewayOpex int // операционный расход шлюза
-	Profit      int
+	EventMoney  int // деньги исходов событий дня, со знаком (ITGAME-53)
+	Profit      int // доход + деньги событий − ФОТ − опекс
 	Balance     int
 	Incidents   int      // поломок ПК за день
 	LostIncome  int      // упущено из-за поломок, $
@@ -480,7 +491,8 @@ func (g *Game) Tick() *DayReport {
 	g.Money -= expenses
 	g.closeDay()
 	return &DayReport{Day: g.Day, Income: g.DayIncome, Payroll: payroll,
-		GatewayOpex: opex, Profit: g.DayIncome - expenses, Balance: g.Money,
+		GatewayOpex: opex, EventMoney: g.DayEventMoney,
+		Profit: g.DayIncome + g.DayEventMoney - expenses, Balance: g.Money,
 		Incidents: g.DayIncidents, LostIncome: g.DayLostIncome, Events: g.EventLog}
 }
 

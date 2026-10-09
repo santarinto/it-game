@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "7dba4e7f7bd9",
+  "hash": "04a7cfabf0d3",
   "methods": {
     "version": {
       "kind": "prop",
@@ -819,6 +819,11 @@ export const CONTRACT = {
           "type": "number | null",
           "optional": false,
           "doc": ""
+        },
+        "dayProfit": {
+          "type": "number | null",
+          "optional": false,
+          "doc": "= hud.dayProfit и «Прибыль» отчёта к концу дня (ITGAME-53)"
         }
       }
     },
@@ -1734,6 +1739,11 @@ export const CONTRACT = {
           "type": "number",
           "optional": false,
           "doc": "доход, накопленный за текущий день (ITGAME-26)"
+        },
+        "dayProfit": {
+          "type": "number",
+          "optional": false,
+          "doc": "прибыль дня с прогнозом до вечера, = «Прибыль» отчёта (ITGAME-53)"
         },
         "difficulty": {
           "type": "DifficultyId",

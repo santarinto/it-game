@@ -56,6 +56,7 @@ type stateMessage struct {
 	Scenario         string           `json:"scenario"`       // фикстура старта (ITGAME-26); "" — обычная партия
 	TickInDay        int              `json:"tickInDay"`      // тик текущего дня (ITGAME-26: степпинг/отладка)
 	DayIncome        int              `json:"dayIncome"`      // доход, накопленный за текущий день
+	DayProfit        int              `json:"dayProfit"`      // прибыль дня с прогнозом до вечера, = «Прибыль» отчёта (ITGAME-53)
 	Difficulty       string           `json:"difficulty"`     // easy | normal | hard | hardcore
 	WinTarget        int              `json:"winTarget"`      // денежная часть цели, $
 	WinStaff         int              `json:"winStaff"`       // комбо-цель: сотрудников (0 — нет; Сложность 2.0)
@@ -185,6 +186,7 @@ type dayReportMessage struct {
 	Income      int      `json:"income"`
 	Payroll     int      `json:"payroll"`
 	GatewayOpex int      `json:"gatewayOpex"`
+	EventMoney  int      `json:"eventMoney"` // деньги исходов событий дня, со знаком (ITGAME-53)
 	Profit      int      `json:"profit"`
 	Balance     int      `json:"balance"`
 	Incidents   int      `json:"incidents"`  // поломок ПК за день
@@ -337,7 +339,7 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 		MarketToday: g.MarketToday, MarketTomorrow: g.MarketTomorrow,
 		CreditLimit: cfg.CreditLimit, CreditRatePct: int(cfg.CreditRate * 100),
 		ActiveEvent: active, Seed: g.SeedString(), Scenario: scenario,
-		TickInDay: g.TickInDay, DayIncome: g.DayIncome,
+		TickInDay: g.TickInDay, DayIncome: g.DayIncome, DayProfit: g.DayProfit(),
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice,
 			Boss: cfg.BossPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,
 			Fridge: cfg.FridgePrice, CoffeeMachine: cfg.CoffeeMachinePrice, Repair: cfg.MasterCallPrice,

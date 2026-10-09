@@ -424,6 +424,7 @@ func (g *Game) NextDay() error {
 	g.Day++
 	g.TickInDay = 0
 	g.DayIncome = 0
+	g.DayEventMoney = 0
 	g.DayIncidents = 0
 	g.DayLostIncome = 0
 	// Рынок: вчерашний «завтра» становится сегодня, роллится новый завтра —

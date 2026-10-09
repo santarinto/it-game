@@ -238,6 +238,7 @@ export interface AgentState {
   scenario: string | null
   tickInDay: number | null
   dayIncome: number | null
+  dayProfit: number | null // = hud.dayProfit и «Прибыль» отчёта к концу дня (ITGAME-53)
 }
 
 // server(): последний снапшот целиком + телеметрия сокета.
@@ -599,7 +600,7 @@ function buildState(game: Phaser.Game): AgentState {
       coreCapacity: null, gateway: null, debt: null, creditLimit: null,
       creditRatePct: null,       winTarget: null, winStaff: null, winCore: null,
       winDayLimit: null, activeEvent: null,
-      seed: null, scenario: null, tickInDay: null, dayIncome: null,
+      seed: null, scenario: null, tickInDay: null, dayIncome: null, dayProfit: null,
     }
   }
   const staff = s.offices.reduce((n, o) => n + o.employees.length, 0)
@@ -638,6 +639,7 @@ function buildState(game: Phaser.Game): AgentState {
     scenario: s.scenario || null,
     tickInDay: s.tickInDay,
     dayIncome: s.dayIncome,
+    dayProfit: s.dayProfit,
   }
 }
 
