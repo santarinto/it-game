@@ -524,6 +524,43 @@ func TestActiveEventInfoAllTypes(t *testing.T) {
 	}
 }
 
+// Аудит, стоящий в очереди за чужим неотвеченным тостом, чек в 18:00 всё
+// равно возьмёт — прогноз обязан его учесть (ITGAME-50, ревью).
+func TestForecastAuditFineBehindOtherToast(t *testing.T) {
+	g := eventGame()
+	g.cfg.AuditFineShare = 0.2
+	g.PrevDayIncome = 1000
+	g.DayEvents = []DayEvent{
+		{ID: EventRaise, Tick: 20, Office: 0, Slot: 0},
+		{ID: EventAudit, Tick: 22},
+	}
+	base := func() int {
+		ev, act := g.DayEvents, g.ActiveEvent
+		g.DayEvents, g.ActiveEvent = nil, nil
+		f := g.ForecastEndOfDay()
+		g.DayEvents, g.ActiveEvent = ev, act
+		return f
+	}
+	for g.ActiveEvent == nil {
+		g.Tick()
+	}
+	if g.ActiveEvent.ID != EventRaise {
+		t.Fatalf("первым должен висеть тост повышения, а висит %s", g.ActiveEvent.ID)
+	}
+	if got := g.ForecastEndOfDay(); got != base() {
+		t.Errorf("аудит ещё не наступил: прогноз %d, хотим %d", got, base())
+	}
+	for g.TickInDay < 23 {
+		g.Tick()
+	}
+	if g.ActiveEvent == nil || g.ActiveEvent.ID != EventRaise {
+		t.Fatal("тост повышения должен висеть, аудит — в очереди")
+	}
+	if got := g.ForecastEndOfDay(); got != base()-200 {
+		t.Errorf("аудит за чужим тостом: прогноз %d, хотим %d", got, base()-200)
+	}
+}
+
 // Правило владельца (ITGAME-50) и подобранное sim значение: аудит с дня 5,
 // штраф — 15% дохода прошлого дня.
 func TestAuditDefaults(t *testing.T) {

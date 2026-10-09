@@ -261,9 +261,10 @@ func (g *Game) auditFine() int {
 	return max(0, min(g.cfg.AuditPenalty, fine))
 }
 
-// pendingAuditFine — штраф объявленного (тост показан или закрыт) и ещё
-// не проверенного аудита при непроходном конфиге; иначе 0. Невидимые
-// игроку события прогноз не учитывает; субсидию не обещает.
+// pendingAuditFine — штраф сработавшего (Tick наступил) и ещё не
+// проверенного аудита при непроходном конфиге; иначе 0. Чек в 18:00
+// не зависит от тоста, поэтому аудит за чужим неотвеченным тостом тоже
+// считается. Будущие события прогноз не знает; субсидию не обещает.
 func (g *Game) pendingAuditFine() int {
 	if g.auditPasses() {
 		return 0
@@ -273,7 +274,7 @@ func (g *Game) pendingAuditFine() int {
 		if ev.ID != EventAudit || ev.Resolved {
 			continue
 		}
-		if ev.Dismissed || (g.ActiveEvent != nil && g.ActiveEvent.ID == EventAudit) {
+		if ev.Tick <= g.TickInDay {
 			return g.auditFine()
 		}
 	}
