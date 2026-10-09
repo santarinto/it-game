@@ -56,6 +56,9 @@ func TestSaveRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if r.PrevDayIncome != 480 || r.PrevDayIncome != g.PrevDayIncome {
+		t.Fatalf("PrevDayIncome после сейва: %d (было %d), хотим 480", r.PrevDayIncome, g.PrevDayIncome)
+	}
 	if r.Money != g.Money || r.Day != g.Day || r.TickInDay != g.TickInDay || r.Phase != g.Phase {
 		t.Fatalf("поле дня/баланса разошлось: %+v vs %+v", r.Export(), g.Export())
 	}
@@ -120,5 +123,42 @@ func TestSaveConfigSurvives(t *testing.T) {
 	}
 	if r.MarketToday != -10 || r.MarketTomorrow != 15 {
 		t.Fatalf("рынок не перенёсся: сегодня %d, завтра %d", r.MarketToday, r.MarketTomorrow)
+	}
+}
+
+// Сейвы до ITGAME-50: нет полей аудита в конфиге и дохода прошлого дня.
+func TestRestoreFillsAuditFields(t *testing.T) {
+	g := hiredGame(t)
+	for g.Phase == PhaseRunning {
+		g.Tick()
+	}
+	s := g.Export()
+	s.Config.AuditMinDay, s.Config.AuditFineShare = 0, 0
+	s.PrevDayIncome = 0
+	r, err := Restore(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := DefaultConfig()
+	if r.Config().AuditMinDay != def.AuditMinDay || r.Config().AuditFineShare != def.AuditFineShare {
+		t.Errorf("поля аудита не заполнены: day=%d share=%v", r.Config().AuditMinDay, r.Config().AuditFineShare)
+	}
+	if r.PrevDayIncome != 480 {
+		t.Errorf("day_report: PrevDayIncome = %d, хотим 480 (доход закрытого дня)", r.PrevDayIncome)
+	}
+
+	// running: закрытого дня в сейве нет, база штрафа остаётся нулевой.
+	g = hiredGame(t)
+	for i := 0; i < 5; i++ {
+		g.Tick()
+	}
+	s = g.Export()
+	s.PrevDayIncome = 0
+	r, err = Restore(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.PrevDayIncome != 0 {
+		t.Errorf("running: PrevDayIncome = %d, хотим 0", r.PrevDayIncome)
 	}
 }

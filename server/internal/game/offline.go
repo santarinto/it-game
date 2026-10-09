@@ -54,6 +54,7 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	expenses := g.PayrollPerDay()
 	g.Money += inc - expenses
 	g.DayIncome += inc
+	g.PrevDayIncome = g.DayIncome
 	s.Income, s.Payroll = inc, expenses
 	s.Days++ // текущий день закрывается — для игрока это прошедший день
 	miss -= dayTicks - g.TickInDay
@@ -74,6 +75,7 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 		miss -= dayTicks
 		g.Money += dayInc - dayExp
 		s.Income += dayInc
+		g.PrevDayIncome = dayInc
 		s.Payroll += dayExp
 		s.Days++
 		if g.closeOfflineDay(s) {

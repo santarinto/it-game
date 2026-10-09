@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"math"
 	"slices"
 )
 
@@ -78,7 +79,8 @@ func (g *Game) rollDayEvents() {
 }
 
 // rollOneEvent — кандидат из пула доступных типов по весам
-// (вирус 25×VirusWeightK, дедлайн 20, аудит 15, повышение 25, звезда 15).
+// (вирус 25×VirusWeightK, дедлайн 20, аудит 15, повышение 25, звезда 15);
+// аудит — с дня cfg.AuditMinDay.
 // Вес вируса скалируется сложностью (Сложность 2.0: хардкор — вирусы чаще).
 func (g *Game) rollOneEvent(used map[EventID]bool, lo, hi int) (DayEvent, bool) {
 	tick := lo + g.rng.IntN(hi-lo)
@@ -94,7 +96,7 @@ func (g *Game) rollOneEvent(used map[EventID]bool, lo, hi int) (DayEvent, bool) 
 	}
 	add(EventVirus, int(25*g.cfg.VirusWeightK+0.5), g.randomStaffedOffice() >= 0)
 	add(EventDeadline, 20, g.baseIncomePerTick() > 0)
-	add(EventAudit, 15, true)
+	add(EventAudit, 15, g.Day >= g.cfg.AuditMinDay)
 	add(EventRaise, 25, g.randomStaffedOffice() >= 0)
 	add(EventStar, 15, g.starOffice() >= 0)
 	if len(cands) == 0 {
@@ -236,15 +238,46 @@ func (g *Game) tickEvents(income int) {
 		// Проверка независима от тоста: аудиторы приходят в 18:00 сами.
 		if g.TickInDay >= g.cfg.auditTick() {
 			ev.Resolved = true
-			if g.Gateway && g.CoreLevel >= g.cfg.AuditMinCore {
+			if g.auditPasses() {
 				g.Money += g.cfg.AuditReward
 				g.logEvent(fmt.Sprintf("аудит пройден (+$%d)", g.cfg.AuditReward))
 			} else {
-				g.Money -= g.cfg.AuditPenalty
-				g.logEvent(fmt.Sprintf("аудит провален (−$%d)", g.cfg.AuditPenalty))
+				fine := g.auditFine()
+				g.Money -= fine
+				g.logEvent(fmt.Sprintf("аудит провален (−$%d)", fine))
 			}
 		}
 	}
+}
+
+// auditPasses — конфиг проходит аудит: шлюз и core не ниже AuditMinCore.
+func (g *Game) auditPasses() bool { return g.Gateway && g.CoreLevel >= g.cfg.AuditMinCore }
+
+// auditFine — штраф проваленного аудита (ITGAME-50): доля дохода прошлого
+// дня ×EventK (как доли дедлайна), потолок — AuditPenalty (уже ×EventK).
+// База за день не меняется — тост, прогноз и чек называют одно число.
+func (g *Game) auditFine() int {
+	fine := int(math.Round(g.cfg.AuditFineShare * g.cfg.EventK * float64(g.PrevDayIncome)))
+	return max(0, min(g.cfg.AuditPenalty, fine))
+}
+
+// pendingAuditFine — штраф объявленного (тост показан или закрыт) и ещё
+// не проверенного аудита при непроходном конфиге; иначе 0. Невидимые
+// игроку события прогноз не учитывает; субсидию не обещает.
+func (g *Game) pendingAuditFine() int {
+	if g.auditPasses() {
+		return 0
+	}
+	for i := range g.DayEvents {
+		ev := &g.DayEvents[i]
+		if ev.ID != EventAudit || ev.Resolved {
+			continue
+		}
+		if ev.Dismissed || (g.ActiveEvent != nil && g.ActiveEvent.ID == EventAudit) {
+			return g.auditFine()
+		}
+	}
+	return 0
 }
 
 // autoResolveEvents — мягкий резолв висящих к концу дня: без новых
@@ -412,7 +445,7 @@ func (g *Game) ActiveEventInfo() *EventInfo {
 	case EventAudit:
 		return &EventInfo{ID: string(ev.ID), Title: "Аудит безопасности",
 			Text: fmt.Sprintf("В %s аудиторы проверят сеть: шлюз и core ур.%d+ — субсидия $%d, иначе штраф $%d.",
-				g.ClockAt(g.cfg.auditTick()), g.cfg.AuditMinCore, g.cfg.AuditReward, g.cfg.AuditPenalty),
+				g.ClockAt(g.cfg.auditTick()), g.cfg.AuditMinCore, g.cfg.AuditReward, g.auditFine()),
 			Options: []string{"Принять к сведению"}}
 	case EventRaise:
 		e := &g.Offices[ev.Office].Employees[ev.Slot]

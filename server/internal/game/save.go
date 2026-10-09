@@ -30,6 +30,7 @@ type Save struct {
 	Day               int        `json:"day"`
 	TickInDay         int        `json:"tickInDay"`
 	DayIncome         int        `json:"dayIncome"`
+	PrevDayIncome     int        `json:"prevDayIncome"` // доход прошлого закрытого дня (ITGAME-50)
 	PeakIncomePerTick int        `json:"peakIncomePerTick"`
 	DayIncidents      int        `json:"dayIncidents"`
 	DayLostIncome     int        `json:"dayLostIncome"`
@@ -48,7 +49,7 @@ func (g *Game) Export() Save {
 	s := Save{
 		Config: g.cfg, Seed: g.Seed, Money: g.Money, Offices: g.Offices, CoreLevel: g.CoreLevel,
 		Gateway: g.Gateway, Phase: g.Phase, Day: g.Day, TickInDay: g.TickInDay,
-		DayIncome: g.DayIncome, PeakIncomePerTick: g.PeakIncomePerTick,
+		DayIncome: g.DayIncome, PrevDayIncome: g.PrevDayIncome, PeakIncomePerTick: g.PeakIncomePerTick,
 		DayIncidents: g.DayIncidents, DayLostIncome: g.DayLostIncome,
 		DayEvents: g.DayEvents, ActiveEvent: g.ActiveEvent, EventLog: g.EventLog,
 		DeadlineOn: g.DeadlineOn, DeadlineGot: g.DeadlineGot, DeadlineGoal: g.DeadlineGoal,
@@ -77,11 +78,22 @@ func Restore(s Save) (*Game, error) {
 	default:
 		return nil, fmt.Errorf("%w: фаза %q не восстанавливается", ErrBadSave, s.Phase)
 	}
+	// Сейвы до ITGAME-50: в конфиге нет полей аудита, дохода прошлого дня нет.
+	def := DefaultConfig()
+	if s.Config.AuditMinDay == 0 {
+		s.Config.AuditMinDay = def.AuditMinDay
+	}
+	if s.Config.AuditFineShare == 0 {
+		s.Config.AuditFineShare = def.AuditFineShare
+	}
+	if s.PrevDayIncome == 0 && s.Phase == PhaseDayReport {
+		s.PrevDayIncome = s.DayIncome // закрытый день — он и есть «прошлый»
+	}
 	g := &Game{
 		cfg: s.Config, Seed: s.Seed,
 		Money: s.Money, Offices: s.Offices, CoreLevel: s.CoreLevel, Gateway: s.Gateway,
 		Phase: s.Phase, Day: s.Day, TickInDay: s.TickInDay,
-		DayIncome: s.DayIncome, PeakIncomePerTick: s.PeakIncomePerTick,
+		DayIncome: s.DayIncome, PrevDayIncome: s.PrevDayIncome, PeakIncomePerTick: s.PeakIncomePerTick,
 		DayIncidents: s.DayIncidents, DayLostIncome: s.DayLostIncome,
 		DayEvents: s.DayEvents, ActiveEvent: s.ActiveEvent, EventLog: s.EventLog,
 		DeadlineOn: s.DeadlineOn, DeadlineGot: s.DeadlineGot, DeadlineGoal: s.DeadlineGoal,

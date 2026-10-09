@@ -225,6 +225,8 @@ func TestDeadlineRefuseScalesWithEventK(t *testing.T) {
 func TestAuditPassAndFail(t *testing.T) {
 	run := func(topConfig bool) string {
 		g := eventGame()
+		g.cfg.AuditFineShare = 0.2
+		g.PrevDayIncome = 1000
 		if topConfig {
 			g.Gateway = true
 			g.CoreLevel = 2
@@ -242,8 +244,122 @@ func TestAuditPassAndFail(t *testing.T) {
 	if log := run(true); !strings.Contains(log, "пройден") {
 		t.Errorf("топ-конфиг не прошёл аудит: %q", log)
 	}
-	if log := run(false); !strings.Contains(log, "провален") {
-		t.Errorf("без топ-конфига аудит не провален: %q", log)
+	if log := run(false); !strings.Contains(log, "аудит провален (−$200)") {
+		t.Errorf("без топ-конфига аудит не провален на $200: %q", log)
+	}
+}
+
+// Аудит не роллится до cfg.AuditMinDay (ITGAME-50): на старте штраф
+// неподъёмен, игрок ещё не мог собрать топ-конфиг.
+func TestAuditNotBeforeMinDay(t *testing.T) {
+	late := 0
+	for seed := uint64(1); seed <= 200; seed++ {
+		cfg := DefaultConfig()
+		cfg.EventChancePct = 100
+		cfg.EventSecondPct = 100
+		cfg.BreakdownChancePct = 0
+		cfg.AuditMinDay = 5
+		g := NewWithSeed(cfg, seed, seed*7+1)
+		g.Offices[0].PCs = 4
+		g.Offices[0].Employees = testStaff(2)
+		for g.Day < 8 {
+			g.Phase = PhaseDayReport
+			if err := g.NextDay(); err != nil {
+				t.Fatal(err)
+			}
+			has := slices.ContainsFunc(g.DayEvents, func(e DayEvent) bool { return e.ID == EventAudit })
+			if g.Day < 5 && has {
+				t.Fatalf("seed %d, день %d: аудит до дня 5", seed, g.Day)
+			}
+			if g.Day >= 5 && has {
+				late++
+			}
+		}
+	}
+	if late == 0 {
+		t.Fatal("с дня 5 аудит должен роллиться")
+	}
+}
+
+func TestAuditFine(t *testing.T) {
+	share := func(cfg Config) Config { cfg.AuditFineShare = 0.2; return cfg }
+	cases := []struct {
+		name string
+		cfg  Config
+		prev int
+		want int
+	}{
+		{"normal малый доход", share(DefaultConfig()), 1000, 200},
+		{"normal потолок", share(DefaultConfig()), 100000, 1200},
+		{"normal нулевой доход", share(DefaultConfig()), 0, 0},
+		{"hardcore малый доход", share(ConfigForDifficulty(DiffHardcore)), 1000, 300},
+		{"hardcore потолок", share(ConfigForDifficulty(DiffHardcore)), 100000, 1800},
+		{"easy малый доход", share(ConfigForDifficulty(DiffEasy)), 1000, 140},
+		{"easy потолок", share(ConfigForDifficulty(DiffEasy)), 100000, 840},
+	}
+	for _, c := range cases {
+		g := NewWithSeed(c.cfg, 1, 2)
+		g.PrevDayIncome = c.prev
+		if got := g.auditFine(); got != c.want {
+			t.Errorf("%s: auditFine() = %d, хотим %d", c.name, got, c.want)
+		}
+	}
+}
+
+func TestAuditToastShowsComputedFine(t *testing.T) {
+	g := eventGame()
+	g.cfg.AuditFineShare = 0.2
+	g.PrevDayIncome = 1000
+	forceEvent(g, EventAudit)
+	g.Tick()
+	info := g.ActiveEventInfo()
+	if info == nil {
+		t.Fatal("аудит должен висеть")
+	}
+	if !strings.Contains(info.Text, "штраф $200") || strings.Contains(info.Text, "$1200") {
+		t.Errorf("тост аудита: %q", info.Text)
+	}
+}
+
+// Объявленный штраф входит в прогноз (после тоста и после его закрытия),
+// субсидия — нет, после чека второй раз не вычитается.
+func TestForecastAuditFine(t *testing.T) {
+	g := eventGame()
+	g.cfg.AuditFineShare = 0.2
+	g.PrevDayIncome = 1000
+	g.DayEvents = []DayEvent{{ID: EventAudit, Tick: 20}}
+	base := func() int {
+		ev, act := g.DayEvents, g.ActiveEvent
+		g.DayEvents, g.ActiveEvent = nil, nil
+		f := g.ForecastEndOfDay()
+		g.DayEvents, g.ActiveEvent = ev, act
+		return f
+	}
+	if got := g.ForecastEndOfDay(); got != base() {
+		t.Errorf("до активации прогноз %d, хотим %d", got, base())
+	}
+	for g.ActiveEvent == nil {
+		g.Tick()
+	}
+	if got := g.ForecastEndOfDay(); got != base()-200 {
+		t.Errorf("после активации прогноз %d, хотим %d", got, base()-200)
+	}
+	if err := g.ChooseEvent(0); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.ForecastEndOfDay(); got != base()-200 {
+		t.Errorf("после закрытия тоста прогноз %d, хотим %d", got, base()-200)
+	}
+	g.Gateway, g.CoreLevel = true, 2
+	if got := g.ForecastEndOfDay(); got != base() {
+		t.Errorf("топ-конфиг: прогноз %d, хотим %d (субсидию не обещаем)", got, base())
+	}
+	g.Gateway, g.CoreLevel = false, 0
+	for g.TickInDay <= g.cfg.auditTick() {
+		g.Tick()
+	}
+	if got := g.ForecastEndOfDay(); got != base() {
+		t.Errorf("после чека прогноз %d, хотим %d", got, base())
 	}
 }
 

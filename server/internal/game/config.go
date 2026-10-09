@@ -60,8 +60,10 @@ type Config struct {
 	VirusTicks      int     // вирус: длительность, тиков
 	VirusPrice      int     // антивирус (ApplyDifficulty уже умножает на EventK)
 	AuditReward     int     // аудит: субсидия за топ-конфиг (÷EventK в ApplyDifficulty)
-	AuditPenalty    int     // аудит: штраф без топ-конфига (×EventK в ApplyDifficulty)
+	AuditPenalty    int     // аудит: потолок штрафа без топ-конфига (×EventK в ApplyDifficulty)
 	AuditMinCore    int     // аудит: минимальный уровень core для субсидии
+	AuditMinDay     int     // аудит: роллится с этого дня (ITGAME-50: раньше старт не тянет штраф)
+	AuditFineShare  float64 // аудит: штраф = доля дохода прошлого дня ×EventK, потолок AuditPenalty
 	RaiseBoostMult  float64 // согласие на повышение: множитель выработки навсегда
 	RaiseOffendMult float64 // отказ в повышении: множитель выработки до конца дня
 
@@ -179,6 +181,8 @@ func DefaultConfig() Config {
 		AuditReward:     2000,
 		AuditPenalty:    1200,
 		AuditMinCore:    2,
+		AuditMinDay:     5,
+		AuditFineShare:  0.15,
 		RaiseBoostMult:  1.15,
 		RaiseOffendMult: 0.85,
 

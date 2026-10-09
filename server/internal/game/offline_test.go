@@ -161,3 +161,21 @@ func TestAdvanceOfflineBrokenPCFailsTodayFixedTomorrow(t *testing.T) {
 		t.Fatalf("тик %d, хотим 6", g.TickInDay)
 	}
 }
+
+// PrevDayIncome при офлайн-доигрывании: закрытый хвост дня, затем полные
+// дни по шаблону перезаписывают его (ITGAME-50).
+func TestAdvanceOfflineKeepsPrevDayIncome(t *testing.T) {
+	g := hiredGame(t)
+	g.DayIncome = 1000 // «утренний» доход
+	g.AdvanceOffline(g.Config().DayTicks() + 5)
+	if g.Day != 2 || g.PrevDayIncome != 1480 {
+		t.Errorf("хвост дня: день %d, PrevDayIncome %d, хотим 2 и 1480", g.Day, g.PrevDayIncome)
+	}
+
+	g = hiredGame(t)
+	g.DayIncome = 1000
+	g.AdvanceOffline(2*g.Config().DayTicks() + 5)
+	if g.Day != 3 || g.PrevDayIncome != 480 {
+		t.Errorf("полный день: день %d, PrevDayIncome %d, хотим 3 и 480", g.Day, g.PrevDayIncome)
+	}
+}

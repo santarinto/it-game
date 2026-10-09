@@ -194,3 +194,20 @@ func TestApplyPhaseGatingGameOver(t *testing.T) {
 		t.Errorf("Apply(restart) в game_over: %v", err)
 	}
 }
+
+// PrevDayIncome — доход закрытого дня; NextDay обнуляет DayIncome, но не его.
+func TestPrevDayIncomeAtDayClose(t *testing.T) {
+	g := hiredGame(t)
+	for g.Phase == PhaseRunning {
+		g.Tick()
+	}
+	if g.PrevDayIncome != 480 {
+		t.Fatalf("PrevDayIncome при закрытии дня = %d, хотим 480", g.PrevDayIncome)
+	}
+	if err := g.NextDay(); err != nil {
+		t.Fatal(err)
+	}
+	if g.DayIncome != 0 || g.PrevDayIncome != 480 {
+		t.Errorf("после NextDay: DayIncome=%d PrevDayIncome=%d, хотим 0 и 480", g.DayIncome, g.PrevDayIncome)
+	}
+}

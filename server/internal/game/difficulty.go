@@ -104,7 +104,8 @@ func ApplyDifficulty(c Config, d Difficulty) Config {
 	c.ThirstMult, c.HungerMult = s.DebuffMult, s.DebuffMult
 	// Unseen Forces: частота и жёсткость событий. Абсолютные цены/штрафы
 	// скалируем здесь (VirusPrice ×K, AuditPenalty ×K, AuditReward ÷K);
-	// динамические доли дедлайна умножаются на EventK в рантайме.
+	// динамические доли дедлайна и AuditFineShare умножаются на EventK
+	// в рантайме (auditFine).
 	c.EventChancePct, c.EventSecondPct, c.EventK = s.EventPct, s.Event2Pct, s.EventK
 	c.VirusPrice = scale(c.VirusPrice, s.EventK)
 	c.AuditPenalty = scale(c.AuditPenalty, s.EventK)

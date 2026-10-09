@@ -58,6 +58,7 @@ type Game struct {
 	Day               int // номер игрового дня, с 1
 	TickInDay         int // тиков прошло в текущем дне
 	DayIncome         int // доход, накопленный за текущий день (для отчёта)
+	PrevDayIncome     int // доход последнего закрытого дня — база штрафа аудита (ITGAME-50)
 	PeakIncomePerTick int // максимум дохода за тик за игру (для итогов банкротства)
 	DayIncidents      int // поломок ПК за текущий день (для отчёта)
 	DayLostIncome     int // упущено из-за поломок за текущий день (для отчёта)
@@ -404,6 +405,7 @@ func (g *Game) gatewayOpex() int {
 
 // ForecastEndOfDay — баланс на конец дня. Считает по-тиково: дебаффы
 // будущих тиков предсказуемы, будущий кофе не угадываем (консервативно).
+// Объявленный штраф аудита вычитается, субсидия — нет.
 func (g *Game) ForecastEndOfDay() int {
 	total := g.Money
 	for t := g.TickInDay; t < g.cfg.DayTicks(); t++ {
@@ -411,7 +413,7 @@ func (g *Game) ForecastEndOfDay() int {
 			total += g.incomeAtTick(t)
 		}
 	}
-	return total - g.PayrollPerDay()
+	return total - g.PayrollPerDay() - g.pendingAuditFine()
 }
 
 // DayReport — итоги дня для сообщения протокола.
@@ -470,6 +472,7 @@ func (g *Game) Tick() *DayReport {
 	if g.TickInDay < g.cfg.DayTicks() {
 		return nil
 	}
+	g.PrevDayIncome = g.DayIncome
 	g.autoResolveEvents()
 	expenses := g.PayrollPerDay()
 	opex := g.gatewayOpex()
