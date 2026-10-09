@@ -790,7 +790,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.reset()                       — снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум, отчёты)
   itd.pause() / resume() / speed(n) — темп сессии: set_speed 0/1/0..3 (серверный, живёт в сейве); до коннекта — {ok:false, code:'not_connected'}
   itd.step(2000)                    — пауза + промотка 2с игровых тиков (2000мс = 2 тика) через /api/debug/advance
-  itd.advanceDays(3)                — промотка дней офлайн-движком: день N → N+3, отчёты дней в itd.events()
+  itd.advanceDays(3)                — промотка дней офлайн-движком: день N → N+3; сводка {days, income, payroll, balance} — в ответе .advance и строкой «debug · advance» в itd.snapshot().events, смена дня — в itd.log()
   itd.set({money: 50000})           — читы живой сессии: {money, day, tickInDay}
   itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs
   itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы
