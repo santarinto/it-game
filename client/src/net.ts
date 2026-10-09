@@ -651,6 +651,23 @@ export class GameClient {
     if (this.latest) this.listeners.forEach((l) => l.onState(this.latest!))
   }
 
+  // sid сокета, которым живёт текущая партия (ITGAME-64). После финала хранилища уже
+  // пусты (clearSession), а сессия на сервере жива до «В меню» (ITGAME-51).
+  liveSid(): string | null {
+    return this.sessionSid
+  }
+
+  // ITGAME-64: debug-scenario после финала оживляет партию под sid сокета — вернуть его в
+  // зеркало вкладки, чтобы реконнект и «Продолжить» пришли в пересозданную партию, а не в
+  // свежий sid. sessionStorage пишем первым: sessionId() тогда вернёт его с origin 'session',
+  // и persistSid() заполнит только вкладочное зеркало, не общий ключ localStorage.
+  readoptSid(): void {
+    const sid = this.sessionSid
+    if (sid === null || sessionStorage.getItem(SID_KEY) !== null) return
+    sessionStorage.setItem(SID_KEY, sid)
+    persistSid()
+  }
+
   // Возвращает функцию отписки — сцены зовут её на shutdown.
   subscribe(l: Listener): () => void {
     this.listeners.push(l)

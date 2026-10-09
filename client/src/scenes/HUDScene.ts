@@ -4,6 +4,7 @@ import { client } from '../net'
 import type { DayReportMessage, GameOverMessage, OfflineReportMessage, ServerErrorCode, StateMessage, VictoryMessage } from '../protocol'
 import { fmtMoney } from '../format'
 import { nav } from '../rooms'
+import { onPartyReset, partyChange } from '../party'
 import { debug, drawDebugFrames, setDebug } from '../debug'
 import { markActive, rejectClick, tag } from '../debug/agentApi'
 import { showModal } from '../ui/modal'
@@ -113,6 +114,8 @@ export class HUDScene extends Phaser.Scene {
   private debugFrames!: Phaser.GameObjects.GameObject[]
   private reconnectUI!: Phaser.GameObjects.GameObject[]
   private offlineUI!: Phaser.GameObjects.GameObject[]
+  // Закрывалка окна «Выйти в меню?» (ITGAME-64): resetParty() гасит окно новой партии.
+  private exitModalClose!: (() => void) | null
   // Стек тостов (ITGAME-16): якорь сверху/снизу — свой список, не больше 3
   // штук одновременно. Сцена переживает рестарт (client.subscribe/restart),
   // поэтому сбрасывается явно в create(), а не инициализатором поля.
@@ -138,6 +141,7 @@ export class HUDScene extends Phaser.Scene {
     this.gameOverUI = []
     this.victoryUI = []
     this.offlineUI = []
+    this.exitModalClose = null
     this.reconnectUI = []
     this.debugFrames = []
     this.hoveredButtonId = null
@@ -315,9 +319,13 @@ export class HUDScene extends Phaser.Scene {
       onOfflineReport: (r) => this.showOfflineReport(r),
       onReconnecting: (n) => this.showReconnecting(n),
     })
+    // ITGAME-64: HUD живёт между партиями — сброс партии (itd.scenario(), «Продолжить» на
+    // истёкшем сейве) чистит его оверлеи через party.ts.
+    const offReset = onPartyReset(() => this.resetParty())
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.hideButtonTooltip()
       unsub()
+      offReset()
     })
 
     // Клавиатура отчёта дня (ITGAME-18, ITGAME-24): Enter/Space/Esc — следующий день,
@@ -568,7 +576,9 @@ export class HUDScene extends Phaser.Scene {
       if (this.reportUI.length > 0) {
         this.closeReport()
       }
-      if (this.speedBeforeReport !== null) {
+      // ITGAME-64: пуш новой партии от itd.scenario() приходит раньше ответа — учёт паузы
+      // старой партии обнулит resetParty(), а не «возврат скорости» в новую.
+      if (this.speedBeforeReport !== null && !partyChange.pending) {
         // Реконнект/догон в running-фазу с открытым модалом (ITGAME-18):
         // восстанавливаем скорость, только если 0 был нашей паузой модала
         // (никто другой не отправлял set_speed после неё).
@@ -1269,11 +1279,26 @@ export class HUDScene extends Phaser.Scene {
     this.scene.start('menu') // start глушит hud
   }
 
+  // Новая партия в той же сцене (itd.scenario(), «Продолжить» на истёкшем сейве, ITGAME-64):
+  // оверлеи и учёт паузы отчёта прошлой партии долой. Тосты, навигацию и скорость не трогаем.
+  private resetParty() {
+    this.closeReport() // заодно снимает перехват Enter/Space
+    this.closeEvent()
+    this.closeOfflineReport()
+    this.closeGameOver()
+    this.closeVictory()
+    this.exitModalClose?.()
+    this.exitModalClose = null
+    this.speedBeforeReport = null
+    this.reportPauseSeq = 0
+    this.lastEventId = ''
+  }
+
   // Выход в меню с сейвами (ITGAME-8): выход сохраняет прогресс, сдаться —
   // осознанное удаление сейва. Случайный клик по ⌂ не должен стоить партию.
   private confirmExitToMenu() {
     this.hideButtonTooltip()
-    showModal(this, 'Выйти в меню?', ['Прогресс сохранится — продолжите', 'с главного меню в любое время.'], [
+    this.exitModalClose = showModal(this, 'Выйти в меню?', ['Прогресс сохранится — продолжите', 'с главного меню в любое время.'], [
       { label: 'Сохранить и выйти', onClick: () => this.returnToMenu() },
       { label: 'Сдаться (удалить сейв)', onClick: () => { client.abandon(); this.returnToMenu() } },
       { label: 'Отмена', onClick: () => {} },

@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import { client, sessionId } from '../net'
-import { resetForNewGame } from '../party'
+import { partyChange, resetForNewGame } from '../party'
 import type { SocketStatus, TransportErrorCode } from '../net'
 import { COMMAND_TYPES } from '../protocol'
 import type { CommandType, ServerErrorCode, StateMessage } from '../protocol'
@@ -188,15 +188,18 @@ function sameSource(game: Phaser.Game, a: string, b: string): boolean {
 }
 
 async function debugFetch<T>(method: 'GET' | 'POST', path: string, body?: Record<string, unknown>): Promise<T> {
+  // Debug-вызовы идут в партию, которую показывает вкладка (ITGAME-64): после финала
+  // net.ts стирает sid из хранилищ, и sessionId() выдал бы свежий — чужую партию.
+  const sid = client.liveSid() ?? sessionId()
   let url = `/api/debug${path}`
   if (method === 'GET') {
     // sid — query-параметр: GET без тела
-    url += `${path.includes('?') ? '&' : '?'}sid=${encodeURIComponent(sessionId())}`
+    url += `${path.includes('?') ? '&' : '?'}sid=${encodeURIComponent(sid)}`
   }
   const res = await fetch(url, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body ? JSON.stringify({ sid: sessionId(), ...body }) : undefined,
+    body: body ? JSON.stringify({ sid, ...body }) : undefined,
   })
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
   if (!res.ok) {
@@ -546,8 +549,11 @@ export interface ItdApi {
   set(patch: { money?: number; day?: number; tickInDay?: number }): Promise<DebugState>
   /**
    * Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|
-   * soft_lock|pre_victory|spare_pcs. Сбрасывает и клиентское состояние партии
-   * (активный офис → О1, ITGAME-55).
+   * soft_lock|pre_victory|spare_pcs. Сбрасывает клиентское состояние партии: активный
+   * офис → О1 (ITGAME-55), оверлеи HUD — отчёт дня, событие, «Пока вас не было», финал,
+   * окно выхода — и учёт паузы отчёта (ITGAME-64). Скорость сессии не трогает: вызванный
+   * из открытого отчёта, оставляет новую партию на паузе — itd.resume(). Работает и после
+   * финала (сессия жива до «В меню»). Ошибка (неизвестная фикстура) партию не трогает.
    * @example itd.scenario('soft_lock')
    */
   scenario(name: string): Promise<DebugState>
@@ -835,7 +841,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.step(2000) / step({ticks:60}) — пауза + промотка офлайн-движком (без кофе/событий/поломок/XP, день закрывается без day_report): мс (1 тик = 1000 мс, до 10 тиков) или {ticks: 1..10000}; из фазы отчёта — сначала next_day; сводка — в .advance и «debug · advance» в itd.snapshot().events; вне running (game_over) — 200 с advance.ticks 0, ничего не промотано
   itd.advanceDays(3)                — промотка дней офлайн-движком: день N → N+3 (из фазы отчёта — сначала next_day), без day_report; сводка {days, income, payroll, balance} — в ответе .advance и строкой «debug · advance» в itd.snapshot().events, в itd.log() — только смена дня
   itd.set({money: 50000})           — читы живой сессии: {money, day, tickInDay}
-  itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs; сбрасывает клиентское состояние партии (офис → О1)
+  itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs; сбрасывает клиентское состояние партии (офис → О1, оверлеи HUD, пауза отчёта); скорость не трогает — из отчёта партия остаётся на паузе: itd.resume(); работает и после финала
   itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы
   itd.restore(save)                 — вернуть состояние из snapshot().save (дельта над текущим)
   itd.quiet()                       — стоп твитов/миганий для стабильных скриншотов
@@ -1094,10 +1100,20 @@ function makeApi(game: Phaser.Game): ItdApi {
       return debugFetch<DebugState>('POST', '/state', { ...patch })
     },
     async scenario(name) {
-      const r = await debugFetch<DebugState>('POST', '/state', { scenario: name })
+      // ITGAME-64: сервер пушит снапшот новой партии РАНЬШЕ ответа — на время POST HUD не
+      // возвращает скорость из учёта паузы старой партии.
+      partyChange.pending = true
+      let r: DebugState
+      try {
+        r = await debugFetch<DebugState>('POST', '/state', { scenario: name })
+      } finally {
+        partyChange.pending = false
+      }
       // ITGAME-55: сервер пересоздал партию, а клиентское состояние прошлой (активный
       // офис) осталось. Снапшот пуша мог уже дойти — переигрываем его со сбросом.
+      // ITGAME-64: тот же сброс чистит оверлеи HUD и учёт паузы отчёта (party.ts).
       resetForNewGame()
+      client.readoptSid() // после финала clearSession() стёр sid — партия снова живая под sid сокета
       client.reemit()
       return r
     },
