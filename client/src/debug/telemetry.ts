@@ -70,6 +70,8 @@ export function startTelemetry(game: Phaser.Game): Telemetry {
     onOfflineReport: (r) => add('offline_report', { days: r.days, ticks: r.ticks }),
     onDisconnect: (reason) => add('disconnect', { reason: reason ?? 'unknown' }),
     onReconnecting: (attempt) => add('reconnecting', { attempt }),
+    // журнал, а не экран: не снимает отчёты с очереди HUD (ITGAME-19)
+    observer: true,
   })
 
   // Звук и тосты (ITGAME-38): шина UI-событий (audio.ts, HUDScene.toast()) —

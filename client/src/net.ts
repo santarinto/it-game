@@ -26,6 +26,9 @@ export interface Listener {
   onOfflineReport?(r: OfflineReportMessage): void
   // Реконнект в процессе (деплой рвёт WS): баннер «переподключение».
   onReconnecting?(attempt: number): void
+  // Наблюдатель (телеметрия itd): видит разовые сообщения, но не показывает
+  // их игроку — его получение не снимает сообщение с очереди (ITGAME-19).
+  observer?: boolean
 }
 
 const SID_KEY = 'itd.sid'
@@ -616,18 +619,20 @@ export class GameClient {
   // когда Phaser создаст сцену. Сокет быстрее кадра — и «Итог партии» из меню
   // открывал игру без экрана итога. Неполученное ждёт первого подписчика с
   // нужным обработчиком; новая партия и выход в меню очищают очередь.
+  // Наблюдатели (observer: телеметрия itd) доставкой не считаются: иначе
+  // dev-сборка и ?debug=1 снова теряли экран итога.
   private pending: OneShotMessage[] = []
 
   private deliver(msg: OneShotMessage): void {
-    let got = false
+    let shown = false
     for (const l of this.listeners) {
       const h = oneShotHandler(l, msg)
       if (h) {
         h()
-        got = true
+        if (!l.observer) shown = true
       }
     }
-    if (!got) this.pending.push(msg)
+    if (!shown) this.pending.push(msg)
   }
 
   reemit(): void {
@@ -638,13 +643,16 @@ export class GameClient {
   subscribe(l: Listener): () => void {
     this.listeners.push(l)
     if (this.latest) l.onState(this.latest)
-    const rest: OneShotMessage[] = []
-    for (const m of this.pending) {
-      const h = oneShotHandler(l, m)
-      if (h) h()
-      else rest.push(m)
+    // Наблюдатели очередь не разбирают: они её уже видели при доставке.
+    if (!l.observer) {
+      const rest: OneShotMessage[] = []
+      for (const m of this.pending) {
+        const h = oneShotHandler(l, m)
+        if (h) h()
+        else rest.push(m)
+      }
+      this.pending = rest
     }
-    this.pending = rest
     return () => {
       this.listeners = this.listeners.filter((x) => x !== l)
     }
