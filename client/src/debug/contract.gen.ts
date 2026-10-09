@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "9bd0761af9c4",
+  "hash": "5daaefc13755",
   "methods": {
     "version": {
       "kind": "prop",
@@ -396,7 +396,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<DebugState>",
-      "doc": "Вернуть состояние из snapshot().save (дельта над текущим).",
+      "doc": "Вернуть состояние из snapshot().save (дельта над текущим). Партию не сбрасывает;\nесли активный офис в новом состоянии закрыт — вкладка переходит в О1 (ITGAME-63).",
       "examples": [
         "itd.restore(save)"
       ]

@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { client, sessionId } from '../net'
 import { partyChange, resetForNewGame } from '../party'
+import { nav } from '../rooms'
 import type { SocketStatus, TransportErrorCode } from '../net'
 import { COMMAND_TYPES } from '../protocol'
 import type { CommandType, ServerErrorCode, StateMessage } from '../protocol'
@@ -563,7 +564,8 @@ export interface ItdApi {
    */
   snapshot(): Promise<DebugState>
   /**
-   * Вернуть состояние из snapshot().save (дельта над текущим).
+   * Вернуть состояние из snapshot().save (дельта над текущим). Партию не сбрасывает;
+   * если активный офис в новом состоянии закрыт — вкладка переходит в О1 (ITGAME-63).
    * @example itd.restore(save)
    */
   restore(save: Record<string, unknown>): Promise<DebugState>
@@ -843,7 +845,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.set({money: 50000})           — читы живой сессии: {money, day, tickInDay}
   itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs; сбрасывает клиентское состояние партии (офис → О1, оверлеи HUD, пауза отчёта); скорость не трогает — из отчёта партия остаётся на паузе: itd.resume(); работает и после финала
   itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы
-  itd.restore(save)                 — вернуть состояние из snapshot().save (дельта над текущим)
+  itd.restore(save)                 — вернуть состояние из snapshot().save (дельта над текущим); закрытый в новом состоянии активный офис → О1
   itd.quiet()                       — стоп твитов/миганий для стабильных скриншотов
   itd.meta()                        — статистика прогонов и состояние достижений (localStorage)
   itd.resetMeta()                   — сбросить мета-статистику и достижения
@@ -1120,8 +1122,15 @@ function makeApi(game: Phaser.Game): ItdApi {
     snapshot() {
       return debugFetch<DebugState>('GET', '/state')
     },
-    restore(save) {
-      return debugFetch<DebugState>('POST', '/state', { state: save })
+    async restore(save) {
+      const r = await debugFetch<DebugState>('POST', '/state', { state: save })
+      // ITGAME-63: дельта могла закрыть офис, на котором стоит вкладка. Партию не
+      // сбрасываем (resetForNewGame — только новой партии): агент остаётся в своём офисе.
+      if (!r.state.offices[nav.activeOffice]?.unlocked) {
+        nav.activeOffice = 0
+        client.reemit() // пуш уже нарисовал закрытый офис — перерисовываем
+      }
+      return r
     },
     quiet() {
       // Заморозка визуального шума: мигание поломок, всплывающие циферки.

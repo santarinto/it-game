@@ -157,6 +157,10 @@ report the new party stays paused — call `itd.resume()` (ITGAME-64). Debug
 calls go to the sid of the live socket, so `scenario()` also works on the
 finale screen and puts that sid back into the tab mirror.
 
+`itd.restore(save)` is a delta over the live party and does not reset it; if
+the active office is locked in the restored state, the tab moves to office 0
+(ITGAME-63).
+
 **«Админка» link** (ITGAME-22): shown over the canvas only to the owner —
 always under `?debug=1`, otherwise gated by `localStorage.itd.admin` (set
 once via `?admin=1`, cleared via `?admin=0`; the `admin` query param is
@@ -273,7 +277,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
-| `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale (ITGAME-64) | :4181, self-serve + temp saves dir |
+| `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63) | :4181, self-serve + temp saves dir |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |
 | `npm run visreg` | screenshot diff + layout linter per fixture scenario | :4173, self-serve, `VISREG_PORT` overrides |
 
