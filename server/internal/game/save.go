@@ -49,23 +49,50 @@ type Save struct {
 // Export — слепок текущего состояния для сейва.
 func (g *Game) Export() Save {
 	s := Save{
-		Config: g.cfg, Seed: g.Seed, Money: g.Money, Offices: g.Offices, CoreLevel: g.CoreLevel,
+		Config: cloneConfig(g.cfg), Seed: g.Seed, Money: g.Money, Offices: cloneOffices(g.Offices), CoreLevel: g.CoreLevel,
 		Gateway: g.Gateway, Phase: g.Phase, Day: g.Day, TickInDay: g.TickInDay,
 		DayIncome: g.DayIncome, DayEventMoney: g.DayEventMoney, PrevDayIncome: g.PrevDayIncome, PeakIncomePerTick: g.PeakIncomePerTick,
 		DayIncidents: g.DayIncidents, DayLostIncome: g.DayLostIncome,
-		EventLog:   g.EventLog,
+		EventLog:   slices.Clone(g.EventLog),
 		DeadlineOn: g.DeadlineOn, DeadlineGot: g.DeadlineGot, DeadlineGoal: g.DeadlineGoal,
 		MarketToday: g.MarketToday, MarketTomorrow: g.MarketTomorrow,
 	}
-	// Копии, не алиасы живой игры (ITGAME-52): debug restore пишет
-	// json.Unmarshal поверх Export(), и указатель в план дня дал бы полю
-	// activeEvent затереть его элемент. Связь восстанавливает Restore.
+	// Копии, не алиасы живой игры: debug restore пишет json.Unmarshal поверх
+	// Export(), а он декодирует элементы массивов в существующий backing
+	// array — офисы, журнал и конфиг (ITGAME-60), план дня (ITGAME-52).
+	// Указатель в план дня дал бы полю activeEvent затереть его элемент;
+	// связь восстанавливает Restore.
 	s.DayEvents = slices.Clone(g.DayEvents)
 	if g.ActiveEvent != nil {
 		ev := *g.ActiveEvent
 		s.ActiveEvent = &ev
 	}
 	return s
+}
+
+// cloneOffices — глубокая копия офисов: у каждого свои Employees, Servers
+// и CoffeeEventTicks (ITGAME-60). Employee — только значения, ссылок нет.
+func cloneOffices(offices []Office) []Office {
+	out := slices.Clone(offices)
+	for i := range out {
+		out[i].Employees = slices.Clone(out[i].Employees)
+		out[i].Servers = slices.Clone(out[i].Servers)
+		out[i].CoffeeEventTicks = slices.Clone(out[i].CoffeeEventTicks)
+	}
+	return out
+}
+
+// cloneConfig — конфиг со своими слайсами (ITGAME-60): часть из них общая с
+// базовым конфигом сервера (Handler.Config), и дельта поверх Export()
+// переписала бы его для всех сессий.
+func cloneConfig(c Config) Config {
+	c.RouterTiers = slices.Clone(c.RouterTiers)
+	c.ServerLevels = slices.Clone(c.ServerLevels)
+	c.CoreLevels = slices.Clone(c.CoreLevels)
+	c.OfficePrices = slices.Clone(c.OfficePrices)
+	c.EmployeeLevelXP = slices.Clone(c.EmployeeLevelXP)
+	c.EmployeeLevelBonus = slices.Clone(c.EmployeeLevelBonus)
+	return c
 }
 
 // bindActiveEvent — копия плана дня и активное событие как указатель в

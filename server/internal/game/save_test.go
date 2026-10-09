@@ -299,3 +299,49 @@ func TestExportDetachesEvents(t *testing.T) {
 		t.Fatalf("правка сейва протекла в живую игру: %+v", g.DayEvents[0])
 	}
 }
+
+// Export не делит память с живой игрой ни в офисах (с вложенными
+// сотрудниками, серверами, кофе-тиками), ни в журнале событий, ни в
+// слайсах конфига (ITGAME-60): debug restore делает json.Unmarshal поверх
+// Export(), а он пишет элементы массива в уже существующий backing array.
+func TestExportDetachesOffices(t *testing.T) {
+	g := hiredGame(t)
+	g.Offices[0].Servers = []int{1}
+	g.Offices[0].CoffeeEventTicks = []int{5}
+	g.EventLog = []string{"живая запись"}
+	income := g.Offices[0].Employees[0].IncomePerTick
+	xp := g.Config().EmployeeLevelXP[0]
+	router := g.Config().RouterTiers[0].Ports
+
+	s := g.Export()
+	s.Offices[0].Boss = "Подмена"
+	s.Offices[0].Employees[0].IncomePerTick = 987654
+	s.Offices[0].Servers[0] = 3
+	s.Offices[0].CoffeeEventTicks[0] = 99
+	s.EventLog[0] = "подмена"
+	s.Config.EmployeeLevelXP[0] = 1
+	s.Config.RouterTiers[0].Ports = 99
+
+	o := g.Offices[0]
+	if o.Boss != "" || o.Employees[0].IncomePerTick != income || o.Servers[0] != 1 || o.CoffeeEventTicks[0] != 5 {
+		t.Fatalf("правка офиса в сейве протекла в живую игру: %+v", o)
+	}
+	if g.EventLog[0] != "живая запись" {
+		t.Fatalf("правка eventLog протекла: %v", g.EventLog)
+	}
+	if g.Config().EmployeeLevelXP[0] != xp || g.Config().RouterTiers[0].Ports != router {
+		t.Fatalf("правка конфига протекла: %+v", g.Config())
+	}
+
+	// Тот же путь, что у debug restore: дельта поверх Export().
+	s = g.Export()
+	if err := json.Unmarshal([]byte(`{"offices":[{"Employees":[{"IncomePerTick":987654}]}],"config":{"EmployeeLevelXP":[1]}}`), &s); err != nil {
+		t.Fatal(err)
+	}
+	if g.Offices[0].Employees[0].IncomePerTick != income || g.Config().EmployeeLevelXP[0] != xp {
+		t.Fatal("json.Unmarshal поверх Export() записал в живую игру")
+	}
+	if s.Offices[0].Employees[0].IncomePerTick != 987654 || !s.Offices[0].Unlocked {
+		t.Fatalf("дельта должна слиться с копией: %+v", s.Offices[0])
+	}
+}

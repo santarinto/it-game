@@ -252,6 +252,64 @@ func TestDebugRestoreRoundtrip(t *testing.T) {
 	}
 }
 
+// Невалидная дельта restore (day:0 → 400) не трогает живую игру
+// (ITGAME-60): ни офис, ни сотрудника, ни конфиг сессии и сервера.
+func TestDebugRestoreInvalidDeltaKeepsLiveGame(t *testing.T) {
+	cfg := game.DefaultConfig()
+	cfg.WinTarget = 1_000_000
+	base, h := startDebugServer(t, cfg, time.Hour)
+	xp := h.Config.EmployeeLevelXP[0]
+
+	sid := "debug-sid-0060"
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(base, "http")+"/ws?sid="+sid, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.CloseNow()
+	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" })
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 0}); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, ctx, c, func(m testMessage) bool {
+		return m.Type == "state" && len(m.Offices) > 0 && len(m.Offices[0].Employees) == 1
+	})
+
+	// liveOffice — офис 0 из save живой игры (GET state отдаёт g.Export()).
+	liveOffice := func() (map[string]any, map[string]any) {
+		code, out := httpDebug(t, base, "GET", "/api/debug/state?sid="+sid, "")
+		if code != 200 {
+			t.Fatalf("GET state: %d %v", code, out)
+		}
+		save := stateOf(t, out["save"])
+		return stateOf(t, save["offices"].([]any)[0]), save
+	}
+	office, _ := liveOffice()
+	emps := office["Employees"].([]any)
+	income := num(t, stateOf(t, emps[0])["IncomePerTick"])
+
+	code, out := httpDebug(t, base, "POST", "/api/debug/state", fmt.Sprintf(`{"sid":%q,"state":{
+		"day":0,
+		"offices":[{"Boss":"Подмена","Employees":[{"IncomePerTick":987654}]}],
+		"config":{"EmployeeLevelXP":[1]}}}`, sid))
+	if code != 400 || !strings.Contains(fmt.Sprint(out["error"]), "невалидное состояние") {
+		t.Fatalf("дельта с day:0 должна быть 400 «невалидное состояние»: %d %v", code, out)
+	}
+
+	office, save := liveOffice()
+	emps = office["Employees"].([]any)
+	if len(emps) != 1 || num(t, stateOf(t, emps[0])["IncomePerTick"]) != income || office["Boss"] != "" {
+		t.Fatalf("отклонённая дельта изменила живой офис: %v", office)
+	}
+	if got := num(t, stateOf(t, save["config"])["EmployeeLevelXP"].([]any)[0]); got != xp {
+		t.Fatalf("отклонённая дельта изменила конфиг сессии: EmployeeLevelXP[0]=%d, было %d", got, xp)
+	}
+	if h.Config.EmployeeLevelXP[0] != xp {
+		t.Fatalf("отклонённая дельта изменила базовый конфиг сервера: %d, было %d", h.Config.EmployeeLevelXP[0], xp)
+	}
+}
+
 func TestDebugSessionNotLive(t *testing.T) {
 	base, _ := startDebugServer(t, game.DefaultConfig(), time.Hour)
 	code, out := httpDebug(t, base, "GET", "/api/debug/state?sid=never-exist-1", "")
