@@ -114,6 +114,66 @@ func TestDeleteKicksOwner(t *testing.T) {
 	}
 }
 
+// Финал партии (ITGAME-51): владелец удаляет свой сейв, но сессию не
+// отдаёт — пинка нет, следующий Put того же поколения проходит, а захват
+// другим актором по-прежнему пинает.
+func TestFinishKeepsOwnership(t *testing.T) {
+	s := newTestStore(t, time.Hour)
+	gen, kick := s.Begin("final-123456")
+	s.Put("final-123456", gen, []byte(`{"day":3}`), time.Now())
+	if !s.Finish("final-123456", gen) {
+		t.Fatal("Finish владельца отклонён")
+	}
+	select {
+	case <-kick:
+		t.Fatal("Finish пнул самого владельца")
+	default:
+	}
+	if _, ok := s.Load("final-123456"); ok {
+		t.Fatal("Finish не убрал сейв из памяти")
+	}
+	s2, err := New(s.dir, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s2.Load("final-123456"); ok {
+		t.Fatal("Finish не убрал сейв с диска")
+	}
+	if !s.Put("final-123456", gen, []byte(`{"day":1}`), time.Now()) {
+		t.Fatal("после Finish владелец потерял право писать (restart в той же сессии)")
+	}
+	if data, ok := s.Load("final-123456"); !ok || string(data) != `{"day":1}` {
+		t.Fatalf("новый сейв после Finish: %q %v", data, ok)
+	}
+	s.Begin("final-123456")
+	select {
+	case <-kick:
+	default:
+		t.Fatal("захват после Finish не пнул прежнего владельца")
+	}
+}
+
+// Устаревший актор, дошедший до финала после захвата, не стирает сейв
+// нового владельца и не пинает его.
+func TestFinishByStaleOwnerIsNoop(t *testing.T) {
+	s := newTestStore(t, time.Hour)
+	gen1, _ := s.Begin("stale-123456")
+	s.Put("stale-123456", gen1, []byte(`{"v":1}`), time.Now())
+	gen2, kick2 := s.Begin("stale-123456")
+	s.Put("stale-123456", gen2, []byte(`{"v":2}`), time.Now())
+	if s.Finish("stale-123456", gen1) {
+		t.Fatal("Finish устаревшего поколения принят")
+	}
+	select {
+	case <-kick2:
+		t.Fatal("Finish устаревшего поколения пнул нового владельца")
+	default:
+	}
+	if data, ok := s.Load("stale-123456"); !ok || string(data) != `{"v":2}` {
+		t.Fatalf("сейв нового владельца пострадал: %q %v", data, ok)
+	}
+}
+
 func TestPruneOnStart(t *testing.T) {
 	dir := t.TempDir()
 	// Протухший и свежий файлы руками.

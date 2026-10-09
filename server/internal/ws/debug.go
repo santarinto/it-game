@@ -345,7 +345,8 @@ func (h *Handler) applyDebug(
 			return true
 		}
 		if g.Phase == game.PhaseGameOver || g.Phase == game.PhaseWon {
-			h.Saves.Delete(sid)
+			// Finish, не Delete: своё удаление — не захват (ITGAME-51).
+			h.Saves.Finish(sid, gen)
 			return true
 		}
 		return h.persist(sid, gen, g, *speed, *last, *scenario, jr.last(jr.cap))

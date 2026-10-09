@@ -273,7 +273,8 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		if resumed {
 			if g.Phase == game.PhaseGameOver || g.Phase == game.PhaseWon {
 				// Офлайн привёл к финалу: сейв не нужен, доигрывают без него.
-				h.Saves.Delete(sid)
+				// Finish, не Delete: своё удаление — не захват (ITGAME-51).
+				h.Saves.Finish(sid, gen)
 			} else if !h.persist(sid, gen, g, speed, lastReport, scenario, journal.last(journal.cap)) {
 				// нас обогнали между Load и Begin
 				return true
@@ -378,9 +379,15 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 				mutated = true
 			}
 			// Успешная команда — точка сейва: покупки и переходы дней
-			// не должны теряться даже при жёстком kill -9.
-			if mutated && withSaves && !h.persist(sid, gen, g, speed, lastReport, scenario, journal.last(journal.cap)) {
-				return true
+			// не должны теряться даже при жёстком kill -9. Финальная партия
+			// сейва не держит: после финала сессия жива до «В меню»
+			// (ITGAME-51), и set_speed не должен воскресить её сейв.
+			if mutated && withSaves {
+				if g.Phase == game.PhaseGameOver || g.Phase == game.PhaseWon {
+					h.Saves.Finish(sid, gen)
+				} else if !h.persist(sid, gen, g, speed, lastReport, scenario, journal.last(journal.cap)) {
+					return true
+				}
 			}
 			// Ошибки — только отправителю (его промах, не общее событие),
 			// успешные снапшоты — всем соединениям сессии.
@@ -406,8 +413,9 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 			// тогда рестарт забрал бы устаревшее состояние.
 			if withSaves {
 				if wasRunning && (g.Phase == game.PhaseGameOver || g.Phase == game.PhaseWon) {
-					// финал: сейв больше не нужен
-					h.Saves.Delete(sid)
+					// финал: сейв больше не нужен; Finish, не Delete — своё
+					// удаление не захват, вкладка живёт до «В меню» (ITGAME-51)
+					h.Saves.Finish(sid, gen)
 				} else if g.Phase != game.PhaseGameOver && g.Phase != game.PhaseWon {
 					if !h.persist(sid, gen, g, speed, lastReport, scenario, journal.last(journal.cap)) {
 						return true

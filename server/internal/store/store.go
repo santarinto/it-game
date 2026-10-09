@@ -81,6 +81,12 @@ func (s *Store) Load(sid string) ([]byte, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if e, ok := s.entries[sid]; ok {
+		// Запись без данных — владелец есть, сейва нет (Begin до первого
+		// Put или Finish). Пинать владельца здесь не дело Load: захват
+		// пинает Begin вызывающего.
+		if len(e.data) == 0 {
+			return nil, false
+		}
 		if s.expired(e) {
 			s.deleteLocked(sid)
 			return nil, false
@@ -162,6 +168,29 @@ func (s *Store) Delete(sid string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.deleteLocked(sid)
+}
+
+// Finish — финал партии (ITGAME-51): владелец поколения gen удаляет свой
+// сейв, но сессию не отдаёт. В отличие от Delete, kick не закрывается —
+// иначе актор прочтёт собственное удаление как захват и закроет вкладку
+// с session_taken. Запись с gen остаётся: следующий Put того же поколения
+// (restart в той же сессии) проходит, Begin другого актора по-прежнему
+// пинает. Чужое поколение — no-op и false: устаревший актор не стирает
+// сейв нового владельца.
+func (s *Store) Finish(sid string, gen uint64) bool {
+	if !ValidSID(sid) {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.entries[sid]
+	if !ok || e.gen != gen {
+		return false
+	}
+	e.data = nil
+	e.savedAt = time.Time{}
+	s.removeFile(sid)
+	return true
 }
 
 func (s *Store) deleteLocked(sid string) {
