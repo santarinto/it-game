@@ -132,6 +132,11 @@ independent gates:
   `window.__itd.scene.isActive(...)` to detect that the app booted, then use
   `window.itd.*` for everything else.
 
+`itd.click(id)` answers `ok:true` only when the handler actually acted; if
+its guard swallowed the click (HUD `switchRoom` debounce, 250 ms of game
+time) it answers `ok:false` with `code: 'debounced'` — retry after a pause
+(ITGAME-58).
+
 **«Админка» link** (ITGAME-22): shown over the canvas only to the owner —
 always under `?debug=1`, otherwise gated by `localStorage.itd.admin` (set
 once via `?admin=1`, cleared via `?admin=0`; the `admin` query param is

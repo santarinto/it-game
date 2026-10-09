@@ -13,7 +13,9 @@
 //   P2d  btn.pc покупает в офисе 0: buy_pc.office === 0, нет office_locked, pcs +1
 //        (HUD шлёт office из nav.activeOffice; itd.cmd() слал бы 0 явно и ничего не доказал бы)
 //   P2e  nav.serverRoom работает: он active, сцена serverRoom живая (ITGAME-42)
-//   P2f  nav.office0 возвращает офис
+//   P2f  nav.office0 возвращает офис; itd.click ответил ok:true
+//   P2g  два nav-клика в одном evaluate: первый ok:true, второй ok:false + code 'debounced'
+//        (дребезг switchRoom проглотил клик — ITGAME-58); итог — первая комната, не вторая
 //   C1   пауза, set({money:12345}), тот же выход в меню — «Продолжить» есть
 //   C2   «Продолжить»: тот же sid, balance 12345, тот же день (партия не сбрасывается)
 //   C3   nav.office0 active (партия осталась в офисе 0)
@@ -99,6 +101,13 @@ async function run() {
     const sceneActive = (key) => page.evaluate((k) => window.__itd.scene.isActive(k), key)
     const waitMenu = () =>
       page.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
+    // Дребезг switchRoom (250 мс) считается по игровому времени Phaser, а в headless оно
+    // может отставать от стенного, поэтому перед кликом ждём switching === false
+    // (без throw: на таймауте просто кликаем и читаем итог).
+    const waitSwitchIdle = () =>
+      page
+        .waitForFunction(() => window.__itd.scene.getScene('hud').switching === false, { timeout: 3000 })
+        .catch(() => {})
     // nav → меню → «Сохранить и выйти» без пауз между кликами (одна синхронная пачка)
     const fastExit = () =>
       page.evaluate(() => {
@@ -128,6 +137,7 @@ async function run() {
       `active=${isActive(p1b, 'nav.office1')} texts=${JSON.stringify(p1bTexts)}`,
     )
 
+    await waitSwitchIdle()
     const p1c = await fastExit()
     await waitMenu()
     check(
@@ -213,21 +223,39 @@ async function run() {
       `active=${isActive(p2e, 'nav.serverRoom')} scene=${p2eScene}`,
     )
 
-    // Дребезг switchRoom (250 мс) считается по игровому времени Phaser, а в headless оно
-    // может отставать от стенного, поэтому перед следующим кликом ждём switching === false
-    // (без throw: на таймауте просто кликаем и читаем итог).
-    await page
-      .waitForFunction(() => window.__itd.scene.getScene('hud').switching === false, { timeout: 3000 })
-      .catch(() => {})
+    await waitSwitchIdle()
     const p2fClick = await page.evaluate(() => window.itd.click('nav.office0'))
     await delay(400)
     const p2f = await navIds()
     const p2fScene = await sceneActive('office')
     check(
       'P2f: nav.office0 возвращает офис — active, сцена office живая',
-      isActive(p2f, 'nav.office0') && p2fScene === true,
+      isActive(p2f, 'nav.office0') && p2fScene === true && p2fClick.ok === true,
       `click=${JSON.stringify(p2fClick)} active=${isActive(p2f, 'nav.office0')} scene=${p2fScene}`,
     )
+
+    // ── P2g: второй клик внутри окна дребезга честно отвечает ok:false (ITGAME-58)
+    await waitSwitchIdle()
+    const p2g = await page.evaluate(() => {
+      const a = window.itd.click('nav.serverRoom')
+      const b = window.itd.click('nav.office0')
+      return { a, b }
+    })
+    await delay(400)
+    const p2gNav = await navIds()
+    check(
+      'P2g: два nav-клика подряд — первый ok:true, второй ok:false code debounced; активна первая комната (ITGAME-58)',
+      p2g.a.ok === true &&
+        p2g.b.ok === false &&
+        p2g.b.code === 'debounced' &&
+        isActive(p2gNav, 'nav.serverRoom') &&
+        !isActive(p2gNav, 'nav.office0'),
+      `${JSON.stringify(p2g)} serverRoom=${isActive(p2gNav, 'nav.serverRoom')} office0=${isActive(p2gNav, 'nav.office0')}`,
+    )
+    // возвращаемся в офис, чтобы C1 стартовал из прежнего состояния
+    await waitSwitchIdle()
+    await page.evaluate(() => window.itd.click('nav.office0'))
+    await delay(400)
 
     // ── «Продолжить»: сбрасываться нечему ──────────────────────────────────
     const c1 = await page.evaluate(async () => {

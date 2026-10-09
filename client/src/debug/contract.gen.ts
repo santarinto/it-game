@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "7d7818ad6b27",
+  "hash": "4f6b00aec527",
   "methods": {
     "version": {
       "kind": "prop",
@@ -65,7 +65,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "AgentResult & { id?: string; scene?: string; }",
-      "doc": "Клик по id: дёргает pointerdown-обработчик напрямую, мимо input-слоя.",
+      "doc": "Клик по id: дёргает pointerdown-обработчик напрямую, мимо input-слоя.\nok:false + code 'debounced' — обработчик отбросил клик (дребезг switchRoom\n250 мс игрового времени): повторите после паузы.",
       "examples": [
         "itd.click('btn.hire')"
       ]

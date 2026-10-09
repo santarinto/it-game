@@ -5,7 +5,7 @@ import type { DayReportMessage, GameOverMessage, OfflineReportMessage, ServerErr
 import { fmtMoney } from '../format'
 import { nav } from '../rooms'
 import { debug, drawDebugFrames, setDebug } from '../debug'
-import { markActive, tag } from '../debug/agentApi'
+import { markActive, rejectClick, tag } from '../debug/agentApi'
 import { showModal } from '../ui/modal'
 import { playSfx } from '../audio'
 import { emitUi } from '../uibus'
@@ -493,7 +493,10 @@ export class HUDScene extends Phaser.Scene {
 
   private switchRoom(key: 'office' | 'serverRoom', office: number) {
     // Дребезг: два быстрых клика до завершения stop/launch дублируют сцену.
-    if (this.switching) return
+    if (this.switching) {
+      rejectClick('debounced')
+      return
+    }
     this.switching = true
     this.time.delayedCall(250, () => (this.switching = false))
     this.hideButtonTooltip()

@@ -45,6 +45,14 @@ export function markActive<T extends Phaser.GameObjects.GameObject>(obj: T, on: 
   return obj
 }
 
+// ITGAME-58: pointerdown-обработчик, чей guard проглотил клик (дребезг
+// switchRoom), зовёт rejectClick(code) — itd.click() тогда отвечает
+// ok:false + code вместо ложного ok:true. Сбрасывается вокруг каждого emit.
+let clickRejection: string | null = null
+export function rejectClick(code: string): void {
+  clickRejection = code
+}
+
 // ── /api/debug/* (ITGAME-26) ───────────────────────────────────────────────
 
 // Ответ GET /api/debug/state и POST-мутаций: свежий снапшот + сейв.
@@ -371,6 +379,8 @@ export interface ItdApi {
   ids(): { id: string; scene: string; type: string; text: string | null; active: boolean | null }[]
   /**
    * Клик по id: дёргает pointerdown-обработчик напрямую, мимо input-слоя.
+   * ok:false + code 'debounced' — обработчик отбросил клик (дребезг switchRoom
+   * 250 мс игрового времени): повторите после паузы.
    * @example itd.click('btn.hire')
    */
   click(id: string): AgentResult & { id?: string; scene?: string }
@@ -780,6 +790,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.ids()                         — стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*, modal.*) + active
                                        active — состояние переключателя (btn.speed.*, nav.*, btn.skip_reports, btn.debug, menu.zoom.*), null у прочих; НЕ GameObject.active
   itd.click('btn.hire')             — клик по id: дергает pointerdown-обработчик напрямую, мимо input-слоя
+                                       ok:false + code 'debounced' — обработчик отбросил клик (дребезг switchRoom 250 мс игрового времени)
   itd.hover('office.worker.0')      — наведение по id (тултипы)
   itd.key('1'|'enter'|'space'|'esc')— клавиша: 1-4 сложность в меню, up/down — фокус меню, enter — пункт в фокусе меню / отчёт дня, space/esc — отчёт дня
   itd.cmd('hire')                   — команда с квитанцией сервера: Promise<{ok, code?}> — первый state|error после отправки, по порядку команд; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
@@ -853,7 +864,11 @@ function makeApi(game: Phaser.Game): ItdApi {
       warmIfHidden()
       const hit = findById(game, id)
       if (!hit) return { ok: false, error: `id '${id}' не найден — см. itd.ids()` }
+      clickRejection = null
       hit.obj.emit('pointerdown', leftPointer, 0, 0, {})
+      const code = clickRejection
+      clickRejection = null
+      if (code) return { ok: false, code, error: `клик '${id}' отброшен: ${code}`, id, scene: hit.scene }
       return { ok: true, id, scene: hit.scene }
     },
     hover(id) {
