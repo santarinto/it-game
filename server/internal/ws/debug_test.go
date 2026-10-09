@@ -316,3 +316,52 @@ func TestDebugSeedSameHiresAcrossSessions(t *testing.T) {
 		}
 	}
 }
+
+// Висящее событие, пришедшее через restore (как после реконнекта), после
+// выбора не всплывает снова (ITGAME-52). Повышение остаётся валидным, пока
+// адресат на месте, поэтому без фикса тот же тост поднимался следующим тиком.
+func TestRestoredActiveEventChosenOnce(t *testing.T) {
+	cfg := game.DefaultConfig()
+	cfg.WinTarget = 1_000_000
+	cfg.EventChancePct = 0
+	cfg.BreakdownChancePct = 0
+	cfg.SalaryPerDay = 0
+	base, _ := startDebugServer(t, cfg, 20*time.Millisecond)
+
+	sid := "debug-sid-0052"
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(base, "http")+"/ws?sid="+sid, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.CloseNow()
+	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" })
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 0}); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, ctx, c, func(m testMessage) bool {
+		return m.Type == "state" && len(m.Offices[0].Employees) == 1
+	})
+
+	code, out := httpDebug(t, base, "POST", "/api/debug/state", fmt.Sprintf(`{"sid":%q,"state":{
+		"dayEvents":[{"ID":"raise","Tick":0,"Office":0,"Slot":0}],
+		"activeEvent":{"ID":"raise","Tick":0,"Office":0,"Slot":0}}}`, sid))
+	if code != 200 {
+		t.Fatalf("restore: %d %v", code, out)
+	}
+	readUntil(t, ctx, c, func(m testMessage) bool {
+		return m.Type == "state" && m.ActiveEvent != nil && m.ActiveEvent.ID == "raise"
+	})
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "event_choice", Slot: 0}); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" && m.ActiveEvent == nil })
+	// Несколько тиков: activateEvents не должен поднять то же повышение.
+	for i := 0; i < 10; i++ {
+		m := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" })
+		if m.ActiveEvent != nil {
+			t.Fatalf("повышение всплыло снова (%s): %+v", m.Clock, m.ActiveEvent)
+		}
+	}
+}

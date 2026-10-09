@@ -147,33 +147,25 @@ func (g *Game) Fire(office, slot int) error {
 
 // retargetRaiseEvents — события «просит повышения» хранят индекс
 // сотрудника; увольнение сдвигает индексы. Адресат уволен — событие
-// закрывается (активное — с логом, ожидающее — молча).
+// закрывается (активное — с логом, ожидающее — молча). Активное — элемент
+// DayEvents (ITGAME-52), поэтому один проход сдвигает его ровно один раз.
 func (g *Game) retargetRaiseEvents(office, firedSlot int) {
-	resolve := func(ev *DayEvent, log bool) {
-		if log && g.ActiveEvent == ev {
-			g.logEvent("повышение: сотрудник уволен до ответа")
-		}
-		ev.Resolved = true
-		if g.ActiveEvent == ev {
-			g.ActiveEvent = nil
-		}
-	}
-	if ev := g.ActiveEvent; ev != nil && ev.ID == EventRaise && ev.Office == office {
-		if ev.Slot == firedSlot {
-			resolve(ev, true)
-		} else if ev.Slot > firedSlot {
-			ev.Slot--
-		}
-	}
 	for i := range g.DayEvents {
 		ev := &g.DayEvents[i]
 		if ev.ID != EventRaise || ev.Office != office || ev.Resolved {
 			continue
 		}
-		if ev.Slot == firedSlot {
-			resolve(ev, false)
-		} else if ev.Slot > firedSlot {
+		if ev.Slot > firedSlot {
 			ev.Slot--
+			continue
+		}
+		if ev.Slot != firedSlot {
+			continue
+		}
+		ev.Resolved = true
+		if g.ActiveEvent == ev {
+			g.logEvent("повышение: сотрудник уволен до ответа")
+			g.ActiveEvent = nil
 		}
 	}
 }

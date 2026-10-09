@@ -378,3 +378,20 @@ func TestStarIncomeIsRollTimesMult(t *testing.T) {
 		t.Errorf("выработка звезды %d не является round(ролл×1.5) из [%d..%d]", e.IncomePerTick, cfg.IncomeMin, cfg.IncomeMax)
 	}
 }
+
+// Активное событие — элемент DayEvents: увольнение сотрудника ниже
+// адресата сдвигает его индекс ровно на один (ITGAME-52).
+func TestFireShiftsActiveRaiseOnce(t *testing.T) {
+	g := New(emp2Config())
+	g.Money = 10000
+	g.Offices[0].PCs = 3
+	g.Offices[0].Employees = testStaff(3)
+	g.DayEvents = []DayEvent{{ID: EventRaise, Office: 0, Slot: 2}}
+	g.ActiveEvent = &g.DayEvents[0]
+	if err := g.Fire(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if g.ActiveEvent == nil || g.ActiveEvent.Slot != 1 {
+		t.Fatalf("адресат со слота 2 после увольнения слота 0 — слот 1, а событие: %+v", g.ActiveEvent)
+	}
+}

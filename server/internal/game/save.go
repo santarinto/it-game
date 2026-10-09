@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"slices"
 )
 
 // Сейвы сессии (ITGAME-8): игра сериализуется целиком — конфиг, с которым
@@ -51,11 +52,46 @@ func (g *Game) Export() Save {
 		Gateway: g.Gateway, Phase: g.Phase, Day: g.Day, TickInDay: g.TickInDay,
 		DayIncome: g.DayIncome, PrevDayIncome: g.PrevDayIncome, PeakIncomePerTick: g.PeakIncomePerTick,
 		DayIncidents: g.DayIncidents, DayLostIncome: g.DayLostIncome,
-		DayEvents: g.DayEvents, ActiveEvent: g.ActiveEvent, EventLog: g.EventLog,
+		EventLog:   g.EventLog,
 		DeadlineOn: g.DeadlineOn, DeadlineGot: g.DeadlineGot, DeadlineGoal: g.DeadlineGoal,
 		MarketToday: g.MarketToday, MarketTomorrow: g.MarketTomorrow,
 	}
+	// Копии, не алиасы живой игры (ITGAME-52): debug restore пишет
+	// json.Unmarshal поверх Export(), и указатель в план дня дал бы полю
+	// activeEvent затереть его элемент. Связь восстанавливает Restore.
+	s.DayEvents = slices.Clone(g.DayEvents)
+	if g.ActiveEvent != nil {
+		ev := *g.ActiveEvent
+		s.ActiveEvent = &ev
+	}
 	return s
+}
+
+// bindActiveEvent — копия плана дня и активное событие как указатель в
+// неё (ITGAME-52). ChooseEvent, retargetRaiseEvents и activateEvents
+// полагаются на то, что ActiveEvent — элемент DayEvents; JSON этой связи
+// не хранит, и после реконнекта выбор закрывал бы отдельную копию, а
+// элемент плана оставался нерешённым и всплывал снова. Элемент ищется по
+// типу и тику активации (типы за день не повторяются), решённость не
+// важна: аудит с открытым тостом после чека в 18:00 висит активным уже
+// решённым. Состояние берётся из плана, не из копии: копия старого
+// сервера могла отстать от чека, а debug-дельта правит именно план. Не
+// нашёлся (ручной debug-стейт) — копия дописывается в план.
+func bindActiveEvent(events []DayEvent, active *DayEvent) ([]DayEvent, *DayEvent) {
+	events = slices.Clone(events)
+	if active == nil {
+		return events, nil
+	}
+	find := func() int {
+		return slices.IndexFunc(events, func(ev DayEvent) bool {
+			return ev.ID == active.ID && ev.Tick == active.Tick
+		})
+	}
+	if find() < 0 {
+		events = append(events, *active)
+		slices.SortStableFunc(events, func(a, b DayEvent) int { return a.Tick - b.Tick })
+	}
+	return events, &events[find()]
 }
 
 // Restore — игра из сейва. Ошибку возвращает ErrBadSave: битые сейвы
@@ -95,10 +131,11 @@ func Restore(s Save) (*Game, error) {
 		Phase: s.Phase, Day: s.Day, TickInDay: s.TickInDay,
 		DayIncome: s.DayIncome, PrevDayIncome: s.PrevDayIncome, PeakIncomePerTick: s.PeakIncomePerTick,
 		DayIncidents: s.DayIncidents, DayLostIncome: s.DayLostIncome,
-		DayEvents: s.DayEvents, ActiveEvent: s.ActiveEvent, EventLog: s.EventLog,
+		EventLog:   s.EventLog,
 		DeadlineOn: s.DeadlineOn, DeadlineGot: s.DeadlineGot, DeadlineGoal: s.DeadlineGoal,
 		MarketToday: s.MarketToday, MarketTomorrow: s.MarketTomorrow,
 	}
+	g.DayEvents, g.ActiveEvent = bindActiveEvent(s.DayEvents, s.ActiveEvent)
 	// RNG ресивится по сиду из сейва (ITGAME-26): та же последовательность
 	// роллов, что с начала партии. Старые сейвы без сида — свежий
 	// случайный, как до ITGAME-26.
