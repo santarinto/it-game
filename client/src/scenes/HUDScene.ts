@@ -188,7 +188,8 @@ export class HUDScene extends Phaser.Scene {
     this.debtText = tag(this.add.text(170, 84, '', {
       fontFamily: 'monospace', fontSize: '12px', color: '#b13e53',
     }), 'hud.debt')
-    // Темп дня одним взглядом: прибыль дня (= «Прибыль» отчёта), ровная весь день.
+    // Темп дня одним взглядом: прибыль дня (= «Прибыль» отчёта), ровная весь
+    // день — кроме объявленного аудита со штрафом (см. refresh, ITGAME-50).
     this.dayProfitText = tag(this.add.text(16, 84, '', {
       fontFamily: 'monospace', fontSize: '15px', color: '#38b764',
     }), 'hud.dayProfit')
@@ -609,6 +610,10 @@ export class HUDScene extends Phaser.Scene {
     // дебаффы). Штрафы и разовые деньги событий днём сокращаются: они бьют
     // только в money, а прогноз их несёт тем же числом. Найм и покупка ПК
     // число двигают — меняют будущий доход и ФОТ (это и есть прибыль дня).
+    // Исключение — аудит со штрафом (ITGAME-50): от его тика до проверки в
+    // 18:00 ForecastEndOfDay уже вычитает ожидающий штраф, а money ещё не
+    // тронут, поэтому строка показывает прибыль минус штраф и в 18:00 скачет
+    // обратно к «Прибыли» отчёта (штраф списан, прогноз тот же).
     const dayProfit = s.dayIncome + s.forecastEndOfDay - s.money
     this.dayProfitText.setText(`${dayProfit >= 0 ? '+' : ''}${fmtMoney(dayProfit)}/день`)
     this.dayProfitText.setColor(dayProfit >= 0 ? '#38b764' : '#b13e53')
