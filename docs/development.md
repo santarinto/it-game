@@ -99,7 +99,7 @@ anything. It's off by default and **not** set in production
 (`bin/deploy-local.sh`, systemd unit) or in the CI production smoke step;
 it's set only where local/CI tooling needs it: `make dev`/`dev-server`,
 `client/scripts/lib/selfserve.mjs` (all QA scripts and `visreg` that
-self-serve `bin/itdirector` — see the QA table below), and the CI `client`
+build and self-serve `bin/itdirector` — see the QA table below), and the CI `client`
 job's "Go-сервер над dist" step (`OFFICE=1 smoke-ui` doesn't itself call
 `/api/debug/*` or `/ws/agent`, but the flag is set anyway for consistency
 with the other self-served runs). If you start the server by hand for
@@ -236,8 +236,11 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run visreg` | screenshot diff + layout linter per fixture scenario | :4173, self-serve, `VISREG_PORT` overrides |
 
 `qa:buttons`/`qa:hud`/`qa:facade`/`qa:slots`/`qa:trace`/`qa:contract`/`qa:tabs`/
-`qa:party`/`visreg` share `client/scripts/lib/selfserve.mjs`: it builds/runs `bin/itdirector`
-over `client/dist`, refuses to start when its port is already taken by
+`qa:party`/`visreg` share `client/scripts/lib/selfserve.mjs`: it rebuilds `bin/itdirector` on every
+run (`go build` into a temp file, then an atomic rename — a no-op relink takes
+under 1 s, so QA never runs against a binary older than `server/`) and runs it
+over `client/dist`, refuses WHATWG bad ports (e.g. 4190, 6000 — fetch and
+Chromium won't connect) before spawning, refuses to start when its port is already taken by
 another process, and verifies after boot that the server actually answers
 with the local `client/dist` build (not someone else's) — a busy port fails
 loudly instead of running the suite against the wrong server. It also sets

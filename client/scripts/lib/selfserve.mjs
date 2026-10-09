@@ -12,15 +12,21 @@
 //  - цикл ожидания не следил за exit процесса и тупо ждал таймаут, даже
 //    если бинарь уже умер.
 //
-// Этот модуль закрывает все три: порт проверяется ДО spawn, stderr
+// Этот модуль закрывает все три (плюс ещё две, ITGAME-57): порт проверяется ДО spawn, stderr
 // собирается в буфер и печатается хвостом при ошибке, а цикл ожидания
 // прерывается сразу на exit процесса. После готовности сверяется, что
 // сервер отдаёт именно наш dist (по имени бандла из index.html) — вторая
 // защита от «прогон против чужого сервера», уже после старта (например,
 // если порт был свободен на проверке, но чужой процесс занял его первым
 // в гонке).
+//
+// ITGAME-57: бинарь пересобирается при КАЖДОМ запуске (go build во временный
+// файл + атомарный rename; no-op relink < 1 с, а mtime ненадёжен при смене
+// веток и в worktree) — QA не бежит против устаревшего bin/itdirector. Порты
+// из WHATWG bad ports отклоняются до spawn: fetch() и Chromium к ним не
+// подключатся, и прогон иначе молча упёрся бы в таймаут готовности.
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -33,6 +39,18 @@ const REPO_DIR = join(CLIENT_DIR, '..')
 const DIST_DIR = join(CLIENT_DIR, 'dist')
 const BIN_PATH = join(REPO_DIR, 'bin', 'itdirector')
 const STDERR_TAIL = 4000
+
+// Порты, к которым fetch() (undici) и Chromium не подключаются: список
+// https://fetch.spec.whatwg.org/#port-blocking. Node не отдаёт его API —
+// fetch падает TypeError('fetch failed') с cause.message === 'bad port'.
+const BAD_PORTS = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102, 103, 104, 109, 110,
+  111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532,
+  540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061,
+  6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
+])
+const badPortMessage = (port) =>
+  `порт ${port} в списке запрещённых портов WHATWG (bad ports) — fetch() и Chromium к нему не подключатся; задайте другой порт (QA_PORT / VISREG_PORT)`
 
 // Имя главного бандла из <script src="/assets/index-XXXX.js"> — короче и
 // надёжнее хэша, отличается на каждую сборку (vite хэширует по контенту).
@@ -67,6 +85,7 @@ function portIsFree(port) {
 export async function selfServe({ port, saves = 'off', label }) {
   const tag = label || 'QA'
   if (!port) throw new Error(`${tag} FAIL: selfServe() вызван без port`)
+  if (BAD_PORTS.has(Number(port))) throw new Error(`${tag} FAIL: ${badPortMessage(port)}`)
 
   if (!existsSync(join(DIST_DIR, 'index.html'))) {
     throw new Error(`${tag} FAIL: нет client/dist — сначала npm run build`)
@@ -74,11 +93,18 @@ export async function selfServe({ port, saves = 'off', label }) {
   const distHtml = readFileSync(join(DIST_DIR, 'index.html'), 'utf8')
   const expectedBundle = mainBundleName(distHtml)
 
-  if (!existsSync(BIN_PATH)) {
-    execFileSync('go', ['build', '-o', BIN_PATH, './cmd/server'], {
+  // Всегда пересобираем: во временный файл, затем атомарный rename — параллельный
+  // прогон не словит ETXTBSY на запущенном бинаре и не увидит недописанный файл.
+  const tmpBin = `${BIN_PATH}.${process.pid}.tmp`
+  try {
+    execFileSync('go', ['build', '-o', tmpBin, './cmd/server'], {
       cwd: join(REPO_DIR, 'server'),
       stdio: 'inherit',
     })
+    renameSync(tmpBin, BIN_PATH)
+  } catch (e) {
+    rmSync(tmpBin, { force: true })
+    throw new Error(`${tag} FAIL: go build сервера упал: ${e instanceof Error ? e.message : String(e)}`)
   }
 
   if (!(await portIsFree(port))) {
@@ -113,6 +139,11 @@ export async function selfServe({ port, saves = 'off', label }) {
   proc.once('exit', (code, signal) => {
     exited = { code, signal }
   })
+  // ошибка самого spawn (ENOENT/EACCES): без обработчика — uncaught 'error'
+  let spawnError = null
+  proc.once('error', (e) => {
+    spawnError = e
+  })
 
   const base = `http://127.0.0.1:${port}`
   const failWith = (msg) => {
@@ -124,6 +155,7 @@ export async function selfServe({ port, saves = 'off', label }) {
 
   let ready = false
   for (let i = 0; i < 40; i++) {
+    if (spawnError) failWith(`не удалось запустить ${BIN_PATH}: ${spawnError.message}`)
     if (exited) failWith(`Go-сервер завершился раньше готовности (code=${exited.code} signal=${exited.signal})`)
     try {
       const r = await fetch(`${base}/admin`)
@@ -133,8 +165,10 @@ export async function selfServe({ port, saves = 'off', label }) {
         break
       }
       r.body?.cancel()
-    } catch {
-      // поднимается
+    } catch (e) {
+      // bad port не лечится ожиданием — не ждём 10 с таймаута
+      if (e?.cause?.message === 'bad port') failWith(badPortMessage(port))
+      // иначе сервер ещё поднимается
     }
     await delay(250)
   }

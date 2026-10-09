@@ -95,13 +95,15 @@ async function run() {
     }
   }
 
-  const browser = await puppeteer.launch({
-    executablePath: chromePath(),
-    headless: 'new',
-    args: ['--no-sandbox', '--disable-dev-shm-usage'],
-  })
   const pageErrors = []
+  // launch внутри try: упавший Chromium не должен оставлять bin/itdirector на порту
+  let browser = null
   try {
+    browser = await puppeteer.launch({
+      executablePath: chromePath(),
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    })
     const page = await browser.newPage()
     page.on('pageerror', (e) => pageErrors.push(String(e)))
     await page.setViewport({ width: 1920, height: 1080 })
@@ -406,7 +408,7 @@ async function run() {
     // ── нет ошибок на странице за весь прогон
     check('на странице нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))
   } finally {
-    await browser.close()
+    if (browser) await browser.close()
     if (stopServer) await stopServer()
   }
 }

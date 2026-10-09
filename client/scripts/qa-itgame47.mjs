@@ -74,13 +74,15 @@ async function run() {
     }
   }
   const BASE = process.env.QA_BASE || `http://127.0.0.1:${SELF_PORT}`
-  const browser = await puppeteer.launch({
-    executablePath: chromePath(),
-    headless: 'new',
-    args: ['--no-sandbox', '--disable-dev-shm-usage'],
-  })
   const pageErrors = []
+  // launch внутри try: упавший Chromium не должен оставлять bin/itdirector на порту
+  let browser = null
   try {
+    browser = await puppeteer.launch({
+      executablePath: chromePath(),
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    })
     const page = await browser.newPage()
     page.on('pageerror', (e) => pageErrors.push(String(e)))
     await page.setViewport({ width: 1920, height: 1080 })
@@ -300,7 +302,7 @@ async function run() {
   } catch (e) {
     check('сценарий выполнен без исключений', false, e instanceof Error ? e.message : String(e))
   } finally {
-    await browser.close()
+    if (browser) await browser.close()
     if (stopServer) await stopServer()
   }
   check('Z: на странице нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))

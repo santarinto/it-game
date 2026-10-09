@@ -42,8 +42,8 @@ function chromePath() {
   ].filter((p) => !!p)
   const found = cands.find((p) => existsSync(p))
   if (!found) {
-    console.error('VISREG FAIL: chromium не найден — задайте CHROME_PATH')
-    process.exit(1)
+    // throw, не process.exit: exit пропустил бы finally, который гасит сервер
+    throw new Error('VISREG FAIL: chromium не найден — задайте CHROME_PATH')
   }
   return found
 }

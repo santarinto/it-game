@@ -39,16 +39,18 @@ if (!process.env.QA_BASE) {
 }
 const BASE = process.env.QA_BASE || `http://127.0.0.1:${SELF_PORT}`
 
-const browser = await puppeteer.launch({
-  executablePath: chromePath(),
-  headless: 'new',
-  args: ['--no-sandbox', '--disable-dev-shm-usage'],
-})
-
 const report = []
 const note = (name, pass, fact) => report.push({ name, pass, fact })
 
+// launch внутри try: упавший Chromium не должен оставлять bin/itdirector на порту
+let browser = null
 try {
+  browser = await puppeteer.launch({
+    executablePath: chromePath(),
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  })
+
   // 1. Первая вкладка: чистый старт и запуск игры
   const tab1 = await browser.newPage()
   await tab1.evaluateOnNewDocument(() => localStorage.clear())
@@ -178,7 +180,7 @@ try {
   await tab1.close()
   await tab2.close()
 } finally {
-  await browser.close()
+  if (browser) await browser.close()
   if (stopServer) await stopServer()
 }
 

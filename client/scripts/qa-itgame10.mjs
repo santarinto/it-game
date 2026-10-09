@@ -43,17 +43,18 @@ const check = (name, pass, fact) => {
   console.log(`${pass ? 'PASS' : 'FAIL'}: ${name} — ${fact}`)
 }
 
-if (!process.env.QA_BASE) {
-  await selfServe()
-}
-
-const browser = await puppeteer.launch({
-  executablePath: chromePath(),
-  headless: 'new',
-  args: ['--no-sandbox', '--disable-dev-shm-usage'],
-})
-
+// selfServe и launch внутри try: упавший Chromium (или недождавшийся vite
+// preview) не должен оставлять detached-процесс на :4173
+let browser = null
 try {
+  if (!process.env.QA_BASE) {
+    await selfServe()
+  }
+  browser = await puppeteer.launch({
+    executablePath: chromePath(),
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  })
   const page = await browser.newPage()
   await page.setViewport({ width: 1920, height: 1080 })
   const pageErrors = []
@@ -213,7 +214,7 @@ try {
 
   check('Ошибок страницы нет', pageErrors.length === 0, `errors=${pageErrors.join(', ')}`)
 } finally {
-  await browser.close()
+  if (browser) await browser.close()
   if (preview?.pid) {
     try { process.kill(-preview.pid, 'SIGTERM') } catch {}
     try { preview.kill('SIGTERM') } catch {}
