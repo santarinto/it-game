@@ -58,6 +58,17 @@ written `<sid>.json`. On reconnect with the same `sid` within the TTL
   events, breakdowns or XP; lunch and amenity debuffs apply; session speed
   applies, pause freezes). A day or more away produces a "while you were
   away" report; bankruptcy or victory can happen offline;
+- an explicit exit («Сохранить и выйти») sends the session command `exit {speed: N}` right before the
+  client closes the socket (readLoop hands every frame to the actor before it reads the next, so it is
+  saved first). The actor pauses (speed 0, ticker off) and saves `speed: 0` plus `resumeSpeed: N`: the
+  speed before the exit dialog, or before an open day report; 0 means the player had paused. Missed
+  time is therefore zero for both the reconnect and the menu peek. `resume()` restores
+  `speed = resumeSpeed` and the next save clears it; `set_speed` clears it too; `exit` clamps N to 0..3
+  and never answers `bad_speed`. While «Выйти в меню?» is open the HUD keeps the game paused
+  (`set_speed 0`, saved like any pause, so a tab closed with the dialog open resumes paused).
+  «Отмена», Esc, ✕ and a backdrop click restore the previous speed unless another `set_speed` happened
+  meanwhile (the `speedSeq` rule of the day-report pause). Closing the tab, a network drop and bfcache
+  (`GameClient.suspend`) are not an explicit exit: offline catch-up applies as before (ITGAME-65);
 - game endings and `abandon` delete the save; another tab with the same
   `sid` takes the session over and the old one is closed with
   `session_taken`;
@@ -283,7 +294,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
-| `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63) | :4181, self-serve + temp saves dir |
+| `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63); explicit exit freezes the party: the exit dialog pauses, Отмена/Esc/✕ restore the speed, «Сохранить и выйти» → «Продолжить» keeps tick/day/money and the speed, also from an open day report (ITGAME-65) | :4181, self-serve + temp saves dir |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |
 | `npm run visreg` | screenshot diff + layout linter per fixture scenario | :4173, self-serve, `VISREG_PORT` overrides |
 

@@ -109,6 +109,11 @@ export class HUDScene extends Phaser.Scene {
     }
   }
   private reportPauseSeq!: number
+  // Пауза диалога «Выйти в меню?» (ITGAME-65): с какой скорости он поставил паузу
+  // (0 — не ставил) и speedSeq после неё — «Отмена» вернёт скорость, только если
+  // темп после паузы никто не трогал (как reportPauseSeq у отчёта).
+  private exitPauseFrom!: number
+  private exitPauseSeq!: number
   private speedBtns!: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; speed: number }[]
   private hudInteractive!: Phaser.GameObjects.GameObject[]
   private debugFrames!: Phaser.GameObjects.GameObject[]
@@ -148,6 +153,8 @@ export class HUDScene extends Phaser.Scene {
     this.lastEventId = ''
     this.currentSpeed = 1
     this.reportPauseSeq = 0
+    this.exitPauseFrom = 0
+    this.exitPauseSeq = 0
     this.currentRoom = 'office' // MenuScene.startGame стартует сцену 'office'
     // ITGAME-42: таймер дребезга switchRoom (delayedCall 250 мс) гибнет в
     // Clock.shutdown(), если HUD закрыли раньше — флаг залипал на синглтоне,
@@ -335,6 +342,11 @@ export class HUDScene extends Phaser.Scene {
     if (kb) {
       for (const name of ['ENTER', 'SPACE', 'ESC'] as const) {
         kb.on(`keydown-${name}`, () => {
+          // Диалог выхода сверху (ITGAME-65): Esc = «Отмена», Enter/Space под ним отчёт не листают.
+          if (this.exitModalClose) {
+            if (name === 'ESC' && this.cancelExit()) emitUi({ type: 'key', key: name, scene: this.scene.key, action: 'close_modal' })
+            return
+          }
           if (this.proceedNextDay()) emitUi({ type: 'key', key: name, scene: this.scene.key, action: 'next_day' })
         })
       }
@@ -1295,6 +1307,7 @@ export class HUDScene extends Phaser.Scene {
     this.closeVictory()
     this.exitModalClose?.()
     this.exitModalClose = null
+    this.exitPauseFrom = 0 // новая партия остаётся на паузе, set_speed отсюда не шлём
     this.speedBeforeReport = null
     this.reportPauseSeq = 0
     this.lastEventId = ''
@@ -1304,10 +1317,43 @@ export class HUDScene extends Phaser.Scene {
   // осознанное удаление сейва. Случайный клик по ⌂ не должен стоить партию.
   private confirmExitToMenu() {
     this.hideButtonTooltip()
+    if (this.exitModalClose) return // уже открыт (itd.click мимо подложки)
+    // ITGAME-65: пока диалог открыт, партия на паузе. Пауза отчёта главнее: её
+    // set_speed 0 уже стоит, лишний сломал бы reportPauseSeq.
+    this.exitPauseFrom = 0
+    const live = client.latest?.speed ?? 0
+    if (this.speedBeforeReport === null && live > 0 && client.send('set_speed', 0, { speed: 0 })) {
+      this.exitPauseFrom = live
+      this.exitPauseSeq = client.speedSeq
+    }
     this.exitModalClose = showModal(this, 'Выйти в меню?', ['Прогресс сохранится — продолжите', 'с главного меню в любое время.'], [
-      { label: 'Сохранить и выйти', onClick: () => this.returnToMenu() },
-      { label: 'Сдаться (удалить сейв)', onClick: () => { client.abandon(); this.returnToMenu() } },
-      { label: 'Отмена', onClick: () => {} },
-    ])
+      { label: 'Сохранить и выйти', onClick: () => this.saveAndExit() },
+      { label: 'Сдаться (удалить сейв)', onClick: () => { this.exitModalClose = null; client.abandon(); this.returnToMenu() } },
+      { label: 'Отмена', onClick: () => { this.cancelExit() } },
+    ], undefined, () => { this.cancelExit() })
+  }
+
+  // «Отмена», Esc, подложка, ✕ (ITGAME-65): закрыть диалог и вернуть скорость, если
+  // паузу ставил он и темп после неё не менялся (itd.pause(), отчёт дня).
+  private cancelExit(): boolean {
+    const close = this.exitModalClose
+    if (!close) return false
+    this.exitModalClose = null
+    close() // повторный close() из showModal — no-op
+    const prev = this.exitPauseFrom
+    this.exitPauseFrom = 0
+    if (prev > 0 && client.speedSeq === this.exitPauseSeq) client.send('set_speed', 0, { speed: prev })
+    return true
+  }
+
+  // «Сохранить и выйти» (ITGAME-65): сервер сохраняет партию на паузе (догона нет) и
+  // запоминает скорость возврата — до отчёта дня, до диалога или текущую (0 — была пауза).
+  private saveAndExit() {
+    this.exitModalClose = null
+    const ours = this.exitPauseFrom > 0 && client.speedSeq === this.exitPauseSeq
+    const resume = this.speedBeforeReport ?? (ours ? this.exitPauseFrom : (client.latest?.speed ?? 0))
+    this.exitPauseFrom = 0
+    client.send('exit', 0, { speed: resume }) // до disconnect(): сервер обработает до закрытия сокета
+    this.returnToMenu()
   }
 }

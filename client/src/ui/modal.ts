@@ -24,15 +24,22 @@ const UNIT_GAP = 2 // зазор между юнитами
 // команду и закрывает модалку — новое состояние придёт снапшотом.
 // Со scheme панель шире, слева — вертикальная схема «24U СТОЙКА»,
 // текст и кнопки сдвинуты вправо от неё.
+// onDismiss — закрытие без выбора кнопки: подложка или ✕ (ITGAME-65: диалог выхода
+// возвращает скорость). Возвращённая close() его не зовёт — это тихое закрытие владельцем.
 export function showModal(
   scene: Phaser.Scene,
   title: string,
   lines: string[],
   buttons: ModalButton[],
   scheme?: ModalScheme,
+  onDismiss?: () => void,
 ): () => void {
   const objs: Phaser.GameObjects.GameObject[] = []
   const close = () => objs.splice(0).forEach((o) => o.destroy())
+  const dismiss = () => {
+    close()
+    onDismiss?.()
+  }
   const cx = GAME_W / 2
   const cy = GAME_H / 2 - 40
   // заголовок схемы + колонка юнитов + подпись «NU занято»
@@ -42,7 +49,7 @@ export function showModal(
   const shift = scheme ? 90 : 0 // сдвиг текста и кнопок вправо от схемы
   // Подложка interactive: глушит клики по сцене; клик по ней закрывает.
   const overlay = scene.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(70).setInteractive()
-  overlay.on('pointerdown', close)
+  overlay.on('pointerdown', dismiss)
   // Панель тоже interactive: topOnly-ввод Phaser не пропустит клик к подложке.
   const panel = scene.add.rectangle(cx, cy, panelW, panelH, 0x14162b).setStrokeStyle(2, 0x41a6f6).setDepth(71).setInteractive()
   const titleText = scene.add
@@ -52,7 +59,7 @@ export function showModal(
     .text(cx + panelW / 2 - 20, cy - panelH / 2 + 26, '✕', { fontFamily: 'monospace', fontSize: '16px', color: '#5d7275' })
     .setOrigin(0.5).setDepth(72).setInteractive({ useHandCursor: true })
   tag(closeX, 'modal.close')
-  closeX.on('pointerdown', close)
+  closeX.on('pointerdown', dismiss)
   const body = scene.add
     .text(cx + shift, cy - panelH / 2 + 56, lines.join('\n'), {
       fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4', lineSpacing: 8, align: 'center',

@@ -35,6 +35,13 @@
 //   R3   в офисе нет «закрыт», есть «ОФИС 2»
 //        (R идёт после E: после S1/E партия вкладки уже в офисе 0, и C1–C4 не отличили бы
 //        «сброс на каждом первом снапшоте» от «сброс только при resumed: false»)
+//   F1   выход: speed 2, btn.menu — диалог ставит паузу (speed 0, tickInDay стоит ~2 с), «Отмена» → speed 2 (ITGAME-65)
+//   F2   то же, Esc (itd.key('esc')) закрывает диалог и возвращает speed 2
+//   F3   то же, ✕ (modal.close)
+//   F4   «Сохранить и выйти» на speed 2: карточка «День N · …» = день выхода; через ~3 с «Продолжить» —
+//        первый снапшот resumed, тот же tickInDay/день/баланс (догона нет), speed 2
+//   F5   выход при открытом отчёте дня (speed 3 до отчёта): btn.menu не шлёт set_speed, «Продолжить» —
+//        отчёт снова, Enter → running на speed 3
 //   X1   itd.restore(save) с открытым О2 (вкладка на nav.office1): nav.office1 active, нет «закрыт»,
 //        есть «ОФИС 2» — контроль, restore остаётся дельтой (ITGAME-63)
 //   X2   itd.restore() с offices[1].Unlocked=false при nav.office1: вкладка → nav.office0, нет
@@ -487,6 +494,221 @@ async function run() {
       !r3Texts.some((t) => /закрыт/.test(t)) && r3Texts.some((t) => t === 'ОФИС 2'),
       JSON.stringify(r3Texts),
     )
+
+    // ── F: явный выход замораживает партию (ITGAME-65) ─────────────────────
+    // Состояние тут: живая партия под sid gone, О2 куплен, вкладка на nav.office1, пауза.
+    // Все ожидания без throw: баг должен давать красные строки, а не падение прогона.
+    const fWait = (fn, ms) =>
+      page.waitForFunction(fn, { timeout: ms, polling: 100 }).then(
+        () => true,
+        () => false,
+      )
+    const fPhase = await page.evaluate(() => ({ phase: window.itd.state().phase, speed: window.itd.state().speed }))
+    const fReady = fPhase.phase === 'running'
+    // Диалог выхода на speed 2: пауза, тик стоит 2 с, закрытие способом how возвращает speed 2.
+    const exitDialog = (how) =>
+      page.evaluate(async (how) => {
+        const w = async (cond) => {
+          try {
+            await window.itd.wait(cond, 5000)
+            return true
+          } catch {
+            return false
+          }
+        }
+        const ids = () => window.itd.ids().map((n) => n.id)
+        await window.itd.set({ tickInDay: 6 })
+        window.itd.speed(2)
+        const speed2 = await w((s) => s.speed === 2)
+        const clickMenu = window.itd.click('btn.menu')
+        const paused = await w((s) => s.speed === 0)
+        const t0 = window.itd.state().tickInDay
+        await new Promise((r) => setTimeout(r, 2000))
+        const t1 = window.itd.state().tickInDay
+        const open = ids().includes('modal.btn.2')
+        let close
+        if (how === 'btn') close = window.itd.click('modal.btn.2')
+        else if (how === 'esc') close = window.itd.key('esc')
+        else close = window.itd.click('modal.close')
+        const back = await w((s) => s.speed === 2)
+        await new Promise((r) => setTimeout(r, 200))
+        const modalLeft = ids().filter((id) => id.startsWith('modal.'))
+        const out = { speed2, clickMenu: clickMenu.ok, paused, t0, t1, open, close: close.ok, scenes: close.scenes ?? null, back, speed: window.itd.state().speed, modalLeft }
+        window.itd.pause()
+        await w((s) => s.speed === 0)
+        return out
+      }, how)
+    for (const [n, how, label] of [
+      [1, 'btn', '«Отмена»'],
+      [2, 'esc', 'Esc'],
+      [3, 'x', '✕'],
+    ]) {
+      const f = fReady ? await exitDialog(how) : null
+      check(
+        `F${n}: диалог выхода на speed 2 ставит паузу (тик стоит ~2 с), ${label} возвращает speed 2 (ITGAME-65)`,
+        !!f && f.speed2 && f.clickMenu && f.paused && f.t0 === f.t1 && f.open && f.close && f.back && f.speed === 2 &&
+          !f.modalLeft.includes('modal.btn.0') && (how !== 'esc' || (f.scenes ?? []).includes('hud')),
+        JSON.stringify({ fPhase, ...f }),
+      )
+    }
+
+    // F4: «Сохранить и выйти» на speed 2 → exit {speed:2}; «Продолжить» через пару секунд — тот
+    // же тик/день/баланс (догона нет), скорость 2.
+    const f4pre = fReady
+      ? await page.evaluate(async () => {
+          const w = async (cond) => {
+            try {
+              await window.itd.wait(cond, 5000)
+              return true
+            } catch {
+              return false
+            }
+          }
+          await window.itd.set({ tickInDay: 6 })
+          window.itd.speed(2)
+          await w((s) => s.speed === 2)
+          window.itd.click('btn.menu')
+          const paused = await w((s) => s.speed === 0)
+          const st = window.itd.state()
+          return { paused, day: st.day, tickInDay: st.tickInDay, balance: st.balance, sid: window.itd.server().sid }
+        })
+      : null
+    const f4tr = f4pre ? await page.evaluate(() => window.itd.trace(() => window.itd.click('modal.btn.0'), 300)) : null
+    if (f4pre) await waitMenu()
+    const f4Card = await fWait(
+      () => window.itd.text().some((n) => n.scene === 'menu' && /^День \d+ · /.test(n.text)),
+      10000,
+    )
+    const f4CardText = await page.evaluate(
+      () => window.itd.text().find((n) => n.scene === 'menu' && /^День \d+ · /.test(n.text))?.text ?? null,
+    )
+    await delay(3000)
+    const f4Resumed = await page.evaluate(async () => {
+      window.__qa47f = null
+      window.itd.click('menu.continue')
+      try {
+        await window.itd.wait((s) => {
+          if (s.connected === true && window.__qa47f === null) {
+            const snap = window.itd.server().snapshot
+            window.__qa47f = {
+              resumed: snap?.resumed ?? null, tickInDay: snap?.tickInDay ?? null, day: snap?.day ?? null,
+              money: snap?.money ?? null, speed: snap?.speed ?? null, sid: window.itd.server().sid,
+            }
+          }
+          return s.connected === true
+        }, 15000)
+      } catch {
+        /* читаем и пишем FAIL ниже */
+      }
+      return window.__qa47f
+    })
+    const f4Exit = f4tr?.sent.find((m) => m.type === 'exit')
+    check(
+      'F4: «Сохранить и выйти» на speed 2 шлёт exit {speed:2}; карточка меню — день выхода; «Продолжить» — resumed, тот же тик/день/баланс, speed 2 (ITGAME-65)',
+      !!f4pre && f4pre.paused && f4Exit?.speed === 2 && f4Card && f4CardText?.startsWith(`День ${f4pre.day} · `) &&
+        f4Resumed?.resumed === true && f4Resumed.sid === f4pre.sid && f4Resumed.tickInDay === f4pre.tickInDay &&
+        f4Resumed.day === f4pre.day && f4Resumed.money === f4pre.balance && f4Resumed.speed === 2,
+      JSON.stringify({ pre: f4pre, sent: f4tr?.sent, card: f4CardText, resumed: f4Resumed }),
+    )
+    await page.evaluate(async () => {
+      window.itd.pause()
+      try {
+        await window.itd.wait((s) => s.speed === 0, 5000)
+      } catch {
+        /* читаем ниже */
+      }
+    })
+
+    // F5: выход при открытом отчёте дня (speed 3 до отчёта): диалог не шлёт set_speed,
+    // «Продолжить» — отчёт снова, Enter → running на speed 3.
+    const f5pre = await page.evaluate(async () => {
+      const w = async (cond) => {
+        try {
+          await window.itd.wait(cond, 8000)
+          return true
+        } catch {
+          return false
+        }
+      }
+      window.itd.speed(3)
+      await w((s) => s.speed === 3)
+      await window.itd.set({ tickInDay: 53 })
+      const report = await w((s) => s.phase === 'day_report')
+      await w((s) => s.speed === 0) // пауза отчёта уходит set_speed 0 чуть позже самого отчёта
+      const hasNext = window.itd.ids().some((n) => n.id === 'btn.next_day')
+      const st = window.itd.state()
+      return { report, hasNext, speed: st.speed, day: st.day, sbr: sessionStorage.getItem('itd.speedBeforeReport') }
+    })
+    const f5Open = f5pre.report && f5pre.hasNext && f5pre.speed === 0 && f5pre.sbr === '3'
+    const f5tr = f5Open ? await page.evaluate(() => window.itd.trace(() => window.itd.click('btn.menu'), 400)) : null
+    if (f5Open) {
+      await page.evaluate(() => window.itd.click('modal.btn.0'))
+      await waitMenu()
+    }
+    // Первый снапшот сокета читаем с провода (подкласс WebSocket), а не опросом itd.server():
+    // за время опроса HUD успевает ответить на повторный отчёт set_speed 0, и последний
+    // снапшот — уже не первый (resumed false, speed 0).
+    const f5First = await page.evaluate(async () => {
+      window.__qa47f = null
+      const Orig = window.WebSocket
+      window.WebSocket = class extends Orig {
+        constructor(...args) {
+          super(...args)
+          this.addEventListener('message', (e) => {
+            if (window.__qa47f !== null || typeof e.data !== 'string') return
+            try {
+              const m = JSON.parse(e.data)
+              if (m.type === 'state') window.__qa47f = { phase: m.phase, speed: m.speed, resumed: m.resumed }
+            } catch {
+              /* не JSON — не наш кадр */
+            }
+          })
+        }
+      }
+      try {
+        window.itd.click('menu.continue')
+        try {
+          await window.itd.wait(() => window.__qa47f !== null, 15000)
+        } catch {
+          /* читаем и пишем FAIL ниже */
+        }
+      } finally {
+        window.WebSocket = Orig
+      }
+      return window.__qa47f
+    })
+    const f5Again = await fWait(
+      () =>
+        window.itd.ids().some((n) => n.id === 'btn.next_day') &&
+        sessionStorage.getItem('itd.speedBeforeReport') === '3',
+      8000,
+    )
+    const f5Next = await page.evaluate(async () => {
+      window.itd.key('enter')
+      try {
+        await window.itd.wait((s) => s.phase === 'running' && s.speed === 3, 8000)
+      } catch {
+        /* читаем ниже */
+      }
+      const st = window.itd.state()
+      return { phase: st.phase, speed: st.speed, day: st.day }
+    })
+    check(
+      'F5: выход при открытом отчёте (speed 3 до отчёта): btn.menu не шлёт set_speed, «Продолжить» — отчёт снова, Enter → running на speed 3 (ITGAME-65)',
+      f5Open && !f5tr.sent.some((m) => m.type === 'set_speed') && f5First?.resumed === true &&
+        f5First.phase === 'day_report' && f5First.speed === 3 && f5Again && f5Next.phase === 'running' &&
+        f5Next.speed === 3 && f5Next.day === f5pre.day + 1,
+      JSON.stringify({ pre: f5pre, sent: f5tr?.sent, first: f5First, reportAgain: f5Again, next: f5Next }),
+    )
+    // дальше как после R: партия на паузе (X/O стартуют с неё)
+    await page.evaluate(async () => {
+      window.itd.pause()
+      try {
+        await window.itd.wait((s) => s.speed === 0, 5000)
+      } catch {
+        /* читаем ниже */
+      }
+    })
 
     // ── X: itd.restore() и активный офис (ITGAME-63) ───────────────────────
     // Состояние тут: живая партия под sid gone, О2 куплен, вкладка на nav.office1, пауза.
