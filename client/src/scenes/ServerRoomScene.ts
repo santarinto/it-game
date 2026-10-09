@@ -11,7 +11,7 @@ import { HIRES_CAMERA } from '../render'
 import type { StateMessage } from '../protocol'
 
 export class ServerRoomScene extends Phaser.Scene {
-  private objects: Phaser.GameObjects.GameObject[] = []
+  private objects!: Phaser.GameObjects.GameObject[]
 
   constructor() {
     super({ key: 'serverRoom', cameras: HIRES_CAMERA })

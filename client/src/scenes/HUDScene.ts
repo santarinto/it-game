@@ -75,14 +75,14 @@ export class HUDScene extends Phaser.Scene {
   private buttonTooltip!: Phaser.GameObjects.Container
   private buttonTooltipBg!: Phaser.GameObjects.Rectangle
   private buttonTooltipText!: Phaser.GameObjects.Text
-  private hoveredButtonId: string | null = null
-  private navItems: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; sub: Phaser.GameObjects.Text }[] = []
-  private currentRoom: 'office' | 'serverRoom' = 'office'
-  private reportUI: Phaser.GameObjects.GameObject[] = []
-  private eventUI: Phaser.GameObjects.GameObject[] = []
-  private gameOverUI: Phaser.GameObjects.GameObject[] = []
-  private victoryUI: Phaser.GameObjects.GameObject[] = []
-  private switching = false
+  private hoveredButtonId!: string | null
+  private navItems!: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; sub: Phaser.GameObjects.Text }[]
+  private currentRoom!: 'office' | 'serverRoom'
+  private reportUI!: Phaser.GameObjects.GameObject[]
+  private eventUI!: Phaser.GameObjects.GameObject[]
+  private gameOverUI!: Phaser.GameObjects.GameObject[]
+  private victoryUI!: Phaser.GameObjects.GameObject[]
+  private switching!: boolean
   private get skipReports(): boolean {
     return localStorage.getItem('itd.skipReports') === '1'
   }
@@ -93,7 +93,7 @@ export class HUDScene extends Phaser.Scene {
       localStorage.removeItem('itd.skipReports')
     }
   }
-  private currentSpeed = 1
+  private currentSpeed!: number
   private get speedBeforeReport(): number | null {
     const v = sessionStorage.getItem(SPEED_BEFORE_REPORT_KEY)
     if (!v) return null
@@ -107,31 +107,48 @@ export class HUDScene extends Phaser.Scene {
       sessionStorage.setItem(SPEED_BEFORE_REPORT_KEY, String(n))
     }
   }
-  private reportPauseSeq = 0
-  private speedBtns: { bg: Phaser.GameObjects.Rectangle; speed: number }[] = []
-  private hudInteractive: Phaser.GameObjects.GameObject[] = []
-  private debugFrames: Phaser.GameObjects.GameObject[] = []
-  private reconnectUI: Phaser.GameObjects.GameObject[] = []
-  private offlineUI: Phaser.GameObjects.GameObject[] = []
+  private reportPauseSeq!: number
+  private speedBtns!: { bg: Phaser.GameObjects.Rectangle; speed: number }[]
+  private hudInteractive!: Phaser.GameObjects.GameObject[]
+  private debugFrames!: Phaser.GameObjects.GameObject[]
+  private reconnectUI!: Phaser.GameObjects.GameObject[]
+  private offlineUI!: Phaser.GameObjects.GameObject[]
   // Стек тостов (ITGAME-16): якорь сверху/снизу — свой список, не больше 3
   // штук одновременно. Сцена переживает рестарт (client.subscribe/restart),
   // поэтому сбрасывается явно в create(), а не инициализатором поля.
-  private toasts: Record<'top' | 'bottom', Phaser.GameObjects.Text[]> = { top: [], bottom: [] }
+  private toasts!: Record<'top' | 'bottom', Phaser.GameObjects.Text[]>
 
   constructor() {
     super({ key: 'hud', cameras: HIRES_CAMERA })
   }
 
   create() {
-    this.toasts = { top: [], bottom: [] }
     // Сцена hud переживает рестарт (returnToMenu → scene.start('menu') →
     // MenuScene.startGame → launch('hud') на том же экземпляре): коллекции
     // прошлой партии держат уничтоженные объекты — refresh() падал на
-    // s.offices[4], active скоростей/навигации врал (ITGAME-38).
+    // s.offices[4], active скоростей/навигации врал (ITGAME-38). Поэтому ВСЕ
+    // поля состояния сцены задаются здесь, а не инициализаторами полей.
+    // Стек тостов (ITGAME-16): якорь сверху/снизу — свой список, не больше 3.
+    this.toasts = { top: [], bottom: [] }
     this.navItems = []
     this.speedBtns = []
     this.hudInteractive = []
+    this.reportUI = []
+    this.eventUI = []
+    this.gameOverUI = []
+    this.victoryUI = []
+    this.offlineUI = []
+    this.reconnectUI = []
+    this.debugFrames = []
+    this.hoveredButtonId = null
+    this.lastEventId = ''
+    this.currentSpeed = 1
+    this.reportPauseSeq = 0
     this.currentRoom = 'office' // MenuScene.startGame стартует сцену 'office'
+    // ITGAME-42: таймер дребезга switchRoom (delayedCall 250 мс) гибнет в
+    // Clock.shutdown(), если HUD закрыли раньше — флаг залипал на синглтоне,
+    // навигация новой партии мертва.
+    this.switching = false
     // Верхняя панель.
     this.add.rectangle(0, 0, GAME_W, HUD_H, 0x14162b).setOrigin(0)
     this.moneyText = tag(this.add.text(16, 10, '$…', {
@@ -685,7 +702,7 @@ export class HUDScene extends Phaser.Scene {
 
   // Панель события Unseen Forces: не модальная — игра идёт дальше,
   // пока игрок думает (цифры обновляются с каждым снапшотом).
-  private lastEventId = ''
+  private lastEventId!: string
 
   private showEvent(ev: NonNullable<StateMessage['activeEvent']>) {
     this.hideButtonTooltip()

@@ -8,6 +8,7 @@ import { fmtMoney } from '../format'
 import { getAchievementsSummary, loadStats } from '../meta'
 import type { DifficultyId } from '../protocol'
 import { emitUi } from '../uibus'
+import { resetForNewGame } from '../party'
 
 const CX = GAME_W / 2
 
@@ -427,12 +428,16 @@ export class MenuScene extends Phaser.Scene {
   // явный агентский sid чтим, наше зеркало/общий ключ — забываем, партия
   // начинается с новым sid. fresh=false — «Продолжить»/Enter: текущий sid,
   // сервер восстановит сейв (волна B: «НОРМА» молча открывала чужой сейв).
+  // fresh также сбрасывает состояние партии (resetForNewGame, ITGAME-47).
   private startGame(d: DifficultyId, fresh = false) {
     if (this.started) return
     // Флаг — только после фактического старта (ITGAME-24): ошибка старта
     // раньше молча залипала меню, кнопки переставали отвечать.
     try {
-      if (fresh) prepareNewGame()
+      if (fresh) {
+        prepareNewGame()
+        resetForNewGame()
+      }
       client.connect(d)
       this.scene.start('office') // start глушит menu
       this.scene.launch('hud')

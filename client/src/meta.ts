@@ -335,6 +335,8 @@ export function checkAchievements(
 
 let lastSavedDay = 0
 let lastSavedMoney = 0
+// Троттлинг saveStats принадлежит партии: сбрасывается из resetForNewGame() (party.ts).
+export function resetOngoingStatsThrottle(): void { lastSavedDay = 0; lastSavedMoney = 0 }
 
 export function updateOngoingStats(state: StateMessage): void {
   const stats = loadStats()

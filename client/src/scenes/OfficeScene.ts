@@ -110,13 +110,13 @@ const SLOT_LAYOUT_LEGACY = {
 }
 
 export class OfficeScene extends Phaser.Scene {
-  private objects: Phaser.GameObjects.GameObject[] = []
+  private objects!: Phaser.GameObjects.GameObject[]
   private tooltip!: Phaser.GameObjects.Container
   private tooltipText!: Phaser.GameObjects.Text
   private tooltipBg!: Phaser.GameObjects.Rectangle
   // Слот под курсором: перерисовка идёт каждую секунду, и без этого
   // тултип гас бы на каждом снапшоте.
-  private hoveredSlot = -1
+  private hoveredSlot!: number
 
   constructor() {
     super({ key: 'office', cameras: HIRES_CAMERA })
@@ -125,6 +125,7 @@ export class OfficeScene extends Phaser.Scene {
   create() {
     // сцены перезапускаются при переключении комнат — сбрасываем ссылки прошлого цикла
     this.objects = []
+    this.hoveredSlot = -1
     // Правый клик по сотруднику — увольнение: контекстное меню браузера мешает.
     this.input.mouse?.disableContextMenu()
     this.add.rectangle(NAV_W, HUD_H, GAME_W - NAV_W, GAME_H - HUD_H, 0x2b2f4a).setOrigin(0) // пол офиса
