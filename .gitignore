@@ -1,4 +1,4 @@
-/bin/itdirector
+/bin/itdirector*
 client/node_modules/
 client/dist/
 .env

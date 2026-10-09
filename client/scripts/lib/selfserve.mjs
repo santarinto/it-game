@@ -12,7 +12,7 @@
 //  - цикл ожидания не следил за exit процесса и тупо ждал таймаут, даже
 //    если бинарь уже умер.
 //
-// Этот модуль закрывает все три (плюс ещё две, ITGAME-57): порт проверяется ДО spawn, stderr
+// Этот модуль закрывает все три (плюс ещё две, ITGAME-57): порт проверяется ДО сборки и spawn, stderr
 // собирается в буфер и печатается хвостом при ошибке, а цикл ожидания
 // прерывается сразу на exit процесса. После готовности сверяется, что
 // сервер отдаёт именно наш dist (по имени бандла из index.html) — вторая
@@ -93,6 +93,11 @@ export async function selfServe({ port, saves = 'off', label }) {
   const distHtml = readFileSync(join(DIST_DIR, 'index.html'), 'utf8')
   const expectedBundle = mainBundleName(distHtml)
 
+  // Занятый порт — до go build: не платим за сборку, которая всё равно не пригодится.
+  if (!(await portIsFree(port))) {
+    throw new Error(`${tag} FAIL: порт ${port} занят чужим процессом — освободите его или задайте другой порт`)
+  }
+
   // Всегда пересобираем: во временный файл, затем атомарный rename — параллельный
   // прогон не словит ETXTBSY на запущенном бинаре и не увидит недописанный файл.
   const tmpBin = `${BIN_PATH}.${process.pid}.tmp`
@@ -105,10 +110,6 @@ export async function selfServe({ port, saves = 'off', label }) {
   } catch (e) {
     rmSync(tmpBin, { force: true })
     throw new Error(`${tag} FAIL: go build сервера упал: ${e instanceof Error ? e.message : String(e)}`)
-  }
-
-  if (!(await portIsFree(port))) {
-    throw new Error(`${tag} FAIL: порт ${port} занят чужим процессом — освободите его или задайте другой порт`)
   }
 
   let savesArg = saves

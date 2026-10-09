@@ -28,6 +28,13 @@
 //   E2   после этого nav.office0 active, nav.office1 нет (ITGAME-54)
 //   E3   в офисе нет «закрыт», есть «ОФИС 1» (ITGAME-54)
 //   E4   btn.pc шлёт buy_pc с office 0, нет office_locked (ITGAME-54)
+//   R1   живая партия с открытым О2 (купили через itd.cmd), выход в меню на nav.office1,
+//        «Продолжить»: сервер сообщил resumed === true в первом снапшоте сокета (ITGAME-54)
+//   R2   после этого nav.office1 по-прежнему active, nav.office0 нет — восстановленная партия
+//        НЕ сбрасывается (страж условия !msg.resumed в net.ts: без него R2 краснеет)
+//   R3   в офисе нет «закрыт», есть «ОФИС 2»
+//        (R идёт после E: после S1/E партия вкладки уже в офисе 0, и C1–C4 не отличили бы
+//        «сброс на каждом первом снапшоте» от «сброс только при resumed: false»)
 //   Z    на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию :4181; порт не из
@@ -392,6 +399,73 @@ async function run() {
       'E4: btn.pc шлёт buy_pc с office 0, нет office_locked (ITGAME-54)',
       e4buy?.office === 0 && !JSON.stringify(e4tr.recv).includes('office_locked'),
       JSON.stringify({ sent: e4tr.sent, recv: e4tr.recv }),
+    )
+
+    // ── R: «Продолжить» на живом сейве НЕ сбрасывает офис (страж !msg.resumed) ──
+    // Партия E (новая, под sid gone) жива, вкладка в офисе 0: открываем О2 покупкой.
+    const r0 = await page.evaluate(async () => {
+      await window.itd.set({ money: 100000 })
+      try {
+        await window.itd.wait((s) => s.balance === 100000, 5000)
+      } catch {
+        /* читаем ниже */
+      }
+      const buy = await window.itd.cmd('buy_office', 1)
+      try {
+        await window.itd.wait((s) => s.officesUnlocked >= 2, 5000)
+      } catch {
+        /* читаем ниже */
+      }
+      await window.itd.pause()
+      return { buy, unlocked: window.itd.server().snapshot?.offices?.[1]?.unlocked === true }
+    })
+    await waitSwitchIdle()
+    await page.evaluate(() => window.itd.click('nav.office1'))
+    await delay(400)
+    const r0Nav = await navIds()
+    const r0Texts = await officeTexts()
+    const r0Ready =
+      r0.buy.ok === true &&
+      r0.unlocked &&
+      isActive(r0Nav, 'nav.office1') &&
+      !r0Texts.some((t) => /закрыт/.test(t))
+    await waitSwitchIdle()
+    const rExit = await fastExit() // nav.serverRoom не меняет nav.activeOffice (office -1)
+    await waitMenu()
+    const rMenu = await page.evaluate(() => window.itd.ids().map((n) => n.id))
+    await page.evaluate(async () => {
+      window.__qa47r = null
+      window.itd.click('menu.continue')
+      try {
+        // resumed читаем в момент готовности: он true только у первого снапшота сокета
+        await window.itd.wait((s) => {
+          if (s.connected === true && window.__qa47r === null) {
+            window.__qa47r = window.itd.server().snapshot?.resumed ?? null
+          }
+          return s.connected === true
+        }, 15000)
+      } catch {
+        /* читаем и пишем FAIL ниже */
+      }
+    })
+    await delay(300)
+    const rResumed = await page.evaluate(() => window.__qa47r)
+    check(
+      'R1: живая партия с открытым О2, выход из nav.office1 и «Продолжить» — сервер сообщил resumed === true',
+      r0Ready && rExit.a.ok && rExit.b.ok && rExit.c.ok && rMenu.includes('menu.continue') && rResumed === true,
+      JSON.stringify({ r0, r0Ready, rExitOk: [rExit.a.ok, rExit.b.ok, rExit.c.ok], hasContinue: rMenu.includes('menu.continue'), resumed: rResumed }),
+    )
+    const r2 = await navIds()
+    check(
+      'R2: после «Продолжить» nav.office1 по-прежнему active, nav.office0 нет (восстановленная партия не сбрасывается)',
+      isActive(r2, 'nav.office1') && !isActive(r2, 'nav.office0'),
+      JSON.stringify(r2.map((n) => `${n.id}:${n.active}`)),
+    )
+    const r3Texts = await officeTexts()
+    check(
+      'R3: в офисе нет «закрыт», есть «ОФИС 2»',
+      !r3Texts.some((t) => /закрыт/.test(t)) && r3Texts.some((t) => t === 'ОФИС 2'),
+      JSON.stringify(r3Texts),
     )
   } catch (e) {
     check('сценарий выполнен без исключений', false, e instanceof Error ? e.message : String(e))

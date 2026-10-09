@@ -63,11 +63,14 @@ written `<sid>.json`. On reconnect with the same `sid` within the TTL
   `session_taken`;
 - if the server has no save for the `sid` (expired, deleted, never existed),
   «Continue» still connects and the server starts a **new** game under the
-  same `sid`. The first snapshot of every connection carries `resumed`
+  same `sid`. The first snapshot of every `/ws` connection carries `resumed`
   (`true` only for a restored save), so the client resets its party state
   (active office → office 0, `client/src/party.ts`) when that first snapshot
   says `resumed: false` — otherwise the new game would open on the office the
-  previous game in the tab left open, possibly a locked one (ITGAME-54).
+  previous game in the tab left open, possibly a locked one (ITGAME-54). The
+  rule applies to `/ws` only: `/ws/agent` observers (`observeAgent` in
+  `server/internal/ws/agent.go`) get `resumed: false` in their first snapshot
+  even for a live game, so a client must not treat it as «new game» there.
 
 The start menu reads the save's facts through `/ws?peek=1&sid=…`
 (ITGAME-19): the server sends one `save_summary` (`exists`, `alive`,
@@ -222,6 +225,10 @@ documenting separately:
 Chromium is used by `npm run build`, `smoke-ui` and `visreg`; scripts look
 for `CHROME_PATH`, then `/usr/bin/chromium`, `/usr/bin/chromium-browser`,
 `/usr/bin/google-chrome-stable`.
+
+Self-served QA (`selfServe()` in `client/scripts/lib/selfserve.mjs`, used by
+`visreg` and the `qa:*` scripts without `QA_BASE`) rebuilds `bin/itdirector`
+on every run, so the Go toolchain must be in `PATH`.
 
 **Smoke test.** `npm run smoke-ui -- <url>` checks any URL; `OFFICE=1` also
 starts a game and checks the office scene (needs a live server). Boot
