@@ -327,7 +327,7 @@ type stateReply struct {
 func (h *Handler) applyDebug(
 	ctx context.Context, hub *connHub, req debugRequest,
 	sid string, gen uint64, withSaves bool,
-	gp **game.Game, speed *int, last **game.DayReport,
+	gp **game.Game, speed *int, resumeSpeed int, last **game.DayReport,
 	jr *eventJournal, scenario *string,
 ) bool {
 	g := *gp
@@ -349,7 +349,7 @@ func (h *Handler) applyDebug(
 			h.Saves.Finish(sid, gen)
 			return true
 		}
-		return h.persist(sid, gen, g, *speed, *last, *scenario, jr.last(jr.cap))
+		return h.persist(sid, gen, g, *speed, resumeSpeed, *last, *scenario, jr.last(jr.cap))
 	}
 
 	switch req.kind {

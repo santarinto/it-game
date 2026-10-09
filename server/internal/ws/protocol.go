@@ -18,7 +18,7 @@ type clientMessage struct {
 	Type   string `json:"type"`
 	Office int    `json:"office"`
 	Slot   int    `json:"slot"`  // стойка для upgrade_server
-	Speed  int    `json:"speed"` // параметр set_speed: 0 — пауза, 1..3 — множитель темпа
+	Speed  int    `json:"speed"` // параметр set_speed: 0 — пауза, 1..3 — множитель темпа; у exit — скорость возврата
 
 	// Агентский мост (ITGAME-29): типы status, debug_patch, debug_advance,
 	// debug_step, debug_scenario.

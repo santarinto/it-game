@@ -167,3 +167,31 @@ func TestPeekDoesNotTakeOver(t *testing.T) {
 	wsjson.Write(ctx, c, map[string]any{"type": "set_speed", "speed": 2})
 	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" && m.Speed == 2 })
 }
+
+// Сводка меню после явного выхода (ITGAME-65) показывает день и деньги на момент
+// выхода: сейв на паузе, догона нет. ResumeSpeed в сводке не участвует.
+func TestPeekAfterExitShowsExitFacts(t *testing.T) {
+	saves := newTestStore(t)
+	cfg := savesTestConfig()
+	g := game.NewWithSeed(cfg, 11, 22)
+	if err := g.Hire(0); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	gen, _ := saves.Begin("peek-exit-1")
+	raw, _ := json.Marshal(sessionSave{SID: "peek-exit-1", Speed: 0, ResumeSpeed: 2, SavedAt: old, Game: g.Export()})
+	if !saves.Put("peek-exit-1", gen, raw, old) {
+		t.Fatal("не удалось записать тестовый сейв")
+	}
+
+	s := peek(t, saves, cfg, "?peek=1&sid=peek-exit-1")
+	if !s.Exists || !s.Alive || s.Day != 1 || s.Money != g.Money {
+		t.Fatalf("сводка после выхода: %+v, хотим день 1, $%d", s, g.Money)
+	}
+	c, ctx := dialSaves(t, saves, cfg, time.Hour, "?sid=peek-exit-1")
+	resumed := readResume(t, ctx, c)
+	if resumed.Day != s.Day || resumed.Money != s.Money || resumed.Speed != 2 {
+		t.Fatalf("реконнект: день %d $%d speed %d, сводка: день %d $%d, speed 2",
+			resumed.Day, resumed.Money, resumed.Speed, s.Day, s.Money)
+	}
+}

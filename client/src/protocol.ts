@@ -227,7 +227,7 @@ export type ServerMessage =
   | StateMessage | ErrorMessage | DayReportMessage | GameOverMessage | VictoryMessage | OfflineReportMessage
 
 // Команды протокола (ITGAME-39): зеркало game.Command в
-// server/internal/game/commands.go (Cmd* consts) плюс set_speed/abandon
+// server/internal/game/commands.go (Cmd* consts) плюс set_speed/abandon/exit
 // (server/internal/ws/session.go — команды сессии, не игры). Единственный
 // список — client/src/debug/agentApi.ts берёт COMMANDS из него же.
 export const COMMAND_TYPES = [
@@ -236,7 +236,7 @@ export const COMMAND_TYPES = [
   'buy_cooler', 'buy_fridge', 'buy_coffee', 'set_speed',
   'upgrade_server', 'upgrade_core',
   'motivate', 'repair_click', 'call_master', 'event_choice', 'fire',
-  'abandon',
+  'abandon', 'exit',
 ] as const
 
 export type CommandType = (typeof COMMAND_TYPES)[number]

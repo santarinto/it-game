@@ -279,3 +279,122 @@ func TestResumeResendsDayReport(t *testing.T) {
 		return m.Type == "state" && m.Day == 2 && m.Phase == "running"
 	})
 }
+
+// loadSave — сейв sid из стора как sessionSave (ITGAME-65).
+func loadSave(t *testing.T, saves *store.Store, sid string) sessionSave {
+	t.Helper()
+	raw, ok := saves.Load(sid)
+	if !ok {
+		t.Fatalf("сейва %s нет", sid)
+	}
+	var ss sessionSave
+	if err := json.Unmarshal(raw, &ss); err != nil {
+		t.Fatal(err)
+	}
+	return ss
+}
+
+// Явный выход (ITGAME-65): партия замирает, сейв хранит speed 0 и скорость
+// возврата; «Продолжить» возвращает её без догона, следующий persist обнуляет.
+func TestExitSavesPauseAndResumeSpeed(t *testing.T) {
+	saves := newTestStore(t)
+	cfg := savesTestConfig()
+	c, ctx := dialSaves(t, saves, cfg, time.Hour, "?sid=exit-123456")
+	readResume(t, ctx, c)
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "set_speed", Speed: 3}); err != nil {
+		t.Fatal(err)
+	}
+	before := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" && m.Speed == 3 })
+
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "exit", Speed: 3}); err != nil {
+		t.Fatal(err)
+	}
+	// Актор сохраняет до ответа: к этому снапшоту сейв уже на диске.
+	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" && m.Speed == 0 })
+	ss := loadSave(t, saves, "exit-123456")
+	if ss.Speed != 0 || ss.ResumeSpeed != 3 {
+		t.Fatalf("сейв после exit: speed %d resumeSpeed %d, хотим 0/3", ss.Speed, ss.ResumeSpeed)
+	}
+	c.CloseNow()
+
+	c2, ctx2 := dialSaves(t, saves, cfg, time.Hour, "?sid=exit-123456")
+	resumed := readResume(t, ctx2, c2)
+	if !resumed.Resumed || resumed.Speed != 3 {
+		t.Fatalf("«Продолжить»: resumed %v speed %d, хотим true/3", resumed.Resumed, resumed.Speed)
+	}
+	if resumed.Day != before.Day || resumed.Clock != before.Clock || resumed.Money != before.Money {
+		t.Fatalf("партия сдвинулась: день %d %s $%d, было день %d %s $%d",
+			resumed.Day, resumed.Clock, resumed.Money, before.Day, before.Clock, before.Money)
+	}
+	// persist в run() идёт до первого снапшота: ResumeSpeed уже съеден.
+	ss = loadSave(t, saves, "exit-123456")
+	if ss.Speed != 3 || ss.ResumeSpeed != 0 {
+		t.Fatalf("сейв после «Продолжить»: speed %d resumeSpeed %d, хотим 3/0", ss.Speed, ss.ResumeSpeed)
+	}
+}
+
+// Сейв после exit лежит давно: офлайн-догона нет (speed 0 — пауза), партия
+// продолжается на ResumeSpeed.
+func TestResumeAfterExitSkipsOffline(t *testing.T) {
+	saves := newTestStore(t)
+	cfg := savesTestConfig()
+	g := game.NewWithSeed(cfg, 11, 22)
+	if err := g.Hire(0); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	gen, _ := saves.Begin("exitoff-1234")
+	raw, _ := json.Marshal(sessionSave{SID: "exitoff-1234", Speed: 0, ResumeSpeed: 2, SavedAt: old, Game: g.Export()})
+	if !saves.Put("exitoff-1234", gen, raw, old) {
+		t.Fatal("не удалось записать тестовый сейв")
+	}
+
+	c, ctx := dialSaves(t, saves, cfg, time.Second, "?sid=exitoff-1234")
+	first := readResume(t, ctx, c)
+	// Если бы догон шёл со скоростью ResumeSpeed, 2ч на 2× дали бы день ≈ 267.
+	if !first.Resumed || first.Day != 1 || first.Clock != "10:00" || first.Money != g.Money || first.Speed != 2 {
+		t.Fatalf("после «Продолжить»: %+v, хотим день 1 10:00 $%d speed 2", first, g.Money)
+	}
+	// offline_report пишется сразу за первым снапшотом, до любого тика.
+	var next testMessage
+	if err := wsjson.Read(ctx, c, &next); err != nil {
+		t.Fatal(err)
+	}
+	if next.Type != "state" {
+		t.Fatalf("после первого снапшота ждали state (тик), получили %s", next.Type)
+	}
+	if ss := loadSave(t, saves, "exitoff-1234"); ss.ResumeSpeed != 0 {
+		t.Fatalf("ResumeSpeed не обнулился: %d", ss.ResumeSpeed)
+	}
+}
+
+// exit зажимает скорость в 0..3 и не отвечает bad_speed; set_speed
+// возврат снимает: явный выбор игрока главнее.
+func TestExitClampsAndSetSpeedClears(t *testing.T) {
+	saves := newTestStore(t)
+	c, ctx := dialSaves(t, saves, savesTestConfig(), time.Hour, "?sid=exitclamp-12")
+	readResume(t, ctx, c)
+	// Любой error за время теста — провал: readUntil их пропускает, ловим вручную.
+	step := func(msg clientMessage, wantSpeed int) sessionSave {
+		t.Helper()
+		if err := wsjson.Write(ctx, c, msg); err != nil {
+			t.Fatal(err)
+		}
+		readUntil(t, ctx, c, func(m testMessage) bool {
+			if m.Type == "error" {
+				t.Fatalf("%s %d: error %s", msg.Type, msg.Speed, m.Code)
+			}
+			return m.Type == "state" && m.Speed == wantSpeed
+		})
+		return loadSave(t, saves, "exitclamp-12")
+	}
+	if ss := step(clientMessage{Type: "exit", Speed: 9}, 0); ss.Speed != 0 || ss.ResumeSpeed != 3 {
+		t.Fatalf("exit 9: speed %d resumeSpeed %d, хотим 0/3", ss.Speed, ss.ResumeSpeed)
+	}
+	if ss := step(clientMessage{Type: "set_speed", Speed: 1}, 1); ss.Speed != 1 || ss.ResumeSpeed != 0 {
+		t.Fatalf("set_speed 1: speed %d resumeSpeed %d, хотим 1/0", ss.Speed, ss.ResumeSpeed)
+	}
+	if ss := step(clientMessage{Type: "exit", Speed: -1}, 0); ss.Speed != 0 || ss.ResumeSpeed != 0 {
+		t.Fatalf("exit -1: speed %d resumeSpeed %d, хотим 0/0", ss.Speed, ss.ResumeSpeed)
+	}
+}
