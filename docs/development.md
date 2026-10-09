@@ -185,6 +185,21 @@ documenting separately:
   (`{type:'sound', key, name, volume, scene, ok}` /
   `{type:'toast', text, where, ms, bg, scene}`), routed through
   `client/src/uibus.ts`.
+- **`itd.step()` / `itd.advanceDays(n)`** (ITGAME-56) fast-forward through
+  `/api/debug/advance` with the *offline* engine (`AdvanceOffline`, the same
+  summary formula as the «while you were away» catch-up): no coffee rolls,
+  events, breakdowns or XP, and a day boundary closes without a day report
+  and without `next_day`'s rolls — neither `day_report` nor `offline_report`
+  reaches the client. If the game sits in `day_report`, the server first runs
+  a normal `next_day`. `step` pauses first (`set_speed 0`, left at 0) and takes
+  either milliseconds (`itd.step(2000)` = 2 ticks, up to 10 ticks — the old
+  form) or ticks (`itd.step({ticks: 60})`, 1..10000, the server's limit);
+  `advanceDays(n)` moves n whole days (1..90) and leaves the speed alone. The
+  summary comes back in `.advance` (`{ticks, days, income, payroll, balance,
+  gameOver, victory, reason?}`) and lands as one «debug · advance» line in
+  `itd.snapshot().events`; `itd.log()` only sees the snapshot transitions
+  (`day`, `phase`) plus `game_over`/`victory` on a finale. For a real day
+  report, stop a tick short and let the last tick run live (`qa:facade` D1).
 - **`itd.trace(action, windowMs)`** (ITGAME-37) is a *live* subscription,
   not a slice of `log()`/`net()`: it wires up listeners before `action` runs
   and keeps them for `windowMs` ms (0..10000, default 1000) after `action`
@@ -245,7 +260,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:buttons` | HUD buy-button enabled/tooltip/alpha states (ITGAME-17) | :4180, self-serve |
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35) | :4179, self-serve + temp saves dir |
 | `npm run qa:hud` | HUD layout column, toast stack, no overlaps (ITGAME-16) | :4174, self-serve |
-| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49) | :4175, self-serve |
+| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56) | :4175, self-serve |
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
@@ -263,7 +278,7 @@ another process, and verifies after boot that the server actually answers
 with the local `client/dist` build (not someone else's) — a busy port fails
 loudly instead of running the suite against the wrong server. It also sets
 `ITGAME_DEBUG=1` on the spawned `bin/itdirector` (see [Agent bridge](
-#agent-bridge-wsagent)), since `itd.set()`/`itd.advance()`/… — used by
+#agent-bridge-wsagent)), since `itd.set()`/`itd.step()`/`itd.advanceDays()`/… — used by
 `qa:buttons`, `qa:hud`, `qa:trace`, `qa:facade`, `qa:slots`, `qa:party` — need `/api/debug/*`
 registered. `qa:tabs`/`qa:party` additionally self-serves with a temporary saves
 directory, since their session-takeover/«Continue» scenarios need a real saves store

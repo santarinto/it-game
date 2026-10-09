@@ -22,6 +22,8 @@
 //   A7  рестарт партии без перезагрузки: speed/nav active живые, нет pageerror (D2)
 //   D1  mid_day10 на паузе, itd.step до 12:00/14:00/17:00 → hud.dayProfit одинаков (±$50), > 0
 //       и равен day_report.profit дня 10 (последний тик — живой, ради настоящего отчёта)
+//   D3  mid_day10 (день 10, тик 12) на паузе, itd.step({ticks: 60}) — 60 тиков за ОДИН вызов:
+//       .advance.ticks 60, .advance.days 1, день 11 тик 18 (ITGAME-56; ms-форма — D1)
 //   + на странице нет pageerror
 //
 // Отклонения от буквального сценария в трекере (см. отчёт агента):
@@ -528,6 +530,31 @@ async function run() {
       `D1: hud.dayProfit в 12:00 = day_report.profit дня 10 (±$${D1_TOL})`,
       !!reportD1 && Number.isFinite(vals[0]) && Math.abs(reportD1.profit - vals[0]) <= D1_TOL,
       `hud12=${vals[0]} report=${JSON.stringify(reportD1)}`,
+    )
+
+    // ── D3 (ITGAME-56): ticks-форма itd.step — больше 10 тиков за вызов.
+    // mid_day10: день 10, тик 12, dayTicks 54. +60 тиков офлайн-движком: хвост
+    // дня (42) закрывает день 10, остаток 18 — в день 11. Скорость уже 0 (D1).
+    await page.evaluate(() => window.itd.scenario('mid_day10'))
+    await page.waitForFunction(
+      () => { const s = window.itd.state(); return s.phase === 'running' && s.day === 10 && s.tickInDay === 12 },
+      { timeout: 10000 },
+    )
+    const stepD3 = await page.evaluate(() =>
+      window.itd.step({ ticks: 60 }).then(
+        (r) => ({ ok: true, advance: r.advance, day: r.state.day, tickInDay: r.state.tickInDay }),
+        (e) => ({ ok: false, error: String(e?.message ?? e) }),
+      ),
+    )
+    await page
+      .waitForFunction(() => window.itd.state().day === 11 && window.itd.state().tickInDay === 18, { timeout: 5000 })
+      .catch(() => {})
+    const stD3 = await page.evaluate(() => ({ day: window.itd.state().day, tickInDay: window.itd.state().tickInDay }))
+    check(
+      'D3: itd.step({ticks: 60}) — 60 тиков за вызов: день 10 тик 12 → день 11 тик 18',
+      stepD3.ok && stepD3.advance?.ticks === 60 && stepD3.advance?.days === 1 &&
+        stepD3.day === 11 && stepD3.tickInDay === 18 && stD3.day === 11 && stD3.tickInDay === 18,
+      JSON.stringify({ stepD3, stD3 }),
     )
 
     // ── нет ошибок на странице за весь прогон
