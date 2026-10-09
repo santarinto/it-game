@@ -82,10 +82,19 @@ export class MenuScene extends Phaser.Scene {
   // Открыто подтверждение новой партии: отмена возвращает фокус на
   // «Продолжить» — повторный Enter продолжает, а не спрашивает снова.
   private confirmOpen = false
-  // Где стоял курсор, когда закрылась модалка: плашка, оказавшаяся под
-  // неподвижной мышью, получает pointerover, но фокус не забирает — его
-  // переносит только настоящее движение мыши.
+  // Где стоял курсор, когда фокус последний раз поставили не мышью
+  // (перестройка блока, закрытие модалки, стрелки): плашка, оказавшаяся под
+  // неподвижной мышью, получает pointerover (в том числе от синтетического
+  // движения на месте), но фокус не забирает — его переносит только
+  // настоящее движение мыши. Иначе Enter на «Итоге» открывал уровень,
+  // всплывший под курсором при перестройке меню (ITGAME-19).
   private restingPointer?: { x: number; y: number }
+
+  private pinPointer() {
+    if (!this.input) return
+    const p = this.input.activePointer
+    this.restingPointer = { x: p.x, y: p.y }
+  }
 
   constructor() {
     super({ key: 'menu', cameras: HIRES_CAMERA })
@@ -310,6 +319,8 @@ export class MenuScene extends Phaser.Scene {
     const keep = this.focusItems.some((f) => f.id === this.focusId)
     this.setFocus(keep ? this.focusId : withCard ? 'menu.continue' : 'menu.diff.normal')
 
+    this.pinPointer()
+
     // Перестройка при открытой модалке: блок появится, когда её закроют.
     if (this.modalUI.length > 0) ui.forEach((o) => o.setVisible(false))
     this.menuUI.push(...ui)
@@ -348,6 +359,7 @@ export class MenuScene extends Phaser.Scene {
     if (n === 0) return
     const i = this.focusItems.findIndex((f) => f.id === this.focusId)
     this.setFocus(this.focusItems[(Math.max(i, 0) + step + n) % n].id)
+    this.pinPointer()
   }
 
   // Новая партия при живом сейве (ITGAME-19): раньше старт молча затирал
@@ -365,10 +377,7 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private closeModal() {
-    if (this.modalUI.length > 0 && this.input) {
-      const p = this.input.activePointer
-      this.restingPointer = { x: p.x, y: p.y }
-    }
+    if (this.modalUI.length > 0) this.pinPointer()
     this.modalUI.forEach((o) => o.destroy())
     this.modalUI = []
     this.menuUI.forEach((o) => o.setVisible(true))
