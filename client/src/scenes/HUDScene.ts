@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import { GAME_H, GAME_W, HUD_H, NAV_W, layoutColumn, layoutRow } from '../layout'
-import { client } from '../net'
+import { client, offlineShown } from '../net'
 import type { DayReportMessage, GameOverMessage, OfflineReportMessage, ServerErrorCode, StateMessage, VictoryMessage } from '../protocol'
 import { fmtMoney } from '../format'
 import { nav } from '../rooms'
@@ -398,6 +398,7 @@ export class HUDScene extends Phaser.Scene {
   // Финал офлайн (банкротство/победа) не дублируется обычными экранами —
   // его закрывает кнопка «В меню» прямо отсюда.
   private showOfflineReport(r: OfflineReportMessage) {
+    if (!offlineShown(r)) return // догон внутри дня — тихий (itd.offline() его видит)
     this.hideButtonTooltip()
     playSfx(this, r.gameOver ? 'glitch' : r.victory ? 'confirmation' : 'bong')
     this.offlineUI.forEach((o) => o.destroy())

@@ -349,9 +349,11 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 	debugC := sess.debugC
 
 	hub.write(ctx, snapshot(g, speed, resumed, scenario))
-	// Отчёт «пока вас не было»: только когда было что симулировать
-	// (прошёл день / финал). Короткий разрыв (деплой) — тихий resume.
-	if resumed && offline != nil && (offline.Days > 0 || offline.GameOver || offline.Victory) {
+	// Отчёт «пока вас не было»: всегда, когда догон что-то промотал. Окно
+	// клиент показывает только при смене дня или финале — короткий разрыв
+	// (деплой) остаётся тихим для игрока, но отладка видит, что догон был
+	// (приёмка ITGAME-65, 10.10: «часы ушли, окна нет» выводилось косвенно).
+	if resumed && offline != nil && (offline.Ticks > 0 || offline.GameOver || offline.Victory) {
 		hub.write(ctx, offlineReportMessage{
 			Type: "offline_report", Ticks: offline.Ticks, Days: offline.Days,
 			Income: offline.Income, Payroll: offline.Payroll, Balance: offline.Balance,

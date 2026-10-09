@@ -71,7 +71,12 @@ written `<sid>.json`. On reconnect with the same `sid` within the TTL
   (`GameClient.suspend`) are not an explicit exit: offline catch-up applies as before (ITGAME-65);
 - game endings and `abandon` delete the save; another tab with the same
   `sid` takes the session over and the old one is closed with
-  `session_taken`;
+  `session_taken`. Locally the ending clears the tab's `sessionStorage`, and
+  the shared `localStorage` `itd.sid`/`itd.diff` only when that key holds
+  this party's own sid — an agent tab with an explicit sid, or a tab whose
+  shared key a neighbour already overwrote, leaves the other save's
+  «Continue» alone; likewise only a non-tab (`local`/`generated`) party
+  writes `itd.diff` (acceptance 10.10);
 - if the server has no save for the `sid` (expired, deleted, never existed),
   «Continue» still connects and the server starts a **new** game under the
   same `sid`. The first snapshot of every `/ws` connection carries `resumed`
@@ -183,13 +188,32 @@ domain regardless (see [Deploy](#deploy)).
 documenting separately:
 
 - **`itd.nodes()` / `itd.ids()`** — every object of the live scenes
-  (`{scene, type, id, text, x, y, w, h, visible, alpha, interactive, depth,
-  active}`) / just the stable interactive ids (`btn.*`, `nav.*`, `office.*`,
+  (`{scene, type, id, text, x, y, w, h, cx, cy, visible, alpha, interactive,
+  depth, active}`) / just the stable interactive ids (`btn.*`, `nav.*`, `office.*`,
   `room.*`, `menu.*`, `modal.*`). `active` (ITGAME-38) is a
   `setData('active', …)` flag scenes set on toggle-like objects (speed
   buttons, nav tabs, the debug toggle, checkboxes, zoom) — distinct from
   Phaser's own `GameObject.active` — `null` for anything that isn't a
-  toggle.
+  toggle. `x`/`y` is the object's position by its origin (top-left for HUD
+  plates, centre for texts and some modal buttons), so for a real click use
+  `cx`/`cy` — the centre of the world bounds (acceptance 10.10).
+- **`itd.hit(id)` / `itd.blocker()`** (acceptance 10.10) — `itd.click()`
+  bypasses the hit test, so it can't tell a covered button from a live one.
+  `hit(id)` emulates Phaser's `globalTopOnly` hit test at the object's
+  `cx`/`cy` (scenes top-down; within a scene the visible interactive with the
+  highest depth, later-drawn wins a tie) and answers `{ok, at, top}` — `top`
+  is who would take a real click (e.g. the day report's dimmer, depth 50,
+  over `btn.menu`). `blocker()` is the topmost visible interactive covering
+  the whole 1280×720 canvas (report dimmer, modal backdrop) or `null`.
+- **`itd.offline()`** — the page's last offline catch-up `{ticks, days,
+  shown, at}` or `null`. The server now sends `offline_report` whenever the
+  catch-up advanced any tick (or hit a finale); the HUD shows «Пока вас не
+  было» only for `days > 0` or a finale (`offlineShown()` in `net.ts`), so a
+  short in-day gap stays silent for the player but is visible here. A save
+  paused or sitting in a day report catches up nothing — no message, `null`.
+- **`itd.errors()`** — page errors, kept in the tab's `sessionStorage`
+  (`itd.errors`, last 100) so they survive a reload/navigation; `load` is the
+  page-load number in this tab (`itd.loads`).
 - **`itd.overlaps()`** — the layout linter; each finding carries a `kind`
   (ITGAME-38): `text` (two same-depth texts), `occlusion` (text under an
   opaque plate), or `interactive` (an interactive container/sprite/checkbox
@@ -203,7 +227,13 @@ documenting separately:
 - **`itd.offscreen()`** — objects sticking out of the 1280×720 world (world
   px); since ITGAME-61 also one `{scene:'page', type:'canvas', id:null}`
   entry when the canvas itself does not fit the visible window area
-  (`bounds`/`out` in CSS px) — a UI scale too big for the window. At the QA
+  (`bounds`/`out` in CSS px) — a UI scale too big for the window; `out.right`
+  also counts `#app`'s own horizontal overflow (it scrolls by itself). «по
+  окну» sizes from `documentElement.clientWidth` (not `innerWidth`, which
+  includes a vertical scrollbar), and `body` is a flex column so `#topbar` +
+  `#app` never exceed the viewport height (acceptance 10.10: the old
+  `#app { min-height: 100vh }` plus the topbar scrolled the page, the
+  scrollbar ate 14 px and «по окну» overflowed by 6). At the QA
   viewport 1920×1080 with 1×/1.4× it is absent, so visreg/qa counts are
   unchanged.
 - **`itd.log(n)`** — the ring buffer (200 entries, survives a console

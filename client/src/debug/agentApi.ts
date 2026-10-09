@@ -2,7 +2,8 @@ import Phaser from 'phaser'
 import { client, sessionId } from '../net'
 import { partyChange, resetForNewGame } from '../party'
 import { nav } from '../rooms'
-import type { SocketStatus, TransportErrorCode } from '../net'
+import { GAME_H, GAME_W } from '../layout'
+import type { OfflineCatchUp, SocketStatus, TransportErrorCode } from '../net'
 import { COMMAND_TYPES } from '../protocol'
 import type { CommandType, ServerErrorCode, StateMessage } from '../protocol'
 import { CONTRACT } from './contract.gen'
@@ -267,8 +268,10 @@ export interface AgentServer {
   snapshot: StateMessage | null
 }
 
-// nodes()/text(): объект сцены. x/y — позиция объекта (для вложенных в
-// контейнер — локальные), w/h — габариты по bounds (с учётом масштаба).
+// nodes()/text(): объект сцены. x/y — позиция объекта по его origin (у плашек
+// HUD — левый верхний угол, у кнопок модалок и текстов — центр; для вложенных в
+// контейнер — локальные), w/h — габариты по bounds (с учётом масштаба),
+// cx/cy — центр bounds в мировых 1280×720: точка для настоящего клика.
 export interface AgentNode {
   scene: string
   type: string
@@ -278,6 +281,8 @@ export interface AgentNode {
   y: number
   w: number
   h: number
+  cx: number
+  cy: number
   visible: boolean
   alpha: number
   interactive: boolean
@@ -285,6 +290,24 @@ export interface AgentNode {
   // ITGAME-38: состояние переключателя (markActive) — true/false для
   // контролов со сменным состоянием, null у всех прочих объектов.
   active: boolean | null
+}
+
+// hit()/blocker() (приёмка 10.10): кто примет настоящий клик в точке —
+// эмуляция хит-теста Phaser (globalTopOnly): сцены сверху вниз, в сцене —
+// видимый interactive с наибольшей глубиной, чьи bounds содержат точку.
+export interface HitTarget {
+  scene: string
+  type: string
+  id: string | null
+  depth: number
+}
+
+export interface HitResult {
+  ok: boolean // true — клик в центр цели попадёт в саму цель
+  id: string
+  at: { x: number; y: number } | null // центр цели, мировые 1280×720 (= nodes().cx/cy)
+  top: HitTarget | null // кто примет клик в этой точке; null — никто
+  why?: string // нет узла / узел невидим
 }
 
 export interface AgentResult {
@@ -365,8 +388,9 @@ export interface ItdApi {
    */
   server(): AgentServer
   /**
-   * Все объекты живых сцен: {scene, type, id, text, x, y, w, h, visible,
-   * alpha, interactive, depth, active}.
+   * Все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy,
+   * visible, alpha, interactive, depth, active}. x/y — позиция по origin,
+   * cx/cy — центр bounds (точка для настоящего клика).
    * @example itd.nodes()
    */
   nodes(): AgentNode[]
@@ -446,6 +470,30 @@ export interface ItdApi {
    * @example itd.offscreen().filter(e => e.scene === 'page')
    */
   offscreen(): OffscreenEntry[]
+  /**
+   * Попадёт ли НАСТОЯЩИЙ клик в центр объекта в него самого: эмуляция
+   * хит-теста Phaser (сцены сверху вниз, в сцене — interactive с наибольшей
+   * глубиной). ok:false + top — кто перехватит клик (например, затемнение
+   * отчёта дня поверх HUD). itd.click() этого не проверяет: он мимо хит-теста.
+   * @example itd.hit('btn.menu')
+   * @example itd.hit('btn.menu').top
+   */
+  hit(id: string): HitResult
+  /**
+   * Что сейчас перекрывает ввод во весь холст: верхний видимый interactive,
+   * чьи bounds покрывают 1280×720 (затемнение отчёта дня, модалки, «Пока вас
+   * не было»). null — сплошного перекрытия нет. Под ним нажимаются только
+   * объекты той же сцены с большей глубиной.
+   * @example itd.blocker()
+   */
+  blocker(): HitTarget | null
+  /**
+   * Последний офлайн-догон этой страницы: {ticks, days, shown, at} или null.
+   * shown:false — догон внутри дня, окно «Пока вас не было» игроку не показано.
+   * Догона нет и при ticks 0 (сейв на паузе или в отчёте дня) — тогда null.
+   * @example itd.offline()
+   */
+  offline(): OfflineCatchUp | null
   /**
    * Линтер: контраст текста к фону ниже 3:1.
    * @example itd.contrast()
@@ -728,11 +776,15 @@ function walkObjects(sceneKey: string, objects: Phaser.GameObjects.GameObject[],
     }
     let w = 0
     let h = 0
+    let cx = typeof o.x === 'number' ? o.x : 0
+    let cy = typeof o.y === 'number' ? o.y : 0
     try {
       const b = o.getBounds?.()
       if (b) {
         w = b.width
         h = b.height
+        cx = b.centerX
+        cy = b.centerY
       }
     } catch {
       w = typeof o.width === 'number' ? o.width : 0
@@ -748,6 +800,8 @@ function walkObjects(sceneKey: string, objects: Phaser.GameObjects.GameObject[],
       y: typeof o.y === 'number' ? o.y : 0,
       w,
       h,
+      cx: Math.round(cx * 10) / 10,
+      cy: Math.round(cy * 10) / 10,
       visible: o.visible !== false,
       alpha: typeof o.alpha === 'number' ? o.alpha : 1,
       interactive: o.input?.enabled === true,
@@ -764,6 +818,65 @@ function activeNodes(game: Phaser.Game): AgentNode[] {
     walkObjects(scene.scene.key, scene.children.list, out)
   }
   return out
+}
+
+interface HitCandidate { t: HitTarget; b: Phaser.Geom.Rectangle; order: number }
+
+// Видимые interactive объекты сцены с мировыми bounds; вложенные в контейнер
+// наследуют глубину и видимость контейнера, порядок — порядок отрисовки.
+function interactiveIn(sceneKey: string, objects: Phaser.GameObjects.GameObject[], depth: number | null,
+  out: HitCandidate[]): void {
+  for (const obj of objects) {
+    const o = obj as unknown as {
+      type?: string
+      visible?: boolean
+      alpha?: number
+      depth?: number
+      input?: { enabled?: boolean } | null
+      getData?(k: string): unknown
+      getBounds?(): Phaser.Geom.Rectangle
+      list?: Phaser.GameObjects.GameObject[]
+    }
+    if (o.visible === false || o.alpha === 0) continue
+    const d = depth ?? (typeof o.depth === 'number' ? o.depth : 0)
+    if (o.input?.enabled === true) {
+      try {
+        const b = o.getBounds?.()
+        const id = o.getData?.('id')
+        if (b) out.push({ t: { scene: sceneKey, type: o.type ?? 'unknown', id: typeof id === 'string' ? id : null, depth: d }, b, order: out.length })
+      } catch { /* без bounds — не цель */ }
+    }
+    if (o.list) interactiveIn(sceneKey, o.list, d, out)
+  }
+}
+
+// Верхний в сцене: наибольшая глубина, при равной — позже отрисованный.
+function topOf(cands: HitCandidate[]): HitCandidate | null {
+  let best: HitCandidate | null = null
+  for (const c of cands) {
+    if (!best || c.t.depth > best.t.depth || (c.t.depth === best.t.depth && c.order > best.order)) best = c
+  }
+  return best
+}
+
+function hitAt(game: Phaser.Game, x: number, y: number): HitTarget | null {
+  for (const scene of game.scene.getScenes(true, true)) {
+    const cands: HitCandidate[] = []
+    interactiveIn(scene.scene.key, scene.children.list, null, cands)
+    const top = topOf(cands.filter((c) => c.b.contains(x, y)))
+    if (top) return top.t
+  }
+  return null
+}
+
+function blockerOf(game: Phaser.Game): HitTarget | null {
+  for (const scene of game.scene.getScenes(true, true)) {
+    const cands: HitCandidate[] = []
+    interactiveIn(scene.scene.key, scene.children.list, null, cands)
+    const full = topOf(cands.filter((c) => c.b.x <= 0 && c.b.y <= 0 && c.b.right >= GAME_W && c.b.bottom >= GAME_H))
+    if (full) return full.t
+  }
+  return null
 }
 
 function findById(game: Phaser.Game, id: string): { obj: Phaser.GameObjects.GameObject; scene: string } | null {
@@ -822,7 +935,7 @@ const COMMANDS = new Set<string>(COMMAND_TYPES)
 const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/39)
   itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); menuReady — меню создано, активно и сводка сейва устоялась
   itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt, reconnects, sid, sidSwitches
-  itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, visible, alpha, interactive, depth, active}
+  itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy, visible, alpha, interactive, depth, active}; x/y — по origin объекта, cx/cy — центр bounds (точка для клика)
   itd.text()                        — nodes() с непустым текстом
   itd.ids()                         — стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*, modal.*) + active
                                        active — состояние переключателя (btn.speed.*, nav.*, btn.skip_reports, btn.debug, menu.zoom.*), null у прочих; НЕ GameObject.active
@@ -836,11 +949,14 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.wait(s => s.day === 2)        — промис: поллинг state()/server() до условия (таймаут 5с, второй аргумент — свой); готовность меню — wait(s => s.menuReady), до старта партии state() null, но menuReady уже честен
   itd.overlaps({minAreaRatio}?)     — линтер вёрстки: kind: text — тексты одного depth; occlusion — текст под непрозрачной плашкой; interactive — интерактив частично перекрыт интерактивом или текстом (вложенность целиком — не находка); пара {scene, kind, a, b, overlap{w,h}, at{x,y}, ratio, threshold}: ratio — площадь пересечения / площадь меньшего из пары (occlusion — / площадь текста), threshold — порог сравнения; minAreaRatio 0..1 заменяет пороги по умолчанию (text/interactive 0, occlusion 0.25 + >50% по каждой оси; заданный minAreaRatio заменяет и правило по осям — для occlusion находок может стать больше): 0 — строгий режим, 0.3 — порог по площади для всех kind
   itd.offscreen()                   — линтер: вылезание за канвас 1280×720; + {scene:'page', type:'canvas'} — канвас не влез в окно (CSS px)
+  itd.hit('btn.menu')               — попадёт ли НАСТОЯЩИЙ клик в центр объекта в него: {ok, at{x,y}, top{scene,id,type,depth}} — top перехватит (затемнение отчёта поверх HUD); itd.click этого не видит
+  itd.blocker()                     — что перекрывает ввод во весь холст (затемнение отчёта, модалка) или null
+  itd.offline()                     — последний офлайн-догон страницы {ticks, days, shown, at}: shown:false — догон внутри дня, окна «Пока вас не было» не было
   itd.contrast()                    — линтер: контраст текста к фону ниже 3:1
   itd.tiny()                        — линтер: шрифт мельче 12px
   itd.log(50)                       — журнал переходов (кольцевой на 200, переживает чистку консоли); + {type:'sound', key:'sfx:bong', name, volume, scene, ok}, {type:'toast', text, where, ms, bg, scene}
                                        Пример: itd.log(200).filter(e => e.type === 'sound').map(e => e.key)
-  itd.errors()                      — ошибки страницы (window.onerror + unhandledrejection)
+  itd.errors()                      — ошибки страницы (window.onerror + unhandledrejection), переживают перезагрузку вкладки: load — номер загрузки
   itd.net(20)                       — последние сообщения WS в обе стороны + сокет/rtt/реконнекты
   itd.version                       — {sha, builtAt} сборки (+ <meta name="build"> в html)
   itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне палитры манифеста ключа (hd32/sweetie16), дубли ключей
@@ -988,6 +1104,19 @@ function makeApi(game: Phaser.Game): ItdApi {
     },
     overlaps: (opts) => findOverlaps(game, opts),
     offscreen: () => findOffscreen(game),
+    hit(id) {
+      warmIfHidden()
+      const n = activeNodes(game).find((x) => x.id === id)
+      if (!n) return { ok: false, id, at: null, top: null, why: 'нет узла' }
+      if (!n.visible) return { ok: false, id, at: { x: n.cx, y: n.cy }, top: null, why: 'узел невидим' }
+      const top = hitAt(game, n.cx, n.cy)
+      return { ok: top?.id === id, id, at: { x: n.cx, y: n.cy }, top }
+    },
+    blocker() {
+      warmIfHidden()
+      return blockerOf(game)
+    },
+    offline: () => client.lastOffline,
     contrast: () => findLowContrast(game),
     tiny: () => findTiny(game),
     assets() {

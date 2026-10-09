@@ -129,21 +129,42 @@ export function hasSavedSession(): boolean {
   return sessionStorage.getItem(SID_KEY) !== null || localStorage.getItem(SID_KEY) !== null
 }
 
+// Окно «Пока вас не было» — только при смене дня или финале; короткий догон
+// внутри дня сервер тоже присылает, но игроку он тих (приёмка 10.10).
+export function offlineShown(r: OfflineReportMessage): boolean {
+  return r.days > 0 || r.gameOver || r.victory
+}
+
+// Последний офлайн-догон этой страницы (для itd.offline()).
+export interface OfflineCatchUp {
+  ticks: number
+  days: number
+  shown: boolean // показано ли игроку окно «Пока вас не было»
+  at: number // epoch ms прихода
+}
+
 export function savedDifficulty(): DifficultyId {
   return (localStorage.getItem(DIFF_KEY) as DifficultyId) ?? 'normal'
 }
 
 // clearSession — сейва больше нет (финал/сдаться): спрятать «Продолжить».
 // Память вкладки тоже забываем: следующее чтение честно создаст новый sid.
+// Общий ключ игрока (и его сложность) стираем, только если там лежит ЭТА
+// партия: агентская вкладка с явным sid или вкладка, чей общий ключ уже
+// перезаписал сосед новой партией, чужой сейв не трогают (приёмка ITGAME-65,
+// 10.10: «Сдаться» в агентской партии стёрло «Продолжить» владельца).
 export function clearSession(): void {
+  const mine = memorySid
   memorySid = null
   sidOrigin = null
   partyOrigin = null
   sessionStorage.removeItem(SID_KEY)
   sessionStorage.removeItem(SID_AUTO_KEY)
   sessionStorage.removeItem('itd.speedBeforeReport')
-  localStorage.removeItem(SID_KEY)
-  localStorage.removeItem(DIFF_KEY)
+  if (mine !== null && localStorage.getItem(SID_KEY) === mine) {
+    localStorage.removeItem(SID_KEY)
+    localStorage.removeItem(DIFF_KEY)
+  }
 }
 
 // peekSave (ITGAME-19): факты сейва для меню — «День 3 · $60 · НОРМА».
@@ -293,6 +314,7 @@ export class GameClient {
   // Следующий state — первый на текущем сокете (в нём resumed значим, ITGAME-54).
   private firstOfSocket = false
   private difficulty: DifficultyId = 'normal'
+  lastOffline: OfflineCatchUp | null = null
   private broadcastChannel: BroadcastChannel | null = null
 
   constructor() {
@@ -400,11 +422,13 @@ export class GameClient {
     this.takenOver = false
     this.sessionSid = null // смена sid здесь запланирована (новая партия)
     this.difficulty = difficulty
-    localStorage.setItem(DIFF_KEY, difficulty)
     // Ключ сессии появляется в хранилищах только здесь — с реальной партией
     // (ITGAME-30): зеркало вкладки (sessionStorage) держит партию против
     // чужого clearSession, общий ключ игрока не затирается вкладочными sid.
     persistSid()
+    // Сложность общего ключа — пара к нему: вкладочная (агентская) партия её
+    // не пишет, как и сам ключ.
+    if (partyOrigin !== 'session') localStorage.setItem(DIFF_KEY, difficulty)
     this.openSocket()
   }
 
@@ -488,6 +512,7 @@ export class GameClient {
         this.deliver(msg)
       } else if (msg.type === 'offline_report') {
         if (msg.gameOver || msg.victory) clearSession()
+        this.lastOffline = { ticks: msg.ticks, days: msg.days, shown: offlineShown(msg), at: Date.now() }
         this.deliver(msg)
       } else {
         console.error('неизвестный тип сообщения от сервера', msg)

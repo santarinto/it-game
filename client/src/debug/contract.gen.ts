@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "b8e6aee4784e",
+  "hash": "330dfbeb10a9",
   "methods": {
     "version": {
       "kind": "prop",
@@ -32,7 +32,7 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "AgentNode[]",
-      "doc": "Все объекты живых сцен: {scene, type, id, text, x, y, w, h, visible,\nalpha, interactive, depth, active}.",
+      "doc": "Все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy,\nvisible, alpha, interactive, depth, active}. x/y — позиция по origin,\ncx/cy — центр bounds (точка для настоящего клика).",
       "examples": [
         "itd.nodes()"
       ]
@@ -198,6 +198,40 @@ export const CONTRACT = {
       "examples": [
         "itd.offscreen()",
         "itd.offscreen().filter(e => e.scene === 'page')"
+      ]
+    },
+    "hit": {
+      "kind": "method",
+      "params": [
+        {
+          "name": "id",
+          "type": "string",
+          "optional": false
+        }
+      ],
+      "returns": "HitResult",
+      "doc": "Попадёт ли НАСТОЯЩИЙ клик в центр объекта в него самого: эмуляция\nхит-теста Phaser (сцены сверху вниз, в сцене — interactive с наибольшей\nглубиной). ok:false + top — кто перехватит клик (например, затемнение\nотчёта дня поверх HUD). itd.click() этого не проверяет: он мимо хит-теста.",
+      "examples": [
+        "itd.hit('btn.menu')",
+        "itd.hit('btn.menu').top"
+      ]
+    },
+    "blocker": {
+      "kind": "method",
+      "params": [],
+      "returns": "HitTarget | null",
+      "doc": "Что сейчас перекрывает ввод во весь холст: верхний видимый interactive,\nчьи bounds покрывают 1280×720 (затемнение отчёта дня, модалки, «Пока вас\nне было»). null — сплошного перекрытия нет. Под ним нажимаются только\nобъекты той же сцены с большей глубиной.",
+      "examples": [
+        "itd.blocker()"
+      ]
+    },
+    "offline": {
+      "kind": "method",
+      "params": [],
+      "returns": "OfflineCatchUp | null",
+      "doc": "Последний офлайн-догон этой страницы: {ticks, days, shown, at} или null.\nshown:false — догон внутри дня, окно «Пока вас не было» игроку не показано.\nДогона нет и при ticks 0 (сейв на паузе или в отчёте дня) — тогда null.",
+      "examples": [
+        "itd.offline()"
       ]
     },
     "contrast": {
@@ -553,6 +587,16 @@ export const CONTRACT = {
           "doc": ""
         },
         "h": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "cx": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "cy": {
           "type": "number",
           "optional": false,
           "doc": ""
@@ -1237,6 +1281,11 @@ export const CONTRACT = {
           "type": "string",
           "optional": false,
           "doc": ""
+        },
+        "load": {
+          "type": "number",
+          "optional": false,
+          "doc": "номер загрузки страницы в этой вкладке (1 — первая); ошибки прошлых загрузок переживают навигацию"
         }
       }
     },
@@ -1255,6 +1304,61 @@ export const CONTRACT = {
         },
         "doc": {
           "type": "string",
+          "optional": false,
+          "doc": ""
+        }
+      }
+    },
+    "HitResult": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "true — клик в центр цели попадёт в саму цель"
+        },
+        "id": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "at": {
+          "type": "{ x: number; y: number; } | null",
+          "optional": false,
+          "doc": "центр цели, мировые 1280×720 (= nodes().cx/cy)"
+        },
+        "top": {
+          "type": "HitTarget | null",
+          "optional": false,
+          "doc": "кто примет клик в этой точке; null — никто"
+        },
+        "why": {
+          "type": "string",
+          "optional": true,
+          "doc": "нет узла / узел невидим"
+        }
+      }
+    },
+    "HitTarget": {
+      "kind": "object",
+      "fields": {
+        "scene": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "type": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "id": {
+          "type": "string | null",
+          "optional": false,
+          "doc": ""
+        },
+        "depth": {
+          "type": "number",
           "optional": false,
           "doc": ""
         }
@@ -1429,6 +1533,31 @@ export const CONTRACT = {
           "type": "number",
           "optional": false,
           "doc": ""
+        }
+      }
+    },
+    "OfflineCatchUp": {
+      "kind": "object",
+      "fields": {
+        "ticks": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "days": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "shown": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "показано ли игроку окно «Пока вас не было»"
+        },
+        "at": {
+          "type": "number",
+          "optional": false,
+          "doc": "epoch ms прихода"
         }
       }
     },

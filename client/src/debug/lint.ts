@@ -332,9 +332,13 @@ function canvasOffWindow(game: Phaser.Game): OffscreenEntry | null {
   const r = game.canvas.getBoundingClientRect()
   const vw = document.documentElement.clientWidth
   const vh = document.documentElement.clientHeight
+  // #app прокручивается вбок сам (overflow-x: auto): его полоса — тоже вылезание,
+  // даже когда канвас против окна сходится (приёмка ITGAME-61, 10.10).
+  const app = document.getElementById('app')
+  const appOver = app ? Math.max(0, app.scrollWidth - app.clientWidth) : 0
   const out = {
     left: Math.round(Math.max(0, -r.left)),
-    right: Math.round(Math.max(0, r.right - vw)),
+    right: Math.round(Math.max(0, r.right - vw, appOver > 1 ? appOver : 0)),
     top: Math.round(Math.max(0, -r.top)),
     bottom: Math.round(Math.max(0, r.bottom - vh)),
   }

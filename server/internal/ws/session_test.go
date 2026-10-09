@@ -48,6 +48,7 @@ type testMessage struct {
 	Events       []string `json:"events"`
 	DaysSurvived int      `json:"daysSurvived"`
 	Days         int      `json:"days"` // offline_report: прошедшие дни
+	Ticks        int      `json:"ticks"` // offline_report: промотано тиков
 	Difficulty   string   `json:"difficulty"`
 	WinTarget    int      `json:"winTarget"`
 	ActiveEvent  *struct {

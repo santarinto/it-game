@@ -44,11 +44,13 @@ export function activeZoom(): ZoomValue {
 
 // «По окну»: вписать канвас во вьюпорт. topbar есть только у владельца/в debug
 // (ITGAME-22) — если он есть, резервируем его фактическую высоту + паддинг
-// #app и запас; иначе только паддинг.
+// #app и запас; иначе только паддинг. Ширина — clientWidth, а не innerWidth:
+// innerWidth включает вертикальную полосу прокрутки, если она есть (ITGAME-61).
 export function fitZoom(): number {
   const topbar = document.getElementById('topbar')
   const reserveY = (topbar?.offsetHeight ?? 0) + 16
-  return Math.max(Math.min((innerWidth - 8) / GAME_W, (innerHeight - reserveY) / GAME_H), 0.5)
+  const vw = document.documentElement.clientWidth || innerWidth
+  return Math.max(Math.min((vw - 8) / GAME_W, (innerHeight - reserveY) / GAME_H), 0.5)
 }
 
 export function zoomNumber(): number {

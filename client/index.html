@@ -6,6 +6,10 @@
     <title>IT Director</title>
     <style>
       html, body { margin: 0; background: #1a1c2c; height: 100%; }
+      /* Колонка: #topbar (если есть) + #app на остаток высоты. min-height: 100vh у
+         #app вместе с #topbar давал прокрутку страницы на высоту topbar, её полоса
+         съедала ширину, и «по окну» вылезало вбок (ITGAME-61, приёмка 10.10). */
+      body { display: flex; flex-direction: column; }
       /* Центрирование канваса — флексом, не Phaser autoCenter (он про margin).
          safe center: канвас шире окна не прячет левый край, а скроллится. */
       #app {
@@ -13,7 +17,7 @@
         justify-content: center;
         justify-content: safe center;
         align-items: flex-start;
-        min-height: 100vh;
+        flex: 1 0 auto;
         box-sizing: border-box;
         padding-top: 8px;
         overflow-x: auto;

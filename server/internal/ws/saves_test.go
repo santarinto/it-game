@@ -184,6 +184,33 @@ func TestResumeOfflineProgress(t *testing.T) {
 	}
 }
 
+// Догон внутри дня (приёмка 10.10): offline_report приходит и с days 0 —
+// окно клиент не покажет, но itd.offline() видит, что догон был.
+func TestResumeOfflineInsideDaySendsReport(t *testing.T) {
+	saves := newTestStore(t)
+	cfg := savesTestConfig()
+	g := game.NewWithSeed(cfg, 11, 22)
+	old := time.Now().Add(-20 * time.Second)
+	gen, _ := saves.Begin("inday-12345")
+	raw, _ := json.Marshal(sessionSave{SID: "inday-12345", Speed: 1, SavedAt: old, Game: g.Export()})
+	if !saves.Put("inday-12345", gen, raw, old) {
+		t.Fatal("не удалось записать тестовый сейв")
+	}
+
+	c, ctx := dialSaves(t, saves, cfg, time.Second, "?sid=inday-12345")
+	if resumed := readResume(t, ctx, c); !resumed.Resumed || resumed.Day != 1 {
+		t.Fatalf("после догона: %+v, хотим день 1", resumed)
+	}
+	var rep testMessage
+	if err := wsjson.Read(ctx, c, &rep); err != nil {
+		t.Fatalf("offline_report: %v", err)
+	}
+	// 20 с на 1× = 20 тиков из 54: день не сменился.
+	if rep.Type != "offline_report" || rep.Days != 0 || rep.Ticks < 19 || rep.Ticks > 21 {
+		t.Fatalf("offline_report внутри дня: %+v, хотим days 0, ticks ≈20", rep)
+	}
+}
+
 func TestAbandonDeletesSave(t *testing.T) {
 	saves := newTestStore(t)
 	c, ctx := dialSaves(t, saves, savesTestConfig(), time.Hour, "?sid=gone-12345")
