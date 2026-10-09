@@ -82,6 +82,10 @@ export class MenuScene extends Phaser.Scene {
   // Открыто подтверждение новой партии: отмена возвращает фокус на
   // «Продолжить» — повторный Enter продолжает, а не спрашивает снова.
   private confirmOpen = false
+  // Где стоял курсор, когда закрылась модалка: плашка, оказавшаяся под
+  // неподвижной мышью, получает pointerover, но фокус не забирает — его
+  // переносит только настоящее движение мыши.
+  private restingPointer?: { x: number; y: number }
 
   constructor() {
     super({ key: 'menu', cameras: HIRES_CAMERA })
@@ -312,7 +316,12 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private addFocusItem(item: FocusItem) {
-    item.bg.on('pointerover', () => this.setFocus(item.id))
+    item.bg.on('pointerover', (p: Phaser.Input.Pointer) => {
+      const rest = this.restingPointer
+      if (rest && p.x === rest.x && p.y === rest.y) return
+      this.restingPointer = undefined
+      this.setFocus(item.id)
+    })
     item.bg.on('pointerdown', () => {
       this.setFocus(item.id)
       item.activate()
@@ -356,6 +365,10 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private closeModal() {
+    if (this.modalUI.length > 0 && this.input) {
+      const p = this.input.activePointer
+      this.restingPointer = { x: p.x, y: p.y }
+    }
     this.modalUI.forEach((o) => o.destroy())
     this.modalUI = []
     this.menuUI.forEach((o) => o.setVisible(true))

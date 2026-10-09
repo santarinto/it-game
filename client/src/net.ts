@@ -417,7 +417,12 @@ export class GameClient {
     this.ws = new WebSocket(
       `${proto}://${location.host}/ws?difficulty=${this.difficulty}&sid=${urlSid}${qs ? `&${qs}` : ''}`,
     )
+    // События сокета, который уже заменён (suspend/resume из bfcache), —
+    // не наши: запоздалый close старого сокета запустил бы реконнект и
+    // войну session_taken с новым.
+    const ws = this.ws
     this.ws.onmessage = (ev) => {
+      if (ws !== this.ws) return
       this.stats.messages++
       this.stats.lastMessageAt = Date.now()
       if (this.commandSentAt !== null) {
@@ -463,7 +468,7 @@ export class GameClient {
     // onerror и onclose могут прийти оба — реакция одна, ровно один раз.
     let handled = false
     const onGone = (ev: CloseEvent | null) => {
-      if (this.intentionalClose || handled) return
+      if (ws !== this.ws || this.intentionalClose || handled) return
       handled = true
       this.failReceipts('disconnected')
       const reason = ev?.reason ?? ''
@@ -500,6 +505,31 @@ export class GameClient {
     this.failReceipts('disconnected')
     this.ws.close()
     this.latest = null
+  }
+
+  // Кэш «назад/вперёд» (ITGAME-19): Chrome кладёт ушедшую страницу в bfcache
+  // вместе с открытым WebSocket — сервер разрыва не видит, партия тикает
+  // онлайн без игрока и молча гибнет (сейв удалён финалом, замороженная
+  // страница ключ не стёрла — меню не знает, что случилось). На pagehide
+  // закрываем сокет сами: актор встаёт, пропущенное посчитает офлайн-догон
+  // с отчётом «пока вас не было»; на pageshow из кэша — подключаемся снова.
+  private suspended = false
+
+  suspend(): void {
+    if (!this.ws || this.intentionalClose || this.takenOver) return
+    this.suspended = true
+    this.intentionalClose = true
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = null
+    this.failReceipts('disconnected')
+    this.ws.close()
+  }
+
+  resume(): void {
+    if (!this.suspended) return
+    this.suspended = false
+    this.intentionalClose = false
+    this.openSocket()
   }
 
   // Все ждущие квитанции — отказ с кодом (сокет ушёл: висеть им нельзя).

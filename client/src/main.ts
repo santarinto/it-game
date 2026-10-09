@@ -8,6 +8,7 @@ import { OfficeScene } from './scenes/OfficeScene'
 import { ServerRoomScene } from './scenes/ServerRoomScene'
 import { installAgentApi } from './debug/agentApi'
 import { debug } from './debug'
+import { client } from './net'
 
 // «Админка» (ITGAME-22): только владельцу — ?admin=1 запоминает флаг, ?admin=0 снимает; в debug видна всегда.
 function adminLinkWanted(): boolean {
@@ -57,3 +58,16 @@ applyCanvasFilter(game, zoomNumber())
 
 // Агентский фасад window.itd (ITGAME-24): dev всегда, прод — ?debug=1.
 installAgentApi(game)
+
+// Кэш «назад/вперёд» (ITGAME-19): уходя в bfcache, страница отпускает сессию
+// (client.suspend — иначе партия тикает онлайн без игрока); вернувшись —
+// подключается снова, а меню перечитывает сводку сейва: пока страница спала,
+// день и баланс ушли вперёд.
+addEventListener('pagehide', (e) => {
+  if (e.persisted) client.suspend()
+})
+addEventListener('pageshow', (e) => {
+  if (!e.persisted) return
+  client.resume()
+  if (game.scene.isActive('menu')) game.scene.getScene('menu').scene.restart()
+})
