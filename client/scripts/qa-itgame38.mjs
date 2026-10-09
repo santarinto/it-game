@@ -294,7 +294,8 @@ async function run() {
     const lookRun = await speedLook(page)
     check(
       'A3: speed(2) → ⏸ в обычном виде (ITGAME-62)',
-      lookRun[0].fill === 0x232640 && lookRun[0].color === '#f4f4f4' && lookRun[0].label === '⏸',
+      lookRun[0].fill === 0x232640 && lookRun[0].stroke === 0x3a3f5c && lookRun[0].color === '#f4f4f4' &&
+        lookRun[0].label === '⏸' && lookRun.find((b) => b.speed === 2)?.stroke === 0x41a6f6,
       JSON.stringify(lookRun),
     )
     await page.evaluate(() => window.itd.pause())
@@ -312,8 +313,9 @@ async function run() {
     )
     check(
       'A3: pause() → ⏸ янтарная плашка, тёмная подпись, контраст ≥ 3:1 (ITGAME-62)',
-      lookPause[0].fill === 0xffcd75 && lookPause[0].color === '#1a1c2c' && lookPause[0].label === '⏸' &&
-        lookPause.slice(1).every((b) => b.fill === 0x232640 && b.color === '#f4f4f4') &&
+      lookPause[0].fill === 0xffcd75 && lookPause[0].stroke === 0xffcd75 && lookPause[0].color === '#1a1c2c' &&
+        lookPause[0].label === '⏸' &&
+        lookPause.slice(1).every((b) => b.fill === 0x232640 && b.stroke === 0x3a3f5c && b.color === '#f4f4f4') &&
         hudContrast.length === 0,
       JSON.stringify({ lookPause, hudContrast }),
     )
@@ -323,7 +325,7 @@ async function run() {
     const lookBack = await speedLook(page)
     check(
       'A3: speed(1) после паузы → ⏸ снова в обычном виде (ITGAME-62)',
-      lookBack[0].fill === 0x232640 && lookBack[0].color === '#f4f4f4' &&
+      lookBack[0].fill === 0x232640 && lookBack[0].stroke === 0x3a3f5c && lookBack[0].color === '#f4f4f4' &&
         lookBack.find((b) => b.speed === 1)?.stroke === 0x41a6f6,
       JSON.stringify(lookBack),
     )
