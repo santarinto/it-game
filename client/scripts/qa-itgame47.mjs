@@ -35,6 +35,26 @@
 //   R3   в офисе нет «закрыт», есть «ОФИС 2»
 //        (R идёт после E: после S1/E партия вкладки уже в офисе 0, и C1–C4 не отличили бы
 //        «сброс на каждом первом снапшоте» от «сброс только при resumed: false»)
+//   X1   itd.restore(save) с открытым О2 (вкладка на nav.office1): nav.office1 active, нет «закрыт»,
+//        есть «ОФИС 2» — контроль, restore остаётся дельтой (ITGAME-63)
+//   X2   itd.restore() с offices[1].Unlocked=false при nav.office1: вкладка → nav.office0, нет
+//        «закрыт», есть «ОФИС 1» (ITGAME-63)
+//   O1a  itd.scenario('fresh') из открытого отчёта дня (скорость была 1): ok, HUD не слал set_speed
+//        (сервер пушит снапшот новой партии раньше ответа — refresh() не должен «вернуть»
+//        скорость старой) (ITGAME-64)
+//   O1b  нет btn.next_day, reportUI пуст
+//   O1c  sessionStorage itd.speedBeforeReport === null, reportPauseSeq === 0
+//   O1d  день 1, phase running, скорость сессии 0 не тронута (владелец: партия остаётся на паузе)
+//   O2a  открытая карточка события (restore activeEvent 'deadline') → после scenario() нет
+//        btn.event.*, eventUI пуст
+//   O2b  lastEventId === ''
+//   O3   «Пока вас не было» (showOfflineReport напрямую) → после scenario() нет btn.offline.*
+//   O4   окно выхода (btn.menu → modal.btn.0) → после scenario() нет modal.*, HUD жив, меню нет,
+//        connected
+//   O5a  финал: scenario('pre_victory') → btn.victory.menu, sessionStorage itd.sid стёрт
+//        (clearSession) → scenario('fresh') ok (сессия на сервере жива до «В меню»)
+//   O5b  экран победы закрыт, день 1, phase running
+//   O5c  sid партии снова в хранилище вкладки и равен исходному
 //   Z    на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию :4181; порт не из
@@ -466,6 +486,248 @@ async function run() {
       'R3: в офисе нет «закрыт», есть «ОФИС 2»',
       !r3Texts.some((t) => /закрыт/.test(t)) && r3Texts.some((t) => t === 'ОФИС 2'),
       JSON.stringify(r3Texts),
+    )
+
+    // ── X: itd.restore() и активный офис (ITGAME-63) ───────────────────────
+    // Состояние тут: живая партия под sid gone, О2 куплен, вкладка на nav.office1, пауза.
+    const idList = () => page.evaluate(() => window.itd.ids().map((n) => n.id))
+    const waitTrue = (fn, ms, ...args) =>
+      page.waitForFunction(fn, { timeout: ms, polling: 100 }, ...args).then(
+        () => true,
+        () => false,
+      )
+    const hudRead = () =>
+      page.evaluate(() => {
+        const h = window.__itd.scene.getScene('hud')
+        return {
+          reportUI: h.reportUI.length,
+          eventUI: h.eventUI.length,
+          offlineUI: h.offlineUI.length,
+          victoryUI: h.victoryUI.length,
+          lastEventId: h.lastEventId,
+          reportPauseSeq: h.reportPauseSeq,
+          sbr: sessionStorage.getItem('itd.speedBeforeReport'),
+        }
+      })
+    const snapState = () =>
+      page.evaluate(() => {
+        const st = window.itd.state()
+        return { day: st.day, phase: st.phase, speed: window.itd.server().snapshot?.speed ?? null }
+      })
+
+    const xSave = await page.evaluate(async () => (await window.itd.snapshot()).save)
+    const x1pre = await navIds()
+    await page.evaluate(async (save) => {
+      try {
+        await window.itd.restore(save)
+      } catch {
+        /* читаем и пишем FAIL ниже */
+      }
+    }, xSave)
+    await delay(300)
+    const x1Nav = await navIds()
+    const x1Texts = await officeTexts()
+    check(
+      'X1: restore(save) с открытым О2 — nav.office1 по-прежнему active, нет «закрыт», есть «ОФИС 2» (контроль, ITGAME-63)',
+      isActive(x1pre, 'nav.office1') &&
+        isActive(x1Nav, 'nav.office1') &&
+        !x1Texts.some((t) => /закрыт/.test(t)) &&
+        x1Texts.some((t) => t === 'ОФИС 2'),
+      JSON.stringify({ pre: isActive(x1pre, 'nav.office1'), nav: x1Nav.map((n) => `${n.id}:${n.active}`), texts: x1Texts }),
+    )
+
+    const x2Keys = Object.keys(xSave.offices[1] ?? {})
+    const x2Copy = JSON.parse(JSON.stringify(xSave))
+    x2Copy.offices[1].Unlocked = false
+    const x2Err = await page.evaluate(async (save) => {
+      try {
+        await window.itd.restore(save)
+        return null
+      } catch (e) {
+        return String(e?.message ?? e)
+      }
+    }, x2Copy)
+    await delay(300)
+    const x2Nav = await navIds()
+    const x2Texts = await officeTexts()
+    const x2Unlocked = await page.evaluate(() => window.itd.state().officesUnlocked)
+    check(
+      'X2: restore() с offices[1].Unlocked=false при nav.office1 — вкладка переходит в nav.office0, нет «закрыт», есть «ОФИС 1» (ITGAME-63)',
+      x2Err === null &&
+        isActive(x2Nav, 'nav.office0') &&
+        !isActive(x2Nav, 'nav.office1') &&
+        !x2Texts.some((t) => /закрыт/.test(t)) &&
+        x2Texts.some((t) => t === 'ОФИС 1'),
+      JSON.stringify({ err: x2Err, officeKeys: x2Keys, officesUnlocked: x2Unlocked, nav: x2Nav.map((n) => `${n.id}:${n.active}`), texts: x2Texts }),
+    )
+
+    // ── O: itd.scenario() не оставляет ничего от старой партии (ITGAME-64) ──
+    // Вкладка в офисе 0 (после X2), партия на паузе в сессионной скорости 0.
+    // O1: открытый отчёт дня
+    await page.evaluate(() => window.itd.speed(1))
+    const o1Speed = await waitTrue(() => window.itd.server().snapshot?.speed === 1, 5000)
+    await page.evaluate(async () => {
+      await window.itd.set({ tickInDay: 53 })
+    })
+    const o1Open = await waitTrue(() => window.itd.ids().some((n) => n.id === 'btn.next_day'), 8000)
+    const o1Pre = { phase: (await snapState()).phase, hudRead: await hudRead() }
+    const o1Ready = o1Speed && o1Open && o1Pre.hudRead.sbr === '1' && o1Pre.hudRead.reportPauseSeq > 0
+    const o1tr = await page.evaluate(() => window.itd.trace(() => window.itd.scenario('fresh'), 1500))
+    await delay(300)
+    const o1Ids = await idList()
+    const o1Hud = await hudRead()
+    const o1State = await snapState()
+    const o1SetSpeed = o1tr.sent.filter((m) => m.type === 'set_speed')
+    check(
+      'O1a: scenario(\'fresh\') из открытого отчёта — ok, HUD не слал set_speed (ITGAME-64)',
+      o1Ready && o1tr.ok === true && o1SetSpeed.length === 0,
+      JSON.stringify({ o1Ready, pre: o1Pre, ok: o1tr.ok, error: o1tr.error, sent: o1tr.sent }),
+    )
+    check(
+      'O1b: после scenario() нет btn.next_day, reportUI пуст (ITGAME-64)',
+      o1Ready && !o1Ids.includes('btn.next_day') && o1Hud.reportUI === 0,
+      JSON.stringify({ hasNextDay: o1Ids.includes('btn.next_day'), reportUI: o1Hud.reportUI }),
+    )
+    check(
+      'O1c: после scenario() sessionStorage itd.speedBeforeReport === null и reportPauseSeq === 0 (ITGAME-64)',
+      o1Ready && o1Hud.sbr === null && o1Hud.reportPauseSeq === 0,
+      JSON.stringify({ sbr: o1Hud.sbr, reportPauseSeq: o1Hud.reportPauseSeq }),
+    )
+    check(
+      'O1d: новая партия — день 1, phase running, скорость сессии 0 не тронута (владелец: остаётся на паузе) (ITGAME-64)',
+      o1Ready && o1State.day === 1 && o1State.phase === 'running' && o1State.speed === 0,
+      JSON.stringify(o1State),
+    )
+
+    // O2: карточка события. Партия на паузе (O1d): тик её не разрешит.
+    const o2Snap = await page.evaluate(async () => (await window.itd.snapshot()).save)
+    await page.evaluate(async (tick) => {
+      try {
+        await window.itd.restore({ activeEvent: { ID: 'deadline', Tick: tick } })
+      } catch {
+        /* читаем и пишем FAIL ниже */
+      }
+    }, o2Snap.tickInDay)
+    const o2Open = await waitTrue(() => window.itd.ids().some((n) => n.id === 'btn.event.0'), 5000)
+    const o2Pre = await hudRead()
+    await page.evaluate(async () => {
+      try {
+        await window.itd.scenario('fresh')
+      } catch {
+        /* читаем и пишем FAIL ниже */
+      }
+    })
+    await delay(300)
+    const o2Ids = await idList()
+    const o2Hud = await hudRead()
+    const o2Ready = o2Open && o2Pre.eventUI > 0 && o2Pre.lastEventId === 'deadline'
+    check(
+      'O2a: после scenario() нет btn.event.*, eventUI пуст (ITGAME-64)',
+      o2Ready && !o2Ids.some((id) => id.startsWith('btn.event.')) && o2Hud.eventUI === 0,
+      JSON.stringify({ o2Open, pre: o2Pre, eventIds: o2Ids.filter((id) => id.startsWith('btn.event.')), eventUI: o2Hud.eventUI }),
+    )
+    check(
+      'O2b: после scenario() lastEventId === \'\' (ITGAME-64)',
+      o2Ready && o2Hud.lastEventId === '',
+      JSON.stringify({ lastEventId: o2Hud.lastEventId }),
+    )
+
+    // O3: «Пока вас не было». Настоящий офлайн-отчёт требует сейва возрастом в игровой день,
+    // поэтому зовём настоящий обработчик HUD напрямую (юнит-стиль).
+    await page.evaluate(() => {
+      window.__itd.scene.getScene('hud').showOfflineReport({
+        type: 'offline_report', ticks: 54, days: 1, income: 0, payroll: 0, balance: 0, gameOver: false, victory: false,
+      })
+    })
+    await delay(200)
+    const o3PreIds = await idList()
+    const o3Pre = await hudRead()
+    await page.evaluate(async () => {
+      try {
+        await window.itd.scenario('fresh')
+      } catch {
+        /* читаем и пишем FAIL ниже */
+      }
+    })
+    await delay(300)
+    const o3Ids = await idList()
+    const o3Hud = await hudRead()
+    check(
+      'O3: после scenario() нет btn.offline.*, offlineUI пуст (ITGAME-64)',
+      o3PreIds.includes('btn.offline.continue') &&
+        o3Pre.offlineUI > 0 &&
+        !o3Ids.some((id) => id.startsWith('btn.offline.')) &&
+        o3Hud.offlineUI === 0,
+      JSON.stringify({ preHasBtn: o3PreIds.includes('btn.offline.continue'), preUI: o3Pre.offlineUI, offlineIds: o3Ids.filter((id) => id.startsWith('btn.offline.')), offlineUI: o3Hud.offlineUI }),
+    )
+
+    // O4: окно выхода в меню
+    await waitSwitchIdle()
+    const o4Click = await page.evaluate(() => window.itd.click('btn.menu'))
+    await delay(300)
+    const o4PreIds = await idList()
+    await page.evaluate(async () => {
+      try {
+        await window.itd.scenario('fresh')
+      } catch {
+        /* читаем и пишем FAIL ниже */
+      }
+    })
+    await delay(300)
+    const o4Ids = await idList()
+    const o4Hud = await page.evaluate(() => ({
+      hud: window.__itd.scene.isActive('hud'),
+      menu: window.__itd.scene.isActive('menu'),
+      connected: window.itd.state().connected,
+    }))
+    check(
+      'O4: после scenario() нет modal.*, HUD жив, меню не открыто, connected (ITGAME-64)',
+      o4Click.ok === true &&
+        o4PreIds.includes('modal.btn.0') &&
+        !o4Ids.some((id) => id.startsWith('modal.')) &&
+        o4Hud.hud === true &&
+        o4Hud.menu === false &&
+        o4Hud.connected === true,
+      JSON.stringify({ click: o4Click.ok, preHasModal: o4PreIds.includes('modal.btn.0'), modalIds: o4Ids.filter((id) => id.startsWith('modal.')), ...o4Hud }),
+    )
+
+    // O5: финал → scenario(). После победы net.ts стёр sid из хранилища (clearSession),
+    // а сессия на сервере жива до «В меню» — партия должна воскреснуть под тем же sid.
+    const o5Sid = await page.evaluate(() => window.itd.server().sid)
+    await page.evaluate(async () => {
+      try {
+        await window.itd.scenario('pre_victory')
+      } catch {
+        /* читаем и пишем FAIL ниже */
+      }
+      window.itd.speed(3)
+    })
+    const o5Open = await waitTrue(() => window.itd.ids().some((n) => n.id === 'btn.victory.menu'), 10000)
+    const o5PreSid = await page.evaluate(() => sessionStorage.getItem('itd.sid'))
+    const o5tr = await page.evaluate(() => window.itd.trace(() => window.itd.scenario('fresh'), 800))
+    await delay(300)
+    const o5Ids = await idList()
+    const o5Hud = await hudRead()
+    const o5State = await snapState()
+    const o5After = await page.evaluate(() => ({
+      stored: sessionStorage.getItem('itd.sid'),
+      server: window.itd.server().sid,
+    }))
+    const o5Ready = o5Open && o5PreSid === null
+    check(
+      'O5a: scenario(\'fresh\') на экране победы — ok (ITGAME-64)',
+      o5Ready && o5tr.ok === true,
+      JSON.stringify({ open: o5Open, preSid: o5PreSid, ok: o5tr.ok, error: o5tr.error }),
+    )
+    check(
+      'O5b: после scenario() нет btn.victory.menu, victoryUI пуст, день 1, phase running (ITGAME-64)',
+      o5Ready && !o5Ids.includes('btn.victory.menu') && o5Hud.victoryUI === 0 && o5State.day === 1 && o5State.phase === 'running',
+      JSON.stringify({ hasVictoryBtn: o5Ids.includes('btn.victory.menu'), victoryUI: o5Hud.victoryUI, ...o5State }),
+    )
+    check(
+      'O5c: sid партии снова в хранилище вкладки и совпадает с исходным (реконнект / «Продолжить» найдут её) (ITGAME-64)',
+      o5Ready && o5After.stored === o5Sid && o5After.server === o5Sid,
+      JSON.stringify({ before: o5Sid, ...o5After }),
     )
   } catch (e) {
     check('сценарий выполнен без исключений', false, e instanceof Error ? e.message : String(e))
