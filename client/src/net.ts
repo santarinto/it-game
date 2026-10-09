@@ -248,6 +248,18 @@ export function checkActiveNeighbor(sid: string, timeoutMs = 250): Promise<Neigh
 // Сцены подписываются и получают снапшоты; игровой логики здесь нет.
 // Разрыв соединения (кроме намеренного и session_taken) лечится
 // автопереподключением с тем же sid: сервер восстанавливает прогресс.
+type OneShotMessage = DayReportMessage | GameOverMessage | VictoryMessage | OfflineReportMessage
+
+// Обработчик слушателя для разового сообщения — или null, если он такие не принимает.
+function oneShotHandler(l: Listener, m: OneShotMessage): (() => void) | null {
+  switch (m.type) {
+    case 'day_report': return l.onDayReport ? () => l.onDayReport!(m) : null
+    case 'game_over': return l.onGameOver ? () => l.onGameOver!(m) : null
+    case 'victory': return l.onVictory ? () => l.onVictory!(m) : null
+    case 'offline_report': return l.onOfflineReport ? () => l.onOfflineReport!(m) : null
+  }
+}
+
 export class GameClient {
   latest: StateMessage | null = null
   speedSeq = 0
@@ -377,6 +389,7 @@ export class GameClient {
 
   connect(difficulty: DifficultyId): void {
     this.latest = null
+    this.pending = []
     this.intentionalClose = false
     this.takenOver = false
     this.sessionSid = null // смена sid здесь запланирована (новая партия)
@@ -449,18 +462,18 @@ export class GameClient {
         this.receipts.shift()?.({ ok: false, code: msg.code })
         this.listeners.forEach((l) => l.onError(msg.code))
       } else if (msg.type === 'day_report') {
-        this.listeners.forEach((l) => l.onDayReport?.(msg))
+        this.deliver(msg)
       } else if (msg.type === 'game_over') {
         // финал: сейв на сервере удалён, «Продолжить» ни к чему
         clearSession()
-        this.listeners.forEach((l) => l.onGameOver?.(msg))
+        this.deliver(msg)
       } else if (msg.type === 'victory') {
         // финал: сейв на сервере удалён, «Продолжить» ни к чему
         clearSession()
-        this.listeners.forEach((l) => l.onVictory?.(msg))
+        this.deliver(msg)
       } else if (msg.type === 'offline_report') {
         if (msg.gameOver || msg.victory) clearSession()
-        this.listeners.forEach((l) => l.onOfflineReport?.(msg))
+        this.deliver(msg)
       } else {
         console.error('неизвестный тип сообщения от сервера', msg)
       }
@@ -499,6 +512,7 @@ export class GameClient {
   // Намеренный разрыв: onDisconnect не дёргаем, реконнект не планируем.
   disconnect(): void {
     this.intentionalClose = true
+    this.pending = []
     this.sessionSid = null
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = null
@@ -597,6 +611,25 @@ export class GameClient {
 
   // Повторно раздаёт последний снапшот — перерисовка сцен без сервера
   // (debug-тумблер меняет только клиентское состояние).
+  // Разовые сообщения без адресата (ITGAME-19): отчёт дня, финал и «пока вас
+  // не было» сервер шлёт сразу после подключения, а HUD подписывается, только
+  // когда Phaser создаст сцену. Сокет быстрее кадра — и «Итог партии» из меню
+  // открывал игру без экрана итога. Неполученное ждёт первого подписчика с
+  // нужным обработчиком; новая партия и выход в меню очищают очередь.
+  private pending: OneShotMessage[] = []
+
+  private deliver(msg: OneShotMessage): void {
+    let got = false
+    for (const l of this.listeners) {
+      const h = oneShotHandler(l, msg)
+      if (h) {
+        h()
+        got = true
+      }
+    }
+    if (!got) this.pending.push(msg)
+  }
+
   reemit(): void {
     if (this.latest) this.listeners.forEach((l) => l.onState(this.latest!))
   }
@@ -605,6 +638,13 @@ export class GameClient {
   subscribe(l: Listener): () => void {
     this.listeners.push(l)
     if (this.latest) l.onState(this.latest)
+    const rest: OneShotMessage[] = []
+    for (const m of this.pending) {
+      const h = oneShotHandler(l, m)
+      if (h) h()
+      else rest.push(m)
+    }
+    this.pending = rest
     return () => {
       this.listeners = this.listeners.filter((x) => x !== l)
     }
