@@ -409,7 +409,7 @@ export class HUDScene extends Phaser.Scene {
     const body = [
       `Прошло дней: ${r.days}`,
       `Заработано: ${fmtMoney(r.income)}`,
-      `Расходы:    −${fmtMoney(r.payroll)}`,
+      `Расходы:    ${r.payroll > 0 ? '−' : ''}${fmtMoney(r.payroll)}`,
       `Баланс:      ${fmtMoney(r.balance)}`,
       ...(finalLine ? ['', finalLine] : []),
       ...(offlineAchs.length > 0 ? ['', `🏆 Достижение: ${offlineAchs.map((a) => `${a.icon} ${a.title}`).join(', ')}`] : []),

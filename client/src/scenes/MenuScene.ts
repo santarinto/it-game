@@ -52,6 +52,14 @@ interface FocusItem {
   activate: () => void
 }
 
+// Где курсор на экране: clientX/Y последнего DOM-события указателя; без
+// события (курсор ещё не двигался) — игровые координаты указателя.
+function screenPos(p: Phaser.Input.Pointer): { x: number; y: number } {
+  const e = p.event as MouseEvent | TouchEvent | undefined
+  if (e && 'clientX' in e) return { x: e.clientX, y: e.clientY }
+  return { x: p.x, y: p.y }
+}
+
 function levelLabel(d: string): string {
   return LEVELS.find((l) => l.id === d)?.label ?? d
 }
@@ -90,10 +98,11 @@ export class MenuScene extends Phaser.Scene {
   // всплывший под курсором при перестройке меню (ITGAME-19).
   private restingPointer?: { x: number; y: number }
 
+  // Координаты экрана, а не игры: прокрутка страницы двигает холст под
+  // неподвижным курсором, и то же место экрана указывает в другую точку игры.
   private pinPointer() {
     if (!this.input) return
-    const p = this.input.activePointer
-    this.restingPointer = { x: p.x, y: p.y }
+    this.restingPointer = screenPos(this.input.activePointer)
   }
 
   constructor() {
@@ -329,7 +338,8 @@ export class MenuScene extends Phaser.Scene {
   private addFocusItem(item: FocusItem) {
     item.bg.on('pointerover', (p: Phaser.Input.Pointer) => {
       const rest = this.restingPointer
-      if (rest && p.x === rest.x && p.y === rest.y) return
+      const at = screenPos(p)
+      if (rest && at.x === rest.x && at.y === rest.y) return
       this.restingPointer = undefined
       this.setFocus(item.id)
     })
