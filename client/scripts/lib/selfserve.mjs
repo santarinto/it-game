@@ -1,5 +1,5 @@
 // selfserve — общий self-serve для QA-скриптов (visreg,
-// qa-itgame16/17/37/38/39, qa-office-slots, qa-itgame35): поднимает
+// qa-itgame16/17/37/38/39/47, qa-office-slots, qa-itgame35): поднимает
 // bin/itdirector со static=dist, чтобы сценарии крутились без внешнего
 // сервера.
 //

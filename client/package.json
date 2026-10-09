@@ -17,6 +17,7 @@
     "qa:slots": "node scripts/qa-office-slots.mjs",
     "qa:trace": "node scripts/qa-itgame37.mjs",
     "qa:contract": "node scripts/qa-itgame39.mjs",
+    "qa:party": "node scripts/qa-itgame47.mjs",
     "check:sprites": "node scripts/check-sprites.mjs",
     "gen:contract": "node scripts/gen-contract.mjs",
     "check:contract": "node scripts/gen-contract.mjs --check",

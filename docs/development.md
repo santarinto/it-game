@@ -210,20 +210,21 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
+| `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47) | :4181, self-serve + temp saves dir |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |
 | `npm run visreg` | screenshot diff + layout linter per fixture scenario | :4173, self-serve, `VISREG_PORT` overrides |
 
 `qa:buttons`/`qa:hud`/`qa:facade`/`qa:slots`/`qa:trace`/`qa:contract`/`qa:tabs`/
-`visreg` share `client/scripts/lib/selfserve.mjs`: it builds/runs `bin/itdirector`
+`qa:party`/`visreg` share `client/scripts/lib/selfserve.mjs`: it builds/runs `bin/itdirector`
 over `client/dist`, refuses to start when its port is already taken by
 another process, and verifies after boot that the server actually answers
 with the local `client/dist` build (not someone else's) — a busy port fails
 loudly instead of running the suite against the wrong server. It also sets
 `ITGAME_DEBUG=1` on the spawned `bin/itdirector` (see [Agent bridge](
 #agent-bridge-wsagent)), since `itd.set()`/`itd.advance()`/… — used by
-`qa:buttons`, `qa:hud`, `qa:trace`, `qa:facade`, `qa:slots` — need `/api/debug/*`
-registered. `qa:tabs` additionally self-serves with a temporary saves
-directory, since its session-takeover scenario needs a real saves store
+`qa:buttons`, `qa:hud`, `qa:trace`, `qa:facade`, `qa:slots`, `qa:party` — need `/api/debug/*`
+registered. `qa:tabs`/`qa:party` additionally self-serves with a temporary saves
+directory, since their session-takeover/«Continue» scenarios need a real saves store
 (`-saves off` won't do).
 `qa:meta`/`smoke-ui` instead self-serve a plain `vite preview` over `dist`
 on :4173, which proxies `/ws`/`/admin`/`/api` to `localhost:8080`
