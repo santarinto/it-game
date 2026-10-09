@@ -79,6 +79,9 @@ export class MenuScene extends Phaser.Scene {
   private focusItems: FocusItem[] = []
   private focusId = ''
   private focusMarker?: Phaser.GameObjects.Text
+  // Открыто подтверждение новой партии: отмена возвращает фокус на
+  // «Продолжить» — повторный Enter продолжает, а не спрашивает снова.
+  private confirmOpen = false
 
   constructor() {
     super({ key: 'menu', cameras: HIRES_CAMERA })
@@ -356,6 +359,10 @@ export class MenuScene extends Phaser.Scene {
     this.modalUI.forEach((o) => o.destroy())
     this.modalUI = []
     this.menuUI.forEach((o) => o.setVisible(true))
+    if (this.confirmOpen) {
+      this.confirmOpen = false
+      this.setFocus('menu.continue')
+    }
   }
 
   private createModalFrame(pw: number, ph: number, titleText: string, strokeColor = 0x41a6f6, withDefaultCloseBtn = true) {
@@ -506,7 +513,6 @@ export class MenuScene extends Phaser.Scene {
     const digit = (key: string, d: DifficultyId) => {
       if (this.modalUI.length > 0 || this.started) return
       this.acted(key, `${this.needsConfirm() ? 'confirm' : 'start'}_${d}`)
-      this.setFocus(`menu.diff.${d}`)
       this.requestNewGame(d)
     }
     kb.on('keydown-ONE', () => digit('ONE', 'easy'))
@@ -653,19 +659,24 @@ export class MenuScene extends Phaser.Scene {
     ].join('\n'), {
       fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4', align: 'center', lineSpacing: 6,
     }).setOrigin(0.5, 0).setDepth(82)
+    // Действие клавиатуры названо прямо: Enter и Esc здесь — отмена.
+    const keysHint = this.add.text(CX, topY + ph - 84, 'Enter / Esc — отмена', {
+      fontFamily: 'monospace', fontSize: '13px', color: DIM,
+    }).setOrigin(0.5).setDepth(82)
 
     const btnY = topY + ph - 42
+    // «Отмена» — действие по умолчанию: подсвечена рамкой фокуса.
     const btnCancelBg = tag(
       this.add.rectangle(CX - 120, btnY, 180, 36, 0x232640)
-        .setStrokeStyle(2, BASE_STROKE).setDepth(82).setInteractive({ useHandCursor: true }),
+        .setStrokeStyle(3, 0x41a6f6).setDepth(82).setInteractive({ useHandCursor: true }),
       'modal.btn.cancel',
     )
     const btnCancelTxt = this.add.text(CX - 120, btnY, 'Отмена', {
       fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4',
     }).setOrigin(0.5).setDepth(83)
     btnCancelBg.on('pointerdown', () => this.closeModal())
-    btnCancelBg.on('pointerover', () => btnCancelBg.setStrokeStyle(2, 0x41a6f6))
-    btnCancelBg.on('pointerout', () => btnCancelBg.setStrokeStyle(2, BASE_STROKE))
+    btnCancelBg.on('pointerover', () => btnCancelBg.setFillStyle(0x2e335a))
+    btnCancelBg.on('pointerout', () => btnCancelBg.setFillStyle(0x232640))
 
     const btnConfirmBg = tag(
       this.add.rectangle(CX + 120, btnY, 200, 36, 0xb13e53)
@@ -682,7 +693,8 @@ export class MenuScene extends Phaser.Scene {
     btnConfirmBg.on('pointerover', () => btnConfirmBg.setFillStyle(0xef7d57))
     btnConfirmBg.on('pointerout', () => btnConfirmBg.setFillStyle(0xb13e53))
 
-    this.modalUI = [...frameUI, body, btnCancelBg, btnCancelTxt, btnConfirmBg, btnConfirmTxt]
+    this.modalUI = [...frameUI, body, keysHint, btnCancelBg, btnCancelTxt, btnConfirmBg, btnConfirmTxt]
+    this.confirmOpen = true
   }
 
   // fresh=true — игрок ЯВНО выбрал новую партию (кнопка сложности, 1-4):
