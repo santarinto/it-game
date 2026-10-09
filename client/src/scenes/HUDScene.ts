@@ -109,7 +109,7 @@ export class HUDScene extends Phaser.Scene {
     }
   }
   private reportPauseSeq!: number
-  private speedBtns!: { bg: Phaser.GameObjects.Rectangle; speed: number }[]
+  private speedBtns!: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; speed: number }[]
   private hudInteractive!: Phaser.GameObjects.GameObject[]
   private debugFrames!: Phaser.GameObjects.GameObject[]
   private reconnectUI!: Phaser.GameObjects.GameObject[]
@@ -238,6 +238,7 @@ export class HUDScene extends Phaser.Scene {
 
     // Темп времени: пауза и множители. Активная кнопка подсвечивается по speed
     // из снапшота — сервер источник истины.
+    // На паузе ⏸ — сплошная янтарная плашка (ITGAME-62): пауза видна без часов.
     const speeds = [
       { s: 0, label: '⏸' }, { s: 1, label: '1x' }, { s: 2, label: '2x' }, { s: 3, label: '3x' },
     ]
@@ -248,9 +249,9 @@ export class HUDScene extends Phaser.Scene {
           .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true }),
         `btn.speed.${sp.s}`,
       )
-      this.add.text(x + 18, 24, sp.label, { fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4' }).setOrigin(0.5)
+      const label = this.add.text(x + 18, 24, sp.label, { fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4' }).setOrigin(0.5)
       bg.on('pointerdown', () => client.send('set_speed', 0, { speed: sp.s }))
-      this.speedBtns.push({ bg, speed: sp.s })
+      this.speedBtns.push({ bg, label, speed: sp.s })
       this.hudInteractive.push(bg)
     })
     // Выход в меню из игры (анти-софтлок + «сдаться»): с подтверждением.
@@ -703,7 +704,12 @@ export class HUDScene extends Phaser.Scene {
     this.highlightNav()
     this.speedBtns.forEach((b) => {
       const on = b.speed === s.speed
-      b.bg.setStrokeStyle(2, on ? 0x41a6f6 : 0x3a3f5c)
+      // ITGAME-62: включённая пауза — янтарная плашка с тёмной подписью,
+      // иначе обычный вид; клик по ⏸ по-прежнему шлёт set_speed 0.
+      const paused = on && b.speed === 0
+      b.bg.setFillStyle(paused ? 0xffcd75 : 0x232640)
+      b.bg.setStrokeStyle(2, paused ? 0xffcd75 : on ? 0x41a6f6 : 0x3a3f5c)
+      b.label.setColor(paused ? '#1a1c2c' : '#f4f4f4')
       markActive(b.bg, on)
     })
     if (s.activeEvent && s.phase === 'running') {

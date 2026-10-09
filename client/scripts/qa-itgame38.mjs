@@ -2,7 +2,8 @@
 //   A1  menu.zoom.* — ровно один active===true; menu.diff.* — фокус (ITGAME-19): без сейва
 //       active только у НОРМА, ↓ переносит его на СЛОЖНО; menu.stats — active===null
 //   A2  клик menu.zoom.1 → только он active; зум возвращается на место
-//   A3  itd.speed(2) → btn.speed.2 active (остальные — нет); itd.pause() → btn.speed.0 active
+//   A3  itd.speed(2) → btn.speed.2 active (остальные — нет); itd.pause() → btn.speed.0 active;
+//       ⏸ на паузе — янтарная плашка с тёмной подписью, speed(1) возвращает вид (ITGAME-62)
 //   A4  click('nav.serverRoom') → он active, nav.office0 — нет; комната возвращается на место
 //   A5  btn.pc.active === null (обычная кнопка покупки — не переключатель)
 //   B1  set({money:100}), клик по отключённому btn.pc → sound {key:'sfx:error', scene:'hud', ok:true}
@@ -87,6 +88,15 @@ async function waitMenuReady(page) {
 const ids = (page) => page.evaluate(() => window.itd.ids())
 const byPrefix = (list, prefix) => list.filter((n) => n.id.startsWith(prefix))
 const oneOf = (list) => list.find((n) => n.active === true)
+// ITGAME-62: вид кнопок скорости — заливка, рамка, цвет подписи (приватное поле HUD)
+async function speedLook(page) {
+  return page.evaluate(() =>
+    window.__itd.scene.getScene('hud').speedBtns.map((b) => ({
+      speed: b.speed, fill: b.bg.fillColor, stroke: b.bg.strokeColor,
+      label: b.label.text, color: b.label.style.color,
+    })),
+  )
+}
 
 const D1_TOL = 50 // $: один живой тик 53 может поймать поломку ПК; офлайн-промотка детерминирована
 // «+$3,266/день» / «-$526/день» → 3266 / -526 (формат fmtMoney)
@@ -281,6 +291,12 @@ async function run() {
         speedIdsA3.filter((n) => n.active === true).length === 1,
       JSON.stringify(speedIdsA3),
     )
+    const lookRun = await speedLook(page)
+    check(
+      'A3: speed(2) → ⏸ в обычном виде (ITGAME-62)',
+      lookRun[0].fill === 0x232640 && lookRun[0].color === '#f4f4f4' && lookRun[0].label === '⏸',
+      JSON.stringify(lookRun),
+    )
     await page.evaluate(() => window.itd.pause())
     await page.waitForFunction(() => window.itd.state().speed === 0, { timeout: 5000 })
     await delay(150)
@@ -290,6 +306,31 @@ async function run() {
       speedIdsPause.find((n) => n.id === 'btn.speed.0')?.active === true,
       JSON.stringify(speedIdsPause),
     )
+    const lookPause = await speedLook(page)
+    const hudContrast = await page.evaluate(() =>
+      window.itd.contrast().filter((e) => e.scene === 'hud' && e.text === '⏸'),
+    )
+    check(
+      'A3: pause() → ⏸ янтарная плашка, тёмная подпись, контраст ≥ 3:1 (ITGAME-62)',
+      lookPause[0].fill === 0xffcd75 && lookPause[0].color === '#1a1c2c' && lookPause[0].label === '⏸' &&
+        lookPause.slice(1).every((b) => b.fill === 0x232640 && b.color === '#f4f4f4') &&
+        hudContrast.length === 0,
+      JSON.stringify({ lookPause, hudContrast }),
+    )
+    await page.evaluate(() => window.itd.speed(1))
+    await page.waitForFunction(() => window.itd.state().speed === 1, { timeout: 5000 })
+    await delay(150)
+    const lookBack = await speedLook(page)
+    check(
+      'A3: speed(1) после паузы → ⏸ снова в обычном виде (ITGAME-62)',
+      lookBack[0].fill === 0x232640 && lookBack[0].color === '#f4f4f4' &&
+        lookBack.find((b) => b.speed === 1)?.stroke === 0x41a6f6,
+      JSON.stringify(lookBack),
+    )
+    // вернуть состояние, в котором идут A4+
+    await page.evaluate(() => window.itd.pause())
+    await page.waitForFunction(() => window.itd.state().speed === 0, { timeout: 5000 })
+    await delay(150)
 
     // ── A4: панель навигации
     await page.evaluate(() => window.itd.click('nav.serverRoom'))
