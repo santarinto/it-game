@@ -251,8 +251,13 @@ reproducible.
 Policies: `greedy`, `idle`, `random`. CSV:
 `policy,seed,day,money,income,payroll,events,outcome`, one row per day;
 the last row holds the outcome (`bankrupt | deadlock | victory | time_up |
-timeout`). Reference: normal + greedy ≈ 70% bankrupt by day 30,
-easy + greedy ≈ 2/3 wins.
+timeout`). `--events-text` writes the event names joined by `" | "` into
+the `events` column instead of their count, `--audit-share <f>` overrides
+the audit fine share (`AuditFineShare`; `-1` keeps the config value) and
+`--audit-stats` prints one extra stderr line with the bankruptcies on a
+failed-audit day versus all bankruptcies and failed audits. Reference
+(300 seeds × 30 days, greedy): normal 0/300 bankrupt, easy 300/300 wins,
+hard 0/300 bankrupt, hardcore 19/300 bankrupt.
 
 **visreg** loads each fixture scenario (`?scenario=X&seed=1&debug=1`) and the
 menu, screenshots the canvas and diffs it against

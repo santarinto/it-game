@@ -523,3 +523,15 @@ func TestActiveEventInfoAllTypes(t *testing.T) {
 		g.ActiveEvent = nil
 	}
 }
+
+// Правило владельца (ITGAME-50) и подобранное sim значение: аудит с дня 5,
+// штраф — 15% дохода прошлого дня.
+func TestAuditDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.AuditMinDay != 5 {
+		t.Errorf("AuditMinDay = %d, хотим 5", cfg.AuditMinDay)
+	}
+	if cfg.AuditFineShare != 0.15 {
+		t.Errorf("AuditFineShare = %v, хотим 0.15", cfg.AuditFineShare)
+	}
+}

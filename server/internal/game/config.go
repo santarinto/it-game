@@ -182,7 +182,7 @@ func DefaultConfig() Config {
 		AuditPenalty:    1200,
 		AuditMinCore:    2,
 		AuditMinDay:     5,
-		AuditFineShare:  0.15,
+		AuditFineShare:  0.15, // подобрано sim ITGAME-50: normal/greedy 300×30
 		RaiseBoostMult:  1.15,
 		RaiseOffendMult: 0.85,
 
