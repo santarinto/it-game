@@ -310,8 +310,15 @@ func TestExportDetachesOffices(t *testing.T) {
 	g.Offices[0].CoffeeEventTicks = []int{5}
 	g.EventLog = []string{"живая запись"}
 	income := g.Offices[0].Employees[0].IncomePerTick
-	xp := g.Config().EmployeeLevelXP[0]
-	router := g.Config().RouterTiers[0].Ports
+	live := g.Config()
+	if len(live.RouterTiers) == 0 || len(live.ServerLevels) == 0 || len(live.CoreLevels) == 0 ||
+		len(live.OfficePrices) == 0 || len(live.EmployeeLevelXP) == 0 || len(live.EmployeeLevelBonus) == 0 {
+		t.Fatalf("в фикстуре пустой слайс конфига: %+v", live)
+	}
+	xp := live.EmployeeLevelXP[0]
+	router := live.RouterTiers[0].Ports
+	serverMult, corePrice := live.ServerLevels[0].Mult, live.CoreLevels[0].Price
+	officePrice, levelBonus := live.OfficePrices[0], live.EmployeeLevelBonus[0]
 
 	s := g.Export()
 	s.Offices[0].Boss = "Подмена"
@@ -321,6 +328,10 @@ func TestExportDetachesOffices(t *testing.T) {
 	s.EventLog[0] = "подмена"
 	s.Config.EmployeeLevelXP[0] = 1
 	s.Config.RouterTiers[0].Ports = 99
+	s.Config.ServerLevels[0].Mult = 99
+	s.Config.CoreLevels[0].Price = 99
+	s.Config.OfficePrices[0] = 99
+	s.Config.EmployeeLevelBonus[0] = 99
 
 	o := g.Offices[0]
 	if o.Boss != "" || o.Employees[0].IncomePerTick != income || o.Servers[0] != 1 || o.CoffeeEventTicks[0] != 5 {
@@ -329,8 +340,11 @@ func TestExportDetachesOffices(t *testing.T) {
 	if g.EventLog[0] != "живая запись" {
 		t.Fatalf("правка eventLog протекла: %v", g.EventLog)
 	}
-	if g.Config().EmployeeLevelXP[0] != xp || g.Config().RouterTiers[0].Ports != router {
-		t.Fatalf("правка конфига протекла: %+v", g.Config())
+	cur := g.Config()
+	if cur.EmployeeLevelXP[0] != xp || cur.RouterTiers[0].Ports != router ||
+		cur.ServerLevels[0].Mult != serverMult || cur.CoreLevels[0].Price != corePrice ||
+		cur.OfficePrices[0] != officePrice || cur.EmployeeLevelBonus[0] != levelBonus {
+		t.Fatalf("правка конфига протекла (все шесть слайсов): %+v", cur)
 	}
 
 	// Тот же путь, что у debug restore: дельта поверх Export().
