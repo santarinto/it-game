@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "04a7cfabf0d3",
+  "hash": "7d7818ad6b27",
   "methods": {
     "version": {
       "kind": "prop",
@@ -14,7 +14,7 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "AgentState",
-      "doc": "Баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий\n(null до первого снапшота); menuReady — меню создано и активно.",
+      "doc": "Баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий\n(null до первого снапшота); menuReady — меню создано, активно и сводка сейва устоялась.",
       "examples": [
         "itd.state()"
       ]
@@ -95,7 +95,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "AgentResult & { key?: string; scenes?: string[]; }",
-      "doc": "Клавиша: 1-4 — сложность в меню, enter/space/esc — отчёт дня.",
+      "doc": "Клавиша: 1-4 — сложность в меню, up/down — фокус меню, enter — пункт в фокусе меню / отчёт дня, space/esc — отчёт дня.",
       "examples": [
         "itd.key('enter')"
       ]

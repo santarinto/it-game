@@ -157,6 +157,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer c.CloseNow()
 
+	// Сводка сейва для меню (ITGAME-19): без актора и без захвата сессии.
+	if r.URL.Query().Get("peek") == "1" {
+		h.servePeek(r.Context(), c, r.URL.Query().Get("sid"))
+		return
+	}
+
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 

@@ -1,4 +1,4 @@
-import type { CommandType, DayReportMessage, DifficultyId, GameOverMessage, OfflineReportMessage, ServerErrorCode, ServerMessage, StateMessage, VictoryMessage } from './protocol'
+import type { CommandType, DayReportMessage, DifficultyId, GameOverMessage, OfflineReportMessage, SaveSummaryMessage, ServerErrorCode, ServerMessage, StateMessage, VictoryMessage } from './protocol'
 
 // Транспортные коды отказа (ITGAME-39): квитанция команды (sendWithReceipt)
 // падает ими, когда сервер вовсе не ответил — в отличие от ServerErrorCode,
@@ -140,6 +140,43 @@ export function clearSession(): void {
   sessionStorage.removeItem('itd.speedBeforeReport')
   localStorage.removeItem(SID_KEY)
   localStorage.removeItem(DIFF_KEY)
+}
+
+// peekSave (ITGAME-19): факты сейва для меню — «День 3 · $60 · НОРМА».
+// Короткий WS на тот же /ws (в проде наружу проксируется только он) с
+// peek=1: сервер шлёт save_summary и закрывает, сессию не захватывает.
+// null — сервер не ответил за timeoutMs или ответил не тем: меню остаётся
+// с обобщённым «Продолжить», как до сводки.
+export function peekSave(sid: string, timeoutMs = 1500): Promise<SaveSummaryMessage | null> {
+  return new Promise((resolve) => {
+    let done = false
+    let ws: WebSocket | null = null
+    const finish = (v: SaveSummaryMessage | null) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      try { ws?.close() } catch {}
+      resolve(v)
+    }
+    const timer = setTimeout(() => finish(null), timeoutMs)
+    try {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+      ws = new WebSocket(`${proto}://${location.host}/ws?peek=1&sid=${encodeURIComponent(sid)}`)
+    } catch {
+      finish(null)
+      return
+    }
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data as string) as SaveSummaryMessage
+        finish(msg && msg.type === 'save_summary' ? msg : null)
+      } catch {
+        finish(null)
+      }
+    }
+    ws.onerror = () => finish(null)
+    ws.onclose = () => finish(null)
+  })
 }
 
 interface ItdChannelMessage {

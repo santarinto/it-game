@@ -100,6 +100,7 @@ const note = (item, name, pass, fact) => report.push({ item, name, pass, fact })
     out.sidFromSession = sessionStorage.getItem('itd.sid')
     await window.itd.wait((s) => s.menuReady === true, 8000)
     out.click = window.itd.click('menu.diff.normal')
+    window.itd.ids().some((x) => x.id === 'modal.btn.confirm') && window.itd.click('modal.btn.confirm') // ITGAME-19: новая партия при сейве
     await window.itd.wait((s) => s.connected === true, 10000)
     const st = window.itd.state()
     out.state = { day: st.day, scenario: st.scenario, staff: st.staff, balance: st.balance }
@@ -130,6 +131,7 @@ const note = (item, name, pass, fact) => report.push({ item, name, pass, fact })
     const out = {}
     await window.itd.wait((s) => s.menuReady === true, 8000)
     window.itd.click('menu.diff.normal')
+    window.itd.ids().some((x) => x.id === 'modal.btn.confirm') && window.itd.click('modal.btn.confirm') // ITGAME-19: новая партия при сейве
     await window.itd.wait((s) => s.connected === true, 10000)
     out.state = { scenario: window.itd.state().scenario, staff: window.itd.state().staff, staffLimit: window.itd.state().staffLimit }
     out.hire = await window.itd.cmd('hire') // staff=12=limit → staff_limit (проверка штата раньше ПК)
@@ -149,6 +151,7 @@ const note = (item, name, pass, fact) => report.push({ item, name, pass, fact })
     const out = {}
     await window.itd.wait((s) => s.menuReady === true, 8000)
     window.itd.click('menu.diff.normal')
+    window.itd.ids().some((x) => x.id === 'modal.btn.confirm') && window.itd.click('modal.btn.confirm') // ITGAME-19: новая партия при сейве
     await window.itd.wait((s) => s.connected === true, 10000)
     out.state = { scenario: window.itd.state().scenario, staff: window.itd.state().staff, staffLimit: window.itd.state().staffLimit }
     out.hire = await window.itd.cmd('hire') // 5 ПК и 5 сотрудников, лимит 9 → no_free_pc
@@ -178,6 +181,7 @@ const note = (item, name, pass, fact) => report.push({ item, name, pass, fact })
     sessionStorage.setItem('itd.sid', 'qa30-c2-agent')
     await window.itd.wait((s) => s.menuReady === true, 8000)
     window.itd.click('menu.diff.normal')
+    window.itd.ids().some((x) => x.id === 'modal.btn.confirm') && window.itd.click('modal.btn.confirm') // ITGAME-19: новая партия при сейве
     await window.itd.wait((s) => s.connected === true, 10000)
     return {
       local: localStorage.getItem('itd.sid'),
@@ -198,6 +202,7 @@ const note = (item, name, pass, fact) => report.push({ item, name, pass, fact })
   const pinfo = await player.evaluate(async () => {
     await window.itd.wait((s) => s.menuReady === true, 8000)
     window.itd.click('menu.diff.normal')
+    window.itd.ids().some((x) => x.id === 'modal.btn.confirm') && window.itd.click('modal.btn.confirm') // ITGAME-19: новая партия при сейве
     await window.itd.wait((s) => s.connected === true, 10000)
     return { sid: window.itd.server().sid }
   })
@@ -241,6 +246,7 @@ const note = (item, name, pass, fact) => report.push({ item, name, pass, fact })
   const p = await player.evaluate(async () => {
     await window.itd.wait((s) => s.menuReady === true, 8000)
     window.itd.click('menu.diff.normal')
+    window.itd.ids().some((x) => x.id === 'modal.btn.confirm') && window.itd.click('modal.btn.confirm') // ITGAME-19: новая партия при сейве
     await window.itd.wait((s) => s.connected === true, 10000)
     return { sid: window.itd.server().sid, day: window.itd.state().day }
   })
@@ -249,6 +255,8 @@ const note = (item, name, pass, fact) => report.push({ item, name, pass, fact })
   const n = await neighbor.evaluate(async () => {
     await window.itd.wait((s) => s.menuReady === true, 8000)
     window.itd.click('menu.diff.normal') // «начните новую» при сейве S в общем ключе
+    // при живом сейве новая партия спрашивает подтверждение (ITGAME-19)
+    const confirm = window.itd.click('modal.btn.confirm')
     await window.itd.wait((s) => s.connected === true, 10000)
     return {
       sid: window.itd.server().sid,
@@ -257,8 +265,10 @@ const note = (item, name, pass, fact) => report.push({ item, name, pass, fact })
       local: localStorage.getItem('itd.sid'),
       socket: window.itd.net(1).socket,
       errors: window.itd.errors().length,
+      confirm: confirm.ok,
     }
   })
+  note('D2a', 'новая партия при сейве S спрашивает подтверждение (ITGAME-19)', n.confirm === true, `modal.btn.confirm ok=${n.confirm}`)
   note('D2', '«НОРМА» без явного sid = новый sid, не партия S', n.sid !== p.sid, `игрок ${p.sid} vs новая ${n.sid}`)
   note('D2', 'новая партия действительно новая (день 1, без сценария)', n.day === 1 && (n.scenario ?? '') === '', JSON.stringify({ day: n.day, scenario: n.scenario }))
   note('D2', 'общий ключ теперь указывает на новую партию', n.local === n.sid, `local=${n.local}`)
@@ -281,6 +291,7 @@ const note = (item, name, pass, fact) => report.push({ item, name, pass, fact })
   const a = await agent.evaluate(async () => {
     await window.itd.wait((s) => s.menuReady === true, 8000)
     window.itd.click('menu.diff.normal')
+    window.itd.ids().some((x) => x.id === 'modal.btn.confirm') && window.itd.click('modal.btn.confirm') // ITGAME-19: новая партия при сейве
     await window.itd.wait((s) => s.connected === true, 10000)
     const st = window.itd.state()
     return { sid: window.itd.server().sid, session: sessionStorage.getItem('itd.sid'), scenario: st.scenario, day: st.day }

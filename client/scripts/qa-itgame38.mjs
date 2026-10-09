@@ -1,5 +1,6 @@
 // qa-itgame38 — фасад window.itd (ITGAME-38):
-//   A1  menu.zoom.* — ровно один active===true; menu.diff.*/menu.stats — active===null
+//   A1  menu.zoom.* — ровно один active===true; menu.diff.* — фокус (ITGAME-19): без сейва
+//       active только у НОРМА, ↓ переносит его на СЛОЖНО; menu.stats — active===null
 //   A2  клик menu.zoom.1 → только он active; зум возвращается на место
 //   A3  itd.speed(2) → btn.speed.2 active (остальные — нет); itd.pause() → btn.speed.0 active
 //   A4  click('nav.serverRoom') → он active, nav.office0 — нет; комната возвращается на место
@@ -149,11 +150,22 @@ async function run() {
       JSON.stringify(zoomA1),
     )
     const diffA1 = byPrefix(idsA1, 'menu.diff.')
+    // Пункты меню — фокус клавиатуры (ITGAME-19): active ровно у одного,
+    // без сейва это НОРМА; ↓ переносит фокус на следующий уровень.
     check(
-      'A1: menu.diff.* active===null',
-      diffA1.length > 0 && diffA1.every((n) => n.active === null),
+      'A1: menu.diff.* — фокус только на menu.diff.normal',
+      diffA1.length === 4 && diffA1.filter((n) => n.active === true).map((n) => n.id).join() === 'menu.diff.normal' &&
+        diffA1.every((n) => typeof n.active === 'boolean'),
       JSON.stringify(diffA1),
     )
+    await page.evaluate(() => window.itd.key('down'))
+    const diffDown = byPrefix(await ids(page), 'menu.diff.')
+    check(
+      'A1: ↓ переносит фокус на menu.diff.hard',
+      diffDown.filter((n) => n.active === true).map((n) => n.id).join() === 'menu.diff.hard',
+      JSON.stringify(diffDown),
+    )
+    await page.evaluate(() => window.itd.key('up'))
     const statsA1 = idsA1.find((n) => n.id === 'menu.stats')
     check('A1: menu.stats active===null', statsA1?.active === null, JSON.stringify(statsA1))
 
@@ -449,7 +461,10 @@ async function run() {
     await delay(300)
     const saveClickA7 = await page.evaluate(() => window.itd.click('modal.btn.0'))
     await page.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
-    const contClickA7 = await page.evaluate(() => window.itd.click('menu.continue'))
+    // Сейвы выключены (-saves off): сводка сейва (ITGAME-19) честно говорит
+    // «сейва нет», и «Продолжить» исчезает — повторная партия идёт через уровень.
+    await page.waitForFunction(() => !window.itd.ids().some((n) => n.id === 'menu.continue'), { timeout: 10000 })
+    const contClickA7 = await page.evaluate(() => window.itd.click('menu.diff.normal'))
     await page.waitForFunction(() => window.itd.state().connected === true, { timeout: 20000 })
     await delay(300)
     await page.evaluate(() => window.itd.speed(2))

@@ -1,16 +1,23 @@
 import Phaser from 'phaser'
 import { GAME_H, GAME_W } from '../layout'
-import { checkActiveNeighbor, client, hasSavedSession, prepareNewGame, savedDifficulty, sessionId } from '../net'
+import { checkActiveNeighbor, client, hasSavedSession, peekSave, prepareNewGame, savedDifficulty, sessionId } from '../net'
 import { activeZoom, applyZoom, ZOOM_OPTIONS } from '../uiscale'
 import { HIRES_CAMERA } from '../render'
 import { markActive, tag } from '../debug/agentApi'
 import { fmtMoney } from '../format'
 import { getAchievementsSummary, loadStats } from '../meta'
-import type { DifficultyId } from '../protocol'
+import type { DifficultyId, SaveSummaryMessage } from '../protocol'
 import { emitUi } from '../uibus'
 import { resetForNewGame } from '../party'
 
 const CX = GAME_W / 2
+// Верх нижней панели (статистика, масштаб, достижения): основной блок
+// центрируется по вертикали в полосе над ней (ITGAME-19).
+const BOTTOM_TOP = 636
+// Вторичный текст меню: читаемый на плашках #232640 (ITGAME-19: #5d7275
+// в 11–12px не читался).
+const DIM = '#94b0c2'
+const BASE_STROKE = 0x3a3f5c
 
 // Описания уровней — витрина выбора (сервер — источник истины).
 // Цели итерации 14 + рычаги «Сложности 2.0» (ITGAME-9).
@@ -21,75 +28,91 @@ const LEVELS: { id: DifficultyId; label: string; desc: string; goal: string; col
   { id: 'hardcore', label: 'ХАРДКОР', desc: '+50% цены · рынок ±15% · кредит $10k (15%/д)', goal: '$1M до дня 30', color: 0xb13e53 },
 ]
 
+const LOSE_REASON: Record<string, string> = {
+  bankrupt: 'банкротство',
+  time_up: 'срок вышел',
+  deadlock: 'тупик',
+}
+
+// Что меню знает о сейве (ITGAME-19):
+// none — сейва нет (или сервер сказал, что его нет: истёк, -saves off);
+// loading — ключ есть, сводка ещё едет; unknown — сервер не ответил;
+// alive — партию можно продолжить; ended — партия кончилась офлайн.
+type SaveView = 'none' | 'loading' | 'unknown' | 'alive' | 'ended'
+
+type MenuObject = Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible
+
+// Пункт с клавиатурным фокусом: «Продолжить» и четыре уровня.
+interface FocusItem {
+  id: string
+  bg: Phaser.GameObjects.Rectangle
+  y: number // центр плашки — для маркера
+  stroke: number // рамка без фокуса
+  focus: number // рамка в фокусе
+  activate: () => void
+}
+
+function levelLabel(d: string): string {
+  return LEVELS.find((l) => l.id === d)?.label ?? d
+}
+
+// «День 3 · $60 · НОРМА» — факты сейва с сервера.
+function saveFacts(s: SaveSummaryMessage): string {
+  return `День ${s.day} · ${fmtMoney(s.money)} · ${levelLabel(s.difficulty)}`
+}
+
 export class MenuScene extends Phaser.Scene {
   private started = false
   private bg?: Phaser.GameObjects.Rectangle
-  private menuUI: (Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible)[] = []
+  private menuUI: MenuObject[] = []
   private modalUI: Phaser.GameObjects.GameObject[] = []
+  // Основной блок (заголовок, «Продолжить», уровни) — перестраивается,
+  // когда приходит сводка сейва; нижняя панель остаётся.
+  private mainUI: MenuObject[] = []
+  // undefined — сводка ещё едет, null — сервер не ответил.
+  private summary: SaveSummaryMessage | null | undefined = undefined
+  // Был ли ключ сейва, когда меню строилось: экран и подтверждение судят
+  // по тому, что игрок видит, а не по хранилищу, которое могли переписать
+  // после отрисовки (агентский sid, соседняя вкладка).
+  private hadSave = false
+  private peekToken = 0
+  private focusItems: FocusItem[] = []
+  private focusId = ''
+  private focusMarker?: Phaser.GameObjects.Text
 
   constructor() {
     super({ key: 'menu', cameras: HIRES_CAMERA })
   }
 
+  // Меню знает свой сейв: ключа нет, или сводка пришла / не дождалась.
+  // Часть itd.state().menuReady — агент кликает по тому же экрану, что
+  // видит игрок, а не по промежуточному «загружаю сводку…».
+  get saveSettled(): boolean {
+    return !this.hadSave || this.summary !== undefined
+  }
+
   create() {
     this.started = false
     this.menuUI = []
+    this.mainUI = []
+    this.focusId = ''
+    this.summary = undefined
+    this.hadSave = hasSavedSession()
     this.closeModal()
     this.bg = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c).setOrigin(0)
-    const title = this.add
-      .text(CX, 90, 'IT DIRECTOR', { fontFamily: 'monospace', fontSize: '42px', color: '#ffcd75' })
-      .setOrigin(0.5)
-    this.menuUI.push(this.bg, title)
+    this.menuUI.push(this.bg)
+    this.buildMain()
 
-    let firstY = 200
-    // «Продолжить» (ITGAME-8): на сервере живёт сейв сессии — возвращаем
-    // игрока в его партию (сложность игнорируется, конфиг в сейве).
-    if (hasSavedSession()) {
-      const y = 150
-      const continueBg = tag(
-        this.add.rectangle(CX - 260, y, 520, 56, 0x253d2a)
-          .setOrigin(0).setStrokeStyle(2, 0x38b764).setInteractive({ useHandCursor: true }),
-        'menu.continue',
-      )
-      const continueTxt = this.add.text(CX - 240, y + 16, 'ПРОДОЛЖИТЬ', {
-        fontFamily: 'monospace', fontSize: '18px', color: '#38b764',
+    // Факты сейва (ITGAME-19): ключ сессии есть только у клиента, день и
+    // баланс — у сервера. Меню рисуется сразу, сводка дорисовывает блок.
+    if (this.hadSave) {
+      const token = ++this.peekToken
+      peekSave(sessionId()).then((s) => {
+        if (token !== this.peekToken || this.started || !this.scene.isActive()) return
+        this.summary = s
+        this.buildMain()
       })
-      const continueDesc = this.add.text(CX - 240, y + 38, 'сохранённая игра — день, баланс и офисы на месте', {
-        fontFamily: 'monospace', fontSize: '11px', color: '#5d7275',
-      })
-      continueBg.on('pointerover', () => continueBg.setStrokeStyle(2, 0xffcd75))
-      continueBg.on('pointerout', () => continueBg.setStrokeStyle(2, 0x38b764))
-      continueBg.on('pointerdown', () => this.onContinueClick())
-      firstY = 244
-      const orNew = this.add
-        .text(CX, 224, 'или начните новую:', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
-        .setOrigin(0.5)
-      this.menuUI.push(continueBg, continueTxt, continueDesc, orNew)
-    } else {
-      const chooseDiff = this.add
-        .text(CX, 140, 'Выберите сложность', { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4' })
-        .setOrigin(0.5)
-      this.menuUI.push(chooseDiff)
     }
-
-    LEVELS.forEach((lvl, i) => {
-      const y = firstY + i * 96
-      const diffBg = tag(
-        this.add.rectangle(CX - 260, y, 520, 80, 0x232640)
-          .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true }),
-        `menu.diff.${lvl.id}`,
-      )
-      const diffLbl = this.add.text(CX - 240, y + 14, lvl.label, {
-        fontFamily: 'monospace', fontSize: '20px',
-        color: '#' + lvl.color.toString(16).padStart(6, '0'),
-      })
-      const diffDesc = this.add.text(CX - 240, y + 44, lvl.desc, { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
-      const diffGoal = this.add.text(CX + 240, y + 14, `Цель: ${lvl.goal}`, { fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4' }).setOrigin(1, 0)
-      diffBg.on('pointerover', () => diffBg.setStrokeStyle(2, lvl.color))
-      diffBg.on('pointerout', () => diffBg.setStrokeStyle(2, 0x3a3f5c))
-      diffBg.on('pointerdown', () => this.startGame(lvl.id, true))
-      this.menuUI.push(diffBg, diffLbl, diffDesc, diffGoal)
-    })
 
     // Мета-прогресс (ITGAME-10): Статистика забегов слева
     const statsBg = tag(
@@ -108,7 +131,7 @@ export class MenuScene extends Phaser.Scene {
     // Масштаб UI (ITGAME-15): стартовый экран — единственное место, где все
     // варианты видны рядом; применяется на лету, переживает перезагрузку.
     const zoomLbl = this.add
-      .text(449, 665, 'Масштаб:', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
+      .text(449, 665, 'Масштаб:', { fontFamily: 'monospace', fontSize: '12px', color: DIM })
       .setOrigin(0, 0.5)
     this.menuUI.push(zoomLbl)
     const zoomBtns: { bg: Phaser.GameObjects.Rectangle; value: (typeof ZOOM_OPTIONS)[number]['value'] }[] = []
@@ -160,6 +183,173 @@ export class MenuScene extends Phaser.Scene {
     this.menuUI.push(achBg, achTxt)
 
     this.registerKeys()
+  }
+
+  private saveView(): SaveView {
+    if (!this.hadSave) return 'none'
+    const s = this.summary
+    if (s === undefined) return 'loading'
+    if (s === null) return 'unknown'
+    if (!s.exists) return 'none'
+    return s.alive ? 'alive' : 'ended'
+  }
+
+  // Основной блок, центрированный по вертикали над нижней панелью
+  // (ITGAME-19: контент был прижат к верху, ~60% экрана пустовало).
+  private buildMain() {
+    const old = new Set(this.mainUI)
+    this.mainUI.forEach((o) => o.destroy())
+    this.menuUI = this.menuUI.filter((o) => !old.has(o))
+    this.mainUI = []
+    this.focusItems = []
+    const ui = this.mainUI
+
+    const view = this.saveView()
+    const withCard = view !== 'none'
+    const TITLE_H = 48
+    const CARD_H = 64
+    const LVL_H = 76
+    const LVL_GAP = 12
+    const SUB_H = 18
+    const HINT_H = 16
+    const levelsH = LEVELS.length * LVL_H + (LEVELS.length - 1) * LVL_GAP
+    const total = TITLE_H + 28 + (withCard ? CARD_H + 20 : 0) + SUB_H + 12 + levelsH + 20 + HINT_H
+    let y = Math.max(24, Math.round((BOTTOM_TOP - total) / 2))
+
+    ui.push(this.add
+      .text(CX, y + TITLE_H / 2, 'IT DIRECTOR', { fontFamily: 'monospace', fontSize: '42px', color: '#ffcd75' })
+      .setOrigin(0.5))
+    y += TITLE_H + 28
+
+    // «Продолжить» (ITGAME-8): на сервере живёт сейв сессии — возвращаем
+    // игрока в его партию (сложность игнорируется, конфиг в сейве).
+    // Партия, кончившаяся офлайн, — не «продолжить», а её итог (ITGAME-19).
+    if (withCard) {
+      const s = this.summary
+      const ended = view === 'ended' && s
+      const color = ended ? 0xffcd75 : 0x38b764
+      const label = !ended
+        ? 'ПРОДОЛЖИТЬ'
+        : s.outcome === 'won'
+          ? 'ИТОГ: ПОБЕДА'
+          : `ИТОГ: ${(LOSE_REASON[s.reason] ?? 'поражение').toUpperCase()}`
+      let desc = 'сохранённая партия · загружаю сводку…'
+      if (view === 'unknown') desc = 'сохранённая партия (сервер не дал сводку)'
+      if (view === 'alive' && s) desc = saveFacts(s)
+      if (ended) desc = `пока вас не было · ${saveFacts(s)}`
+      const cardBg = tag(
+        this.add.rectangle(CX - 260, y, 520, CARD_H, ended ? 0x3d3626 : 0x253d2a)
+          .setOrigin(0).setStrokeStyle(2, color).setInteractive({ useHandCursor: true }),
+        'menu.continue',
+      )
+      const cardTxt = this.add.text(CX - 240, y + 12, label, {
+        fontFamily: 'monospace', fontSize: '20px', color: '#' + color.toString(16).padStart(6, '0'),
+      })
+      const cardDesc = this.add.text(CX - 240, y + 40, desc, {
+        fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4',
+      })
+      const cardKey = this.add.text(CX + 240, y + 14, '[Enter]', {
+        fontFamily: 'monospace', fontSize: '13px', color: DIM,
+      }).setOrigin(1, 0)
+      this.addFocusItem({
+        id: 'menu.continue', bg: cardBg, y: y + CARD_H / 2,
+        stroke: color, focus: ended ? 0xf4f4f4 : 0xffcd75,
+        activate: () => this.onContinueClick(),
+      })
+      ui.push(cardBg, cardTxt, cardDesc, cardKey)
+      y += CARD_H + 20
+    }
+
+    ui.push(this.add
+      .text(CX, y + SUB_H / 2, withCard ? 'или начните новую:' : 'Выберите сложность', {
+        fontFamily: 'monospace', fontSize: withCard ? '14px' : '16px', color: withCard ? DIM : '#f4f4f4',
+      })
+      .setOrigin(0.5))
+    y += SUB_H + 12
+
+    LEVELS.forEach((lvl, i) => {
+      const hex = '#' + lvl.color.toString(16).padStart(6, '0')
+      const diffBg = tag(
+        this.add.rectangle(CX - 260, y, 520, LVL_H, 0x232640)
+          .setOrigin(0).setStrokeStyle(2, BASE_STROKE).setInteractive({ useHandCursor: true }),
+        `menu.diff.${lvl.id}`,
+      )
+      const diffLbl = this.add.text(CX - 240, y + 12, lvl.label, { fontFamily: 'monospace', fontSize: '20px', color: hex })
+      const diffDesc = this.add.text(CX - 240, y + 44, lvl.desc, { fontFamily: 'monospace', fontSize: '13px', color: DIM })
+      const diffGoal = this.add.text(CX + 240, y + 14, `Цель: ${lvl.goal}`, { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' }).setOrigin(1, 0)
+      const diffKey = this.add.text(CX + 240, y + 46, `[${i + 1}]`, { fontFamily: 'monospace', fontSize: '13px', color: DIM }).setOrigin(1, 0)
+      this.addFocusItem({
+        id: `menu.diff.${lvl.id}`, bg: diffBg, y: y + LVL_H / 2,
+        stroke: BASE_STROKE, focus: lvl.color,
+        activate: () => this.requestNewGame(lvl.id),
+      })
+      ui.push(diffBg, diffLbl, diffDesc, diffGoal, diffKey)
+      y += LVL_H + LVL_GAP
+    })
+    y += 20 - LVL_GAP
+
+    ui.push(this.add
+      .text(CX, y + HINT_H / 2, '1–4 — новая партия · ↑↓ — выбор · Enter — открыть выбранное', {
+        fontFamily: 'monospace', fontSize: '13px', color: DIM,
+      })
+      .setOrigin(0.5))
+
+    this.focusMarker = this.add.text(CX - 272, 0, '▶', { fontFamily: 'monospace', fontSize: '18px', color: '#f4f4f4' })
+      .setOrigin(1, 0.5)
+    ui.push(this.focusMarker)
+
+    // Фокус по умолчанию: «Продолжить», если есть, иначе НОРМА; пережил
+    // перестройку — остаётся где был.
+    const keep = this.focusItems.some((f) => f.id === this.focusId)
+    this.setFocus(keep ? this.focusId : withCard ? 'menu.continue' : 'menu.diff.normal')
+
+    // Перестройка при открытой модалке: блок появится, когда её закроют.
+    if (this.modalUI.length > 0) ui.forEach((o) => o.setVisible(false))
+    this.menuUI.push(...ui)
+  }
+
+  private addFocusItem(item: FocusItem) {
+    item.bg.on('pointerover', () => this.setFocus(item.id))
+    item.bg.on('pointerdown', () => {
+      this.setFocus(item.id)
+      item.activate()
+    })
+    this.focusItems.push(item)
+  }
+
+  // Видимый фокус (ITGAME-19): толстая рамка цвета пункта и маркер ▶;
+  // для itd.ids() — active у сфокусированной плашки.
+  private setFocus(id: string) {
+    const item = this.focusItems.find((f) => f.id === id)
+    if (!item) return
+    this.focusId = id
+    for (const f of this.focusItems) {
+      const on = f === item
+      f.bg.setStrokeStyle(on ? 3 : 2, on ? f.focus : f.stroke)
+      markActive(f.bg, on)
+    }
+    this.focusMarker?.setY(item.y).setColor('#' + item.focus.toString(16).padStart(6, '0'))
+  }
+
+  private moveFocus(step: number) {
+    const n = this.focusItems.length
+    if (n === 0) return
+    const i = this.focusItems.findIndex((f) => f.id === this.focusId)
+    this.setFocus(this.focusItems[(Math.max(i, 0) + step + n) % n].id)
+  }
+
+  // Новая партия при живом сейве (ITGAME-19): раньше старт молча затирал
+  // партию — теперь спрашиваем. Сводка ещё не пришла или сервер не ответил —
+  // сейв считаем живым: лишний вопрос дешевле потерянной партии.
+  private needsConfirm(): boolean {
+    const v = this.saveView()
+    return v === 'alive' || v === 'loading' || v === 'unknown'
+  }
+
+  private requestNewGame(d: DifficultyId) {
+    if (this.started) return
+    if (this.needsConfirm()) this.showConfirmNewModal(d)
+    else this.startGame(d, true)
   }
 
   private closeModal() {
@@ -313,22 +503,43 @@ export class MenuScene extends Phaser.Scene {
   private registerKeys() {
     const kb = this.input.keyboard
     if (!kb) return
-    kb.on('keydown-ONE', () => { if (this.modalUI.length === 0 && !this.started) { this.acted('ONE', 'start_easy'); this.startGame('easy', true) } })
-    kb.on('keydown-TWO', () => { if (this.modalUI.length === 0 && !this.started) { this.acted('TWO', 'start_normal'); this.startGame('normal', true) } })
-    kb.on('keydown-THREE', () => { if (this.modalUI.length === 0 && !this.started) { this.acted('THREE', 'start_hard'); this.startGame('hard', true) } })
-    kb.on('keydown-FOUR', () => { if (this.modalUI.length === 0 && !this.started) { this.acted('FOUR', 'start_hardcore'); this.startGame('hardcore', true) } })
+    const digit = (key: string, d: DifficultyId) => {
+      if (this.modalUI.length > 0 || this.started) return
+      this.acted(key, `${this.needsConfirm() ? 'confirm' : 'start'}_${d}`)
+      this.setFocus(`menu.diff.${d}`)
+      this.requestNewGame(d)
+    }
+    kb.on('keydown-ONE', () => digit('ONE', 'easy'))
+    kb.on('keydown-TWO', () => digit('TWO', 'normal'))
+    kb.on('keydown-THREE', () => digit('THREE', 'hard'))
+    kb.on('keydown-FOUR', () => digit('FOUR', 'hardcore'))
+    kb.on('keydown-UP', () => {
+      if (this.modalUI.length > 0 || this.started) return
+      this.moveFocus(-1)
+      this.acted('UP', 'focus')
+    })
+    kb.on('keydown-DOWN', () => {
+      if (this.modalUI.length > 0 || this.started) return
+      this.moveFocus(1)
+      this.acted('DOWN', 'focus')
+    })
+    // Enter открывает пункт в фокусе: по умолчанию это «Продолжить» при
+    // сейве и НОРМА без него — как было до фокуса (ITGAME-24).
     kb.on('keydown-ENTER', () => {
       if (this.modalUI.length === 0) {
-        if (hasSavedSession()) {
+        const item = this.focusItems.find((f) => f.id === this.focusId)
+        if (!item) return
+        if (item.id === 'menu.continue') {
           if (!this.started && !this.checkingNeighbor) this.acted('ENTER', 'continue')
-          this.onContinueClick()
-        } else {
-          if (!this.started) this.acted('ENTER', 'start_normal')
-          this.startGame('normal', true)
+        } else if (!this.started) {
+          const d = item.id.slice('menu.diff.'.length)
+          this.acted('ENTER', `${this.needsConfirm() ? 'confirm' : 'start'}_${d}`)
         }
+        item.activate()
       } else {
         // Если модалка открыта, Enter безопасно закрывает её (отмена).
-        // Деструктивный перехват чужой сессии (takeover) доступен только по клику.
+        // Деструктивные действия (перехват сессии, затирание партии) —
+        // только по клику.
         this.acted('ENTER', 'close_modal')
         this.closeModal()
       }
@@ -422,6 +633,56 @@ export class MenuScene extends Phaser.Scene {
     btnTakeoverBg.on('pointerout', () => btnTakeoverBg.setFillStyle(0xb13e53))
 
     this.modalUI = [...frameUI, body, btnCancelBg, btnCancelTxt, btnTakeoverBg, btnTakeoverTxt]
+  }
+
+  // Подтверждение новой партии при живом сейве (ITGAME-19).
+  private showConfirmNewModal(d: DifficultyId) {
+    this.closeModal()
+    this.menuUI.forEach((o) => {
+      if (o !== this.bg) o.setVisible(false)
+    })
+    const pw = 640
+    const ph = 250
+    const { frameUI, topY } = this.createModalFrame(pw, ph, '⚠️ НАЧАТЬ ЗАНОВО?', 0xffcd75, false)
+    const s = this.summary
+    const current = s && s.exists && s.alive ? `Текущая партия (${saveFacts(s)})` : 'Текущая сохранённая партия'
+    const body = this.add.text(CX, topY + 66, [
+      `Новая партия: ${levelLabel(d)}.`,
+      `${current} будет потеряна —`,
+      '«Продолжить» её больше не вернёт.',
+    ].join('\n'), {
+      fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4', align: 'center', lineSpacing: 6,
+    }).setOrigin(0.5, 0).setDepth(82)
+
+    const btnY = topY + ph - 42
+    const btnCancelBg = tag(
+      this.add.rectangle(CX - 120, btnY, 180, 36, 0x232640)
+        .setStrokeStyle(2, BASE_STROKE).setDepth(82).setInteractive({ useHandCursor: true }),
+      'modal.btn.cancel',
+    )
+    const btnCancelTxt = this.add.text(CX - 120, btnY, 'Отмена', {
+      fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4',
+    }).setOrigin(0.5).setDepth(83)
+    btnCancelBg.on('pointerdown', () => this.closeModal())
+    btnCancelBg.on('pointerover', () => btnCancelBg.setStrokeStyle(2, 0x41a6f6))
+    btnCancelBg.on('pointerout', () => btnCancelBg.setStrokeStyle(2, BASE_STROKE))
+
+    const btnConfirmBg = tag(
+      this.add.rectangle(CX + 120, btnY, 200, 36, 0xb13e53)
+        .setDepth(82).setInteractive({ useHandCursor: true }),
+      'modal.btn.confirm',
+    )
+    const btnConfirmTxt = this.add.text(CX + 120, btnY, 'Начать заново', {
+      fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4',
+    }).setOrigin(0.5).setDepth(83)
+    btnConfirmBg.on('pointerdown', () => {
+      this.closeModal()
+      this.startGame(d, true)
+    })
+    btnConfirmBg.on('pointerover', () => btnConfirmBg.setFillStyle(0xef7d57))
+    btnConfirmBg.on('pointerout', () => btnConfirmBg.setFillStyle(0xb13e53))
+
+    this.modalUI = [...frameUI, body, btnCancelBg, btnCancelTxt, btnConfirmBg, btnConfirmTxt]
   }
 
   // fresh=true — игрок ЯВНО выбрал новую партию (кнопка сложности, 1-4):

@@ -7,7 +7,7 @@
 //        висит, switching === true (ITGAME-42)
 //   P2-0 вторая партия (fresh): состояние HUD сразу после create(), до первого снапшота —
 //        switching false, все списки UI пусты, hoveredButtonId null
-//   P2a  sid новый, день 1
+//   P2a  sid новый, день 1; при живом сейве партии 1 старт спросил подтверждение (ITGAME-19)
 //   P2b  nav.office0 active, nav.office1 нет (ITGAME-41)
 //   P2c  в офисе нет «закрыт», есть «ОФИС 1» (ITGAME-41)
 //   P2d  btn.pc покупает в офисе 0: buy_pc.office === 0, нет office_locked, pcs +1
@@ -155,8 +155,10 @@ async function run() {
         }
       })
       window.itd.click('menu.diff.normal')
+      // сейв партии 1 жив — новая партия спрашивает подтверждение (ITGAME-19)
+      const confirm = window.itd.click('modal.btn.confirm')
       await window.itd.wait((s) => s.connected === true && s.day === 1, 15000)
-      return { at: window.__qa47, sid: window.itd.server().sid }
+      return { at: window.__qa47, sid: window.itd.server().sid, confirm: confirm.ok }
     })
     const at = p2.at
     const lens = at ? ['reportUI', 'eventUI', 'gameOverUI', 'victoryUI', 'offlineUI', 'reconnectUI', 'debugFrames'] : []
@@ -168,6 +170,7 @@ async function run() {
 
     const day2 = await page.evaluate(() => window.itd.state().day)
     check('P2a: партия новая — sid другой, день 1', !!p2.sid && p2.sid !== sid1 && day2 === 1, `sid1=${sid1} sid2=${p2.sid} day=${day2}`)
+    check('P2a-confirm: новая партия при живом сейве спросила подтверждение (ITGAME-19)', p2.confirm === true, `modal.btn.confirm ok=${p2.confirm}`)
 
     await delay(300)
     const p2b = await navIds()

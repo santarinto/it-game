@@ -209,6 +209,20 @@ export interface OfflineReportMessage {
   reason?: 'bankrupt' | 'time_up' | 'deadlock' // причина офлайн-финала
 }
 
+// Сводка сейва для стартового экрана (ITGAME-19): отдельный короткий
+// коннект /ws?peek=1&sid=… — одно сообщение и закрытие, сессию не захватывает.
+// День и баланс — уже после офлайн-догона, как увидит «Продолжить».
+export interface SaveSummaryMessage {
+  type: 'save_summary'
+  exists: boolean // сейв есть (не истёк, не битый)
+  alive: boolean // партию можно продолжить
+  day: number
+  money: number
+  difficulty: DifficultyId | ''
+  outcome: '' | 'won' | 'lost' // финал, случившийся офлайн
+  reason: '' | 'bankrupt' | 'time_up' | 'deadlock'
+}
+
 export type ServerMessage =
   | StateMessage | ErrorMessage | DayReportMessage | GameOverMessage | VictoryMessage | OfflineReportMessage
 

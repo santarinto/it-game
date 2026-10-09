@@ -5,6 +5,7 @@ import { COMMAND_TYPES } from '../protocol'
 import type { CommandType, ServerErrorCode, StateMessage } from '../protocol'
 import { CONTRACT } from './contract.gen'
 import { AI_SPRITES } from '../scenes/BootScene'
+import type { MenuScene } from '../scenes/MenuScene'
 import { PALETTES, SPRITES } from '../assets/manifest'
 import type { PaletteName } from '../assets/manifest'
 import { findLowContrast, findOffscreen, findOverlaps, findTiny } from './lint'
@@ -202,7 +203,7 @@ async function debugFetch<T>(method: 'GET' | 'POST', path: string, body?: Record
 export interface AgentState {
   connected: boolean
   // ITGAME-30: меню создано и активно — предикат готовности ДО старта
-  // партии (state() там весь null). wait(s => s.menuReady) вместо слепого
+  // партии (state() там весь null). ITGAME-19: и сводка сейва устоялась. wait(s => s.menuReady) вместо слепого
   // setTimeout; в скрытой вкладке wait() сам прогревает кадр.
   menuReady: boolean
   balance: number | null
@@ -340,7 +341,7 @@ export interface ItdApi {
   readonly version: { sha: string; builtAt: string }
   /**
    * Баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий
-   * (null до первого снапшота); menuReady — меню создано и активно.
+   * (null до первого снапшота); menuReady — меню создано, активно и сводка сейва устоялась.
    * @example itd.state()
    */
   state(): AgentState
@@ -379,7 +380,7 @@ export interface ItdApi {
    */
   hover(id: string): AgentResult & { id?: string; scene?: string }
   /**
-   * Клавиша: 1-4 — сложность в меню, enter/space/esc — отчёт дня.
+   * Клавиша: 1-4 — сложность в меню, up/down — фокус меню, enter — пункт в фокусе меню / отчёт дня, space/esc — отчёт дня.
    * @example itd.key('enter')
    */
   key(k: string): AgentResult & { key?: string; scenes?: string[] }
@@ -586,9 +587,12 @@ function warmTicks(game: Phaser.Game, n: number): number {
 }
 
 function buildState(game: Phaser.Game): AgentState {
-  // Меню готово, когда его create() отработал (сцена RUNNING). До старта
-  // партии это единственный честный «я на экране» для агента.
-  const menuReady = game.scene.isActive('menu')
+  // Меню готово, когда его create() отработал (сцена RUNNING) и сводка
+  // сейва устоялась (ITGAME-19): иначе клик уровня в первые миллисекунды
+  // спросил бы подтверждение затирания сейва, которого на сервере нет.
+  // До старта партии это единственный честный «я на экране» для агента.
+  const menu = game.scene.getScene('menu') as MenuScene | null
+  const menuReady = game.scene.isActive('menu') && (menu?.saveSettled ?? true)
   const s = client.latest
   if (!s) {
     return {
@@ -748,7 +752,8 @@ const leftPointer = {
 } as unknown as Phaser.Input.Pointer
 
 // Раскладка клавиш для key(): короткие имена → коды Phaser.
-// Enter/Space/Esc — отчёт дня, 1-4 — сложность в меню (ITGAME-24).
+// Enter/Space/Esc — отчёт дня, 1-4 — сложность в меню (ITGAME-24),
+// up/down — фокус пунктов меню (ITGAME-19).
 const KEYMAP: Record<string, { code: string; keyCode: number; key: string }> = {
   enter: { code: 'ENTER', keyCode: 13, key: 'Enter' },
   space: { code: 'SPACE', keyCode: 32, key: 'Space' },
@@ -758,6 +763,9 @@ const KEYMAP: Record<string, { code: string; keyCode: number; key: string }> = {
   2: { code: 'TWO', keyCode: 50, key: '2' },
   3: { code: 'THREE', keyCode: 51, key: '3' },
   4: { code: 'FOUR', keyCode: 52, key: '4' },
+  // ↑↓ — фокус пунктов меню (ITGAME-19)
+  up: { code: 'UP', keyCode: 38, key: 'ArrowUp' },
+  down: { code: 'DOWN', keyCode: 40, key: 'ArrowDown' },
 }
 
 // Команды протокола для itd.cmd() (ITGAME-30): единственный список —
@@ -765,7 +773,7 @@ const KEYMAP: Record<string, { code: string; keyCode: number; key: string }> = {
 const COMMANDS = new Set<string>(COMMAND_TYPES)
 
 const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/39)
-  itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); menuReady — меню создано и активно
+  itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); menuReady — меню создано, активно и сводка сейва устоялась
   itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt, reconnects, sid, sidSwitches
   itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, visible, alpha, interactive, depth, active}
   itd.text()                        — nodes() с непустым текстом
@@ -773,7 +781,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
                                        active — состояние переключателя (btn.speed.*, nav.*, btn.skip_reports, btn.debug, menu.zoom.*), null у прочих; НЕ GameObject.active
   itd.click('btn.hire')             — клик по id: дергает pointerdown-обработчик напрямую, мимо input-слоя
   itd.hover('office.worker.0')      — наведение по id (тултипы)
-  itd.key('1'|'enter'|'space'|'esc')— клавиша: 1-4 сложность в меню, enter/space/esc — отчёт дня
+  itd.key('1'|'enter'|'space'|'esc')— клавиша: 1-4 сложность в меню, up/down — фокус меню, enter — пункт в фокусе меню / отчёт дня, space/esc — отчёт дня
   itd.cmd('hire')                   — команда с квитанцией сервера: Promise<{ok, code?}> — первый state|error после отправки, по порядку команд; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
   itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, …}] по порядку, recv[error/day_report…], transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой)
   itd.warm()                        — прогреть кадр вручную (шаги лупа); в скрытой вкладке itd делает это сам

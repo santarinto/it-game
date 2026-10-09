@@ -62,6 +62,18 @@ written `<sid>.json`. On reconnect with the same `sid` within the TTL
   `sid` takes the session over and the old one is closed with
   `session_taken`.
 
+The start menu reads the save's facts through `/ws?peek=1&sid=…`
+(ITGAME-19): the server sends one `save_summary` (`exists`, `alive`,
+`day`, `money`, `difficulty`, `outcome` won/lost, `reason`) and closes
+the socket. It counts missed time offline the same way a reconnect does,
+but on a copy: nothing is written, no session is taken over. It rides on
+`/ws` because that is the only path production nginx proxies to Go —
+`/api/*` there falls through to the SPA's `index.html`. The menu shows
+«ПРОДОЛЖИТЬ — День 3 · $60 · НОРМА» for a live save, «ИТОГ: …» for a
+game that ended while the player was away, hides the card when the
+server has no save, and asks for confirmation before a new game
+overwrites a live one.
+
 Save directory: `-saves` flag → `ITGAME_SAVES_DIR` →
 `/opt/itgame/shared/saves` (if it exists) → `./saves`. `-saves off` runs
 stateless. Expired saves are purged on start and on access.
