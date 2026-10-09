@@ -509,13 +509,30 @@ export interface ItdApi {
    */
   speed(n: number): AgentResult & { code?: string }
   /**
-   * Пауза + промотка ms игровых тиков через /api/debug/advance (2000мс =
-   * 2 тика).
+   * Пауза (set_speed 0 — так и остаётся) + промотка тиков ОФЛАЙН-движком через
+   * /api/debug/advance. Две формы: step(ms) — мс, 1 тик = 1000 мс, округление до
+   * целых, 500..10000 мс (1..10 тиков); step({ticks}) — целое 1..10000 тиков за
+   * вызов. Офлайн-движок — сводная формула: без кофе-роллов, событий, поломок и
+   * XP; конец дня закрывается без day_report и без роллов next_day (ни
+   * day_report, ни offline_report не приходят). Из фазы day_report сервер
+   * сначала делает обычный next_day. Сводка {ticks, days, income, payroll,
+   * balance, gameOver, victory, reason?} — в ответе .advance (+ .state) и строкой
+   * «debug · advance» в itd.snapshot().events; в itd.log() — только переходы
+   * снапшота (day/phase) и game_over/victory при финале. Настоящий отчёт дня —
+   * промотать до последнего тика и дать ему пройти вживую.
    * @example itd.step(2000)
+   * @example itd.step({ticks: 60})
    */
-  step(ms: number): Promise<DebugAdvanceResult>
+  step(msOrTicks: number | { ticks: number }): Promise<DebugAdvanceResult>
   /**
-   * Промотка дней офлайн-движком: день N → N+n, отчёты дней в itd.log().
+   * Промотка n целых дней (1..90) ОФЛАЙН-движком через /api/debug/advance:
+   * день N → N+n, тик дня тот же; скорость не трогает. Из фазы day_report
+   * сервер сначала делает обычный next_day (итог — день N+1+n, тик 0).
+   * Офлайн-движок: без кофе-роллов, событий, поломок и XP; дни закрываются
+   * без day_report и offline_report — отчётов дней в itd.log() НЕТ, там только
+   * смена дня (type 'day') и game_over/victory при финале. Сводка {ticks,
+   * days, income, payroll, balance, …} — в ответе .advance и строкой
+   * «debug · advance» в itd.snapshot().events.
    * @example itd.advanceDays(3)
    */
   advanceDays(n: number): Promise<DebugAdvanceResult>
@@ -812,8 +829,8 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк)
   itd.reset()                       — снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум, отчёты)
   itd.pause() / resume() / speed(n) — темп сессии: set_speed 0/1/0..3 (серверный, живёт в сейве); до коннекта — {ok:false, code:'not_connected'}
-  itd.step(2000)                    — пауза + промотка 2с игровых тиков (2000мс = 2 тика) через /api/debug/advance
-  itd.advanceDays(3)                — промотка дней офлайн-движком: день N → N+3; сводка {days, income, payroll, balance} — в ответе .advance и строкой «debug · advance» в itd.snapshot().events, смена дня — в itd.log()
+  itd.step(2000) / step({ticks:60}) — пауза + промотка офлайн-движком (без кофе/событий/поломок/XP, день закрывается без day_report): мс (1 тик = 1000 мс, до 10 тиков) или {ticks: 1..10000}; из фазы отчёта — сначала next_day; сводка — в .advance и «debug · advance» в itd.snapshot().events
+  itd.advanceDays(3)                — промотка дней офлайн-движком: день N → N+3 (из фазы отчёта — сначала next_day), без day_report; сводка {days, income, payroll, balance} — в ответе .advance и строкой «debug · advance» в itd.snapshot().events, в itd.log() — только смена дня
   itd.set({money: 50000})           — читы живой сессии: {money, day, tickInDay}
   itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs; сбрасывает клиентское состояние партии (офис → О1)
   itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы
@@ -1040,10 +1057,23 @@ function makeApi(game: Phaser.Game): ItdApi {
         ? { ok: true }
         : { ok: false, code: 'not_connected', error: 'сокет не открыт — скорость не отправлена' }
     },
-    async step(ms) {
-      if (ms <= 0 || ms > 10000) throw new Error('step: мс — 1..10000')
+    async step(msOrTicks) {
+      let ticks: number
+      if (typeof msOrTicks === 'number') {
+        // мс-форма (как раньше): 1 тик = 1000 мс, до 10 тиков за вызов
+        if (!Number.isFinite(msOrTicks) || msOrTicks <= 0 || msOrTicks > 10000) {
+          throw new Error('step: мс — 1..10000 (или {ticks: 1..10000})')
+        }
+        ticks = Math.round(msOrTicks / 1000)
+        if (ticks < 1) throw new Error('step: меньше 500 мс — это 0 тиков (1 тик = 1000 мс)')
+      } else {
+        ticks = msOrTicks?.ticks
+        if (!Number.isInteger(ticks) || ticks < 1 || ticks > 10000) {
+          throw new Error('step: {ticks} — целое 1..10000')
+        }
+      }
       client.send('set_speed', 0, { speed: 0 }) // степпинг только на паузе
-      return debugFetch<DebugAdvanceResult>('POST', '/advance', { ticks: Math.round(ms / 1000) })
+      return debugFetch<DebugAdvanceResult>('POST', '/advance', { ticks })
     },
     advanceDays(n) {
       if (!Number.isInteger(n) || n < 1 || n > 90) {

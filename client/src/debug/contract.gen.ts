@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "02e1328fd790",
+  "hash": "7e944f6aaddc",
   "methods": {
     "version": {
       "kind": "prop",
@@ -320,15 +320,16 @@ export const CONTRACT = {
       "kind": "method",
       "params": [
         {
-          "name": "ms",
-          "type": "number",
+          "name": "msOrTicks",
+          "type": "number | { ticks: number; }",
           "optional": false
         }
       ],
       "returns": "Promise<DebugAdvanceResult>",
-      "doc": "Пауза + промотка ms игровых тиков через /api/debug/advance (2000мс =\n2 тика).",
+      "doc": "Пауза (set_speed 0 — так и остаётся) + промотка тиков ОФЛАЙН-движком через\n/api/debug/advance. Две формы: step(ms) — мс, 1 тик = 1000 мс, округление до\nцелых, 500..10000 мс (1..10 тиков); step({ticks}) — целое 1..10000 тиков за\nвызов. Офлайн-движок — сводная формула: без кофе-роллов, событий, поломок и\nXP; конец дня закрывается без day_report и без роллов next_day (ни\nday_report, ни offline_report не приходят). Из фазы day_report сервер\nсначала делает обычный next_day. Сводка {ticks, days, income, payroll,\nbalance, gameOver, victory, reason?} — в ответе .advance (+ .state) и строкой\n«debug · advance» в itd.snapshot().events; в itd.log() — только переходы\nснапшота (day/phase) и game_over/victory при финале. Настоящий отчёт дня —\nпромотать до последнего тика и дать ему пройти вживую.",
       "examples": [
-        "itd.step(2000)"
+        "itd.step(2000)",
+        "itd.step({ticks: 60})"
       ]
     },
     "advanceDays": {
@@ -341,7 +342,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<DebugAdvanceResult>",
-      "doc": "Промотка дней офлайн-движком: день N → N+n, отчёты дней в itd.log().",
+      "doc": "Промотка n целых дней (1..90) ОФЛАЙН-движком через /api/debug/advance:\nдень N → N+n, тик дня тот же; скорость не трогает. Из фазы day_report\nсервер сначала делает обычный next_day (итог — день N+1+n, тик 0).\nОфлайн-движок: без кофе-роллов, событий, поломок и XP; дни закрываются\nбез day_report и offline_report — отчётов дней в itd.log() НЕТ, там только\nсмена дня (type 'day') и game_over/victory при финале. Сводка {ticks,\ndays, income, payroll, balance, …} — в ответе .advance и строкой\n«debug · advance» в itd.snapshot().events.",
       "examples": [
         "itd.advanceDays(3)"
       ]
