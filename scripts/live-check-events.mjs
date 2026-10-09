@@ -1,6 +1,7 @@
 // Живая проверка событий «Unseen Forces» (итерация 10) против реального
 // сервера. Запуск: go run ./cmd/server -addr :8091 (из server/), затем
 //   node scripts/live-check-events.mjs
+// Другой порт сервера — PORT=8191.
 //
 // Детерминированная часть: день 1 без событий, event_choice/no_event,
 // поле salary, events в отчёте. Само событие — шанс 75%/день: ждём до
@@ -17,12 +18,21 @@ const fail = (name, got) => {
 // Фиксированный сид (ITGAME-26): ролл событий, поломок и выработки
 // воспроизводим — без него прогон мог обанкротиться (один сотрудник,
 // тонкий баланс) и висел до таймаута. SEED=… — проверить другой сид.
-const SEED = process.env.SEED ?? '3' // сид 3: «Дедлайн» на день 2, ~37с
-const ws = new WebSocket(`ws://localhost:8091/ws?difficulty=normal&seed=${SEED}`)
+// Сид 3 перепроверен 09.10.2026 после ITGAME-50 (аудит убран из дней 2–4):
+// «Дедлайн от бизнеса» на день 2, прогон ~36 с. Проверка принимает ЛЮБОЕ
+// событие на днях 2–4; имя — справочная заметка, не утверждение (см. EXPECT).
+// Подобрать другой сид: make sim ARGS="--diff normal --seed 1..50 --days 4
+// --policy greedy --events-text", затем подтвердить живым прогоном.
+const SEED = process.env.SEED ?? '3'
+// Мягкое ожидание: если событие называется иначе — строка note, не падение
+// (дрейф пула виден, проверка не хрупкая). EXPECT='' отключает заметку.
+const EXPECT = process.env.EXPECT ?? 'Дедлайн'
+const PORT = process.env.PORT ?? '8091'
+const ws = new WebSocket(`ws://localhost:${PORT}/ws?difficulty=normal&seed=${SEED}`)
 let phase = 'start'
 let lastState = null
 const timeout = setTimeout(
-  () => fail('таймаут 240с', { phase, day: lastState?.day }),
+  () => fail(`таймаут 240с (сид ${SEED})`, { phase, day: lastState?.day }),
   240_000,
 )
 ws.onclose = () => fail('соединение закрылось до конца проверки', { phase })
@@ -57,6 +67,9 @@ ws.onmessage = (ev) => {
     }
     const e0 = m.offices[0].employees[0]
     if (typeof e0?.salary !== 'number' || e0.salary < 250) fail('employee.salary', e0)
+    if (EXPECT && !ev.title.includes(EXPECT)) {
+      console.log(`note — ждали «${EXPECT}», пришло «${ev.title}»`)
+    }
     ok(`событие «${ev.title}» (день ${m.day}), ${ev.options.length} опц.; salary сотрудника $${e0.salary}`)
     ws.send(JSON.stringify({ type: 'event_choice', slot: 0 }))
     phase = 'chosen'
@@ -81,4 +94,4 @@ ws.onmessage = (ev) => {
     process.exit(0)
   }
 }
-ws.onerror = () => fail('WebSocket error — сервер запущен на :8091?', null)
+ws.onerror = () => fail(`WebSocket error — сервер запущен на :${PORT}?`, null)

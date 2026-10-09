@@ -268,7 +268,14 @@ an already-running server instead.
 
 Each exits 0 with a final "… ОК". `live-check-events` and
 `live-check-difficulty2` pin a seed (`SEED=…` overrides), so runs are
-reproducible.
+reproducible; both take `PORT=…` for a server not on :8091.
+`live-check-events` passes on *any* event on days 2–4 — the seed only makes
+the run reproducible (seed 3 gives «Дедлайн от бизнеса» on day 2, ~36 s). The
+event name is a soft expectation: `EXPECT=<substring>` (default `Дедлайн`)
+prints a `note — ждали …` line when the title differs, without failing;
+`EXPECT=` disables it. To re-pick a seed, run
+`make sim ARGS="--diff normal --seed 1..50 --days 4 --policy greedy --events-text"`
+and confirm live.
 
 **sim** (`server/cmd/sim`) plays games with the real engine, e.g.
 `make sim ARGS="--diff hardcore --seed 1..50 --days 30 --policy all --out runs.csv"`.

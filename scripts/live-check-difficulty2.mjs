@@ -20,15 +20,16 @@ const SWING = [-15, -10, -5, 0, 5, 10, 15]
 
 // Фиксированный сид: ролл выработки найма воспроизводим. Без него ~1%
 // прогонов ловили «звезду» 14–17 $/тик — вечер в плюс, проверка долга падала.
+const PORT = process.env.PORT ?? '8091' // порт сервера
 const SEED = process.env.SEED ?? '3' // сид 3: найм 8 $/тик без звезды, вечер −$135
 
 let phase = 'start'
 let lastState = null
 let prevTomorrow = null
-const ws = new WebSocket(`ws://localhost:8091/ws?difficulty=hardcore&seed=${SEED}`)
+const ws = new WebSocket(`ws://localhost:${PORT}/ws?difficulty=hardcore&seed=${SEED}`)
 const timeout = setTimeout(() => fail('таймаут 180с', { phase, day: lastState?.day }), 180_000)
 ws.onclose = () => fail('соединение закрылось до конца проверки', { phase })
-ws.onerror = () => fail('WebSocket error — сервер запущен на :8091?', null)
+ws.onerror = () => fail(`WebSocket error — сервер запущен на :${PORT}?`, null)
 
 ws.onmessage = (ev) => {
   const m = JSON.parse(ev.data)
@@ -92,9 +93,9 @@ ws.onmessage = (ev) => {
 }
 
 function normalCheck() {
-  const ws2 = new WebSocket(`ws://localhost:8091/ws?difficulty=normal&seed=${SEED}`)
+  const ws2 = new WebSocket(`ws://localhost:${PORT}/ws?difficulty=normal&seed=${SEED}`)
   const to = setTimeout(() => fail('норма: таймаут 20с', {}), 20_000)
-  ws2.onerror = () => fail('WebSocket error — сервер запущен на :8091?', null)
+  ws2.onerror = () => fail(`WebSocket error — сервер запущен на :${PORT}?`, null)
   ws2.onmessage = (ev) => {
     const m = JSON.parse(ev.data)
     if (m.type !== 'state') return
