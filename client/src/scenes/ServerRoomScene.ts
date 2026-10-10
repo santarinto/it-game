@@ -4,7 +4,7 @@ import { GAME_H, GAME_W, HUD_H, NAV_W } from '../layout'
 import { client } from '../net'
 import { drawDebugFrames } from '../debug'
 import { tag } from '../debug/agentApi'
-import { showModal } from '../ui/modal'
+import { partyModals } from '../ui/modal'
 import { coreGain, serverGain } from '../network-preview'
 import { addSprite } from '../pixelart'
 import { HIRES_CAMERA } from '../render'
@@ -12,6 +12,8 @@ import type { StateMessage } from '../protocol'
 
 export class ServerRoomScene extends Phaser.Scene {
   private objects!: Phaser.GameObjects.GameObject[]
+  // Окна стоек и core: закрываются при смене партии (ITGAME-69).
+  private modal!: ReturnType<typeof partyModals>
 
   constructor() {
     super({ key: 'serverRoom', cameras: HIRES_CAMERA })
@@ -20,6 +22,7 @@ export class ServerRoomScene extends Phaser.Scene {
   create() {
     // сцены перезапускаются при переключении комнат — сбрасываем ссылки прошлого цикла
     this.objects = []
+    this.modal = partyModals(this)
     // пол серверной справа от панели навигации — статичен, рисуем один раз
     this.add.rectangle(NAV_W, HUD_H, GAME_W - NAV_W, GAME_H - HUD_H, 0x1f2233).setOrigin(0)
     this.add.text(GAME_W / 2, HUD_H + 20, 'СЕРВЕРНАЯ', {
@@ -149,7 +152,7 @@ export class ServerRoomScene extends Phaser.Scene {
         'четырём работникам офиса.',
         ...(gain > 0 ? [`≈ +${gain} в сеть после покупки`] : ['Ждущих обслуживания нет — наймите людей']),
       ]
-      showModal(this, `Стойка ${sl + 1} — офис ${oi + 1}`, lines, [{ label: `Купить ${fmtMoney(lvl1.price)}`, onClick: () => client.send('buy_server', oi) }],
+      this.modal(`Стойка ${sl + 1} — офис ${oi + 1}`, lines, [{ label: `Купить ${fmtMoney(lvl1.price)}`, onClick: () => client.send('buy_server', oi) }],
         { filled: 0, total: 24 })
       return
     }
@@ -162,7 +165,7 @@ export class ServerRoomScene extends Phaser.Scene {
       ? []
       : [{ label: `Апгрейд ${fmtMoney(srv.nextPrice)}`, onClick: () => client.send('upgrade_server', oi, { slot: sl }) }]
     // level/3 от 24U: ур.1 = 8U, ур.2 = 16U, ур.3 = 24U
-    showModal(this, `Серверная стойка ${sl + 1} — офис ${oi + 1}`, lines, buttons,
+    this.modal(`Серверная стойка ${sl + 1} — офис ${oi + 1}`, lines, buttons,
       { filled: srv.level * 8, total: 24 })
   }
 
@@ -198,7 +201,7 @@ export class ServerRoomScene extends Phaser.Scene {
           onClick: () => client.send('upgrade_core'),
         }]
     // level/5 от 24U: ур.1 = 5U, ур.2 = 10U, ур.3 = 14U, ур.4 = 19U, ур.5 = 24U
-    showModal(this, 'Серверная стойка роутеров', lines, buttons,
+    this.modal('Серверная стойка роутеров', lines, buttons,
       { filled: Math.round(c.level / 5 * 24), total: 24 })
   }
 }

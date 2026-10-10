@@ -10,6 +10,8 @@ import { resetOngoingStatsThrottle } from './meta'
 // Поля сцен сюда не входят — их инициализирует create() каждой сцены. Сцены, что живут
 // между партиями (HUD), подписываются через onPartyReset и сбрасывают себя сами: оверлеи
 // отчёта, события, «Пока вас не было», финала, окно выхода и учёт паузы отчёта (ITGAME-64).
+// Окна офиса и серверной (устройства, увольнение) закрываются через onPartyReplaced —
+// он срабатывает и здесь, и на дельте itd.restore() (ITGAME-69).
 // Намеренно НЕ сбрасываются: sid (prepareNewGame() в net.ts), масштаб UI,
 // хинты, skipReports, мета-статистика и достижения (это игрок/вкладка, не партия).
 export function resetForNewGame(): void {
@@ -23,6 +25,7 @@ export function resetForNewGame(): void {
       console.error('[party] reset', e)
     }
   }
+  partyReplaced()
 }
 
 const resetListeners = new Set<() => void>()
@@ -32,6 +35,29 @@ export function onPartyReset(fn: () => void): () => void {
   resetListeners.add(fn)
   return () => {
     resetListeners.delete(fn)
+  }
+}
+
+const replacedListeners = new Set<() => void>()
+
+// ITGAME-69: состояние партии подменено — новая партия (resetForNewGame) или дельта
+// itd.restore(). Окна сцен, собранные по прошлому стейту (устройства офиса и серверной,
+// увольнение), закрываются: их кнопки шлют команду для офиса/слота старой партии.
+// Партию restore не сбрасывает (ITGAME-63) — поэтому отдельный хук, не onPartyReset.
+export function onPartyReplaced(fn: () => void): () => void {
+  replacedListeners.add(fn)
+  return () => {
+    replacedListeners.delete(fn)
+  }
+}
+
+export function partyReplaced(): void {
+  for (const fn of replacedListeners) {
+    try {
+      fn()
+    } catch (e) {
+      console.error('[party] replaced', e)
+    }
   }
 }
 

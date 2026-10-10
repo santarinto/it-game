@@ -6,7 +6,7 @@ import { nav } from '../rooms'
 import type { CommandType, EmployeeInfo, OfficeInfo, StateMessage } from '../protocol'
 import { drawDebugFrames } from '../debug'
 import { tag } from '../debug/agentApi'
-import { showModal } from '../ui/modal'
+import { partyModals } from '../ui/modal'
 import { coreFree, routerGain } from '../network-preview'
 import { playSfx } from '../audio'
 import { addSprite } from '../pixelart'
@@ -123,6 +123,8 @@ export class OfficeScene extends Phaser.Scene {
   // Слот под курсором: перерисовка идёт каждую секунду, и без этого
   // тултип гас бы на каждом снапшоте.
   private hoveredSlot!: number
+  // Окна устройств/увольнения: закрываются при смене партии (ITGAME-69).
+  private modal!: ReturnType<typeof partyModals>
 
   constructor() {
     super({ key: 'office', cameras: HIRES_CAMERA })
@@ -132,6 +134,7 @@ export class OfficeScene extends Phaser.Scene {
     // сцены перезапускаются при переключении комнат — сбрасываем ссылки прошлого цикла
     this.objects = []
     this.hoveredSlot = -1
+    this.modal = partyModals(this)
     // Правый клик по сотруднику — увольнение: контекстное меню браузера мешает.
     this.input.mouse?.disableContextMenu()
     this.add.rectangle(NAV_W, HUD_H, GAME_W - NAV_W, GAME_H - HUD_H, 0x2b2f4a).setOrigin(0) // пол офиса
@@ -577,7 +580,7 @@ export class OfficeScene extends Phaser.Scene {
       'ПК останется в офисе — свободен для нового найма.',
       lost.length ? `Теряется: ${lost.join(', ')}.` : 'Опыт теряется (его пока нет).',
     ]
-    showModal(this, 'Уволить сотрудника?', lines, [
+    this.modal('Уволить сотрудника?', lines, [
       {
         label: `Уволить (${fmtMoney(e.firePrice)})`,
         onClick: () => client.send('fire', nav.activeOffice, { slot }),
@@ -613,7 +616,7 @@ export class OfficeScene extends Phaser.Scene {
           onClick: () => client.send('buy_router', nav.activeOffice),
         }]
       : []
-    showModal(this, `Роутер — офис ${nav.activeOffice + 1}`, lines, buttons)
+    this.modal(`Роутер — офис ${nav.activeOffice + 1}`, lines, buttons)
   }
 
   private showBossTooltip(o: OfficeInfo, s: StateMessage, x: number, y: number) {

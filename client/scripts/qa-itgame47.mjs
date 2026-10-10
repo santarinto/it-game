@@ -63,6 +63,12 @@
 //   O5b  экран победы закрыт, день 1, phase running
 //   O5c  sid партии снова в хранилище вкладки и равен исходному
 //   O5d  на экране победы (хранилище пусто) server().sid и liveSid равны sid живой партии (ITGAME-68)
+//   W1   окно роутера офиса (office.router) → itd.scenario('fresh'): нет modal.*, офис жив (ITGAME-69)
+//   W2   broken_pc, окно увольнения настоящим ПКМ по office.worker.1 → itd.restore(save): нет modal.*,
+//        клик мышью по месту бывшей кнопки «Уволить» не шлёт fire, штат 3 (ITGAME-69)
+//   W3   серверная, окно core (room.core) → itd.scenario('fresh'): нет modal.*
+//   W4   окно стойки (room.rack.0.0) → itd.restore(save): нет modal.*
+//   W5   контроль: окно core снова открывается и закрывается своим ✕
 //   Z    на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию :4181; порт не из
@@ -978,6 +984,137 @@ async function run() {
       o5Ready && o5VictorySid.sid === o5Sid && o5VictorySid.liveSid === o5Sid,
       JSON.stringify({ before: o5Sid, ...o5VictorySid }),
     )
+
+    // ── W: окна офиса и серверной не переживают смену партии (ITGAME-69) ──
+    // Вкладка в офисе 0, партия fresh после O5. Окна showModal сцен офиса/серверной
+    // раньше никто не закрывал: кнопка окна старой партии слала команду в новую.
+    const modalIds = async () => (await idList()).filter((id) => id.startsWith('modal.'))
+    const outSince = (since) =>
+      page.evaluate((t) => window.itd.net(50).last.filter((m) => m.dir === 'out' && m.at > t).map((m) => m.type), since)
+    const lastOutAt = () => page.evaluate(() => window.itd.net(50).last.filter((m) => m.dir === 'out').at(-1)?.at ?? 0)
+    await page.evaluate(() => window.itd.pause())
+
+    // W1: окно роутера (office.router) → itd.scenario('fresh')
+    await waitSwitchIdle()
+    const w1Click = await page.evaluate(() => window.itd.click('office.router'))
+    await delay(200)
+    const w1Pre = await modalIds()
+    await page.evaluate(async () => {
+      try {
+        await window.itd.scenario('fresh')
+      } catch {
+        /* читаем и пишем FAIL ниже */
+      }
+    })
+    await delay(300)
+    const w1After = await modalIds()
+    const w1Office = await page.evaluate(() => window.__itd.scene.isActive('office'))
+    check(
+      'W1: окно роутера офиса → после scenario() нет modal.*, офис жив (ITGAME-69)',
+      w1Click.ok === true && w1Pre.includes('modal.close') && w1After.length === 0 && w1Office,
+      JSON.stringify({ click: w1Click.ok, pre: w1Pre, after: w1After, office: w1Office }),
+    )
+
+    // W2: окно увольнения (настоящий ПКМ по office.worker.1 на broken_pc) → itd.restore(save);
+    // клик мышью туда, где была кнопка «Уволить», ничего не шлёт.
+    await page.evaluate(async () => {
+      try {
+        await window.itd.scenario('broken_pc')
+      } catch {
+        /* читаем и пишем FAIL ниже */
+      }
+      await window.itd.pause()
+    })
+    await delay(400)
+    const w2Box = await page.evaluate(() => {
+      const r = document.querySelector('canvas').getBoundingClientRect()
+      const w = window.itd.nodes().find((n) => n.id === 'office.worker.1')
+      return { x: r.x, y: r.y, k: r.width / 1280, w: w ? { x: w.cx, y: w.cy } : null }
+    })
+    if (w2Box.w) {
+      await page.mouse.click(w2Box.x + w2Box.w.x * w2Box.k, w2Box.y + w2Box.w.y * w2Box.k, { button: 'right' })
+    }
+    await delay(200)
+    const w2Pre = await page.evaluate(() => ({
+      title: window.itd.text().some((n) => n.text === 'Уволить сотрудника?'),
+      btn: window.itd.nodes().find((n) => n.id === 'modal.btn.0') ?? null,
+    }))
+    const w2Save = await page.evaluate(async () => (await window.itd.snapshot()).save)
+    await page.evaluate(async (save) => {
+      try {
+        await window.itd.restore(save)
+      } catch {
+        /* читаем и пишем FAIL ниже */
+      }
+    }, w2Save)
+    await delay(300)
+    const w2After = await modalIds()
+    const w2Since = await lastOutAt()
+    if (w2Pre.btn) {
+      await page.mouse.click(w2Box.x + w2Pre.btn.cx * w2Box.k, w2Box.y + w2Pre.btn.cy * w2Box.k)
+    }
+    await delay(300)
+    const w2Sent = await outSince(w2Since)
+    const w2Staff = await page.evaluate(() => window.itd.state().staff)
+    check(
+      'W2: окно увольнения (ПКМ) → после restore() нет modal.*, клик по месту «Уволить» не шлёт fire, штат 3 (ITGAME-69)',
+      !!w2Box.w && w2Pre.title && !!w2Pre.btn && w2After.length === 0 && !w2Sent.includes('fire') && w2Staff === 3,
+      JSON.stringify({ worker: w2Box.w, pre: w2Pre.title, btn: !!w2Pre.btn, after: w2After, sent: w2Sent, staff: w2Staff }),
+    )
+
+    // W3: серверная — окно core (room.core) → scenario('fresh'); W4: окно стойки → restore()
+    await waitSwitchIdle()
+    await page.evaluate(() => window.itd.click('nav.serverRoom'))
+    await waitTrue(() => window.__itd.scene.isActive('serverRoom') && window.itd.ids().some((n) => n.id === 'room.core'), 5000)
+    await delay(200)
+    const w3Click = await page.evaluate(() => window.itd.click('room.core'))
+    await delay(200)
+    const w3Pre = await modalIds()
+    await page.evaluate(async () => {
+      try {
+        await window.itd.scenario('fresh')
+      } catch {
+        /* читаем и пишем FAIL ниже */
+      }
+    })
+    await delay(300)
+    const w3After = await modalIds()
+    // scenario() переводит вкладку в офис 0 (ITGAME-55) — серверная остаётся открытой комнатой
+    const w3Room = await page.evaluate(() => window.__itd.scene.isActive('serverRoom'))
+    check(
+      'W3: окно core серверной → после scenario() нет modal.* (ITGAME-69)',
+      w3Click.ok === true && w3Pre.includes('modal.close') && w3After.length === 0,
+      JSON.stringify({ click: w3Click.ok, pre: w3Pre, after: w3After, serverRoom: w3Room }),
+    )
+    const w4Ready = await waitTrue(() => window.itd.ids().some((n) => n.id === 'room.rack.0.0'), 5000)
+    const w4Click = await page.evaluate(() => window.itd.click('room.rack.0.0'))
+    await delay(200)
+    const w4Pre = await modalIds()
+    const w4Save = await page.evaluate(async () => (await window.itd.snapshot()).save)
+    await page.evaluate(async (save) => {
+      try {
+        await window.itd.restore(save)
+      } catch {
+        /* читаем и пишем FAIL ниже */
+      }
+    }, w4Save)
+    await delay(300)
+    const w4After = await modalIds()
+    check(
+      'W4: окно стойки серверной → после restore() нет modal.* (ITGAME-69)',
+      w4Ready && w4Click.ok === true && w4Pre.includes('modal.close') && w4After.length === 0,
+      JSON.stringify({ ready: w4Ready, click: w4Click.ok, pre: w4Pre, after: w4After }),
+    )
+    // Контроль: окно открывается снова и закрывается своим ✕ — partyModals не ломает обычный путь
+    const w5 = await page.evaluate(() => {
+      const open = window.itd.click('room.core').ok
+      const pre = window.itd.ids().some((n) => n.id === 'modal.close')
+      const close = window.itd.click('modal.close').ok
+      const after = window.itd.ids().some((n) => n.id.startsWith('modal.'))
+      return { open, pre, close, after }
+    })
+    check('W5: после смены партии окно core снова открывается и закрывается ✕ (ITGAME-69)',
+      w5.open && w5.pre && w5.close && !w5.after, JSON.stringify(w5))
   } catch (e) {
     check('сценарий выполнен без исключений', false, e instanceof Error ? e.message : String(e))
   } finally {

@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { GAME_H, GAME_W } from '../layout'
 import { drawDebugFrames } from '../debug'
 import { markTitle, tag } from '../debug/agentApi'
+import { onPartyReplaced } from '../party'
 
 export interface ModalButton {
   label: string
@@ -117,3 +118,28 @@ export function showModal(
   objs.push(...drawDebugFrames(scene, objs))
   return close
 }
+
+// ITGAME-69: окна сцены партии (устройства офиса и серверной, увольнение). Офис и
+// серверная живут через itd.scenario()/itd.restore() — без этого окно старой партии
+// оставалось на экране, и его кнопка слала команду для офиса/слота прошлого стейта.
+// Открытое окно закрывается молча (без onDismiss) на onPartyReplaced; второе окно
+// закрывает первое. Подписка снимается на SHUTDOWN сцены (смена комнаты).
+export function partyModals(scene: Phaser.Scene): (...args: ModalArgs) => () => void {
+  let close: (() => void) | null = null
+  const closeOpen = () => {
+    close?.()
+    close = null
+  }
+  const off = onPartyReplaced(closeOpen)
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    off()
+    close = null
+  })
+  return (...args: ModalArgs) => {
+    closeOpen()
+    close = showModal(scene, ...args)
+    return closeOpen
+  }
+}
+
+type ModalArgs = Parameters<typeof showModal> extends [Phaser.Scene, ...infer R] ? R : never
