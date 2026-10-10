@@ -159,6 +159,56 @@ export interface DayLedger {
   history: number[] // дни, по которым есть книга: 7 закрытых + текущий
 }
 
+// Запись журнала партии (ITGAME-46, GET /api/debug/journal) — без тяжёлых
+// полей: save/state/rng заменены флагами hasSave/hasState.
+export interface JournalRecord {
+  k: 'start' | 'cmd' | 'debug' | 'day' | 'cp' | 'resume' | 'end'
+  seq: number
+  tk?: number // тиков g.Tick() с прошлой записи
+  rev: number // rev снапшота после входа (ITGAME-45)
+  day: number
+  tick: number
+  money: number
+  phase: string
+  speed: number
+  h: string // хэш состояния после входа — его сверяет реплей
+  id?: number // cmd: id команды клиента — тот же, что в itd.trace().sent и квитанции itd.cmd()
+  type?: string // cmd: тип команды
+  office?: number
+  slot?: number
+  arg?: number // cmd: speed у set_speed/exit (0 сервер опускает)
+  err?: string // cmd: код отказа
+  op?: string // debug: patch | scenario | restore | advance
+  patch?: { money?: number; day?: number; tickInDay?: number }
+  scenario?: string
+  days?: number
+  ticks?: number
+  pre?: string // resume: хэш поднятого сейва до догона
+  offline?: number // resume: тики офлайн-догона
+  saveSpeed?: number
+  took?: boolean // resume: прежний актор не закрыл журнал — перехват
+  evicted?: boolean // end: сессию забрал другой актор
+  reason?: string // end: read_timeout | debug_drop — закрыл сторож чтения
+  hasSave?: boolean // в записи был полный сейв (cp, resume)
+  hasState?: boolean // debug restore: была дельта состояния
+}
+
+// itd.journal(): хвост журнала своей партии.
+export interface JournalView {
+  sid: string
+  seed: string
+  difficulty: string
+  scenario: string
+  version: string // sha сервера, писавшего журнал
+  total: number // записей в журнале (без заголовка)
+  dropped: number // срезано кольцом с головы
+  overflow: boolean // журнал упёрся в потолок без чекпоинта
+  kinds: Record<string, number> // сколько записей каждого вида во всём журнале
+  lines: string[] // хвост одной строкой на запись: «#seq k что | dN tN $M phase Nx rev R +tk»
+  records: JournalRecord[] // тот же хвост объектами
+  url: string // полный JSONL: GET этого адреса; реплей — make replay ARGS="-url <origin> -sid <sid>"
+}
+
 // ── Штамп версии и ассеты (ITGAME-28) ──────────────────────────────────────
 
 // Версия сборки: sha коммита и время билда (vite define; dev — HEAD на
@@ -285,6 +335,91 @@ async function debugFetch<T>(method: 'GET' | 'POST', path: string, body?: Record
     throw new Error((data.error as string) ?? `HTTP ${res.status}`)
   }
   return data as T
+}
+
+// fetchJournal — itd.journal(): JSONL журнала → хвост строками и объектами.
+// Тяжёлые поля (save, state, rng, config) не тащим в ответ агенту.
+async function fetchJournal(sid: string, tail: number): Promise<JournalView> {
+  const url = `/api/debug/journal?sid=${encodeURIComponent(sid)}`
+  const res = await fetch(url)
+  const text = await res.text()
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`
+    try {
+      msg = (JSON.parse(text) as { error?: string }).error ?? msg
+    } catch {
+      // не JSON — код ответа
+    }
+    throw new Error(msg)
+  }
+  const rows = text.split('\n').filter((l) => l.trim() !== '')
+  const header = JSON.parse(rows[0] ?? '{}') as Record<string, unknown>
+  const kinds: Record<string, number> = {}
+  const records: JournalRecord[] = []
+  const from = Math.max(1, rows.length - tail)
+  for (let i = 1; i < rows.length; i++) {
+    const raw = JSON.parse(rows[i]) as Record<string, unknown>
+    const k = String(raw.k)
+    kinds[k] = (kinds[k] ?? 0) + 1
+    if (i < from) continue
+    const { save, state, rng, ...rest } = raw
+    void rng
+    const rec = rest as unknown as JournalRecord
+    if (save !== undefined) rec.hasSave = true
+    if (state !== undefined) rec.hasState = true
+    records.push(rec)
+  }
+  return {
+    sid: String(header.sid ?? sid),
+    seed: String(header.seed ?? ''),
+    difficulty: String(header.difficulty ?? ''),
+    scenario: String(header.scenario ?? ''),
+    version: String(header.version ?? ''),
+    total: rows.length - 1,
+    dropped: Number(header.dropped ?? 0),
+    overflow: header.overflow === true,
+    kinds,
+    lines: records.map(journalLine),
+    records,
+    url,
+  }
+}
+
+// journalLine — запись журнала одной строкой для агента.
+function journalLine(r: JournalRecord): string {
+  let what = ''
+  switch (r.k) {
+    case 'cmd': {
+      const where = [r.office ? `o${r.office}` : '', r.slot ? `s${r.slot}` : '', r.type === 'set_speed' || r.type === 'exit' ? `=${r.arg ?? 0}` : '']
+        .filter(Boolean)
+        .join(' ')
+      what = `${r.type}${where ? ' ' + where : ''} id${r.id ?? 0} ${r.err ? 'FAIL ' + r.err : 'ok'}`
+      break
+    }
+    case 'debug': {
+      const detail = r.patch
+        ? JSON.stringify(r.patch)
+        : r.scenario
+          ? r.scenario
+          : r.op === 'advance'
+            ? r.days
+              ? `${r.days}d`
+              : `${r.ticks ?? 0}t`
+            : r.hasState
+              ? 'delta'
+              : ''
+      what = `${r.op}${detail ? ' ' + detail : ''}`
+      break
+    }
+    case 'resume':
+      what = `offline ${r.offline ?? 0}t${r.took ? ' took' : ''}`
+      break
+    case 'end':
+      what = r.evicted ? 'evicted' : r.reason ? r.reason : 'disconnect'
+      break
+  }
+  const pos = `d${r.day} t${r.tick} $${r.money} ${r.phase} ${r.speed}x rev${r.rev}${r.tk ? ' +' + r.tk : ''}`
+  return `#${r.seq} ${r.k}${what ? ' ' + what : ''} | ${pos}`
 }
 
 // ── Представления ─────────────────────────────────────────────────────────
@@ -906,6 +1041,18 @@ export interface ItdApi {
    * @example await itd.ledger(1)
    */
   ledger(day?: number): Promise<DayLedger>
+  /**
+   * Журнал партии (ITGAME-46, GET /api/debug/journal; сервер с ITGAME_DEBUG=1):
+   * хвост входов своей партии — команды с id и отказами, debug-правки, вехи
+   * дней, resume с офлайн-догоном, end — строками и объектами (без сейвов).
+   * tail — сколько последних записей (1..500, по умолчанию 20); sid — чужая
+   * партия (по умолчанию — своя, как у debug-вызовов). Строка:
+   * «#seq k что | dДЕНЬ tТИК $ДЕНЬГИ фаза Nx revR +tk», tk — тики с прошлой
+   * записи. Полный журнал для реплея — по url (make replay ARGS="-url …").
+   * Нет журнала — ошибка journal_off / no_journal.
+   * @example (await itd.journal({tail: 5})).lines
+   */
+  journal(opts?: { tail?: number; sid?: string }): Promise<JournalView>
   /**
    * Читы живой сессии: {money, day, tickInDay}.
    * @example itd.set({money: 50000})
@@ -1565,6 +1712,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.advanceDays(3)                — промотка дней офлайн-движком: день N → N+3 (из фазы отчёта — сначала next_day, и HUD вернёт скорость до отчёта: партия побежит живьём, для паузы — itd.pause() ДО вызова), без day_report; сводка {days, income, payroll, balance} — в ответе .advance и строкой «debug · advance» в itd.snapshot().events, в itd.log() — только смена дня
   await itd.play([{cmd:'set_speed', extra:{speed:0}}, {cmd:'hire'}, {days:1}]) — партия из консоли: шаг {cmd, office?, extra?} (квитанция как у itd.cmd) или {days: n} (как itd.advanceDays); строка на шаг «cmd | ok/FAIL code | dN tN | бал>бал | staff a>b | pay N | phase»; без таймеров — шаг ждёт квитанцию и снапшот rev ≥ её rev; FAIL партию не прерывает
   await itd.ledger(day?)            — бухгалтерия дня с сервера: {day, balanceStart, income, eventMoney, events[{what, money, clock}], purchases[{type, price, clock}], purchasesTotal, payroll, gatewayOpex, interest, adjust, balanceEnd, profit, delta, balanced, closed, offline, history}; слагаемые = balanceEnd − balanceStart ровно; profit = day_report.profit; без day — текущий (payroll 0 до вечера), иначе один из history (7 закрытых + текущий)
+  await itd.journal({tail?, sid?})  — журнал партии (ITGAME-46, сервер с ITGAME_DEBUG=1): хвост входов (tail 1..500, по умолчанию 20) строками «#seq k что | dN tN $M фаза Nx revR +tk» и объектами без сейвов; kinds по всему журналу, total, dropped; url — полный JSONL для make replay ARGS="-url …"; cmd несёт id, как itd.trace().sent
   itd.set({money: 50000})           — читы живой сессии: {money, day, tickInDay}
   itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs|broken_pc; сбрасывает клиентское состояние партии (офис → О1, оверлеи HUD, окна офиса/серверной, пауза отчёта); скорость не трогает — из отчёта или окна выхода партия остаётся на паузе: itd.resume(); работает и после финала
   itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы
@@ -1958,6 +2106,13 @@ function makeApi(game: Phaser.Game): ItdApi {
         return Promise.reject(new Error('ledger: day — целое ≥ 1 (без него — текущий день)'))
       }
       return debugFetch<DayLedger>('GET', day === undefined ? '/ledger' : `/ledger?day=${day}`)
+    },
+    journal(opts) {
+      const tail = opts?.tail ?? 20
+      if (!Number.isInteger(tail) || tail < 1 || tail > 500) {
+        return Promise.reject(new Error('journal: tail — целое 1..500'))
+      }
+      return fetchJournal(opts?.sid ?? client.liveSid() ?? sessionId(), tail)
     },
     set(patch) {
       if (patch.tickInDay !== undefined && client.latest?.phase === 'day_report') {

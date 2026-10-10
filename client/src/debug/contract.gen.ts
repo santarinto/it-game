@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "c20a6d468a71",
+  "hash": "31d756966c80",
   "methods": {
     "version": {
       "kind": "prop",
@@ -520,6 +520,21 @@ export const CONTRACT = {
       "examples": [
         "await itd.ledger()",
         "await itd.ledger(1)"
+      ]
+    },
+    "journal": {
+      "kind": "method",
+      "params": [
+        {
+          "name": "opts",
+          "type": "{ tail?: number; sid?: string; }",
+          "optional": true
+        }
+      ],
+      "returns": "Promise<JournalView>",
+      "doc": "Журнал партии (ITGAME-46, GET /api/debug/journal; сервер с ITGAME_DEBUG=1):\nхвост входов своей партии — команды с id и отказами, debug-правки, вехи\nдней, resume с офлайн-догоном, end — строками и объектами (без сейвов).\ntail — сколько последних записей (1..500, по умолчанию 20); sid — чужая\nпартия (по умолчанию — своя, как у debug-вызовов). Строка:\n«#seq k что | dДЕНЬ tТИК $ДЕНЬГИ фаза Nx revR +tk», tk — тики с прошлой\nзаписи. Полный журнал для реплея — по url (make replay ARGS=\"-url …\").\nНет журнала — ошибка journal_off / no_journal.",
+      "examples": [
+        "(await itd.journal({tail: 5})).lines"
       ]
     },
     "set": {
@@ -1838,6 +1853,221 @@ export const CONTRACT = {
           "type": "Record<string, TypeSpec>",
           "optional": false,
           "doc": ""
+        }
+      }
+    },
+    "JournalRecord": {
+      "kind": "object",
+      "fields": {
+        "k": {
+          "type": "'cmd' | 'debug' | 'start' | 'resume' | 'day' | 'cp' | 'end'",
+          "optional": false,
+          "doc": ""
+        },
+        "seq": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "tk": {
+          "type": "number",
+          "optional": true,
+          "doc": "тиков g.Tick() с прошлой записи"
+        },
+        "rev": {
+          "type": "number",
+          "optional": false,
+          "doc": "rev снапшота после входа (ITGAME-45)"
+        },
+        "day": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "tick": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "money": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "phase": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "speed": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "h": {
+          "type": "string",
+          "optional": false,
+          "doc": "хэш состояния после входа — его сверяет реплей"
+        },
+        "id": {
+          "type": "number",
+          "optional": true,
+          "doc": "cmd: id команды клиента — тот же, что в itd.trace().sent и квитанции itd.cmd()"
+        },
+        "type": {
+          "type": "string",
+          "optional": true,
+          "doc": "cmd: тип команды"
+        },
+        "office": {
+          "type": "number",
+          "optional": true,
+          "doc": ""
+        },
+        "slot": {
+          "type": "number",
+          "optional": true,
+          "doc": ""
+        },
+        "arg": {
+          "type": "number",
+          "optional": true,
+          "doc": "cmd: speed у set_speed/exit (0 сервер опускает)"
+        },
+        "err": {
+          "type": "string",
+          "optional": true,
+          "doc": "cmd: код отказа"
+        },
+        "op": {
+          "type": "string",
+          "optional": true,
+          "doc": "debug: patch | scenario | restore | advance"
+        },
+        "patch": {
+          "type": "{ money?: number; day?: number; tickInDay?: number; }",
+          "optional": true,
+          "doc": ""
+        },
+        "scenario": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
+        },
+        "days": {
+          "type": "number",
+          "optional": true,
+          "doc": ""
+        },
+        "ticks": {
+          "type": "number",
+          "optional": true,
+          "doc": ""
+        },
+        "pre": {
+          "type": "string",
+          "optional": true,
+          "doc": "resume: хэш поднятого сейва до догона"
+        },
+        "offline": {
+          "type": "number",
+          "optional": true,
+          "doc": "resume: тики офлайн-догона"
+        },
+        "saveSpeed": {
+          "type": "number",
+          "optional": true,
+          "doc": ""
+        },
+        "took": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "resume: прежний актор не закрыл журнал — перехват"
+        },
+        "evicted": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "end: сессию забрал другой актор"
+        },
+        "reason": {
+          "type": "string",
+          "optional": true,
+          "doc": "end: read_timeout | debug_drop — закрыл сторож чтения"
+        },
+        "hasSave": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "в записи был полный сейв (cp, resume)"
+        },
+        "hasState": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "debug restore: была дельта состояния"
+        }
+      }
+    },
+    "JournalView": {
+      "kind": "object",
+      "fields": {
+        "sid": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "seed": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "difficulty": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "scenario": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "version": {
+          "type": "string",
+          "optional": false,
+          "doc": "sha сервера, писавшего журнал"
+        },
+        "total": {
+          "type": "number",
+          "optional": false,
+          "doc": "записей в журнале (без заголовка)"
+        },
+        "dropped": {
+          "type": "number",
+          "optional": false,
+          "doc": "срезано кольцом с головы"
+        },
+        "overflow": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "журнал упёрся в потолок без чекпоинта"
+        },
+        "kinds": {
+          "type": "Record<string, number>",
+          "optional": false,
+          "doc": "сколько записей каждого вида во всём журнале"
+        },
+        "lines": {
+          "type": "string[]",
+          "optional": false,
+          "doc": "хвост одной строкой на запись: «#seq k что | dN tN $M phase Nx rev R +tk»"
+        },
+        "records": {
+          "type": "JournalRecord[]",
+          "optional": false,
+          "doc": "тот же хвост объектами"
+        },
+        "url": {
+          "type": "string",
+          "optional": false,
+          "doc": "полный JSONL: GET этого адреса; реплей — make replay ARGS=\"-url <origin> -sid <sid>\""
         }
       }
     },

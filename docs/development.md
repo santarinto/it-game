@@ -232,6 +232,7 @@ after every record (ITGAME-46). The engine is deterministic — PCG by seed,
 no `time.Now` in `internal/game` — so seed + inputs by tick *is* the party;
 the first record whose hash differs is where determinism broke.
 
+    await itd.journal({tail: 20})                                      # in the tab: the last records as lines (see Debug API)
     curl -s 'localhost:8080/api/debug/journal?sid=<sid>' > party.jsonl   # sid: itd.server().sid
     make replay ARGS=party.jsonl                                       # or ARGS="-url http://localhost:8080 -sid <sid>"
     make replay ARGS="-json party.jsonl"                               # one JSON object: ok, records, ticks, warnings, divergence, save
@@ -594,6 +595,18 @@ documenting separately:
   (e.g. `game_over`) the server answers 200 with `advance.ticks` 0 and nothing
   moves. For a real day report, stop a tick short and let the last tick run
   live (`qa:facade` D1).
+- **`itd.journal({tail?, sid?})`** (ITGAME-46) — the tail of the party
+  journal (see [Party journal and replay](#party-journal-and-replay)) from
+  the tab, for an agent without files: `{sid, seed, difficulty, scenario,
+  version, total, dropped, overflow, kinds, lines, records, url}`. `tail`
+  (1..500, default 20) last records as `lines` — `#seq k what | dN tN $M
+  phase Nx revR +tk`, e.g. `#14 cmd buy_pc id1 ok | d1 t39 $8708 running 3x
+  rev23 +2` — and as `records` with `save`/`state`/`rng` stripped (`hasSave`,
+  `hasState` flags); `kinds`/`total` count the whole journal. A `cmd` carries
+  the command `id`, the same as in `itd.trace().sent` and the `itd.cmd()`
+  receipt. `sid` reads another party (default: the tab's, like the debug
+  calls). `url` is the full JSONL for `make replay ARGS="-url <origin> -sid
+  <sid>"`. Without `ITGAME_DEBUG` it rejects with `journal_off`.
 - **`itd.play(steps)` / `itd.ledger(day?)`** (ITGAME-73) — a party and its
   books from the console. `play` runs steps in order — `{cmd, office?, extra?}`
   (an `itd.cmd` with its receipt) or `{days: n}` (an `itd.advanceDays`) — and
@@ -711,7 +724,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
 | `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63); explicit exit freezes the party: the exit dialog pauses, Отмена/Esc/✕ restore the speed, «Сохранить и выйти» → «Продолжить» keeps tick/day/money and the speed, also from an open day report (ITGAME-65); on the victory screen (storage sid cleared) `itd.server().sid`/`liveSid` stay the live party's sid (ITGAME-68); office/server-room windows (router, fire dialog via a real right click on `broken_pc`, core, rack) close on `itd.scenario()`/`itd.restore()`, a click where «Уволить» was sends nothing (ITGAME-69); A1–A7 `itd.away` (ITGAME-76): `close` — while away the socket is `reconnecting`, commands `not_connected`, the server session is gone at once, the return resumes the same sid with `droppedAt` ≈ `leftAt`; `net` with `timeout: 1500` — the server session lives (200) until its read timeout and is gone (404) after, `droppedAt − drop.at` ≈ 1.5 s, `liveTicks` ≈ 3 at 2x, catch-up from `droppedAt`; `net` shorter than the timeout — no catch-up, ticks ran live; the owner key untouched; inside `itd.sandbox` the return lands in the sandbox party | :4181, self-serve + temp saves dir |
 | `npm run qa:report-pause` | the day report pauses the party (speed 0, time and balance stand still); Enter/Space/`btn.next_day`/`itd.cmd('next_day')` restore the pre-report speed; F5 with the report open keeps `itd.speedBeforeReport`, «Продолжить» reopens it paused and closing restores 3×; an outside `itd.speed(0)` over the report survives; `itd.set({tickInDay})` refused in `day_report`; `skipReports` changes the day without a modal or a stuck 0 (ITGAME-18, self-serve since ITGAME-70) | :4182, self-serve + temp saves dir |
-| `npm run qa:journal` | the journal of a live browser party (HUD clicks, `itd.cmd`, a rejection, `itd.set`/`itd.step`, F5 → «Продолжить» with offline catch-up) from `/api/debug/journal` replays with `cmd/replay -json` without divergence or warnings, and the replayed save equals the live one (ITGAME-46) | :4186, self-serve + temp saves dir |
+| `npm run qa:journal` | the journal of a live browser party (HUD clicks, `itd.cmd`, a rejection, `itd.set`/`itd.step`, F5 → «Продолжить» with offline catch-up) from `/api/debug/journal` replays with `cmd/replay -json` without divergence or warnings, and the replayed save equals the live one; `itd.journal({tail, sid})` gives the same journal from the tab — tail lines, kinds/total, ids, saves stripped (ITGAME-46) | :4186, self-serve + temp saves dir |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |
 | `npm run visreg` | screenshot diff + layout linter per fixture scenario | :4173, self-serve, `VISREG_PORT` overrides |
 
