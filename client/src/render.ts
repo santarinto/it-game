@@ -29,6 +29,27 @@ export const HIRES_CAMERA: Phaser.Types.Cameras.Scene2D.CameraConfig = {
   scrollY: -GAME_H * (RENDER_SCALE - 1) / 2,
 }
 
+// Шрифт всего текста игры (ITGAME-48) — единственное место, где он задан.
+// Системный monospace давал разные метрики на Windows/macOS/Linux: переносы и
+// наложения плыли по машинам, эталоны visreg дрейфовали. Свои файлы —
+// client/public/assets/fonts, @font-face — client/index.html:
+//   • Departure Mono 1.500 (OFL 1.1) — латиница, кириллица, цифры, ·«»—→…;
+//   • ITD Symbols — OFL-подмножество Unifont 16.0.04: ⌂⏸▶☣✓✕✖✗, которых нет в
+//     Departure Mono (unicode-range — только они; сборка scripts/font-symbols.py).
+// Эмодзи (иконки достижений, 🏆📊🔒⚠️) намеренно остаются на системном
+// цветном шрифте — в стек не входят.
+// let, а не const: BootScene по таймауту загрузки переключает его на голый
+// monospace (fontFallback), чтобы ВСЕ тексты партии рисовались одним
+// фолбэком, а не частью — фолбэком, частью — догрузившимся шрифтом.
+export const FONT_PRIMARY = 'Departure Mono'
+export const FONT_SYMBOLS = 'ITD Symbols'
+export const FONT_SYMBOLS_TEXT = '⌂⏸▶☣✓✕✖✗' // = unicode-range ITD Symbols
+export let FONT = `'${FONT_PRIMARY}', '${FONT_SYMBOLS}', monospace`
+
+export function fontFallback(): void {
+  FONT = 'monospace'
+}
+
 let hiResTextInstalled = false
 
 // Текст без явного resolution растеризуется в разрешении 1 (Text.js: `if

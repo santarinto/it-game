@@ -11,7 +11,7 @@ import { showModal } from '../ui/modal'
 import { playSfx } from '../audio'
 import { emitUi } from '../uibus'
 import { activeZoom, applyZoom, ZOOM_OPTIONS, zoomLabel } from '../uiscale'
-import { HIRES_CAMERA } from '../render'
+import { FONT, HIRES_CAMERA } from '../render'
 import {
   checkAchievements,
   getAchievementsSummary,
@@ -169,33 +169,33 @@ export class HUDScene extends Phaser.Scene {
     // Верхняя панель.
     this.add.rectangle(0, 0, GAME_W, HUD_H, 0x14162b).setOrigin(0)
     this.moneyText = tag(this.add.text(16, 10, '$…', {
-      fontFamily: 'monospace', fontSize: '26px', color: '#ffcd75',
+      fontFamily: FONT, fontSize: '26px', color: '#ffcd75',
     }), 'hud.money')
     this.incomeText = tag(this.add.text(16, 44, '', {
-      fontFamily: 'monospace', fontSize: '15px', color: '#38b764',
+      fontFamily: FONT, fontSize: '15px', color: '#38b764',
     }), 'hud.income')
     this.netText = tag(this.add.text(16, 66, '', {
-      fontFamily: 'monospace', fontSize: '15px', color: '#41a6f6',
+      fontFamily: FONT, fontSize: '15px', color: '#41a6f6',
     }), 'hud.net')
     this.payrollText = tag(this.add.text(200, 44, '', {
-      fontFamily: 'monospace', fontSize: '15px', color: '#5d7275',
+      fontFamily: FONT, fontSize: '15px', color: '#5d7275',
     }), 'hud.payroll')
     this.dayText = tag(
       this.add
-        .text(GAME_W - 16, 70, '', { fontFamily: 'monospace', fontSize: '13px', color: '#5d7275' })
+        .text(GAME_W - 16, 70, '', { fontFamily: FONT, fontSize: '13px', color: '#5d7275' })
         .setOrigin(1, 0),
       'hud.day',
     )
     this.goalText = tag(
       this.add
-        .text(GAME_W - 16, 52, '', { fontFamily: 'monospace', fontSize: '13px', color: '#ffcd75' })
+        .text(GAME_W - 16, 52, '', { fontFamily: FONT, fontSize: '13px', color: '#ffcd75' })
         .setOrigin(1, 0),
       'hud.goal',
     )
     // Рынок дня (сложность 2.0): сегодня и завтра, тренд виден заранее.
     this.marketText = tag(
       this.add
-        .text(GAME_W - 16, 86, '', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
+        .text(GAME_W - 16, 86, '', { fontFamily: FONT, fontSize: '12px', color: '#5d7275' })
         .setOrigin(1, 0),
       'hud.market',
     )
@@ -203,12 +203,12 @@ export class HUDScene extends Phaser.Scene {
     // рядов раскладываются по ширинам в layoutPanel() (ITGAME-16) — стартовые
     // x/y здесь косметические, до первого layoutPanel().
     this.debtText = tag(this.add.text(170, 84, '', {
-      fontFamily: 'monospace', fontSize: '12px', color: '#b13e53',
+      fontFamily: FONT, fontSize: '12px', color: '#b13e53',
     }), 'hud.debt')
     // Темп дня одним взглядом: прибыль дня (= «Прибыль» отчёта), считает
     // сервер (dayProfit, ITGAME-53).
     this.dayProfitText = tag(this.add.text(16, 84, '', {
-      fontFamily: 'monospace', fontSize: '15px', color: '#38b764',
+      fontFamily: FONT, fontSize: '15px', color: '#38b764',
     }), 'hud.dayProfit')
     this.layoutPanel()
 
@@ -231,7 +231,7 @@ export class HUDScene extends Phaser.Scene {
 
     this.buttonTooltipText = tag(
       this.add.text(10, 7, '', {
-        fontFamily: 'monospace',
+        fontFamily: FONT,
         fontSize: '12px',
         color: '#ffcd75',
         align: 'center',
@@ -262,7 +262,7 @@ export class HUDScene extends Phaser.Scene {
           .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true }),
         `btn.speed.${sp.s}`,
       )
-      const label = this.add.text(x + 18, 24, sp.label, { fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4' }).setOrigin(0.5)
+      const label = this.add.text(x + 18, 24, sp.label, { fontFamily: FONT, fontSize: '13px', color: '#f4f4f4' }).setOrigin(0.5)
       bg.on('pointerdown', () => client.send('set_speed', 0, { speed: sp.s }))
       this.speedBtns.push({ bg, label, speed: sp.s })
       this.hudInteractive.push(bg)
@@ -273,7 +273,7 @@ export class HUDScene extends Phaser.Scene {
         .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true }),
       'btn.menu',
     )
-    this.add.text(GAME_W - 202, 24, '⌂', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' }).setOrigin(0.5)
+    this.add.text(GAME_W - 202, 24, '⌂', { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4' }).setOrigin(0.5)
     menuBg.on('pointerdown', () => this.confirmExitToMenu())
     menuBg.on('pointerover', () => menuBg.setStrokeStyle(2, 0xb13e53))
     menuBg.on('pointerout', () => menuBg.setStrokeStyle(2, 0x3a3f5c))
@@ -282,7 +282,7 @@ export class HUDScene extends Phaser.Scene {
     // кнопками скорости. Полный ряд — на стартовом экране; здесь панель тесная,
     // переключатель остаётся компактным.
     this.add
-      .text(922, 24, 'масштаб', { fontFamily: 'monospace', fontSize: '11px', color: '#5d7275' })
+      .text(922, 24, 'масштаб', { fontFamily: FONT, fontSize: '11px', color: '#5d7275' })
       .setOrigin(1, 0.5)
     const zoomBg = tag(
       this.add.rectangle(928, 10, 64, 28, 0x232640)
@@ -290,7 +290,7 @@ export class HUDScene extends Phaser.Scene {
       'btn.zoom',
     )
     const zoomTxt = this.add
-      .text(960, 24, zoomLabel(activeZoom()), { fontFamily: 'monospace', fontSize: '12px', color: '#f4f4f4' })
+      .text(960, 24, zoomLabel(activeZoom()), { fontFamily: FONT, fontSize: '12px', color: '#f4f4f4' })
       .setOrigin(0.5)
     zoomBg.on('pointerdown', () => {
       const order = ZOOM_OPTIONS.map((o) => o.value)
@@ -303,7 +303,7 @@ export class HUDScene extends Phaser.Scene {
       const dbg = markActive(
         tag(
           this.add
-            .text(GAME_W - 280, 17, this.debugLabel(), { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
+            .text(GAME_W - 280, 17, this.debugLabel(), { fontFamily: FONT, fontSize: '12px', color: '#5d7275' })
             .setInteractive({ useHandCursor: true }),
           'btn.debug',
         ),
@@ -372,7 +372,7 @@ export class HUDScene extends Phaser.Scene {
     const bg = this.add.rectangle(CX, 130, 360, 30, 0x14162b).setStrokeStyle(2, 0xffcd75).setDepth(90)
     const txt = this.add
       .text(CX, 130, `Переподключение… (попытка ${attempt})`, {
-        fontFamily: 'monospace', fontSize: '13px', color: '#ffcd75',
+        fontFamily: FONT, fontSize: '13px', color: '#ffcd75',
       })
       .setOrigin(0.5).setDepth(91)
     this.reconnectUI.push(bg, txt)
@@ -387,7 +387,7 @@ export class HUDScene extends Phaser.Scene {
       taken ? 'Игра открыта в другой вкладке' : 'Соединение потеряно') // ITGAME-72
     this.add
       .text(CX, 300, taken ? 'Игра открыта в другой вкладке' : 'Соединение потеряно', {
-        fontFamily: 'monospace', fontSize: '26px', color: '#b13e53',
+        fontFamily: FONT, fontSize: '26px', color: '#b13e53',
       })
       .setOrigin(0.5)
       .setDepth(101)
@@ -395,7 +395,7 @@ export class HUDScene extends Phaser.Scene {
       .text(CX, 344, taken
         ? 'Сессия обслуживает одно окно. Обновите страницу, чтобы забрать её сюда'
         : 'Обновите страницу — сохранённая игра продолжится с того же места', {
-        fontFamily: 'monospace', fontSize: '15px', color: '#f4f4f4',
+        fontFamily: FONT, fontSize: '15px', color: '#f4f4f4',
       })
       .setOrigin(0.5)
       .setDepth(101)
@@ -446,10 +446,10 @@ export class HUDScene extends Phaser.Scene {
     const overlay = markTitle(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(55).setInteractive(), 'Пока вас не было')
     const panel = this.add.rectangle(CX, 300, 460, 320, 0x14162b).setStrokeStyle(2, 0xffcd75).setDepth(56)
     const title = this.add
-      .text(CX, 170, 'Пока вас не было', { fontFamily: 'monospace', fontSize: '22px', color: '#ffcd75' })
+      .text(CX, 170, 'Пока вас не было', { fontFamily: FONT, fontSize: '22px', color: '#ffcd75' })
       .setOrigin(0.5).setDepth(56)
     const bodyText = this.add
-      .text(CX, 275, body, { fontFamily: 'monospace', fontSize: '15px', color: '#f4f4f4', lineSpacing: 7, align: 'center' })
+      .text(CX, 275, body, { fontFamily: FONT, fontSize: '15px', color: '#f4f4f4', lineSpacing: 7, align: 'center' })
       .setOrigin(0.5).setDepth(56)
     const final = r.gameOver || r.victory
     // Итог читают на паузе: партия не идёт под окном. Повторный отчёт (окно уже
@@ -470,7 +470,7 @@ export class HUDScene extends Phaser.Scene {
         'btn.offline.menu',
       )
       const btnText = this.add
-        .text(CX, 409, 'В меню', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
+        .text(CX, 409, 'В меню', { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4' })
         .setOrigin(0.5).setDepth(57)
       btnBg.on('pointerdown', () => {
         this.closeOfflineReport()
@@ -487,7 +487,7 @@ export class HUDScene extends Phaser.Scene {
         'btn.offline.continue',
       )
       const btnText = this.add
-        .text(CX, 409, 'Продолжить →', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
+        .text(CX, 409, 'Продолжить →', { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4' })
         .setOrigin(0.5).setDepth(57)
       btnBg.on('pointerdown', () => this.continueAfterOffline())
       btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
@@ -527,10 +527,10 @@ export class HUDScene extends Phaser.Scene {
         r.key === 'office' ? `nav.office${r.office}` : 'nav.serverRoom',
       )
       const label = this.add
-        .text(NAV_W / 2, y + 18, r.label, { fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4' })
+        .text(NAV_W / 2, y + 18, r.label, { fontFamily: FONT, fontSize: '13px', color: '#f4f4f4' })
         .setOrigin(0.5)
       const sub = this.add
-        .text(NAV_W / 2, y + 36, '', { fontFamily: 'monospace', fontSize: '8px', color: '#5d7275' })
+        .text(NAV_W / 2, y + 36, '', { fontFamily: FONT, fontSize: '8px', color: '#5d7275' })
         .setOrigin(0.5)
       bg.on('pointerdown', () => this.switchRoom(r.key, r.office))
       this.navItems.push({ bg, label, sub })
@@ -773,11 +773,11 @@ export class HUDScene extends Phaser.Scene {
     this.closeEvent()
     const panel = markTitle(this.add.rectangle(CX, 148, 480, 176, 0x14162b).setStrokeStyle(2, 0xffcd75).setDepth(40), ev.title)
     const title = this.add
-      .text(CX, 84, ev.title, { fontFamily: 'monospace', fontSize: '18px', color: '#ffcd75' })
+      .text(CX, 84, ev.title, { fontFamily: FONT, fontSize: '18px', color: '#ffcd75' })
       .setOrigin(0.5).setDepth(41)
     const body = this.add
       .text(CX, 148, ev.text, {
-        fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4',
+        fontFamily: FONT, fontSize: '13px', color: '#f4f4f4',
         align: 'center', wordWrap: { width: 440 }, lineSpacing: 4,
       })
       .setOrigin(0.5).setDepth(41)
@@ -792,7 +792,7 @@ export class HUDScene extends Phaser.Scene {
         `btn.event.${i}`,
       )
       const txt = this.add
-        .text(x + w / 2, 212, label, { fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4' })
+        .text(x + w / 2, 212, label, { fontFamily: FONT, fontSize: '13px', color: '#f4f4f4' })
         .setOrigin(0.5).setDepth(42)
       bg.on('pointerdown', () => client.send('event_choice', 0, { slot: i }))
       bg.on('pointerover', () => bg.setFillStyle(0x41a6f6))
@@ -819,7 +819,7 @@ export class HUDScene extends Phaser.Scene {
       id,
     )
     const txt = this.add
-      .text(x + 100, y + 17, '…', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
+      .text(x + 100, y + 17, '…', { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4' })
       .setOrigin(0.5)
 
     const applyState = () => {
@@ -947,7 +947,7 @@ export class HUDScene extends Phaser.Scene {
     const t = tag(
       this.add
         .text(CX, startY, text, {
-          fontFamily: 'monospace', fontSize: '18px', color: '#f4f4f4',
+          fontFamily: FONT, fontSize: '18px', color: '#f4f4f4',
           backgroundColor: bg, padding: { x: 12, y: 6 },
           wordWrap: { width: 900, useAdvancedWrap: true }, align: 'center',
         })
@@ -1106,15 +1106,15 @@ export class HUDScene extends Phaser.Scene {
     const panel = this.add.rectangle(CX, 300, 440, 320, 0x14162b).setStrokeStyle(2, 0x41a6f6).setDepth(51)
 
     const title = this.add
-      .text(CX, 0, `День ${r.day} завершён`, { fontFamily: 'monospace', fontSize: '22px', color: '#ffcd75' })
+      .text(CX, 0, `День ${r.day} завершён`, { fontFamily: FONT, fontSize: '22px', color: '#ffcd75' })
       .setOrigin(0.5, 0).setDepth(52)
     const bodyText = this.add
-      .text(CX, 0, body, { fontFamily: 'monospace', fontSize: '16px', color: '#f4f4f4', lineSpacing: 8 })
+      .text(CX, 0, body, { fontFamily: FONT, fontSize: '16px', color: '#f4f4f4', lineSpacing: 8 })
       .setOrigin(0.5, 0).setDepth(52)
     const checkbox = markActive(
       tag(
         this.add
-          .text(CX, 0, this.checkboxLabel(), { fontFamily: 'monospace', fontSize: '14px', color: '#5d7275' })
+          .text(CX, 0, this.checkboxLabel(), { fontFamily: FONT, fontSize: '14px', color: '#5d7275' })
           .setOrigin(0.5, 0).setDepth(52).setInteractive({ useHandCursor: true }),
         'btn.skip_reports',
       ),
@@ -1132,7 +1132,7 @@ export class HUDScene extends Phaser.Scene {
       'btn.next_day',
     )
     const btnText = this.add
-      .text(CX, 0, 'Следующий день →', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
+      .text(CX, 0, 'Следующий день →', { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4' })
       .setOrigin(0.5, 0.5).setDepth(53)
     btnBg.on('pointerdown', () => this.proceedNextDay())
     btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
@@ -1211,7 +1211,7 @@ export class HUDScene extends Phaser.Scene {
     const titleText = isDeadlock ? 'ТУПИК' : timeUp ? 'ВРЕМЯ ВЫШЛО' : 'БАНКРОТСТВО'
     const overlay = markTitle(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.9).setOrigin(0).setDepth(60).setInteractive(), titleText)
     const title = this.add
-      .text(CX, 200, titleText, { fontFamily: 'monospace', fontSize: '32px', color: '#b13e53' })
+      .text(CX, 200, titleText, { fontFamily: FONT, fontSize: '32px', color: '#b13e53' })
       .setOrigin(0.5).setDepth(61)
 
     const lines = isDeadlock ? [
@@ -1236,7 +1236,7 @@ export class HUDScene extends Phaser.Scene {
     lines.push(`Всего достижений: ${unlockedCount}/${totalCount}`)
 
     const body = this.add
-      .text(CX, 290, lines.join('\n'), { fontFamily: 'monospace', fontSize: '15px', color: '#f4f4f4', lineSpacing: 6, align: 'center' })
+      .text(CX, 290, lines.join('\n'), { fontFamily: FONT, fontSize: '15px', color: '#f4f4f4', lineSpacing: 6, align: 'center' })
       .setOrigin(0.5).setDepth(61)
     const btnBg = tag(
       this.add
@@ -1245,7 +1245,7 @@ export class HUDScene extends Phaser.Scene {
       'btn.gameover.menu',
     )
     const btnText = this.add
-      .text(CX, 397, 'В меню', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
+      .text(CX, 397, 'В меню', { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4' })
       .setOrigin(0.5).setDepth(62)
     btnBg.on('pointerdown', () => this.returnToMenu())
     btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
@@ -1273,7 +1273,7 @@ export class HUDScene extends Phaser.Scene {
 
     const overlay = markTitle(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.9).setOrigin(0).setDepth(60).setInteractive(), 'ПОБЕДА!')
     const title = this.add
-      .text(CX, 200, 'ПОБЕДА!', { fontFamily: 'monospace', fontSize: '32px', color: '#38b764' })
+      .text(CX, 200, 'ПОБЕДА!', { fontFamily: FONT, fontSize: '32px', color: '#38b764' })
       .setOrigin(0.5).setDepth(61)
 
     const lines = [
@@ -1291,7 +1291,7 @@ export class HUDScene extends Phaser.Scene {
     lines.push(`Всего достижений: ${unlockedCount}/${totalCount}`)
 
     const body = this.add
-      .text(CX, 290, lines.join('\n'), { fontFamily: 'monospace', fontSize: '15px', color: '#f4f4f4', lineSpacing: 6, align: 'center' })
+      .text(CX, 290, lines.join('\n'), { fontFamily: FONT, fontSize: '15px', color: '#f4f4f4', lineSpacing: 6, align: 'center' })
       .setOrigin(0.5).setDepth(61)
     const btnBg = tag(
       this.add
@@ -1300,7 +1300,7 @@ export class HUDScene extends Phaser.Scene {
       'btn.victory.menu',
     )
     const btnText = this.add
-      .text(CX, 397, 'В меню', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
+      .text(CX, 397, 'В меню', { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4' })
       .setOrigin(0.5).setDepth(62)
     btnBg.on('pointerdown', () => this.returnToMenu())
     btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))

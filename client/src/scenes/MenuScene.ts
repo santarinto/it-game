@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { GAME_H, GAME_W } from '../layout'
 import { checkActiveNeighbor, client, hasSavedSession, peekSave, prepareNewGame, savedDifficulty, sessionId } from '../net'
 import { activeZoom, applyZoom, ZOOM_OPTIONS } from '../uiscale'
-import { HIRES_CAMERA } from '../render'
+import { FONT, HIRES_CAMERA } from '../render'
 import { markActive, markTitle, tag } from '../debug/agentApi'
 import { fmtMoney } from '../format'
 import { getAchievementsSummary, loadStats } from '../meta'
@@ -146,7 +146,7 @@ export class MenuScene extends Phaser.Scene {
       'menu.stats',
     )
     const statsTxt = this.add
-      .text(250, 665, '📊 Статистика', { fontFamily: 'monospace', fontSize: '12px', color: '#f4f4f4' })
+      .text(250, 665, '📊 Статистика', { fontFamily: FONT, fontSize: '12px', color: '#f4f4f4' })
       .setOrigin(0.5)
     statsBg.on('pointerover', () => statsBg.setStrokeStyle(2, 0x41a6f6))
     statsBg.on('pointerout', () => statsBg.setStrokeStyle(2, 0x3a3f5c))
@@ -158,7 +158,7 @@ export class MenuScene extends Phaser.Scene {
     // ITGAME-61: три варианта (1×, 1.4×, «по окну»); шаг 80 и x=519 оставлены — ряд
     // встаёт ровно посередине между «Статистикой» и «Достижениями» (зазоры по 119 px).
     const zoomLbl = this.add
-      .text(449, 665, 'Масштаб:', { fontFamily: 'monospace', fontSize: '12px', color: DIM })
+      .text(449, 665, 'Масштаб:', { fontFamily: FONT, fontSize: '12px', color: DIM })
       .setOrigin(0, 0.5)
     this.menuUI.push(zoomLbl)
     const zoomBtns: { bg: Phaser.GameObjects.Rectangle; value: (typeof ZOOM_OPTIONS)[number]['value'] }[] = []
@@ -170,7 +170,7 @@ export class MenuScene extends Phaser.Scene {
         `menu.zoom.${o.value}`,
       )
       const zTxt = this.add
-        .text(x + 36, 665, o.label, { fontFamily: 'monospace', fontSize: '12px', color: '#f4f4f4' })
+        .text(x + 36, 665, o.label, { fontFamily: FONT, fontSize: '12px', color: '#f4f4f4' })
         .setOrigin(0.5)
       const highlight = () => {
         const on = activeZoom() === o.value
@@ -201,7 +201,7 @@ export class MenuScene extends Phaser.Scene {
     )
     const achTxt = this.add
       .text(990, 665, `🏆 Достижения ${unlockedCount}/${totalCount}`, {
-        fontFamily: 'monospace', fontSize: '12px', color: '#ffcd75',
+        fontFamily: FONT, fontSize: '12px', color: '#ffcd75',
       })
       .setOrigin(0.5)
     achBg.on('pointerover', () => achBg.setStrokeStyle(2, 0xffcd75))
@@ -244,7 +244,7 @@ export class MenuScene extends Phaser.Scene {
     let y = Math.max(24, Math.round((BOTTOM_TOP - total) / 2))
 
     ui.push(this.add
-      .text(CX, y + TITLE_H / 2, 'IT DIRECTOR', { fontFamily: 'monospace', fontSize: '42px', color: '#ffcd75' })
+      .text(CX, y + TITLE_H / 2, 'IT DIRECTOR', { fontFamily: FONT, fontSize: '42px', color: '#ffcd75' })
       .setOrigin(0.5))
     y += TITLE_H + 28
 
@@ -270,13 +270,13 @@ export class MenuScene extends Phaser.Scene {
         'menu.continue',
       )
       const cardTxt = this.add.text(CX - 240, y + 12, label, {
-        fontFamily: 'monospace', fontSize: '20px', color: '#' + color.toString(16).padStart(6, '0'),
+        fontFamily: FONT, fontSize: '20px', color: '#' + color.toString(16).padStart(6, '0'),
       })
       const cardDesc = this.add.text(CX - 240, y + 40, desc, {
-        fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4',
+        fontFamily: FONT, fontSize: '14px', color: '#f4f4f4',
       })
       const cardKey = this.add.text(CX + 240, y + 14, '[Enter]', {
-        fontFamily: 'monospace', fontSize: '13px', color: DIM,
+        fontFamily: FONT, fontSize: '13px', color: DIM,
       }).setOrigin(1, 0)
       this.addFocusItem({
         id: 'menu.continue', bg: cardBg, y: y + CARD_H / 2,
@@ -289,7 +289,7 @@ export class MenuScene extends Phaser.Scene {
 
     ui.push(this.add
       .text(CX, y + SUB_H / 2, withCard ? 'или начните новую:' : 'Выберите сложность', {
-        fontFamily: 'monospace', fontSize: withCard ? '14px' : '16px', color: withCard ? DIM : '#f4f4f4',
+        fontFamily: FONT, fontSize: withCard ? '14px' : '16px', color: withCard ? DIM : '#f4f4f4',
       })
       .setOrigin(0.5))
     y += SUB_H + 12
@@ -301,10 +301,10 @@ export class MenuScene extends Phaser.Scene {
           .setOrigin(0).setStrokeStyle(2, BASE_STROKE).setInteractive({ useHandCursor: true }),
         `menu.diff.${lvl.id}`,
       )
-      const diffLbl = this.add.text(CX - 240, y + 12, lvl.label, { fontFamily: 'monospace', fontSize: '20px', color: hex })
-      const diffDesc = this.add.text(CX - 240, y + 44, lvl.desc, { fontFamily: 'monospace', fontSize: '13px', color: DIM })
-      const diffGoal = this.add.text(CX + 240, y + 14, `Цель: ${lvl.goal}`, { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' }).setOrigin(1, 0)
-      const diffKey = this.add.text(CX + 240, y + 46, `[${i + 1}]`, { fontFamily: 'monospace', fontSize: '13px', color: DIM }).setOrigin(1, 0)
+      const diffLbl = this.add.text(CX - 240, y + 12, lvl.label, { fontFamily: FONT, fontSize: '20px', color: hex })
+      const diffDesc = this.add.text(CX - 240, y + 44, lvl.desc, { fontFamily: FONT, fontSize: '13px', color: DIM })
+      const diffGoal = this.add.text(CX + 240, y + 14, `Цель: ${lvl.goal}`, { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4' }).setOrigin(1, 0)
+      const diffKey = this.add.text(CX + 240, y + 46, `[${i + 1}]`, { fontFamily: FONT, fontSize: '13px', color: DIM }).setOrigin(1, 0)
       this.addFocusItem({
         id: `menu.diff.${lvl.id}`, bg: diffBg, y: y + LVL_H / 2,
         stroke: BASE_STROKE, focus: lvl.color,
@@ -317,11 +317,11 @@ export class MenuScene extends Phaser.Scene {
 
     ui.push(this.add
       .text(CX, y + HINT_H / 2, '1–4 — новая партия · ↑↓ — выбор · Enter — открыть выбранное', {
-        fontFamily: 'monospace', fontSize: '13px', color: DIM,
+        fontFamily: FONT, fontSize: '13px', color: DIM,
       })
       .setOrigin(0.5))
 
-    this.focusMarker = this.add.text(CX - 272, 0, '▶', { fontFamily: 'monospace', fontSize: '18px', color: '#f4f4f4' })
+    this.focusMarker = this.add.text(CX - 272, 0, '▶', { fontFamily: FONT, fontSize: '18px', color: '#f4f4f4' })
       .setOrigin(1, 0.5)
     ui.push(this.focusMarker)
 
@@ -407,11 +407,11 @@ export class MenuScene extends Phaser.Scene {
     const panel = this.add.rectangle(CX, GAME_H / 2, pw, ph, 0x14162b).setStrokeStyle(2, strokeColor).setDepth(81).setInteractive()
 
     const title = this.add.text(CX, GAME_H / 2 - ph / 2 + 28, titleText, {
-      fontFamily: 'monospace', fontSize: '20px', color: '#ffcd75',
+      fontFamily: FONT, fontSize: '20px', color: '#ffcd75',
     }).setOrigin(0.5).setDepth(82)
 
     const closeX = tag(this.add.text(CX + pw / 2 - 24, GAME_H / 2 - ph / 2 + 24, '✕', {
-      fontFamily: 'monospace', fontSize: '18px', color: '#94b0c2',
+      fontFamily: FONT, fontSize: '18px', color: '#94b0c2',
     }).setOrigin(0.5).setDepth(82).setInteractive({ useHandCursor: true }), 'modal.close')
     closeX.on('pointerdown', () => this.closeModal())
     closeX.on('pointerover', () => closeX.setColor('#f4f4f4'))
@@ -423,7 +423,7 @@ export class MenuScene extends Phaser.Scene {
       const btnCloseBg = tag(this.add.rectangle(CX, GAME_H / 2 + ph / 2 - 28, 140, 32, 0x3b5dc9)
         .setDepth(82).setInteractive({ useHandCursor: true }), 'modal.btn.close')
       const btnCloseTxt = this.add.text(CX, GAME_H / 2 + ph / 2 - 28, 'Закрыть', {
-        fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4',
+        fontFamily: FONT, fontSize: '13px', color: '#f4f4f4',
       }).setOrigin(0.5).setDepth(83)
 
       btnCloseBg.on('pointerdown', () => this.closeModal())
@@ -452,7 +452,7 @@ export class MenuScene extends Phaser.Scene {
       `Всего игр: ${stats.totalRuns}   ·   Побед: ${stats.totalWins}   ·   Поражений: ${stats.totalLosses}`,
       `Рекордный баланс: ${fmtMoney(stats.peakBalance)}   ·   Максимальный день: ${stats.peakDay}`,
     ].join('\n'), {
-      fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4', align: 'center', lineSpacing: 6,
+      fontFamily: FONT, fontSize: '13px', color: '#f4f4f4', align: 'center', lineSpacing: 6,
     }).setOrigin(0.5, 0).setDepth(82)
 
     const cardYStart = topY + 130
@@ -468,18 +468,18 @@ export class MenuScene extends Phaser.Scene {
 
       const hexColor = `#${df.color.toString(16).padStart(6, '0')}`
       const lbl = this.add.text(CX - cardW / 2 + 16, cy + 12, df.label, {
-        fontFamily: 'monospace', fontSize: '16px', color: hexColor,
+        fontFamily: FONT, fontSize: '16px', color: hexColor,
       }).setDepth(83)
 
       const winDayText = d.bestWinDay ? ` · Победа: день ${d.bestWinDay}` : ''
       const details = this.add.text(CX - cardW / 2 + 16, cy + 34,
         `Игр: ${d.runs} · Побед: ${d.wins} · Банкротств: ${d.bankruptcies} · Поражений по времени: ${d.timeUps}`, {
-        fontFamily: 'monospace', fontSize: '11px', color: '#94b0c2',
+        fontFamily: FONT, fontSize: '11px', color: '#94b0c2',
       }).setDepth(83)
 
       const records = this.add.text(CX + cardW / 2 - 16, cy + 20,
         `Рекорд: ${fmtMoney(d.bestBalance)} · Макс. день: ${d.bestDay}${winDayText}`, {
-        fontFamily: 'monospace', fontSize: '12px', color: '#f4f4f4',
+        fontFamily: FONT, fontSize: '12px', color: '#f4f4f4',
       }).setOrigin(1, 0).setDepth(83)
 
       diffCards.push(bg, lbl, details, records)
@@ -518,15 +518,15 @@ export class MenuScene extends Phaser.Scene {
 
       const titleColor = ach.unlocked ? '#ffcd75' : '#94b0c2'
       const name = this.add.text(x + 12, y + 10, `${ach.icon} ${ach.title}`, {
-        fontFamily: 'monospace', fontSize: '13px', color: titleColor,
+        fontFamily: FONT, fontSize: '13px', color: titleColor,
       }).setDepth(83)
 
       const desc = this.add.text(x + 12, y + 32, ach.desc, {
-        fontFamily: 'monospace', fontSize: '11px', color: ach.unlocked ? '#f4f4f4' : '#94b0c2',
+        fontFamily: FONT, fontSize: '11px', color: ach.unlocked ? '#f4f4f4' : '#94b0c2',
       }).setDepth(83)
 
       const statusBadge = this.add.text(x + colW - 12, y + 10, ach.unlocked ? '✓ Получено' : '🔒 Заблокировано', {
-        fontFamily: 'monospace', fontSize: '10px', color: ach.unlocked ? '#38b764' : '#94b0c2',
+        fontFamily: FONT, fontSize: '10px', color: ach.unlocked ? '#38b764' : '#94b0c2',
       }).setOrigin(1, 0).setDepth(83)
 
       achCards.push(bg, name, desc, statusBadge)
@@ -639,7 +639,7 @@ export class MenuScene extends Phaser.Scene {
     ]
 
     const body = this.add.text(CX, topY + 70, textLines.join('\n'), {
-      fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4', align: 'center', lineSpacing: 6,
+      fontFamily: FONT, fontSize: '13px', color: '#f4f4f4', align: 'center', lineSpacing: 6,
     }).setOrigin(0.5, 0).setDepth(82)
 
     const btnY = topY + ph - 42
@@ -651,7 +651,7 @@ export class MenuScene extends Phaser.Scene {
       'modal.btn.cancel',
     )
     const btnCancelTxt = this.add.text(CX - 120, btnY, 'Остаться в меню', {
-      fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4',
+      fontFamily: FONT, fontSize: '13px', color: '#f4f4f4',
     }).setOrigin(0.5).setDepth(83)
     btnCancelBg.on('pointerdown', () => this.closeModal())
     btnCancelBg.on('pointerover', () => btnCancelBg.setStrokeStyle(2, 0x41a6f6))
@@ -664,7 +664,7 @@ export class MenuScene extends Phaser.Scene {
       'modal.btn.takeover',
     )
     const btnTakeoverTxt = this.add.text(CX + 120, btnY, 'Забрать управление', {
-      fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4',
+      fontFamily: FONT, fontSize: '13px', color: '#f4f4f4',
     }).setOrigin(0.5).setDepth(83)
     btnTakeoverBg.on('pointerdown', () => {
       this.closeModal()
@@ -692,11 +692,11 @@ export class MenuScene extends Phaser.Scene {
       `${current} будет потеряна —`,
       '«Продолжить» её больше не вернёт.',
     ].join('\n'), {
-      fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4', align: 'center', lineSpacing: 6,
+      fontFamily: FONT, fontSize: '14px', color: '#f4f4f4', align: 'center', lineSpacing: 6,
     }).setOrigin(0.5, 0).setDepth(82)
     // Действие клавиатуры названо прямо: Enter и Esc здесь — отмена.
     const keysHint = this.add.text(CX, topY + ph - 84, 'Enter / Esc — отмена', {
-      fontFamily: 'monospace', fontSize: '13px', color: DIM,
+      fontFamily: FONT, fontSize: '13px', color: DIM,
     }).setOrigin(0.5).setDepth(82)
 
     const btnY = topY + ph - 42
@@ -707,7 +707,7 @@ export class MenuScene extends Phaser.Scene {
       'modal.btn.cancel',
     )
     const btnCancelTxt = this.add.text(CX - 120, btnY, 'Отмена', {
-      fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4',
+      fontFamily: FONT, fontSize: '14px', color: '#f4f4f4',
     }).setOrigin(0.5).setDepth(83)
     btnCancelBg.on('pointerdown', () => this.closeModal())
     btnCancelBg.on('pointerover', () => btnCancelBg.setFillStyle(0x2e335a))
@@ -719,7 +719,7 @@ export class MenuScene extends Phaser.Scene {
       'modal.btn.confirm',
     )
     const btnConfirmTxt = this.add.text(CX + 120, btnY, 'Начать заново', {
-      fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4',
+      fontFamily: FONT, fontSize: '14px', color: '#f4f4f4',
     }).setOrigin(0.5).setDepth(83)
     btnConfirmBg.on('pointerdown', () => {
       this.closeModal()
@@ -763,7 +763,7 @@ export class MenuScene extends Phaser.Scene {
     emitUi({ type: 'toast', text, where: 'bottom', ms, bg, scene: this.scene.key })
     const t = this.add
       .text(CX, 700, text, {
-        fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4',
+        fontFamily: FONT, fontSize: '13px', color: '#f4f4f4',
         backgroundColor: bg, padding: { x: 12, y: 6 },
       })
       .setOrigin(0.5)

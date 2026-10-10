@@ -97,6 +97,28 @@ try {
   }
   await page.screenshot({ path: join(CLIENT_DIR, 'smoke-menu.png') })
 
+  // Шрифты игры (ITGAME-48): оба @font-face загружены к старту меню (BootScene
+  // их ждёт). document.fonts.check() сам по себе true и для семейства, которого
+  // нет вовсе, — поэтому сверяем ещё и что FontFace есть и status 'loaded'.
+  const fonts = await page.evaluate(() => {
+    const want = [
+      { family: 'Departure Mono', font: "15px 'Departure Mono'", text: 'ДЕНЬ $1,000' },
+      { family: 'ITD Symbols', font: "15px 'ITD Symbols'", text: '✓' },
+    ]
+    const faces = [...document.fonts].map((f) => ({ family: f.family.replace(/["']/g, ''), status: f.status }))
+    return want.map((w) => ({
+      family: w.family,
+      check: document.fonts.check(w.font, w.text),
+      loaded: faces.some((f) => f.family === w.family && f.status === 'loaded'),
+    }))
+  })
+  const badFonts = fonts.filter((f) => !f.check || !f.loaded)
+  if (badFonts.length > 0) {
+    console.error(`SMOKE-UI FAIL: шрифты не загружены: ${JSON.stringify(badFonts)}`)
+    process.exit(1)
+  }
+  console.log(`SMOKE-UI: шрифты ${fonts.map((f) => f.family).join(', ')} — check() true, loaded`)
+
   if (errors.length > 0) {
     console.error('SMOKE-UI FAIL: сцена menu стартовала, но консоль не чистая:')
     for (const e of errors) console.error('  ', e)

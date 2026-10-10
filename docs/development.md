@@ -457,7 +457,9 @@ documenting separately:
   errors, plus, since ITGAME-38, every `playSfx` call and HUD toast
   (`{type:'sound', key, name, volume, scene, ok}` /
   `{type:'toast', text, where, ms, bg, scene}`), routed through
-  `client/src/uibus.ts`.
+  `client/src/uibus.ts`; since ITGAME-48 also one boot entry for the fonts,
+  `{type:'font', ok, ms, faces, font, reason?}` — `ok:false` (load error or
+  the 4 s timeout) means the whole session renders with plain `monospace`.
 - **`itd.step()` / `itd.advanceDays(n)`** (ITGAME-56) fast-forward through
   `/api/debug/advance` with the *offline* engine (`AdvanceOffline`, the same
   summary formula as the «while you were away» catch-up): no coffee rolls,

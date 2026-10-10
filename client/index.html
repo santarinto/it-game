@@ -5,6 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>IT Director</title>
     <style>
+      /* Шрифт игры (ITGAME-48) — стек FONT в src/render.ts; лицензии OFL 1.1
+         рядом с файлами (assets/fonts/OFL-*.txt), источники — README, Credits.
+         font-display: block — BootScene всё равно ждёт загрузки до первого текста. */
+      @font-face {
+        font-family: 'Departure Mono';
+        src: url('/assets/fonts/DepartureMono-Regular.woff2') format('woff2');
+        font-display: block;
+      }
+      /* Подмножество Unifont: только символы, которых нет в Departure Mono
+         (= FONT_SYMBOLS_TEXT в src/render.ts, сборка scripts/font-symbols.py). */
+      @font-face {
+        font-family: 'ITD Symbols';
+        src: url('/assets/fonts/ITDSymbols-Regular.woff2') format('woff2');
+        font-display: block;
+        unicode-range: U+2302, U+23F8, U+25B6, U+2623, U+2713, U+2715-2717;
+      }
       html, body { margin: 0; background: #1a1c2c; height: 100%; }
       /* Колонка: #topbar (если есть) + #app на остаток высоты. min-height: 100vh у
          #app вместе с #topbar давал прокрутку страницы на высоту topbar, её полоса
@@ -26,15 +42,15 @@
       #topbar { text-align: right; padding: 4px 16px; }
       #topbar a {
         display: inline-block;
-        color: #41a6f6; font-family: monospace; font-size: 15px; text-decoration: none;
+        color: #41a6f6; font-family: 'Departure Mono', 'ITD Symbols', monospace; font-size: 15px; text-decoration: none;
         background: #232640; border: 1px solid #3a3f5c; border-radius: 4px;
         padding: 4px 12px;
       }
       #topbar a:hover { background: #3b5dc9; color: #f4f4f4; }
       /* Штамп сборки и «устарело, обнови» (ITGAME-78): та же высота строки, что у «Админки». */
-      #topbar #build { color: #5d7275; font-family: monospace; font-size: 13px; margin-right: 12px; }
+      #topbar #build { color: #5d7275; font-family: 'Departure Mono', 'ITD Symbols', monospace; font-size: 13px; margin-right: 12px; }
       #topbar #stale {
-        color: #f4f4f4; font-family: monospace; font-size: 15px; cursor: pointer;
+        color: #f4f4f4; font-family: 'Departure Mono', 'ITD Symbols', monospace; font-size: 15px; cursor: pointer;
         background: #b13e53; border: 1px solid #b13e53; border-radius: 4px;
         padding: 4px 12px; margin-right: 12px;
       }

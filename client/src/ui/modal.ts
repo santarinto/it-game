@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { GAME_H, GAME_W } from '../layout'
+import { FONT } from '../render'
 import { drawDebugFrames } from '../debug'
 import { markTitle, tag } from '../debug/agentApi'
 import { onPartyReplaced } from '../party'
@@ -55,16 +56,16 @@ export function showModal(
   // Панель тоже interactive: topOnly-ввод Phaser не пропустит клик к подложке.
   const panel = scene.add.rectangle(cx, cy, panelW, panelH, 0x14162b).setStrokeStyle(2, 0x41a6f6).setDepth(71).setInteractive()
   const titleText = scene.add
-    .text(cx + shift, cy - panelH / 2 + 26, title, { fontFamily: 'monospace', fontSize: '18px', color: '#ffcd75' })
+    .text(cx + shift, cy - panelH / 2 + 26, title, { fontFamily: FONT, fontSize: '18px', color: '#ffcd75' })
     .setOrigin(0.5).setDepth(72)
   const closeX = scene.add
-    .text(cx + panelW / 2 - 20, cy - panelH / 2 + 26, '✕', { fontFamily: 'monospace', fontSize: '16px', color: '#5d7275' })
+    .text(cx + panelW / 2 - 20, cy - panelH / 2 + 26, '✕', { fontFamily: FONT, fontSize: '16px', color: '#5d7275' })
     .setOrigin(0.5).setDepth(72).setInteractive({ useHandCursor: true })
   tag(closeX, 'modal.close')
   closeX.on('pointerdown', dismiss)
   const body = scene.add
     .text(cx + shift, cy - panelH / 2 + 56, lines.join('\n'), {
-      fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4', lineSpacing: 8, align: 'center',
+      fontFamily: FONT, fontSize: '14px', color: '#f4f4f4', lineSpacing: 8, align: 'center',
     })
     .setOrigin(0.5, 0).setDepth(72)
   objs.push(overlay, panel, titleText, closeX, body)
@@ -72,7 +73,7 @@ export function showModal(
     const rx = cx - panelW / 2 + 78 // ось колонки юнитов
     const top = cy - rackH / 2
     objs.push(
-      scene.add.text(rx, top, '24U СТОЙКА', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' })
+      scene.add.text(rx, top, '24U СТОЙКА', { fontFamily: FONT, fontSize: '12px', color: '#5d7275' })
         .setOrigin(0.5, 0).setDepth(72),
     )
     for (let u = 0; u < scheme.total; u++) {
@@ -93,7 +94,7 @@ export function showModal(
     }
     objs.push(
       scene.add.text(rx, top + 24 + scheme.total * (UNIT_H + UNIT_GAP) + 6, `${scheme.filled}U занято`, {
-        fontFamily: 'monospace', fontSize: '12px', color: '#41a6f6',
+        fontFamily: FONT, fontSize: '12px', color: '#41a6f6',
       }).setOrigin(0.5, 0).setDepth(72),
     )
   }
@@ -105,7 +106,7 @@ export function showModal(
       `modal.btn.${i}`,
     )
     const txt = scene.add
-      .text(cx + shift, by, b.label, { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
+      .text(cx + shift, by, b.label, { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4' })
       .setOrigin(0.5).setDepth(73)
     bg.on('pointerdown', () => {
       b.onClick()

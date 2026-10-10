@@ -45,6 +45,13 @@ Deploy, saves, testing, CI and the asset pipeline:
 - Sprites: generated with [PixelLab](https://www.pixellab.ai), post-processed
   by the scripts in `scripts/sprites/`.
 - Sound effects: [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds) (CC0).
+- Font: [Departure Mono](https://github.com/rektdeckard/departure-mono) 1.500
+  by Helena Zhang (SIL OFL 1.1).
+- Symbol font «ITD Symbols»: an 8-glyph subset (⌂⏸▶☣✓✕✖✗) of
+  [GNU Unifont](https://unifoundry.com/unifont/) 16.0.04 by Roman Czyborra,
+  Paul Hardy et al., used under the SIL OFL 1.1 of its dual license; rebuilt by
+  `client/scripts/font-symbols.py`. License texts:
+  `client/public/assets/fonts/OFL-*.txt`.
 
 `ITGAME-N` references in the code and docs are ticket numbers from an
 internal development tracker, not a public issue tracker.

@@ -11,7 +11,7 @@ import { coreFree, routerGain } from '../network-preview'
 import { playSfx } from '../audio'
 import { addSprite } from '../pixelart'
 import { SPRITES } from '../assets/manifest'
-import { HIRES_CAMERA } from '../render'
+import { FONT, HIRES_CAMERA } from '../render'
 
 const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
 // Зона ремонта «сломанный ПК» (office.repair.i) обязана перехватывать клики
@@ -61,10 +61,10 @@ const LEVEL_BONUS: Record<number, number> = { 1: 1, 2: 2, 3: 2 }
 // пересекаться даже частично. Поэтому каждый элемент ниже держим либо
 // ЦЕЛИКОМ внутри бокса сотрудника (±32 по обеим осям), либо ЦЕЛИКОМ
 // снаружи — без «почти» с одной стороны на пару-тройку px.
-// Реальные ширины (Phaser Text.getBounds(), monospace, см.
-// client/scripts/qa-office-slots.mjs-style замер): OFFLINE_LABELS при 9px —
-// «✗ роутер» 44px, «✗ core» 33px, «без стойки» 55px (самая длинная);
-// «✖ чинить N/3» при 11px — 80px.
+// Реальные ширины (Phaser Text.getBounds(), шрифт FONT — Departure Mono +
+// ITD Symbols, ITGAME-48; см. client/scripts/qa-office-slots.mjs-style замер):
+// OFFLINE_LABELS при 9px — «✗ роутер» 45px, «✗ core» 34px, «без стойки» 58px
+// (самая длинная); «✖ чинить N/3» при 11px — 88×14px.
 const SLOT_LAYOUT_HD = {
   // У правого верхнего угла стола, ниже и левее монитора. Кружок 8px —
   // не текст и не интерактив, линтер его не видит; важно лишь не вылезти
@@ -72,11 +72,11 @@ const SLOT_LAYOUT_HD = {
   networkDot: { x: 24, y: -8 },
   // ЦЕЛИКОМ ВНУТРИ бокса сотрудника, над монитором (монитор начинается с
   // y −14, низ метки на y −19 — запас 5px). Самая широкая метка «без
-  // стойки» — 55px, т.е. ±27.5 от центра: центрируем по x (не по
+  // стойки» — 58px, т.е. ±29 от центра: центрируем по x (не по
   // networkDot/правому краю, как раньше) — на x+24 «без стойки» вылезала
-  // бы до x+51.5, далеко за край бокса (x+32). При x=0 запас ±4.5px до
-  // краёв бокса на самой длинной метке — переживает сдвиг шрифта между
-  // браузерами (визрег/CI).
+  // бы до x+53, далеко за край бокса (x+32). При x=0 запас ±3px до
+  // краёв бокса на самой длинной метке; шрифт свой (ITGAME-48), между
+  // машинами ширина не плывёт.
   offlineLabel: { x: 0, y: -24 },
   // У левого края столешницы — маленький кружок, целиком внутри бокса.
   motivationBadge: { x: -24, y: -6 },
@@ -85,9 +85,9 @@ const SLOT_LAYOUT_HD = {
   // Мигающей зоны ремонта в раскладке нет (ITGAME-75): она — объединение
   // bounds сотрудника, стола и метки ниже, считается в render().
   // ЦЕЛИКОМ СНАРУЖИ бокса сотрудника (сверху): «✖ чинить N/3» шириной
-  // 80px при 11px в бокс ±32 не поместится ни при каком центрировании —
-  // выносим целиком за верхний край. Высота строки 13px (±6.5): при
-  // y=−42 нижний край −35.5, что ниже верхнего края бокса (−32) на 3.5px
+  // 88px при 11px в бокс ±32 не поместится ни при каком центрировании —
+  // выносим целиком за верхний край. Высота строки 14px (±7): при
+  // y=−42 нижний край −35, что выше верхнего края бокса (−32) на 3px
   // запаса — не частичное пересечение, а полное разделение.
   repairText: { y: -42 },
   // Целиком снаружи бокса снизу (кнопка 22px высотой → y+35..y+57,
@@ -135,7 +135,7 @@ export class OfficeScene extends Phaser.Scene {
 
     // Один переиспользуемый тултип поверх всего; наполняется при наведении.
     this.tooltipText = this.add.text(10, 8, '', {
-      fontFamily: 'monospace', fontSize: '13px', color: '#f4f4f4', lineSpacing: 6,
+      fontFamily: FONT, fontSize: '13px', color: '#f4f4f4', lineSpacing: 6,
     })
     this.tooltipBg = this.add.rectangle(0, 0, 10, 10, 0x14162b, 0.95).setOrigin(0).setStrokeStyle(1, 0x41a6f6)
     this.tooltip = this.add.container(0, 0, [this.tooltipBg, this.tooltipText]).setDepth(40).setVisible(false)
@@ -161,14 +161,14 @@ export class OfficeScene extends Phaser.Scene {
 
     this.objects.push(
       this.add.text(GAME_W / 2, HUD_H + 20, `ОФИС ${nav.activeOffice + 1}`, {
-        fontFamily: 'monospace', fontSize: '16px', color: '#5d7275',
+        fontFamily: FONT, fontSize: '16px', color: '#5d7275',
       }).setOrigin(0.5),
     )
 
     // Вирус: доход офиса проседает — плашка, пока лечат или терпят.
     if (office.virusUntil) {
       const plate = this.add.text(GAME_W / 2, HUD_H + 44, `☣ вирус −30% до ${office.virusUntil}`, {
-        fontFamily: 'monospace', fontSize: '13px', color: '#b13e53',
+        fontFamily: FONT, fontSize: '13px', color: '#b13e53',
         backgroundColor: '#14162b', padding: { x: 8, y: 4 },
       }).setOrigin(0.5)
       this.objects.push(plate)
@@ -177,7 +177,7 @@ export class OfficeScene extends Phaser.Scene {
     if (!office.unlocked) {
       this.objects.push(
         this.add.text(GAME_W / 2, 300, `Офис ${nav.activeOffice + 1} закрыт`, {
-          fontFamily: 'monospace', fontSize: '24px', color: '#5d7275',
+          fontFamily: FONT, fontSize: '24px', color: '#5d7275',
         }).setOrigin(0.5),
       )
       // Открывать офисы можно только по порядку — если предыдущий ещё
@@ -189,7 +189,7 @@ export class OfficeScene extends Phaser.Scene {
       )
       if (canBuy) btn.setInteractive({ useHandCursor: true })
       const txt = this.add.text(GAME_W / 2, 380, canBuy ? `Купить офис — ${fmtMoney(office.price)}` : 'Сначала купите предыдущий', {
-        fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4',
+        fontFamily: FONT, fontSize: '14px', color: '#f4f4f4',
       }).setOrigin(0.5)
       if (canBuy) btn.on('pointerdown', () => {
         playSfx(this, 'select')
@@ -211,7 +211,7 @@ export class OfficeScene extends Phaser.Scene {
     routerZone.on('pointerdown', () => this.openRouterModal(office, s))
     this.objects.push(
       routerZone,
-      this.add.text(rx, ry - 56, 'сеть', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
+      this.add.text(rx, ry - 56, 'сеть', { fontFamily: FONT, fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
     )
     if (office.routerTier > 0) {
       const routerImg = addSprite(this, rx, ry, 'router', 'rack').setInteractive({ useHandCursor: true })
@@ -221,13 +221,13 @@ export class OfficeScene extends Phaser.Scene {
         // Две строки: одной строкой подпись шириной ~130px заезжала на
         // крайний стол ряда (линтер интерактивов ловит office.worker.3).
         this.add.text(rx, ry + 58, `роутер т${office.routerTier}\n${office.ports} порт.`, {
-          fontFamily: 'monospace', fontSize: '11px', color: '#41a6f6', align: 'center',
+          fontFamily: FONT, fontSize: '11px', color: '#41a6f6', align: 'center',
         }).setOrigin(0.5),
       )
     } else {
       this.objects.push(
         this.add.text(rx, ry, 'нет\nроутера', {
-          fontFamily: 'monospace', fontSize: '11px', color: '#5d7275', align: 'center',
+          fontFamily: FONT, fontSize: '11px', color: '#5d7275', align: 'center',
         }).setOrigin(0.5),
       )
     }
@@ -237,7 +237,7 @@ export class OfficeScene extends Phaser.Scene {
     const by = 320
     this.objects.push(
       this.add.rectangle(bx, by, 84, 84, 0x232640).setStrokeStyle(2, 0x5d7275),
-      this.add.text(bx, by - 56, 'начальник', { fontFamily: 'monospace', fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
+      this.add.text(bx, by - 56, 'начальник', { fontFamily: FONT, fontSize: '12px', color: '#5d7275' }).setOrigin(0.5),
     )
     if (office.boss !== '') {
       // Слот начальника раньше рисовал текстуру 'worker' — теперь свой
@@ -256,7 +256,7 @@ export class OfficeScene extends Phaser.Scene {
       bossImg.on('pointerout', () => this.hideTooltip())
       this.objects.push(bossImg)
     } else {
-      this.objects.push(this.add.text(bx, by, 'нет', { fontFamily: 'monospace', fontSize: '11px', color: '#5d7275' }).setOrigin(0.5))
+      this.objects.push(this.add.text(bx, by, 'нет', { fontFamily: FONT, fontSize: '11px', color: '#5d7275' }).setOrigin(0.5))
     }
 
     // Рабочие места: первые pcs слотов — с ПК, дальше сотрудники из массива;
@@ -269,7 +269,7 @@ export class OfficeScene extends Phaser.Scene {
         this.objects.push(
           this.add.rectangle(x, y, 80, 64, 0x232640, 0.5).setStrokeStyle(2, 0x3a3f5c),
           this.add.text(x, y, 'наймите\nначальника', {
-            fontFamily: 'monospace', fontSize: '10px', color: '#5d7275', align: 'center',
+            fontFamily: FONT, fontSize: '10px', color: '#5d7275', align: 'center',
           }).setOrigin(0.5),
         )
         continue
@@ -317,14 +317,14 @@ export class OfficeScene extends Phaser.Scene {
           `office.master.${i}`,
         )
         const masterTxt = this.add.text(x, y + layout.masterButton.y, `мастер ${fmtMoney(s.prices.repair)}`, {
-          fontFamily: 'monospace', fontSize: '10px', color: '#f4f4f4',
+          fontFamily: FONT, fontSize: '10px', color: '#f4f4f4',
         }).setOrigin(0.5)
         masterBg.on('pointerdown', () => {
           playSfx(this, 'select')
           client.send('call_master', nav.activeOffice, { slot: i })
         })
         repairLabel = this.add.text(x, y + layout.repairText.y, `✖ чинить ${e.repairClicks}/3`, {
-          fontFamily: 'monospace', fontSize: '11px', color: '#b13e53',
+          fontFamily: FONT, fontSize: '11px', color: '#b13e53',
         }).setOrigin(0.5)
         this.objects.push(repairLabel, masterBg, masterTxt)
       }
@@ -344,7 +344,7 @@ export class OfficeScene extends Phaser.Scene {
           // !s.isLunch, значит на обеде всегда проходим ветку !showWorkerOnly.
           slotImg = deskImg as Phaser.GameObjects.Image
           this.objects.push(this.add.text(x, y + 40, 'обед', {
-            fontFamily: 'monospace', fontSize: '12px', color: '#94b0c2',
+            fontFamily: FONT, fontSize: '12px', color: '#94b0c2',
           }).setOrigin(0.5))
         } else if (workerIncludesDesk) {
           wx = x
@@ -446,7 +446,7 @@ export class OfficeScene extends Phaser.Scene {
           const label = OFFLINE_LABELS[e.offlineReason] ?? e.offlineReason
           const color = e.offlineReason === 'no_server' ? '#5d7275' : '#b13e53'
           this.objects.push(this.add.text(x + layout.offlineLabel.x, y + layout.offlineLabel.y, label, {
-            fontFamily: 'monospace', fontSize: '9px', color,
+            fontFamily: FONT, fontSize: '9px', color,
           }).setOrigin(0.5))
         }
         // Жёлтый значок-бейдж, пока действует мотивация кликом.
@@ -456,7 +456,7 @@ export class OfficeScene extends Phaser.Scene {
         // Золотая звезда найма-рулетки (и кандидата события) — ×1.5 базы.
         if (e.star) {
           this.objects.push(this.add.text(x + layout.star.x, y + layout.star.y, '★', {
-            fontFamily: 'monospace', fontSize: '14px', color: '#ffcd75',
+            fontFamily: FONT, fontSize: '14px', color: '#ffcd75',
           }).setOrigin(0.5))
         }
       }
@@ -489,7 +489,7 @@ export class OfficeScene extends Phaser.Scene {
       } else {
         tag(box, `office.amenity.${a.key}`)
         this.objects.push(this.add.text(ax, ay, `${a.label}\n${fmtMoney(a.price)}`, {
-          fontFamily: 'monospace', fontSize: '10px', color: '#5d7275', align: 'center',
+          fontFamily: FONT, fontSize: '10px', color: '#5d7275', align: 'center',
         }).setOrigin(0.5))
         box.on('pointerdown', () => {
           playSfx(this, 'select')
