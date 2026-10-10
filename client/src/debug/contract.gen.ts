@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "1bcfc83fa2f3",
+  "hash": "68de58252ef3",
   "methods": {
     "version": {
       "kind": "prop",
@@ -23,9 +23,10 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "AgentServer",
-      "doc": "Снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt,\nreconnects, sid (куда уходят команды и debug-вызовы: liveSid ?? sid\nхранилища), liveSid (sid живой партии вкладки или null), sidSwitches.",
+      "doc": "Снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rev/cause\nпоследнего снапшота (ITGAME-45), rtt, reconnects, sid (куда уходят команды\nи debug-вызовы: liveSid ?? sid хранилища), liveSid (sid живой партии вкладки\nили null), sidSwitches.",
       "examples": [
-        "itd.server()"
+        "itd.server()",
+        "itd.wait((s, srv) => srv.rev >= 42)"
       ]
     },
     "nodes": {
@@ -120,7 +121,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<CmdReceipt>",
-      "doc": "Команда с квитанцией сервера (ITGAME-30): Promise<{ok, code?}> — первый\nstate|error после отправки, по порядку команд.",
+      "doc": "Команда с квитанцией сервера (ITGAME-30/45): Promise<{ok, code?, id, rev}> —\nответ на ЭТУ команду по её id (state|error с re = id), тики и команды\nдругих соединений квитанцию не закрывают. rev — версия снапшота-ответа.",
       "examples": [
         "await itd.cmd('hire')"
       ]
@@ -140,7 +141,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<TraceResult>",
-      "doc": "Живая трассировка окна вокруг action (ITGAME-37): подписка ДО action,\nокно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь\nигрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().",
+      "doc": "Живая трассировка окна вокруг action (ITGAME-37): подписка ДО action,\nокно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь\nигрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().\nITGAME-45: sent — с id команды, states — снапшоты окна {rev, cause, re?}:\nответ на команду — state с re = её id.",
       "examples": [
         "itd.trace(() => itd.click('btn.pc'), 1000)"
       ]
@@ -358,8 +359,8 @@ export const CONTRACT = {
           "optional": true
         }
       ],
-      "returns": "{ socket: AgentServer['socket']; reconnects: number; rtt: number | null; last: { dir: 'in' | 'out'; at: number; type: string; info: Record<string, unknown>; }[]; }",
-      "doc": "Последние сообщения WS в обе стороны + сокет/rtt/реконнекты.",
+      "returns": "{ socket: AgentServer['socket']; reconnects: number; rtt: number | null; rev: number | null; last: { dir: 'in' | 'out'; at: number; type: string; info: Record<string, unknown>; }[]; }",
+      "doc": "Последние сообщения WS в обе стороны + сокет/rtt/реконнекты и rev\nпоследнего снапшота. ITGAME-45: у out в info — id команды, у state — rev,\ncause и re (id своей команды, породившей снапшот), у error — re и rev.",
       "examples": [
         "itd.net(20)"
       ]
@@ -765,7 +766,17 @@ export const CONTRACT = {
         "lastEventId": {
           "type": "number",
           "optional": false,
-          "doc": "счётчик принятых сообщений (своих id у протокола нет)"
+          "doc": "счётчик принятых сообщений этой страницы (не rev: тот — версия сессии)"
+        },
+        "rev": {
+          "type": "number | null",
+          "optional": false,
+          "doc": "ITGAME-45: версия состояния последнего снапшота (+1 на каждый; ждать — wait((s, srv) => srv.rev >= N))"
+        },
+        "cause": {
+          "type": "'tick' | 'cmd' | 'debug' | 'start' | 'resume' | null",
+          "optional": false,
+          "doc": "ITGAME-45: почему разослан последний снапшот: tick | cmd | debug | start | resume"
         },
         "rtt": {
           "type": "number | null",
@@ -1061,6 +1072,16 @@ export const CONTRACT = {
           "type": "string",
           "optional": true,
           "doc": ""
+        },
+        "id": {
+          "type": "number",
+          "optional": true,
+          "doc": "ITGAME-45: id команды на проводе (= sent[].id в itd.trace(), info.id в itd.net())"
+        },
+        "rev": {
+          "type": "number",
+          "optional": true,
+          "doc": "ITGAME-45: rev снапшота-ответа; у серверного отказа — текущий rev (не меняется)"
         }
       }
     },
@@ -2130,6 +2151,16 @@ export const CONTRACT = {
         }
       }
     },
+    "StateCause": {
+      "kind": "enum",
+      "values": [
+        "cmd",
+        "debug",
+        "resume",
+        "start",
+        "tick"
+      ]
+    },
     "StateMessage": {
       "kind": "object",
       "fields": {
@@ -2137,6 +2168,21 @@ export const CONTRACT = {
           "type": "'state'",
           "optional": false,
           "doc": ""
+        },
+        "rev": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "cause": {
+          "type": "'tick' | 'cmd' | 'debug' | 'start' | 'resume'",
+          "optional": false,
+          "doc": ""
+        },
+        "re": {
+          "type": "number",
+          "optional": true,
+          "doc": "id команды ЭТОГО соединения, породившей снапшот; у других соединений нет"
         },
         "money": {
           "type": "number",
@@ -2386,7 +2432,12 @@ export const CONTRACT = {
         "recv": {
           "type": "{ t: number; type: string; info: Record<string, unknown>; }[]",
           "optional": false,
-          "doc": "не-state входящие: error/day_report/game_over/…"
+          "doc": "не-state входящие: error/day_report/game_over/… (у error info.re/rev)"
+        },
+        "states": {
+          "type": "{ t: number; rev: number; cause: string; re?: number; }[]",
+          "optional": false,
+          "doc": "ITGAME-45: снапшоты окна — rev, cause (tick|cmd|debug|start|resume), re — id своей команды-причины."
         },
         "transitions": {
           "type": "{ t: number; kind: 'phase' | 'speed' | 'day' | 'scenes'; from: string | number | null; to: string | number | null; }[]",

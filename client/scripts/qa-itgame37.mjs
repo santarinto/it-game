@@ -34,6 +34,15 @@
 //      объект закрытого окна не растёт от новых стимулов (key/sent/переходы/
 //      тосты/звуки), контроль — те же стимулы внутри живого окна дают записи
 //  12  windowMs −1 и 20000 → reject
+//  13  квитанции по id (ITGAME-45): отказ cmd('buy_pc') — {id, rev}, тот же
+//      id в trace.sent и в info.re ошибки (trace.recv) и в itd.net(); успех —
+//      states[] окна содержит {re: id, cause:'cmd', rev}; server().rev/cause
+//  13b гонка с тиком в настоящем клиенте: speed(3), главный поток занят
+//      400 мс (> тика 333 мс — тиковый state «в пути»), затем cmd с отказом
+//      → квитанция bad_speed, а не ok от тика (FIFO дал бы ok)
+//  13c гонка с наблюдателем: страница открывает /ws/agent на свой sid,
+//      агент шлёт hire, главный поток занят 150 мс (снапшот найма «в пути»),
+//      затем cmd с отказом → bad_speed; снапшот найма у вкладки без re
 //   + на странице нет pageerror
 //
 // Отклонения от буквального сценария в трекере (см. отчёт агента): нет —
@@ -392,6 +401,101 @@ async function run() {
       ),
     )
     check('12: windowMs=20000 → reject', rejBig.startsWith('rejected:'), rejBig)
+
+    // ── 13: квитанции по id (ITGAME-45)
+    const t13 = await page.evaluate(async () => {
+      const itd = window.itd
+      itd.pause()
+      await itd.wait((s) => s.speed === 0)
+      await itd.set({ money: 0 })
+      await itd.wait((s) => s.balance === 0)
+      let fail = null
+      const tr = await itd.trace(async () => {
+        fail = await itd.cmd('buy_pc')
+      }, 200)
+      const net = itd.net(10)
+      await itd.set({ money: 50000 })
+      await itd.wait((s) => s.balance === 50000)
+      let okR = null
+      const tr2 = await itd.trace(async () => {
+        okR = await itd.cmd('buy_pc')
+      }, 200)
+      return { fail, sent: tr.sent, recv: tr.recv, net: net.last, netRev: net.rev, okR, states: tr2.states, srv: { rev: itd.server().rev, cause: itd.server().cause } }
+    })
+    const errRecv13 = t13.recv.find((e) => e.type === 'error')
+    check(
+      '13: отказ — {code, id, rev}, тот же id в sent и в re ошибки',
+      t13.fail?.ok === false && t13.fail.code === 'not_enough_money' && Number.isInteger(t13.fail.id) &&
+        Number.isInteger(t13.fail.rev) && t13.sent[0]?.id === t13.fail.id &&
+        errRecv13?.info?.re === t13.fail.id && errRecv13?.info?.rev === t13.fail.rev,
+      JSON.stringify({ fail: t13.fail, sent: t13.sent, err: errRecv13 }),
+    )
+    const outNet13 = t13.net.filter((e) => e.dir === 'out' && e.info.id === t13.fail?.id)
+    const stNet13 = t13.net.filter((e) => e.type === 'state')
+    check(
+      '13: itd.net() — out с info.id, state с rev/cause',
+      outNet13.length === 1 && stNet13.length > 0 && stNet13.every((e) => Number.isInteger(e.info.rev) && typeof e.info.cause === 'string') &&
+        Number.isInteger(t13.netRev),
+      JSON.stringify(t13.net.slice(-4)),
+    )
+    const stOk13 = t13.states.find((st) => st.re === t13.okR?.id)
+    check(
+      '13: успех — states[] окна {re: id, cause:cmd, rev = квитанции}, server().rev ≥ rev',
+      t13.okR?.ok === true && !!stOk13 && stOk13.cause === 'cmd' && stOk13.rev === t13.okR.rev &&
+        t13.srv.rev >= t13.okR.rev && typeof t13.srv.cause === 'string',
+      JSON.stringify({ okR: t13.okR, states: t13.states, srv: t13.srv }),
+    )
+
+    // ── 13b: тиковый снапшот «в пути», когда уходит команда
+    const t13b = await page.evaluate(async () => {
+      const itd = window.itd
+      itd.speed(3)
+      await itd.wait((s) => s.speed === 3)
+      const busy = (ms) => { const t = performance.now(); while (performance.now() - t < ms) { /* занятый главный поток */ } }
+      const tr = await itd.trace(async () => {
+        busy(400) // тик (333 мс на 3×) приходит в сокет, но не разобран
+        return itd.cmd('set_speed', 0, { speed: 9 })
+      }, 100)
+      itd.pause()
+      await itd.wait((s) => s.speed === 0)
+      return { r: tr.result, states: tr.states, recv: tr.recv }
+    })
+    const firstState13b = t13b.states[0]
+    check(
+      '13b: тик в пути — квитанция bad_speed, не ok от тика',
+      t13b.r?.ok === false && t13b.r.code === 'bad_speed' && firstState13b?.cause === 'tick' && firstState13b.re === undefined,
+      JSON.stringify(t13b),
+    )
+
+    // ── 13c: снапшот команды агента-наблюдателя «в пути»
+    const t13c = await page.evaluate(async (sid) => {
+      const itd = window.itd
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+      const ag = new WebSocket(`${proto}://${location.host}/ws/agent?sid=${encodeURIComponent(sid)}`)
+      const agentMsgs = []
+      ag.onmessage = (ev) => agentMsgs.push(JSON.parse(ev.data))
+      await new Promise((resolve, reject) => {
+        ag.onopen = resolve
+        ag.onerror = () => reject(new Error('agent ws'))
+      })
+      await new Promise((r) => setTimeout(r, 200)) // первый снапшот наблюдателя
+      const busy = (ms) => { const t = performance.now(); while (performance.now() - t < ms) { /* занятый главный поток */ } }
+      const tr = await itd.trace(async () => {
+        ag.send(JSON.stringify({ type: 'hire', office: 0, id: 1 })) // id агента = 1, совпадёт с чьим-то id вкладки — re адресный
+        busy(150) // сервер нанял и разослал снапшот — у вкладки он «в пути»
+        return itd.cmd('set_speed', 0, { speed: 9 })
+      }, 200)
+      ag.close()
+      const agentReply = agentMsgs.find((m) => m.type === 'state' && m.re === 1)
+      return { r: tr.result, states: tr.states, agentReply: agentReply ? { rev: agentReply.rev, cause: agentReply.cause } : null }
+    }, sid)
+    const hireState13c = t13c.states.find((st) => st.rev === t13c.agentReply?.rev)
+    check(
+      '13c: команда наблюдателя в пути — квитанция вкладки bad_speed; снапшот найма у вкладки cause cmd без re',
+      t13c.r?.ok === false && t13c.r.code === 'bad_speed' && t13c.agentReply?.cause === 'cmd' &&
+        !!hireState13c && hireState13c.cause === 'cmd' && hireState13c.re === undefined && t13c.r.rev === t13c.agentReply.rev,
+      JSON.stringify(t13c),
+    )
 
     // ── нет ошибок на странице за весь прогон
     check('на странице нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))

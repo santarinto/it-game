@@ -104,6 +104,7 @@ type debugReply struct {
 	Code int
 	Body any
 	Err  string
+	Rev  uint64 // версия состояния на момент ответа (ITGAME-45), и при отказе
 }
 
 // ── Реестр живых сессий ────────────────────────────────────────────────────
@@ -312,6 +313,13 @@ func finishDebug(w http.ResponseWriter, rep debugReply) {
 
 // ── Актор-сторона: применение запросов ─────────────────────────────────────
 
+// advanceReply — тело ответа advance: сводка промотки и свежий снапшот.
+type advanceReply struct {
+	SID     string               `json:"sid"`
+	Advance *game.OfflineSummary `json:"advance"`
+	State   stateMessage         `json:"state"`
+}
+
 // stateReply — тело ответа GET state и всех мутаций: свежий снапшот.
 type stateReply struct {
 	SID    string       `json:"sid"`
@@ -328,19 +336,28 @@ func (h *Handler) applyDebug(
 	ctx context.Context, hub *connHub, req debugRequest,
 	sid string, gen uint64, withSaves bool,
 	gp **game.Game, speed *int, resumeSpeed int, last **game.DayReport,
-	jr *eventJournal, scenario *string,
+	jr *eventJournal, scenario *string, rv *revClock,
 ) bool {
 	g := *gp
+	// snap — снапшот с текущими rev/cause: и для рассылки, и для HTTP-ответа
+	// (агент ждёт state.rev ≥ N, ITGAME-45).
+	snap := func() stateMessage {
+		return rv.stamp(snapshot(g, *speed, false, *scenario))
+	}
 	push := func() {
-		hub.write(ctx, snapshot(g, *speed, false, *scenario))
+		hub.write(ctx, snap())
 	}
 	reply := func(rep debugReply) {
+		rep.Rev = rv.rev
 		select {
 		case req.Reply <- rep:
 		default:
 		}
 	}
+	// persist — только в мутирующих ветках, перед push(): новая версия
+	// состояния (cause debug) рождается здесь, до сейва — как у тика/команды.
 	persist := func() bool {
+		rv.bump(causeDebug)
 		if !withSaves {
 			return true
 		}
@@ -349,13 +366,13 @@ func (h *Handler) applyDebug(
 			h.Saves.Finish(sid, gen)
 			return true
 		}
-		return h.persist(sid, gen, g, *speed, resumeSpeed, *last, *scenario, jr.last(jr.cap))
+		return h.persist(sid, gen, g, *speed, resumeSpeed, *last, *scenario, jr.last(jr.cap), rv.rev)
 	}
 
 	switch req.kind {
 	case kindState:
 		reply(debugReply{Code: http.StatusOK, Body: stateReply{
-			SID: sid, State: snapshot(g, *speed, false, *scenario), Save: g.Export(), Events: jr.last(20),
+			SID: sid, State: snap(), Save: g.Export(), Events: jr.last(20),
 		}})
 
 	case kindEvents:
@@ -373,7 +390,7 @@ func (h *Handler) applyDebug(
 		}
 		push()
 		reply(debugReply{Code: http.StatusOK, Body: stateReply{
-			SID: sid, State: snapshot(g, *speed, false, *scenario), Save: g.Export(),
+			SID: sid, State: snap(), Save: g.Export(),
 		}})
 
 	case kindScenario:
@@ -390,7 +407,7 @@ func (h *Handler) applyDebug(
 		}
 		push()
 		reply(debugReply{Code: http.StatusOK, Body: stateReply{
-			SID: sid, State: snapshot(g, *speed, false, *scenario), Save: g.Export(),
+			SID: sid, State: snap(), Save: g.Export(),
 		}})
 
 	case kindRestore:
@@ -415,7 +432,7 @@ func (h *Handler) applyDebug(
 		}
 		push()
 		reply(debugReply{Code: http.StatusOK, Body: stateReply{
-			SID: sid, State: snapshot(g, *speed, false, *scenario), Save: g.Export(),
+			SID: sid, State: snap(), Save: g.Export(),
 		}})
 
 	case kindAdvance:
@@ -452,10 +469,7 @@ func (h *Handler) applyDebug(
 			hub.write(ctx, victoryMessage{Type: "victory",
 				Difficulty: string(g.Config().Difficulty), Day: g.Day, Balance: g.Money})
 		}
-		reply(debugReply{Code: http.StatusOK, Body: map[string]any{
-			"sid": sid, "advance": sum,
-			"state": snapshot(g, *speed, false, *scenario),
-		}})
+		reply(debugReply{Code: http.StatusOK, Body: advanceReply{SID: sid, Advance: sum, State: snap()}})
 	}
 	return false
 }

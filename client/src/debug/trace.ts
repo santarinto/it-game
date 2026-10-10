@@ -26,7 +26,9 @@ export interface TraceResult {
    */
   keys: { t: number; key: string; source: 'dom' | 'itd'; repeat: boolean; handled: boolean; scenes: string[]; acted: { scene: string; action: string }[] }[]
   sent: { t: number; type: string; office?: number; [k: string]: unknown }[] // полная команда, по порядку отправки
-  recv: { t: number; type: string; info: Record<string, unknown> }[] // не-state входящие: error/day_report/game_over/…
+  recv: { t: number; type: string; info: Record<string, unknown> }[] // не-state входящие: error/day_report/game_over/… (у error info.re/rev)
+  /** ITGAME-45: снапшоты окна — rev, cause (tick|cmd|debug|start|resume), re — id своей команды-причины. */
+  states: { t: number; rev: number; cause: string; re?: number }[]
   transitions: { t: number; kind: 'phase' | 'speed' | 'day' | 'scenes'; from: string | number | null; to: string | number | null }[]
   toasts: { t: number; text: string; where: 'top' | 'bottom'; ms: number; scene: string }[]
   sounds: { t: number; name: string; key: string; volume: number; ok: boolean; scene: string }[]
@@ -103,6 +105,7 @@ export async function runTrace(game: Phaser.Game, action: () => unknown, windowM
     keys: [],
     sent: [],
     recv: [],
+    states: [],
     transitions: [],
     toasts: [],
     sounds: [],
@@ -132,7 +135,11 @@ export async function runTrace(game: Phaser.Game, action: () => unknown, windowM
     const t = rel()
     if (e.dir === 'out') {
       r.sent.push({ t, ...raw, type: e.type })
-    } else if (e.type !== 'state') {
+    } else if (e.type === 'state') {
+      const st: TraceResult['states'][number] = { t, rev: raw.rev as number, cause: raw.cause as string }
+      if (typeof raw.re === 'number') st.re = raw.re
+      r.states.push(st)
+    } else {
       r.recv.push({ t, type: e.type, info: e.info })
     }
   })

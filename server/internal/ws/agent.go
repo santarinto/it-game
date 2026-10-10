@@ -34,12 +34,14 @@ import (
 type agentStatusMessage struct {
 	Type     string `json:"type"` // всегда "agent_status"
 	SID      string `json:"sid"`
-	Role     string `json:"role"`     // owner (headless) | observer (прицепился к живой)
-	Phase    string `json:"phase"`    // фаза игры сессии ("" если сессия недоступна)
-	Version  string `json:"version"`  // sha сервера (vcs.revision)
-	Seed     string `json:"seed"`     // сид партии
-	Scenario string `json:"scenario"` // фиксура старта ("" — обычная)
-	At       string `json:"at"`       // время ответа, ISO
+	Role     string `json:"role"`         // owner (headless) | observer (прицепился к живой)
+	Phase    string `json:"phase"`        // фаза игры сессии ("" если сессия недоступна)
+	Version  string `json:"version"`      // sha сервера (vcs.revision)
+	Seed     string `json:"seed"`         // сид партии
+	Scenario string `json:"scenario"`     // фиксура старта ("" — обычная)
+	At       string `json:"at"`           // время ответа, ISO
+	Rev      uint64 `json:"rev"`          // текущая версия состояния сессии (ITGAME-45)
+	Re       int64  `json:"re,omitempty"` // id запроса status, если был
 }
 
 // agentResultMessage — ответ на агентскую debug-команду: снапшот придёт
@@ -49,6 +51,10 @@ type agentResultMessage struct {
 	Action string `json:"action"`
 	OK     bool   `json:"ok"`
 	Error  string `json:"error,omitempty"`
+	// Rev — версия состояния после операции (ITGAME-45): её снапшот уже
+	// разослан до этого ответа; агент ждёт state.rev ≥ Rev вместо поллинга.
+	Rev uint64 `json:"rev"`
+	Re  int64  `json:"re,omitempty"` // id debug-запроса, если был
 }
 
 // ServeAgent — HTTP-хендлер GET /ws/agent.
@@ -130,11 +136,12 @@ func agentReadLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.
 		case "status":
 			st := agentStatusMessage{Type: "agent_status", SID: sid,
 				Role:    map[bool]string{true: "owner", false: "observer"}[owner],
-				Version: serverVersion(), At: time.Now().Format(time.RFC3339)}
+				Version: serverVersion(), At: time.Now().Format(time.RFC3339), Re: msg.ID}
 			if rep, ok := <-debugCall(ctx, sess, debugRequest{kind: kindState}); ok {
 				if rep.Code == http.StatusOK {
 					if sr, valid := rep.Body.(stateReply); valid {
 						st.Phase, st.Seed, st.Scenario = sr.State.Phase, sr.State.Seed, sr.State.Scenario
+						st.Rev = sr.State.Rev
 					}
 				}
 			}
@@ -153,15 +160,18 @@ func agentReadLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.
 			case "debug_scenario":
 				req, action = debugRequest{kind: kindScenario, scenario: msg.Scenario}, "scenario"
 			}
-			res := agentResultMessage{Type: "agent_result", Action: action, OK: true}
-			if rep, ok := <-debugCall(ctx, sess, req); ok && rep.Code != http.StatusOK {
-				res.OK, res.Error = false, rep.Err
+			res := agentResultMessage{Type: "agent_result", Action: action, OK: true, Re: msg.ID}
+			if rep, ok := <-debugCall(ctx, sess, req); ok {
+				if rep.Code != http.StatusOK {
+					res.OK, res.Error = false, rep.Err
+				}
+				res.Rev = rep.Rev
 			}
 			sess.hub.writeTo(ctx, c, res)
 		default:
 			// Команды игрока: тот же CommandType-протокол, что у вкладки.
 			select {
-			case sess.commands <- clientCommand{Cmd: game.Command(msg.Type), Office: msg.Office, Slot: msg.Slot, Speed: msg.Speed, From: c}:
+			case sess.commands <- clientCommand{Cmd: game.Command(msg.Type), Office: msg.Office, Slot: msg.Slot, Speed: msg.Speed, From: c, ID: msg.ID}:
 			case <-ctx.Done():
 				return
 			}

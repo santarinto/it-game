@@ -15,6 +15,17 @@ export const SOCKET_STATUSES = ['open', 'reconnecting', 'closed'] as const
 
 export type SocketStatus = (typeof SOCKET_STATUSES)[number]
 
+// Квитанция команды (ITGAME-30/45): ok — сервер принял (state с re = id),
+// иначе code — серверный отказ или транспортный. id — номер команды на
+// проводе (её sent в itd.net()/itd.trace()), rev — версия состояния ответа
+// (у отказа — текущая); у транспортных отказов нет rev, у not_connected — id.
+export interface Receipt {
+  ok: boolean
+  code?: ServerErrorCode | TransportErrorCode
+  id?: number
+  rev?: number
+}
+
 export interface Listener {
   onState(s: StateMessage): void
   onError(code: ServerErrorCode): void
@@ -439,9 +450,17 @@ export class GameClient {
       }
     }
   }
-  // Квитанции команд (ITGAME-30): FIFO — каждый state|error после отправки
-  // закрывает ОДНУ самую старую ждущую квитанцию, порядок команд сохраняется.
-  private receipts: ((r: { ok: boolean; code?: ServerErrorCode | TransportErrorCode }) => void)[] = []
+  // Квитанции команд (ITGAME-45): по id команды. Сервер возвращает его как re
+  // в error и в снапшоте, порождённом командой, — только отправителю. FIFO
+  // (ITGAME-30) путал тиковый снапшот «в пути» и снапшот команды агента-
+  // наблюдателя с ответом на свою команду. Map хранит порядок вставки:
+  // settleOldest — фолбэк для сервера без rev (старый бинарь в dev).
+  private receipts = new Map<number, (r: Receipt) => void>()
+  // Номер команды на проводе: растёт всю жизнь страницы, через сокеты и
+  // партии — запоздалый ответ старого сокета не совпадёт с новой командой.
+  private nextCmdId = 0
+  // Ожидающие снапшота (waitState): проверяются на каждом state.
+  private stateWaiters = new Set<(s: StateMessage) => void>()
   // sid, которым живёт ТЕКУЩЕЕ соединение; гарда «sid сменился подо мной».
   // Легитимная смена (новая партия из меню, abandon) сбрасывается в null
   // в connect()/abandon() — предупреждает только незапланированные.
@@ -464,6 +483,10 @@ export class GameClient {
       brief.clock = m.clock
       brief.phase = m.phase
       brief.money = m.money
+      // ITGAME-45: версия, причина и (у своего ответа) id команды
+      brief.rev = m.rev
+      brief.cause = m.cause
+      if (m.re !== undefined) brief.re = m.re
     } else if (m.type === 'day_report') {
       brief.day = m.day
       brief.profit = m.profit
@@ -473,8 +496,11 @@ export class GameClient {
     } else if (dir === 'out') {
       brief.office = m.office
       Object.assign(brief, m.speed !== undefined ? { speed: m.speed } : m.slot !== undefined ? { slot: m.slot } : {})
+      if (m.id !== undefined) brief.id = m.id
     } else {
       brief.code = m.code
+      if (m.re !== undefined) brief.re = m.re
+      if (m.rev !== undefined) brief.rev = m.rev
     }
     const entry: WireEntry = { dir, at: Date.now(), type, info: brief }
     this.wire.push(entry)
@@ -567,8 +593,10 @@ export class GameClient {
       }
       this.logWire('in', msg.type, msg as unknown as Record<string, unknown>)
       if (msg.type === 'state') {
-        // квитанция команды (ITGAME-30): state = успех, закрывает старейшую
-        this.receipts.shift()?.({ ok: true })
+        // квитанция команды (ITGAME-45): успех — state с re = id команды; тики
+        // и снапшоты чужих команд (агент /ws/agent) квитанций не трогают
+        if (typeof msg.re === 'number') this.settleReceipt(msg.re, { ok: true, id: msg.re, rev: msg.rev })
+        else if (typeof msg.rev !== 'number') this.settleOldest({ ok: true }) // сервер без rev — старый FIFO
         // соединение живое: банк экспоненты сброс
         this.reconnectAttempt = 0
         // ITGAME-54: «Продолжить» на сейве, которого у сервера уже нет, стартует
@@ -581,9 +609,11 @@ export class GameClient {
         }
         this.latest = msg
         this.listeners.forEach((l) => l.onState(msg))
+        this.checkStateWaiters(msg)
       } else if (msg.type === 'error') {
-        // error = отказ сервера: код уходит квитанции, слушателям — как раньше
-        this.receipts.shift()?.({ ok: false, code: msg.code })
+        // error = отказ сервера: код уходит квитанции по re, слушателям — как раньше
+        if (typeof msg.re === 'number') this.settleReceipt(msg.re, { ok: false, code: msg.code, id: msg.re, rev: msg.rev })
+        else if (typeof msg.rev !== 'number') this.settleOldest({ ok: false, code: msg.code })
         this.listeners.forEach((l) => l.onError(msg.code))
       } else if (msg.type === 'day_report') {
         this.deliver(msg)
@@ -680,7 +710,34 @@ export class GameClient {
 
   // Все ждущие квитанции — отказ с кодом (сокет ушёл: висеть им нельзя).
   private failReceipts(code: TransportErrorCode): void {
-    while (this.receipts.length > 0) this.receipts.shift()?.({ ok: false, code })
+    const all = [...this.receipts]
+    this.receipts.clear()
+    for (const [id, settle] of all) settle({ ok: false, code, id })
+  }
+
+  private settleReceipt(id: number, r: Receipt): void {
+    const settle = this.receipts.get(id)
+    if (!settle) return // команда без квитанции (send) или уже по таймауту
+    this.receipts.delete(id)
+    settle(r)
+  }
+
+  private settleOldest(r: Receipt): void {
+    const first = this.receipts.entries().next()
+    if (first.done) return
+    const [id, settle] = first.value
+    this.receipts.delete(id)
+    settle({ ...r, id })
+  }
+
+  private checkStateWaiters(s: StateMessage): void {
+    for (const fn of [...this.stateWaiters]) {
+      try {
+        fn(s)
+      } catch (e) {
+        console.error('[net] waitState', e)
+      }
+    }
   }
 
   // Сдаться: удалить сейв на сервере и забыть сессию локально.
@@ -702,43 +759,75 @@ export class GameClient {
     // Соединение ещё не открыто или уже потеряно — команду безопасно игнорируем,
     // сервер всё равно источник истины. Возвращаем факт отправки: вызывающий
     // (itd.pause(), itd.cmd) обязан отличить «отправлено» от тихого no-op.
-    if (this.ws?.readyState !== WebSocket.OPEN) return false
+    return this.sendCmd(cmd, office, extra) > 0
+  }
+
+  // Отправка с номером (ITGAME-45): каждая команда уходит с id — его видят
+  // itd.net()/itd.trace() и сервер вернёт его как re. 0 — сокет не открыт.
+  private sendCmd(cmd: CommandType, office: number, extra: Record<string, number>): number {
+    if (this.ws?.readyState !== WebSocket.OPEN) return 0
     this.commandSentAt = Date.now()
     if (cmd === 'set_speed') {
       this.speedSeq++
     }
-    this.ws.send(JSON.stringify({ type: cmd, office, ...extra }))
-    this.logWire('out', cmd, { type: cmd, office, ...extra })
-    return true
+    const id = ++this.nextCmdId
+    const msg = { type: cmd, office, ...extra, id } // id последним: extra его не перебьёт
+    this.ws.send(JSON.stringify(msg))
+    this.logWire('out', cmd, msg)
+    return id
   }
 
-  // Команда с квитанцией сервера (ITGAME-30): Promise<{ok, code?}>.
-  // Успех — первый state после отправки, отказ — error с кодом сервера
-  // (no_free_pc, not_enough_money, …). Квитанции выдаются по порядку команд.
-  // Сокет не открыт — честный {ok:false, code:'not_connected'} сразу;
-  // ответа нет за timeoutMs — {ok:false, code:'receipt_timeout'}.
+  // Команда с квитанцией сервера (ITGAME-30/45): Promise<Receipt>.
+  // Успех — state с re = id этой команды, отказ — error с re и кодом сервера
+  // (no_free_pc, not_enough_money, …). Тики и чужие команды квитанцию не
+  // закрывают. Сокет не открыт — честный {ok:false, code:'not_connected'}
+  // сразу; ответа нет за timeoutMs — {ok:false, code:'receipt_timeout'}.
   sendWithReceipt(
     cmd: CommandType,
     office = 0,
     extra: Record<string, number> = {},
     timeoutMs = 5000,
-  ): Promise<{ ok: boolean; code?: ServerErrorCode | TransportErrorCode }> {
+  ): Promise<Receipt> {
     if (this.ws?.readyState !== WebSocket.OPEN) {
       return Promise.resolve({ ok: false, code: 'not_connected' })
     }
     return new Promise((resolve) => {
-      const settle = (r: { ok: boolean; code?: ServerErrorCode | TransportErrorCode }) => {
+      const id = this.nextCmdId + 1 // sendCmd возьмёт ровно его: регистрация ДО отправки
+      const timer = setTimeout(() => {
+        this.receipts.delete(id)
+        resolve({ ok: false, code: 'receipt_timeout', id })
+      }, timeoutMs)
+      this.receipts.set(id, (r) => {
         clearTimeout(timer)
         resolve(r)
-      }
-      const timer = setTimeout(() => {
-        const i = this.receipts.indexOf(settle)
-        if (i >= 0) this.receipts.splice(i, 1)
-        resolve({ ok: false, code: 'receipt_timeout' })
-      }, timeoutMs)
-      this.receipts.push(settle)
-      this.send(cmd, office, extra)
+      })
+      this.sendCmd(cmd, office, extra)
     })
+  }
+
+  // Дождаться снапшота (ITGAME-45): первый state, для которого pred — true,
+  // начиная с текущего client.latest; null — не дождались за timeoutMs. Без
+  // поллинга: проверка на каждом пришедшем state. Для «state.rev ≥ N» —
+  // waitRev(N). rev — версия сессии: новая партия под тем же sid (cause start)
+  // начинает с 1.
+  waitState(pred: (s: StateMessage) => boolean, timeoutMs = 5000): Promise<StateMessage | null> {
+    if (this.latest && pred(this.latest)) return Promise.resolve(this.latest)
+    return new Promise((resolve) => {
+      const done = (v: StateMessage | null) => {
+        clearTimeout(timer)
+        this.stateWaiters.delete(check)
+        resolve(v)
+      }
+      const check = (s: StateMessage) => {
+        if (pred(s)) done(s)
+      }
+      const timer = setTimeout(() => done(null), timeoutMs)
+      this.stateWaiters.add(check)
+    })
+  }
+
+  waitRev(rev: number, timeoutMs = 5000): Promise<StateMessage | null> {
+    return this.waitState((s) => s.rev >= rev, timeoutMs)
   }
 
   // Повторно раздаёт последний снапшот — перерисовка сцен без сервера

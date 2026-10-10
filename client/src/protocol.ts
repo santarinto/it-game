@@ -81,8 +81,23 @@ export interface ActiveEventInfo {
   options: string[] // индекс опции уходит в event_choice (slot)
 }
 
+// Почему разослан снапшот (ITGAME-45): тик, команда, отладка (/api/debug/*,
+// debug_* моста), первый снапшот сессии — новой партии (start) или из сейва
+// (resume). Зеркало stateCause("…") в server/internal/ws/protocol.go —
+// scripts/gen-contract.mjs сверяет списки.
+export const STATE_CAUSES = ['tick', 'cmd', 'debug', 'start', 'resume'] as const
+
+export type StateCause = (typeof STATE_CAUSES)[number]
+
 export interface StateMessage {
   type: 'state'
+  // Версия состояния сессии (ITGAME-45): +1 на каждый разосланный снапшот,
+  // переживает resume через сейв; новая партия под тем же sid (cause start)
+  // начинает с 1. Копия без изменений (первый снапшот наблюдателя, GET
+  // /api/debug/state) несёт текущие rev и cause.
+  rev: number
+  cause: StateCause
+  re?: number // id команды ЭТОГО соединения, породившей снапшот; у других соединений нет
   money: number
   offices: OfficeInfo[]
   gateway: boolean
@@ -164,6 +179,8 @@ export type ServerErrorCode = (typeof SERVER_ERROR_CODES)[number]
 export interface ErrorMessage {
   type: 'error'
   code: ServerErrorCode
+  re?: number // id отклонённой команды (ITGAME-45); нет — команда без id
+  rev: number // версия состояния, при которой сервер отказал (отказ её не меняет)
 }
 
 export interface DayReportMessage {

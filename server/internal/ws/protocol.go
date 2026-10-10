@@ -15,10 +15,14 @@ type effectInfo struct {
 // buy_office); остальные его игнорируют. Агентские поля (ITGAME-29)
 // читает только /ws/agent: дни/тики промотки, патч и сценарий.
 type clientMessage struct {
-	Type   string `json:"type"`
-	Office int    `json:"office"`
-	Slot   int    `json:"slot"`  // стойка для upgrade_server
-	Speed  int    `json:"speed"` // параметр set_speed: 0 — пауза, 1..3 — множитель темпа; у exit — скорость возврата
+	Type string `json:"type"`
+	// ID — номер команды от клиента (ITGAME-45), необязательный: сервер
+	// возвращает его как re в error и в снапшоте, порождённом этой командой,
+	// — только отправителю. 0/нет — команда без квитанции (старые бандлы).
+	ID     int64 `json:"id"`
+	Office int   `json:"office"`
+	Slot   int   `json:"slot"`  // стойка для upgrade_server
+	Speed  int   `json:"speed"` // параметр set_speed: 0 — пауза, 1..3 — множитель темпа; у exit — скорость возврата
 
 	// Агентский мост (ITGAME-29): типы status, debug_patch, debug_advance,
 	// debug_step, debug_scenario.
@@ -30,10 +34,32 @@ type clientMessage struct {
 	Scenario  string `json:"scenario"`
 }
 
+// stateCause — почему разослан снапшот (ITGAME-45): тик, команда, отладка
+// (/api/debug/*, debug_* моста), первый снапшот сессии — новой (start) или
+// восстановленной из сейва (resume). Зеркало STATE_CAUSES в
+// client/src/protocol.ts; gen-contract сверяет по stateCause("…").
+type stateCause string
+
+const (
+	causeTick   = stateCause("tick")
+	causeCmd    = stateCause("cmd")
+	causeDebug  = stateCause("debug")
+	causeStart  = stateCause("start")
+	causeResume = stateCause("resume")
+)
+
 // stateMessage — полный снапшот состояния. Включает производные поля
 // (доход, порты, множитель), чтобы клиент ничего не считал сам.
 type stateMessage struct {
-	Type             string           `json:"type"` // всегда "state"
+	Type string `json:"type"` // всегда "state"
+	// Версия состояния сессии (ITGAME-45): растёт на 1 с каждым разосланным
+	// снапшотом, переживает resume через сейв. Копии без изменений (первый
+	// снапшот наблюдателя, GET /api/debug/state) несут текущие rev и cause.
+	Rev   uint64     `json:"rev"`
+	Cause stateCause `json:"cause"` // tick | cmd | debug | start | resume
+	// Re — id команды отправителя, породившей этот снапшот; есть только в
+	// копии отправителя (остальные соединения сессии видят тот же rev без re).
+	Re               int64            `json:"re,omitempty"`
 	Money            int              `json:"money"`
 	Offices          []officeInfo     `json:"offices"`
 	Gateway          bool             `json:"gateway"`
@@ -174,9 +200,14 @@ type prices struct {
 	CoreLevels    []coreLevelPrice   `json:"coreLevels"`
 }
 
+// errorMessage — отказ команды; только отправителю. Re — id команды
+// (ITGAME-45), Rev — версия состояния, при которой сервер отказал (отказ
+// её не меняет).
 type errorMessage struct {
 	Type string `json:"type"` // всегда "error"
 	Code string `json:"code"`
+	Re   int64  `json:"re,omitempty"`
+	Rev  uint64 `json:"rev"`
 }
 
 // dayReportMessage — итоги дня; шлётся сразу после снапшота с phase=day_report.

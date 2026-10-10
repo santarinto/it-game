@@ -5,7 +5,7 @@ import { nav } from '../rooms'
 import { GAME_H, GAME_W } from '../layout'
 import type { OfflineCatchUp, SocketStatus, TransportErrorCode } from '../net'
 import { COMMAND_TYPES } from '../protocol'
-import type { CommandType, ServerErrorCode, StateMessage } from '../protocol'
+import type { CommandType, ServerErrorCode, StateCause, StateMessage } from '../protocol'
 import { CONTRACT } from './contract.gen'
 import { checkStale, lastStale } from '../buildstamp'
 import { makeSandbox } from './sandbox'
@@ -281,7 +281,9 @@ export interface AgentState {
 // server(): последний снапшот целиком + телеметрия сокета.
 export interface AgentServer {
   socket: SocketStatus
-  lastEventId: number // счётчик принятых сообщений (своих id у протокола нет)
+  lastEventId: number // счётчик принятых сообщений этой страницы (не rev: тот — версия сессии)
+  rev: number | null // ITGAME-45: версия состояния последнего снапшота (+1 на каждый; ждать — wait((s, srv) => srv.rev >= N))
+  cause: StateCause | null // ITGAME-45: почему разослан последний снапшот: tick | cmd | debug | start | resume
   rtt: number | null // мс от последней команды до ближайшего ответа
   reconnects: number
   lastMessageAt: number | null // epoch ms
@@ -387,14 +389,17 @@ export interface AgentResult {
   code?: string
 }
 
-// Квитанция команды (ITGAME-30): ok=true — сервер принял (state за ней),
-// ok=false — код отказа: серверный (ServerErrorCode: no_free_pc,
+// Квитанция команды (ITGAME-30/45): ok=true — сервер принял (state с re = id
+// команды), ok=false — код отказа: серверный (ServerErrorCode: no_free_pc,
 // not_enough_money, …) или транспортный (TransportErrorCode: not_connected,
-// receipt_timeout, disconnected).
+// receipt_timeout, disconnected). Квитанцию закрывает только ответ на ЭТУ
+// команду (по id), не тик и не снапшот чужой команды.
 export interface CmdReceipt {
   ok: boolean
   code?: ServerErrorCode | TransportErrorCode
   error?: string
+  id?: number // ITGAME-45: id команды на проводе (= sent[].id в itd.trace(), info.id в itd.net())
+  rev?: number // ITGAME-45: rev снапшота-ответа; у серверного отказа — текущий rev (не меняется)
 }
 
 // ── Контракт API (ITGAME-39): формат itd.contract() ─────────────────────────
@@ -453,10 +458,12 @@ export interface ItdApi {
    */
   state(): AgentState
   /**
-   * Снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt,
-   * reconnects, sid (куда уходят команды и debug-вызовы: liveSid ?? sid
-   * хранилища), liveSid (sid живой партии вкладки или null), sidSwitches.
+   * Снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rev/cause
+   * последнего снапшота (ITGAME-45), rtt, reconnects, sid (куда уходят команды
+   * и debug-вызовы: liveSid ?? sid хранилища), liveSid (sid живой партии вкладки
+   * или null), sidSwitches.
    * @example itd.server()
+   * @example itd.wait((s, srv) => srv.rev >= 42)
    */
   server(): AgentServer
   /**
@@ -498,8 +505,9 @@ export interface ItdApi {
    */
   key(k: string): AgentResult & { key?: string; scenes?: string[] }
   /**
-   * Команда с квитанцией сервера (ITGAME-30): Promise<{ok, code?}> — первый
-   * state|error после отправки, по порядку команд.
+   * Команда с квитанцией сервера (ITGAME-30/45): Promise<{ok, code?, id, rev}> —
+   * ответ на ЭТУ команду по её id (state|error с re = id), тики и команды
+   * других соединений квитанцию не закрывают. rev — версия снапшота-ответа.
    * @example await itd.cmd('hire')
    */
   cmd(type: CommandType, office?: number, extra?: Record<string, number>): Promise<CmdReceipt>
@@ -507,6 +515,8 @@ export interface ItdApi {
    * Живая трассировка окна вокруг action (ITGAME-37): подписка ДО action,
    * окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь
    * игрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().
+   * ITGAME-45: sent — с id команды, states — снапшоты окна {rev, cause, re?}:
+   * ответ на команду — state с re = её id.
    * @example itd.trace(() => itd.click('btn.pc'), 1000)
    */
   trace(action: () => unknown, windowMs?: number): Promise<TraceResult>
@@ -663,13 +673,16 @@ export interface ItdApi {
    */
   errors(): ErrorEntry[]
   /**
-   * Последние сообщения WS в обе стороны + сокет/rtt/реконнекты.
+   * Последние сообщения WS в обе стороны + сокет/rtt/реконнекты и rev
+   * последнего снапшота. ITGAME-45: у out в info — id команды, у state — rev,
+   * cause и re (id своей команды, породившей снапшот), у error — re и rev.
    * @example itd.net(20)
    */
   net(n?: number): {
     socket: AgentServer['socket']
     reconnects: number
     rtt: number | null
+    rev: number | null
     last: { dir: 'in' | 'out'; at: number; type: string; info: Record<string, unknown> }[]
   }
   /**
@@ -871,6 +884,8 @@ function buildServer(): AgentServer {
   return {
     socket: client.socketStatus(),
     lastEventId: client.stats.messages,
+    rev: client.latest?.rev ?? null,
+    cause: client.latest?.cause ?? null,
     rtt: client.stats.rtt,
     reconnects: client.stats.reconnects,
     lastMessageAt: client.stats.lastMessageAt || null,
@@ -1165,7 +1180,7 @@ const COMMANDS = new Set<string>(COMMAND_TYPES)
 
 const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/39)
   itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); menuReady — меню создано, активно и сводка сейва устоялась
-  itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt, reconnects, sid (куда уходят команды: liveSid ?? хранилище), liveSid (живая партия или null), sidSwitches
+  itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rev/cause последнего снапшота (tick|cmd|debug|start|resume), rtt, reconnects, sid (куда уходят команды: liveSid ?? хранилище), liveSid (живая партия или null), sidSwitches; ждать версию — itd.wait((s, srv) => srv.rev >= N)
   itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy, visible, alpha, interactive, depth, active, disabled}; x/y — по origin объекта, cx/cy — центр bounds (точка для клика); disabled — кнопка покупки/найма неактивна
   itd.text()                        — nodes() с непустым текстом
   itd.ids()                         — стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*, modal.*) + active; safe — id с «:» вместо точек (не режется как JWT), click/hover/hit принимают и его
@@ -1174,8 +1189,8 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
                                        ok:false + code 'debounced' — обработчик отбросил клик (дребезг switchRoom 250 мс игрового времени)
   itd.hover('office.worker.0')      — наведение по id (тултипы)
   itd.key('1'|'enter'|'space'|'esc')— клавиша: 1-4 сложность в меню, up/down — фокус меню, enter — пункт в фокусе меню / отчёт дня, space/esc — отчёт дня
-  itd.cmd('hire')                   — команда с квитанцией сервера ('abandon' — путём кнопки «Сдаться»: сейв удалён, вкладка в меню): Promise<{ok, code?}> — первый state|error после отправки, по порядку команд; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
-  itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, …}] по порядку, recv[error/day_report…], transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой)
+  itd.cmd('hire')                   — команда с квитанцией сервера ('abandon' — путём кнопки «Сдаться»: сейв удалён, вкладка в меню): Promise<{ok, code?, id, rev}> — ответ на ЭТУ команду по id (state|error с re = id; тики и чужие команды не в счёт), rev — версия снапшота-ответа; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
+  itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, id, …}] по порядку, recv[error/day_report…] (у error info.re/rev), states[{rev, cause, re?}] — снапшоты окна, transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой)
   itd.warm()                        — прогреть кадр вручную (шаги лупа); в скрытой вкладке itd делает это сам
   itd.wait(s => s.day === 2)        — промис: поллинг state()/server() до условия (таймаут 5с, второй аргумент — свой); готовность меню — wait(s => s.menuReady), до старта партии state() null, но menuReady уже честен
   itd.overlaps({minAreaRatio}?)     — линтер вёрстки: kind: text — тексты одного depth; occlusion — текст под непрозрачной плашкой; interactive — интерактив частично перекрыт интерактивом или текстом (вложенность целиком — не находка); пара {scene, kind, a, b, overlap{w,h}, at{x,y}, ratio, threshold}: ratio — площадь пересечения / площадь меньшего из пары (occlusion — / площадь текста), threshold — порог сравнения; minAreaRatio 0..1 заменяет пороги по умолчанию (text/interactive 0, occlusion 0.25 + >50% по каждой оси; заданный minAreaRatio заменяет и правило по осям — для occlusion находок может стать больше): 0 — строгий режим, 0.3 — порог по площади для всех kind
@@ -1190,7 +1205,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.log(50)                       — журнал переходов (кольцевой на 200, переживает чистку консоли); + {type:'sound', key:'sfx:bong', name, volume, scene, ok}, {type:'toast', text, where, ms, bg, scene}
                                        Пример: itd.log(200).filter(e => e.type === 'sound').map(e => e.key)
   itd.errors()                      — ошибки страницы (window.onerror + unhandledrejection), переживают перезагрузку вкладки: load — номер загрузки
-  itd.net(20)                       — последние сообщения WS в обе стороны + сокет/rtt/реконнекты
+  itd.net(20)                       — последние сообщения WS в обе стороны + сокет/rtt/реконнекты/rev; info: out — id, state — rev/cause/re, error — code/re/rev
   itd.version                       — {sha, builtAt} сборки (+ <meta name="build"> в html)
   itd.sandbox('acc3')               — своя партия вкладки: sid a-acc3-<время> во вкладку, ключи владельца (localStorage itd.sid/itd.diff, sessionStorage вкладки) запомнены → {ok, sid, owner:{sid, diff}}; новая партия и «Сдаться» берут новый sid песочницы, общий ключ не трогают; из меню (в партии — in_party)
   itd.sandbox.fakeOwner()           — «чужой» общий ключ itd.sid/itd.diff вызовом игры (проверить гард «Сдаться») → {sid, diff}; restore() вернёт настоящий
@@ -1446,6 +1461,7 @@ function makeApi(game: Phaser.Game): ItdApi {
         socket: client.socketStatus(),
         reconnects: client.stats.reconnects,
         rtt: client.stats.rtt,
+        rev: client.latest?.rev ?? null,
         last: client.wire.slice(-n),
       }
     },

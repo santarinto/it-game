@@ -6,7 +6,7 @@
 //   node scripts/gen-contract.mjs           — записать файл, если контракт изменился
 //   node scripts/gen-contract.mjs --check   — сравнить с файлом, не писать; расхождение → exit 1
 //
-// В обоих режимах: сверка кодов ошибок и команд протокола (client/src/protocol.ts)
+// В обоих режимах: сверка кодов ошибок, команд и причин снапшота (ITGAME-45) протокола (client/src/protocol.ts)
 // с Go (../server/internal/**/*.go) — расхождение → exit 1 с именами кодов/команд и файлами.
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -242,14 +242,17 @@ const goErrorCodes = scanGo(goFiles, [
   /errorMessage\{[^}]*Code:\s*"([a-z_]+)"/g,
 ])
 const goCommands = scanGo(goFiles, [/\bCommand\("([a-z_]+)"\)/g])
+const goCauses = scanGo(goFiles, [/\bstateCause\("([a-z_]+)"\)/g])
 
 const protocolSf = program.getSourceFile(join(SRC, 'protocol.ts'))
 if (!protocolSf) fail(`не нашёл ${join(SRC, 'protocol.ts')} в программе`)
 const clientErrorCodes = new Set(constArrayFromFile(protocolSf, 'SERVER_ERROR_CODES'))
 const clientCommands = new Set(constArrayFromFile(protocolSf, 'COMMAND_TYPES'))
+const clientCauses = new Set(constArrayFromFile(protocolSf, 'STATE_CAUSES'))
 
 reportSetDiff('коды ошибок (SERVER_ERROR_CODES)', clientErrorCodes, goErrorCodes, 'client/src/protocol.ts')
 reportSetDiff('команды (COMMAND_TYPES)', clientCommands, goCommands, 'client/src/protocol.ts')
+reportSetDiff('причины снапшота (STATE_CAUSES, ITGAME-45)', clientCauses, goCauses, 'client/src/protocol.ts')
 if (process.exitCode === 1) process.exit(1)
 
 // ── 6. hash + сборка файла ───────────────────────────────────────────────────

@@ -108,13 +108,68 @@ Save directory: `-saves` flag → `ITGAME_SAVES_DIR` →
 `/opt/itgame/shared/saves` (if it exists) → `./saves`. `-saves off` runs
 stateless. Expired saves are purged on start and on access.
 
+## Command ids, `rev` and `cause`
+
+The server broadcasts a `state` to every connection of a session on every
+tick and after any connection's successful command — the `/ws/agent`
+observer's included; `error` goes to the sender only. So «the first state
+after I sent» is not the answer to my command: a tick snapshot already on
+the wire, or the snapshot of an agent's command, used to close a tab's
+receipt with `ok:true`, and the `error` that followed closed the *next*
+command's receipt (ITGAME-45; invisible on localhost, real at 3× with
+50–100 ms RTT). The protocol now correlates:
+
+- **`id`** — optional number in any client command (`clientMessage.id`). The
+  server echoes it as **`re`** in the `error` and in the `state` that command
+  produced — and only in the sender's copy: other connections get the same
+  state (same `rev`) without `re`, so a tab's and an agent's ids may collide
+  harmlessly. A command without `id` gets no `re` — old bundles keep their
+  FIFO receipts and work as before.
+- **`rev`** — the session's state version: +1 on every broadcast snapshot,
+  starting at 1. It is saved with the session (`sessionSave.rev`, bumped
+  *before* the save, so the save holds the rev of the snapshot about to go
+  out) and survives resume: the first snapshot after a reconnect is strictly
+  above anything clients saw. A new party under the same sid (no save,
+  `abandon`, «Продолжить» on an expired save) starts at 1 again. An `error`
+  carries the current `rev` (a rejection changes nothing). Copies that change
+  nothing — the observer's first snapshot, `GET /api/debug/state`,
+  `agent_status` — carry the current `rev` and `cause` without bumping.
+- **`cause`** — why the state went out: `tick`, `cmd`, `debug` (`/api/debug/*`
+  and the bridge's `debug_*`), `start` (first snapshot of a new party) or
+  `resume` (first snapshot restored from a save). The list is mirrored in
+  `STATE_CAUSES` (`client/src/protocol.ts`) and checked against the Go
+  `stateCause("…")` constants by `gen-contract`.
+
+`GameClient` (`client/src/net.ts`) stamps every outgoing command with an id
+(page-lifetime counter, never reused across sockets) and closes
+`sendWithReceipt` receipts by `re` — `{ok, code?, id, rev}`; ticks and
+foreign snapshots don't touch them. A server without `rev` (an old binary
+in dev) falls back to FIFO. `client.waitState(pred)` / `client.waitRev(n)`
+resolve on the first matching snapshot without polling — the building block
+for «wait until `state.rev ≥ N`». Over the agent bridge, waiting is reading
+the stream: every debug operation's `agent_result` carries the `rev` of the
+snapshot it already broadcast.
+
+The «50 commands at 3× over a delayed socket» check is automated:
+`TestReceiptFiftyCommandsAt3xWithLatency` (`server/internal/ws/receipt_test.go`)
+runs 50 pipelined `set_speed` commands (alternating success / `bad_speed`)
+at 3× through a TCP proxy delaying every chunk 40 ms each way and asserts
+that every receipt by id matches, while the FIFO model on the same wire is
+wrong about half the time. The same file reproduces both races (tick in
+flight; observer command) and was red before the fix; in the real client
+`qa:trace` step 13 does the same with a blocked main thread.
+
 ## Agent bridge `/ws/agent`
 
 `ws://host/ws/agent?sid=…[&seed=][&scenario=][&difficulty=]` drives a
 session without a browser. It speaks the client protocol plus:
-`{"type":"status"}` → `agent_status` (role, phase, server version, seed);
+`{"type":"status"}` → `agent_status` (role, phase, server version, seed,
+current `rev`);
 `debug_patch` / `debug_advance` / `debug_step` / `debug_scenario` →
-`agent_result` (mirrors `/api/debug/*`). The agent never takes a live
+`agent_result` (mirrors `/api/debug/*`; `rev` — the version after the
+operation, its snapshot already sent). An `id` in any of these comes back as
+`re` (see [Command ids, `rev` and `cause`](#command-ids-rev-and-cause)); the
+`state` in every `/api/debug/*` reply carries `rev`/`cause` too. The agent never takes a live
 session: it attaches as an observer, or runs a headless one if none exists;
 a player connecting takes the headless session over.
 
@@ -347,6 +402,16 @@ documenting separately:
   non-state server replies (`error`, `day_report`, …), phase/speed/day/scene
   transitions, and the toasts/sounds that fired — enough to assert on a
   real player action end-to-end without polling `state()`/`net()` by hand.
+  Since ITGAME-45 `sent` entries carry the command `id`, `states` lists the
+  window's snapshots as `{t, rev, cause, re?}` (the answer to a command is
+  the state whose `re` is its id), and an `error` in `recv` has `info.re`/`rev`.
+- **`itd.cmd()` receipts** (ITGAME-45) are matched by command id, not FIFO:
+  `{ok, code?, id, rev}` — `rev` is the answering snapshot's version (for a
+  server rejection, the current one). `itd.server()` adds `rev`/`cause` of the
+  last snapshot (wait for a version with `itd.wait((s, srv) => srv.rev >= N)`),
+  and `itd.net()` adds `rev` plus `info.id` on outgoing commands,
+  `rev`/`cause`/`re` on states and `re`/`rev` on errors. `lastEventId` stays
+  the page's message counter — not a version.
 - **`itd.contract()`** (ITGAME-39) returns the facade's API as data — every
   `window.itd` method/property (name, params, return type), every
   referenced type (`AgentNode`, `CmdReceipt`, `AgentServer`, …), the
@@ -360,7 +425,7 @@ documenting separately:
   `ItdApi` and `contract.gen.ts` disagree (a `satisfies` type over
   `contract.gen.ts` also catches this at `tsc` time — an added or removed
   facade member is a type error, not just a stale-file warning), and it
-  cross-checks `SERVER_ERROR_CODES`/`COMMAND_TYPES` (`client/src/protocol.ts`)
+  cross-checks `SERVER_ERROR_CODES`/`COMMAND_TYPES`/`STATE_CAUSES` (`client/src/protocol.ts`)
   against the Go source (`../server/internal/**/*.go`), naming any
   mismatched code or command and the file it came from. Every `ItdApi`
   member needs a JSDoc comment (an `@example` tag is recommended) — the
@@ -411,7 +476,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:hud` | HUD layout column, toast stack, no overlaps (ITGAME-16) | :4174, self-serve |
 | `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78); `itd.sandbox()`: the owner's shared key survives «Сдаться» and a second party, `fakeOwner()`, `restore()` puts back / keeps (ITGAME-77) | :4175, self-serve |
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks | :4177, self-serve |
-| `npm run qa:trace` | `itd.trace()` live window (ITGAME-37) | :4176, self-serve |
+| `npm run qa:trace` | `itd.trace()` live window (ITGAME-37); receipts by command id — `id`/`rev` in `cmd()`, `trace().sent`/`states`, `net()`, and no false receipt with a tick or an observer's (`/ws/agent`) snapshot in flight (ITGAME-45) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
 | `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63); explicit exit freezes the party: the exit dialog pauses, Отмена/Esc/✕ restore the speed, «Сохранить и выйти» → «Продолжить» keeps tick/day/money and the speed, also from an open day report (ITGAME-65); on the victory screen (storage sid cleared) `itd.server().sid`/`liveSid` stay the live party's sid (ITGAME-68) | :4181, self-serve + temp saves dir |
 | `npm run qa:report-pause` | the day report pauses the party (speed 0, time and balance stand still); Enter/Space/`btn.next_day`/`itd.cmd('next_day')` restore the pre-report speed; F5 with the report open keeps `itd.speedBeforeReport`, «Продолжить» reopens it paused and closing restores 3×; an outside `itd.speed(0)` over the report survives; `itd.set({tickInDay})` refused in `day_report`; `skipReports` changes the day without a modal or a stuck 0 (ITGAME-18, self-serve since ITGAME-70) | :4182, self-serve + temp saves dir |
@@ -442,7 +507,7 @@ an already-running server instead.
 **Live protocol checks** — a real WebSocket client against a running server:
 
     cd server && go run ./cmd/server -addr :8091 &
-    node scripts/live-check-saves.mjs            # saves, reconnect
+    node scripts/live-check-saves.mjs            # saves, reconnect, rev/cause across resume
     OFFLINE=1 node scripts/live-check-saves.mjs  # + offline catch-up (~70 s)
     node scripts/live-check-activeday.mjs        # active day
     node scripts/live-check-events.mjs           # random events (SEED=3 by default)
@@ -451,7 +516,7 @@ an already-running server instead.
 
 Each exits 0 with a final "… ОК". `live-check-events` and
 `live-check-difficulty2` pin a seed (`SEED=…` overrides), so runs are
-reproducible; both take `PORT=…` for a server not on :8091.
+reproducible; they and `live-check-saves` take `PORT=…` for a server not on :8091.
 `live-check-events` passes on *any* event on days 2–4 — the seed only makes
 the run reproducible (seed 3 gives «Дедлайн от бизнеса» on day 2, ~36 s). The
 event name is a soft expectation: `EXPECT=<substring>` (default `Дедлайн`)
