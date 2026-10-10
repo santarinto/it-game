@@ -17,11 +17,11 @@ const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
 // Зона ремонта «сломанный ПК» (office.repair.i) обязана перехватывать клики
 // раньше спрайта сотрудника — иначе клик уходит в мотивацию вместо ремонта:
 // для Phaser-хиттеста при равных depth побеждает последний в списке рендера,
-// так что явный depth надёжнее порядка create(). ITGAME-75: зона — не
-// мигающий прямоугольник 58×48 (он только рисует), а объединение bounds
-// сотрудника, стола и метки «✖ чинить N/3»: раньше полоса 16 px над
-// прямоугольником и по 3 px по бокам оставались за сотрудником, а метка не
-// кликалась вовсе — клик «по значку поломки» мотивировал.
+// так что явный depth надёжнее порядка create(). ITGAME-75: зона —
+// объединение bounds сотрудника, стола и метки «✖ чинить N/3», и мигает
+// красным она же: раньше кликался мигающий прямоугольник 58×48 у низа слота,
+// полоса 16 px над ним и по 3 px по бокам оставались за сотрудником, а метка
+// не кликалась вовсе — клик «по значку поломки» мотивировал.
 const REPAIR_OVERLAY_DEPTH = 5
 
 // Метки причин отсутствия сети над столом (итерация 11).
@@ -82,13 +82,8 @@ const SLOT_LAYOUT_HD = {
   motivationBadge: { x: -24, y: -6 },
   // Над бейджем мотивации — текст «★» (9×17px), целиком внутри бокса.
   star: { x: -24, y: -20 },
-  // ЦЕЛИКОМ ВНУТРИ бокса сотрудника: высота 48 (было 54 — нижний край
-  // y+35 вылезал за y+32 бокса на 3px, частичное пересечение с
-  // office.worker.i) даёт y −16..+32 — ровно по нижнему краю бокса.
-  // Ширина 58 → x ±29, тоже с запасом внутри ±32. С ITGAME-75 это только
-  // мигающая картинка: кликабельная зона office.repair.i — объединение
-  // bounds сотрудника и метки «✖ чинить» (см. render()).
-  repairOverlay: { y: 8, width: 58, height: 48 },
+  // Мигающей зоны ремонта в раскладке нет (ITGAME-75): она — объединение
+  // bounds сотрудника, стола и метки ниже, считается в render().
   // ЦЕЛИКОМ СНАРУЖИ бокса сотрудника (сверху): «✖ чинить N/3» шириной
   // 80px при 11px в бокс ±32 не поместится ни при каком центрировании —
   // выносим целиком за верхний край. Высота строки 13px (±6.5): при
@@ -110,7 +105,6 @@ const SLOT_LAYOUT_LEGACY = {
   offlineLabel: { x: 30, y: -44 },
   motivationBadge: { x: -28, y: -36 },
   star: { x: -28, y: -58 },
-  repairOverlay: { y: -8, width: 76, height: 56 },
   repairText: { y: -48 },
   masterButton: { y: 46 },
 }
@@ -312,18 +306,11 @@ export class OfficeScene extends Phaser.Scene {
         deskImg = addSprite(this, x, y, deskKey, 'desk')
         this.objects.push(deskImg)
       }
-      // Сломанный ПК: доход места 0; клики по столу чинят, мастер чинит за деньги.
-      // Мигающий прямоугольник — только картинка; кликабельная зона
-      // office.repair.i строится ниже, когда известны bounds сотрудника.
+      // Сломанный ПК: доход места 0; клики по месту чинят, мастер чинит за деньги.
+      // Мигающая зона ремонта office.repair.i строится ниже, когда известны
+      // bounds сотрудника.
       let repairLabel: Phaser.GameObjects.Text | null = null
       if (e?.pcBroken) {
-        const overlay = this.add.rectangle(
-          x, y + layout.repairOverlay.y, layout.repairOverlay.width, layout.repairOverlay.height,
-          0xb13e53, 0.3,
-        ).setDepth(REPAIR_OVERLAY_DEPTH)
-        this.tweens.add({
-          targets: overlay, alpha: { from: 0.65, to: 0.15 }, duration: 420, yoyo: true, repeat: -1,
-        })
         const masterBg = tag(
           this.add.rectangle(x, y + layout.masterButton.y, 108, 22, 0x3b5dc9)
             .setOrigin(0.5).setInteractive({ useHandCursor: true }),
@@ -339,7 +326,7 @@ export class OfficeScene extends Phaser.Scene {
         repairLabel = this.add.text(x, y + layout.repairText.y, `✖ чинить ${e.repairClicks}/3`, {
           fontFamily: 'monospace', fontSize: '11px', color: '#b13e53',
         }).setOrigin(0.5)
-        this.objects.push(repairLabel, overlay, masterBg, masterTxt)
+        this.objects.push(repairLabel, masterBg, masterTxt)
       }
       if (e) {
         // Слот-картинка занятого места (id office.worker.i, тултип/клик):
@@ -400,8 +387,9 @@ export class OfficeScene extends Phaser.Scene {
         // ними (прямоугольник объединения bounds, наружу до целых px). Внутри
         // неё сотрудник ввода не получает (topOnly), поэтому зона сама ведёт
         // его тултип и ПКМ-увольнение; ЛКМ — только ремонт, не мотивация.
-        // Почти прозрачная заливка: при alpha 0 Phaser не считает объект
-        // целью ввода (willRender), как у room.core в серверной.
+        // Мигает сама зона (владелец, 10.10: подсветка = кликабельная область);
+        // твин держит alpha ≥ 0.15 — при alpha 0 Phaser не считает объект
+        // целью ввода (willRender).
         let hoverZone: Phaser.Geom.Rectangle | null = null
         if (e.pcBroken) {
           const r = Phaser.Geom.Rectangle.Union(slotImg.getBounds(), deskImg?.getBounds() ?? slotImg.getBounds())
@@ -409,10 +397,13 @@ export class OfficeScene extends Phaser.Scene {
           const zx = Math.floor(r.x)
           const zy = Math.floor(r.y)
           const zone = tag(
-            this.add.rectangle(zx, zy, Math.ceil(r.right) - zx, Math.ceil(r.bottom) - zy, 0x000000, 0.001)
+            this.add.rectangle(zx, zy, Math.ceil(r.right) - zx, Math.ceil(r.bottom) - zy, 0xb13e53, 0.3)
               .setOrigin(0).setInteractive({ useHandCursor: true }).setDepth(REPAIR_OVERLAY_DEPTH),
             `office.repair.${i}`,
           )
+          this.tweens.add({
+            targets: zone, alpha: { from: 0.65, to: 0.15 }, duration: 420, yoyo: true, repeat: -1,
+          })
           zone.on('pointerdown', (p: Phaser.Input.Pointer) => {
             if (p.rightButtonDown()) {
               this.openFireModal(e, i)

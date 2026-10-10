@@ -885,7 +885,8 @@ textures land in their slots, lunch turns a slot into a single `desk_pc`
 with no employee plus the «обед» label and switches the boss slot to
 `boss_lunch`, on `broken_pc` a breakdown shows `desk_pc_broken` and the
 repair zone `office.repair.0` covers the whole visible breakdown — the worker
-frame and the «✖ чинить N/3» label above it (ITGAME-75): `itd.stack` wins it
+frame and the «✖ чинить N/3» label above it, and the blinking highlight is
+that zone itself (ITGAME-75): `itd.stack` wins it
 at the label, the gap, the worker's top strip and corners, `itd.zones` says
 the worker is covered whole, real mouse clicks there send exactly one
 `repair_click` (not `motivate`, not nothing), right click opens the fire

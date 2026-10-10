@@ -356,6 +356,14 @@ async function caseBrokenPc(browser) {
     check('broken_pc: itd.zones — сотрудник перекрыт зоной ремонта целиком, у зоны ремонта нет отданных сотруднику точек',
       zones.ok && zones.area.b > 0 && zones.area.bUnderA === zones.area.b && zones.aUnderB.length === 0,
       JSON.stringify({ area: zones.area, aUnderB: zones.aUnderB, bUnderA: zones.bUnderA }))
+    // Подсветка поломки = кликабельная зона (владелец, 10.10): красная заливка
+    // только у office.repair.0, отдельного мигающего 58×48 больше нет.
+    const glow = await page.evaluate(() => window.__itd.scene.getScene('office').children.list
+      .filter((o) => o.type === 'Rectangle' && o.fillColor === 0xb13e53)
+      .map((o) => ({ id: o.getData('id') ?? null, w: Math.round(o.width), h: Math.round(o.height) })))
+    check('broken_pc: мигающая подсветка — сама зона office.repair.0 (одна красная заливка, размер зоны)',
+      glow.length === 1 && glow[0].id === 'office.repair.0' && glow[0].w === Math.round(geo.repair.w) && glow[0].h === Math.round(geo.repair.h),
+      JSON.stringify({ glow, zone: [geo.repair.w, geo.repair.h] }))
     const lint = await page.evaluate(() => ({ ov: window.itd.overlaps(), off: window.itd.offscreen() }))
     check('broken_pc: itd.overlaps()/offscreen() пусты', lint.ov.length === 0 && lint.off.length === 0,
       JSON.stringify({ ov: lint.ov.slice(0, 5), off: lint.off.slice(0, 5) }))
