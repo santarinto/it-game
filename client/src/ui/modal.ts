@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { GAME_H, GAME_W } from '../layout'
 import { drawDebugFrames } from '../debug'
-import { tag } from '../debug/agentApi'
+import { markTitle, tag } from '../debug/agentApi'
 
 export interface ModalButton {
   label: string
@@ -50,6 +50,7 @@ export function showModal(
   // Подложка interactive: глушит клики по сцене; клик по ней закрывает.
   const overlay = scene.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(70).setInteractive()
   overlay.on('pointerdown', dismiss)
+  markTitle(overlay, title) // ITGAME-72: blocker().title / screen().meta.title
   // Панель тоже interactive: topOnly-ввод Phaser не пропустит клик к подложке.
   const panel = scene.add.rectangle(cx, cy, panelW, panelH, 0x14162b).setStrokeStyle(2, 0x41a6f6).setDepth(71).setInteractive()
   const titleText = scene.add

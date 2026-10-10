@@ -3,7 +3,7 @@ import { GAME_H, GAME_W } from '../layout'
 import { checkActiveNeighbor, client, hasSavedSession, peekSave, prepareNewGame, savedDifficulty, sessionId } from '../net'
 import { activeZoom, applyZoom, ZOOM_OPTIONS } from '../uiscale'
 import { HIRES_CAMERA } from '../render'
-import { markActive, tag } from '../debug/agentApi'
+import { markActive, markTitle, tag } from '../debug/agentApi'
 import { fmtMoney } from '../format'
 import { getAchievementsSummary, loadStats } from '../meta'
 import type { DifficultyId, SaveSummaryMessage } from '../protocol'
@@ -402,6 +402,7 @@ export class MenuScene extends Phaser.Scene {
   private createModalFrame(pw: number, ph: number, titleText: string, strokeColor = 0x41a6f6, withDefaultCloseBtn = true) {
     const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.85).setOrigin(0).setDepth(80).setInteractive()
     overlay.on('pointerdown', () => this.closeModal())
+    markTitle(overlay, titleText) // ITGAME-72
 
     const panel = this.add.rectangle(CX, GAME_H / 2, pw, ph, 0x14162b).setStrokeStyle(2, strokeColor).setDepth(81).setInteractive()
 

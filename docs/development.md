@@ -209,6 +209,23 @@ documenting separately:
   is who would take a real click (e.g. the day report's dimmer, depth 50,
   over `btn.menu`). `blocker()` is the topmost visible interactive covering
   the whole 1280×720 canvas (report dimmer, modal backdrop) or `null`.
+  Both carry `safe` and `title` — the window title a scene stored on that
+  backdrop with `markTitle()` (ITGAME-72).
+- **`itd.screen({frame?, free?, scene?})`** (ITGAME-72) — the screen map in
+  one call: `{meta, n, items}`. `meta` is `sha`, `tab` (sid prefix), the
+  server's `day`/`clock`/`t`/`bal`/`speed`/`phase`/`staff`/`pay`, what the HUD
+  actually draws (`hudClock`, `hudBal`), `blocker` (`safe` or scene `@depth`)
+  and `title` (the topmost `markTitle()` object: modal and report backdrops,
+  the event card, the disconnect screen). Each item is a string
+  `'safe|label|x|y|flags'` (25 items of a day report fit in ~1000 characters
+  of a tool answer): the label is the texts inside the bounds (≤ 22 chars,
+  `-` for icons), `x`/`y` the bounds centre in CSS px of the window (from the
+  canvas' `getBoundingClientRect`, so zoom, «по окну» and `#topbar` are
+  included), or in a screenshot frame `frame` px wide. Flags: `A` — active
+  toggle, `X` — covered (`hit()` not ok), `D` — disabled: `markDisabled()`,
+  set by the HUD buy/hire buttons (`btn.pc`, `btn.hire`, `btn.boss`,
+  `btn.gateway`) when money/seats/PCs are missing, also `nodes().disabled`.
+  `free: true` keeps only items without `X`.
 - **`itd.offline()`** — the page's last offline catch-up `{ticks, days,
   shown, at, droppedAt, leftAt, liveTicks, open, paused}` or `null` (`open` —
   the window is on screen now, `paused` — session speed is 0 now).
@@ -358,7 +375,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:buttons` | HUD buy-button enabled/tooltip/alpha states (ITGAME-17) | :4180, self-serve |
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35) | :4179, self-serve + temp saves dir |
 | `npm run qa:hud` | HUD layout column, toast stack, no overlaps (ITGAME-16) | :4174, self-serve |
-| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62) | :4175, self-serve |
+| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72) | :4175, self-serve |
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |

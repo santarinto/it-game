@@ -48,6 +48,22 @@ export function markActive<T extends Phaser.GameObjects.GameObject>(obj: T, on: 
   return obj
 }
 
+// ITGAME-72: кнопка покупки/найма неактивна (нет денег, мест, ПК) — флаг D в
+// itd.screen() и поле disabled в itd.nodes(). Свой data-ключ, как у markActive:
+// клик по такой кнопке обработчик принимает (звук ошибки, тряска), но не покупает.
+export function markDisabled<T extends Phaser.GameObjects.GameObject>(obj: T, on: boolean): T {
+  obj.setData('disabled', on)
+  return obj
+}
+
+// ITGAME-72: заголовок окна на его подложке (оверлей модалки, отчёта, финала) или
+// панели — itd.screen().meta.title и blocker().title берут его явно, без эвристик
+// по тексту.
+export function markTitle<T extends Phaser.GameObjects.GameObject>(obj: T, title: string): T {
+  obj.setData('title', title)
+  return obj
+}
+
 // ITGAME-58: pointerdown-обработчик, чей guard проглотил клик (дребезг
 // switchRoom), зовёт rejectClick(code) — itd.click() тогда отвечает
 // ok:false + code вместо ложного ok:true. Сбрасывается вокруг каждого emit.
@@ -294,6 +310,9 @@ export interface AgentNode {
   // ITGAME-38: состояние переключателя (markActive) — true/false для
   // контролов со сменным состоянием, null у всех прочих объектов.
   active: boolean | null
+  // ITGAME-72: кнопка неактивна (markDisabled: нет денег/мест/ПК) — true/false у
+  // кнопок покупки и найма HUD, null у прочих.
+  disabled: boolean | null
 }
 
 // hit()/blocker() (приёмка 10.10): кто примет настоящий клик в точке —
@@ -303,7 +322,42 @@ export interface HitTarget {
   scene: string
   type: string
   id: string | null
+  safe: string | null // id с «:» вместо точек (ITGAME-72)
   depth: number
+  title: string | null // заголовок окна, если это его подложка (markTitle, ITGAME-72)
+}
+
+// itd.screen() (ITGAME-72): карта экрана одним вызовом.
+export interface ScreenOptions {
+  frame?: number // ширина рамки снимка инструмента, px: x/y сразу в ней (по умолчанию — CSS px окна)
+  free?: boolean // только элементы, которые примут настоящий клик (без флага X)
+  scene?: string // только эта сцена (hud, office, serverRoom, menu)
+}
+
+export interface ScreenMeta {
+  sha: string // сборка вкладки (itd.version.sha)
+  tab: string // первые 8 символов sid сокета вкладки
+  day: number | null
+  clock: string | null
+  t: number | null // тик дня
+  bal: number | null // баланс по серверу
+  speed: number | null
+  phase: StateMessage['phase'] | null
+  staff: string | null // «штат/лимит»
+  pay: number | null // ФОТ в день
+  hudClock: string | null // что НАРИСОВАНО в hud.day
+  hudBal: string | null // что НАРИСОВАНО в hud.money
+  blocker: string | null // «safe|сцена@depth» перекрытия во весь холст или null
+  title: string | null // заголовок верхнего окна (markTitle) или null
+}
+
+export interface ScreenMap {
+  meta: ScreenMeta
+  n: number
+  // 'safe|подпись|x|y|флаги': подпись — тексты внутри bounds (≤22 символа, «-» у
+  // иконок без текста), x/y — центр в CSS px окна (или в рамке frame), флаги:
+  // A — выбрана (active), X — перекрыта (hit не ok), D — неактивна (disabled)
+  items: string[]
 }
 
 export interface HitResult {
@@ -400,8 +454,9 @@ export interface ItdApi {
   server(): AgentServer
   /**
    * Все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy,
-   * visible, alpha, interactive, depth, active}. x/y — позиция по origin,
-   * cx/cy — центр bounds (точка для настоящего клика).
+   * visible, alpha, interactive, depth, active, disabled}. x/y — позиция по origin,
+   * cx/cy — центр bounds (точка для настоящего клика); disabled — кнопка
+   * покупки/найма неактивна (ITGAME-72), null у прочих.
    * @example itd.nodes()
    */
   nodes(): AgentNode[]
@@ -495,10 +550,23 @@ export interface ItdApi {
    * Что сейчас перекрывает ввод во весь холст: верхний видимый interactive,
    * чьи bounds покрывают 1280×720 (затемнение отчёта дня, модалки, «Пока вас
    * не было»). null — сплошного перекрытия нет. Под ним нажимаются только
-   * объекты той же сцены с большей глубиной.
+   * объекты той же сцены с большей глубиной. safe — id с «:», title — заголовок
+   * окна этой подложки (ITGAME-72).
    * @example itd.blocker()
    */
   blocker(): HitTarget | null
+  /**
+   * Карта экрана одним вызовом (ITGAME-72): {meta, n, items}. meta — sha, tab
+   * (sid), day, clock, t, bal, speed, phase, staff, pay, hudClock/hudBal (что
+   * нарисовано в HUD, рядом с серверными clock/bal), blocker, title (заголовок
+   * верхнего окна). items — строки 'safe|подпись|x|y|флаги' по видимым
+   * интерактивам с id: x/y — центр в CSS px окна, с frame — в рамке снимка такой
+   * ширины; флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), D —
+   * неактивна (нет денег/мест). free — только без X, scene — одна сцена.
+   * @example itd.screen()
+   * @example itd.screen({ free: true, frame: 1280 })
+   */
+  screen(opts?: ScreenOptions): ScreenMap
   /**
    * Последний офлайн-догон этой страницы: {ticks, days, shown, at, droppedAt,
    * leftAt, liveTicks, open, paused} или null. droppedAt — последний сейв
@@ -817,6 +885,7 @@ function walkObjects(sceneKey: string, objects: Phaser.GameObjects.GameObject[],
       h = typeof o.height === 'number' ? o.height : 0
     }
     const act = o.getData?.('active')
+    const dis = o.getData?.('disabled')
     out.push({
       scene: sceneKey,
       type: o.type ?? 'unknown',
@@ -834,6 +903,7 @@ function walkObjects(sceneKey: string, objects: Phaser.GameObjects.GameObject[],
       interactive: o.input?.enabled === true,
       depth: typeof o.depth === 'number' ? o.depth : 0,
       active: typeof act === 'boolean' ? act : null,
+      disabled: typeof dis === 'boolean' ? dis : null,
     })
     if (o.list) walkObjects(sceneKey, o.list, out)
   }
@@ -869,8 +939,15 @@ function interactiveIn(sceneKey: string, objects: Phaser.GameObjects.GameObject[
     if (o.input?.enabled === true) {
       try {
         const b = o.getBounds?.()
-        const id = o.getData?.('id')
-        if (b) out.push({ t: { scene: sceneKey, type: o.type ?? 'unknown', id: typeof id === 'string' ? id : null, depth: d }, b, order: out.length })
+        const raw = o.getData?.('id')
+        const id = typeof raw === 'string' ? raw : null
+        const title = o.getData?.('title')
+        if (b) {
+          out.push({
+            t: { scene: sceneKey, type: o.type ?? 'unknown', id, safe: safeId(id), depth: d, title: typeof title === 'string' ? title : null },
+            b, order: out.length,
+          })
+        }
       } catch { /* без bounds — не цель */ }
     }
     if (o.list) interactiveIn(sceneKey, o.list, d, out)
@@ -904,6 +981,88 @@ function blockerOf(game: Phaser.Game): HitTarget | null {
     if (full) return full.t
   }
   return null
+}
+
+// Заголовок верхнего окна (ITGAME-72): сцены сверху вниз, в сцене — видимый объект
+// с data-ключом title (markTitle) наибольшей глубины. Не только подложки: панель
+// события и экран обрыва связи не перекрывают ввод, а заголовок у них есть.
+function topTitle(game: Phaser.Game): string | null {
+  for (const scene of game.scene.getScenes(true, true)) {
+    const best = { title: null as string | null, depth: -Infinity }
+    const walk = (objects: Phaser.GameObjects.GameObject[], depth: number | null): void => {
+      for (const obj of objects) {
+        const o = obj as unknown as {
+          visible?: boolean; depth?: number; getData?(k: string): unknown; list?: Phaser.GameObjects.GameObject[]
+        }
+        if (o.visible === false) continue
+        const d = depth ?? (typeof o.depth === 'number' ? o.depth : 0)
+        const t = o.getData?.('title')
+        if (typeof t === 'string' && d >= best.depth) Object.assign(best, { title: t, depth: d })
+        if (o.list) walk(o.list, d)
+      }
+    }
+    walk(scene.children.list, null)
+    if (best.title !== null) return best.title
+  }
+  return null
+}
+
+const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim()
+
+// itd.screen() (ITGAME-72; набросок агента из ретро 10.10, правки 6 и 9). Строка на
+// элемент, а не объект: 25 элементов отчёта дня влезают в ответ инструмента ~1000
+// символов. Точки — центр bounds (cx/cy) через getBoundingClientRect канваса:
+// зум, «по окну» и #topbar уже учтены.
+function buildScreen(game: Phaser.Game, opts: ScreenOptions = {}): ScreenMap {
+  const nodes = activeNodes(game)
+  const texts = nodes.filter((t) => t.visible && t.alpha > 0 && t.text)
+  const canvas = game.canvas as HTMLCanvasElement | null
+  const r = canvas?.getBoundingClientRect()
+  const k = r && r.width > 0 ? r.width / GAME_W : 1
+  const f = opts.frame && opts.frame > 0 ? innerWidth / opts.frame : 1
+  const pt = (gx: number, gy: number): [number, number] => [
+    Math.round(((r?.left ?? 0) + gx * k) / f),
+    Math.round(((r?.top ?? 0) + gy * k) / f),
+  ]
+  const s = client.latest
+  const drawn = (id: string): string | null => {
+    const t = nodes.find((n) => n.id === id && n.visible)
+    return t?.text ? oneLine(t.text) : null
+  }
+  const b = blockerOf(game)
+  const meta: ScreenMeta = {
+    sha: BUILD.sha,
+    tab: (client.liveSid() ?? sessionId()).slice(0, 8),
+    day: s?.day ?? null,
+    clock: s?.clock ?? null,
+    t: s?.tickInDay ?? null,
+    bal: s?.money ?? null,
+    speed: s?.speed ?? null,
+    phase: s?.phase ?? null,
+    staff: s ? `${s.offices.reduce((n, o) => n + o.employees.length, 0)}/${s.staffLimit}` : null,
+    pay: s?.payrollPerDay ?? null,
+    hudClock: drawn('hud.day'),
+    hudBal: drawn('hud.money'),
+    blocker: b ? `${b.safe ?? b.scene}@${b.depth}` : null,
+    title: b?.title ?? topTitle(game),
+  }
+  const items: string[] = []
+  for (const n of nodes) {
+    if (!n.id || !n.interactive || !n.visible || n.alpha === 0) continue
+    if (opts.scene && n.scene !== opts.scene) continue
+    const ok = hitAt(game, n.cx, n.cy)?.id === n.id
+    if (opts.free && !ok) continue
+    const label = texts
+      .filter((t) => t.scene === n.scene && Math.abs(t.cx - n.cx) <= n.w / 2 + 2 && Math.abs(t.cy - n.cy) <= n.h / 2 + 2)
+      .map((t) => oneLine(t.text as string))
+      .join(' ')
+      .replace(/\|/g, '/')
+      .slice(0, 22)
+    const [x, y] = pt(n.cx, n.cy)
+    const flags = (n.active === true ? 'A' : '') + (ok ? '' : 'X') + (n.disabled === true ? 'D' : '')
+    items.push([n.safe, label || '-', x, y, flags].join('|'))
+  }
+  return { meta, n: items.length, items }
 }
 
 // safe-id (приёмка 10.10): «:» вместо точки; в id игры двоеточий нет, замена обратима.
@@ -972,7 +1131,7 @@ const COMMANDS = new Set<string>(COMMAND_TYPES)
 const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/39)
   itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); menuReady — меню создано, активно и сводка сейва устоялась
   itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt, reconnects, sid (куда уходят команды: liveSid ?? хранилище), liveSid (живая партия или null), sidSwitches
-  itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy, visible, alpha, interactive, depth, active}; x/y — по origin объекта, cx/cy — центр bounds (точка для клика)
+  itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy, visible, alpha, interactive, depth, active, disabled}; x/y — по origin объекта, cx/cy — центр bounds (точка для клика); disabled — кнопка покупки/найма неактивна
   itd.text()                        — nodes() с непустым текстом
   itd.ids()                         — стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*, modal.*) + active; safe — id с «:» вместо точек (не режется как JWT), click/hover/hit принимают и его
                                        active — состояние переключателя (btn.speed.*, nav.*, btn.skip_reports, btn.debug, menu.zoom.*), null у прочих; НЕ GameObject.active
@@ -987,7 +1146,8 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.overlaps({minAreaRatio}?)     — линтер вёрстки: kind: text — тексты одного depth; occlusion — текст под непрозрачной плашкой; interactive — интерактив частично перекрыт интерактивом или текстом (вложенность целиком — не находка); пара {scene, kind, a, b, overlap{w,h}, at{x,y}, ratio, threshold}: ratio — площадь пересечения / площадь меньшего из пары (occlusion — / площадь текста), threshold — порог сравнения; minAreaRatio 0..1 заменяет пороги по умолчанию (text/interactive 0, occlusion 0.25 + >50% по каждой оси; заданный minAreaRatio заменяет и правило по осям — для occlusion находок может стать больше): 0 — строгий режим, 0.3 — порог по площади для всех kind
   itd.offscreen()                   — линтер: вылезание за канвас 1280×720; + {scene:'page', type:'canvas'} — канвас не влез в окно (CSS px)
   itd.hit('btn.menu')               — попадёт ли НАСТОЯЩИЙ клик в центр объекта в него: {ok, at{x,y}, top{scene,id,type,depth}} — top перехватит (затемнение отчёта поверх HUD); itd.click этого не видит
-  itd.blocker()                     — что перекрывает ввод во весь холст (затемнение отчёта, модалка) или null
+  itd.blocker()                     — что перекрывает ввод во весь холст (затемнение отчёта, модалка) или null: {scene, type, id, safe, depth, title — заголовок окна}
+  itd.screen({frame?, free?, scene?}) — карта экрана: {meta:{sha, tab, day, clock, t, bal, speed, phase, staff, pay, hudClock, hudBal, blocker, title}, n, items:['safe|подпись|x|y|флаги']}; x/y — центр в CSS px окна (frame — в рамке снимка такой ширины); флаги A выбрана, X перекрыта, D неактивна; free — только без X
   itd.offline()                     — последний офлайн-догон страницы {ticks, days, shown, at, droppedAt, leftAt, liveTicks, open, paused} — liveTicks: шло вживую, пока сервер не заметил уход: shown:false — догон внутри дня, окна «Пока вас не было» не было; пока окно открыто, партия на паузе
   itd.injectError('x')              — бросить тестовую ошибку страницы «itd.injectError: x» (проверить журнал errors() и поле load; у записи injected: true)
   itd.contrast()                    — линтер: контраст текста к фону ниже 3:1
@@ -1164,6 +1324,10 @@ function makeApi(game: Phaser.Game): ItdApi {
     blocker() {
       warmIfHidden()
       return blockerOf(game)
+    },
+    screen(opts) {
+      warmIfHidden()
+      return buildScreen(game, opts)
     },
     offline() {
       const last = client.lastOffline

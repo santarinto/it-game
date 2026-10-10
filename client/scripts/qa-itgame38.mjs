@@ -10,6 +10,10 @@
 //   B2  itd.skipReports=1, set({tickInDay:53}), speed(3) → смена дня без модалки:
 //       sound key bong/drop по знаку прибыли (out of log's day_report), toast {where:'top', bg по прибыли}
 //   C1  itd.overlaps(): kind — только text|occlusion|interactive; interactive-записей в обычной игре нет
+//   S1  itd.screen() на отчёте дня (ITGAME-72): meta.title — заголовок отчёта, blocker hud@50,
+//       hudClock/hudBal — нарисованное; blocker() отдаёт safe и title
+//   S2  btn:next_day — без X, точка = центр в CSS px; btn:menu под затемнением — X; free и frame
+//   S3  $100 — у btn:pc флаг D в screen() и disabled true в nodes() (ITGAME-72)
 //   C2  без skipReports: та же промотка дня → модалка отчёта без interactive-находок;
 //       btn.skip_reports active меняется false→true по клику, localStorage синхронизирован
 //   C3  сдвиг btn.next_day на строку отчёта → находка {kind:'interactive'} с ним
@@ -407,6 +411,18 @@ async function run() {
       JSON.stringify(lastSoundB1),
     )
 
+    // ── S3 (ITGAME-72): нет денег — у btn.pc флаг D в screen() и disabled в nodes()
+    const s3 = await page.evaluate(() => ({
+      item: window.itd.screen({ scene: 'hud' }).items.find((i) => i.startsWith('btn:pc|')),
+      node: window.itd.nodes().find((n) => n.id === 'btn.pc')?.disabled,
+      menu: window.itd.nodes().find((n) => n.id === 'btn.menu')?.disabled,
+    }))
+    check(
+      'S3: $100 — btn:pc с флагом D, nodes().disabled true; у btn.menu disabled null',
+      typeof s3.item === 'string' && s3.item.split('|')[4].includes('D') && s3.node === true && s3.menu === null,
+      JSON.stringify(s3),
+    )
+
     // Деньги обратно: $100 при 0 сотрудниках < MinCostToEarn ($300 найм) —
     // конец дня ушёл бы в deadlock/game_over, а не в day_report (см. шапку).
     await page.evaluate(() => window.itd.set({ money: 5000 }))
@@ -454,6 +470,39 @@ async function run() {
     const ovC2 = await page.evaluate(() => window.itd.overlaps())
     const interactiveC2 = ovC2.filter((e) => e.kind === 'interactive')
     check('C2: модалка отчёта — interactive-находок нет', interactiveC2.length === 0, JSON.stringify(interactiveC2))
+    // ── S1/S2 (ITGAME-72): карта экрана на отчёте дня
+    const s1 = await page.evaluate(() => {
+      const sc = window.itd.screen()
+      return {
+        sc, len: JSON.stringify(sc).length, day: window.itd.state().day, blocker: window.itd.blocker(),
+        free: window.itd.screen({ free: true }), half: window.itd.screen({ frame: innerWidth / 2 }),
+        next: window.itd.nodes().find((n) => n.id === 'btn.next_day'),
+        rect: (() => { const r = document.querySelector('canvas').getBoundingClientRect(); return { left: r.left, top: r.top, k: r.width / 1280 } })(),
+      }
+    })
+    console.log('      screen():', JSON.stringify(s1.sc))
+    const row = (sc, safe) => sc.items.find((i) => i.startsWith(safe + '|'))?.split('|')
+    const nextRow = row(s1.sc, 'btn:next_day')
+    const menuRow = row(s1.sc, 'btn:menu')
+    const keys = ['sha', 'tab', 'day', 'clock', 't', 'bal', 'speed', 'phase', 'staff', 'pay', 'hudClock', 'hudBal', 'blocker', 'title']
+    check(
+      'S1: отчёт дня — meta.title «День N завершён», blocker hud@50, phase day_report, hudBal/hudClock нарисованы; blocker() отдаёт safe и title',
+      keys.every((k) => k in s1.sc.meta) && s1.sc.meta.title === `День ${s1.day} завершён` && s1.sc.meta.blocker === 'hud@50' &&
+        s1.sc.meta.phase === 'day_report' && /^\$/.test(s1.sc.meta.hudBal ?? '') && /^День \d+ ·/.test(s1.sc.meta.hudClock ?? '') &&
+        s1.blocker?.title === s1.sc.meta.title && 'safe' in s1.blocker && s1.sc.n === s1.sc.items.length,
+      JSON.stringify({ meta: s1.sc.meta, blocker: s1.blocker }),
+    )
+    const expX = Math.round(s1.rect.left + s1.next.cx * s1.rect.k)
+    const expY = Math.round(s1.rect.top + s1.next.cy * s1.rect.k)
+    const halfNext = row(s1.half, 'btn:next_day')
+    check(
+      'S2: btn:next_day без X с подписью и точкой = центр в CSS px; btn:menu под затемнением — X; free без X; frame пересчитывает x/y',
+      !!nextRow && !nextRow[4].includes('X') && nextRow[1] !== '-' && Number(nextRow[2]) === expX && Number(nextRow[3]) === expY &&
+        !!menuRow && menuRow[4].includes('X') &&
+        s1.free.items.length > 0 && s1.free.items.every((i) => !i.split('|')[4].includes('X')) && !row(s1.free, 'btn:menu') &&
+        !!halfNext && Math.abs(Number(halfNext[2]) - expX / 2) <= 1 && Math.abs(Number(halfNext[3]) - expY / 2) <= 1,
+      JSON.stringify({ nextRow, menuRow, halfNext, expX, expY, free: s1.free.n, len: s1.len, n: s1.sc.n }),
+    )
     const skipIdsBefore = await page.evaluate(() => window.itd.ids().filter((n) => n.id === 'btn.skip_reports'))
     check('C2: btn.skip_reports active===false (до клика)', skipIdsBefore[0]?.active === false, JSON.stringify(skipIdsBefore))
     await page.evaluate(() => window.itd.click('btn.skip_reports'))

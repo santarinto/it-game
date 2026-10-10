@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "46b60049f5a0",
+  "hash": "372e104b7f1f",
   "methods": {
     "version": {
       "kind": "prop",
@@ -32,7 +32,7 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "AgentNode[]",
-      "doc": "Все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy,\nvisible, alpha, interactive, depth, active}. x/y — позиция по origin,\ncx/cy — центр bounds (точка для настоящего клика).",
+      "doc": "Все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy,\nvisible, alpha, interactive, depth, active, disabled}. x/y — позиция по origin,\ncx/cy — центр bounds (точка для настоящего клика); disabled — кнопка\nпокупки/найма неактивна (ITGAME-72), null у прочих.",
       "examples": [
         "itd.nodes()"
       ]
@@ -220,9 +220,25 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "HitTarget | null",
-      "doc": "Что сейчас перекрывает ввод во весь холст: верхний видимый interactive,\nчьи bounds покрывают 1280×720 (затемнение отчёта дня, модалки, «Пока вас\nне было»). null — сплошного перекрытия нет. Под ним нажимаются только\nобъекты той же сцены с большей глубиной.",
+      "doc": "Что сейчас перекрывает ввод во весь холст: верхний видимый interactive,\nчьи bounds покрывают 1280×720 (затемнение отчёта дня, модалки, «Пока вас\nне было»). null — сплошного перекрытия нет. Под ним нажимаются только\nобъекты той же сцены с большей глубиной. safe — id с «:», title — заголовок\nокна этой подложки (ITGAME-72).",
       "examples": [
         "itd.blocker()"
+      ]
+    },
+    "screen": {
+      "kind": "method",
+      "params": [
+        {
+          "name": "opts",
+          "type": "ScreenOptions",
+          "optional": true
+        }
+      ],
+      "returns": "ScreenMap",
+      "doc": "Карта экрана одним вызовом (ITGAME-72): {meta, n, items}. meta — sha, tab\n(sid), day, clock, t, bal, speed, phase, staff, pay, hudClock/hudBal (что\nнарисовано в HUD, рядом с серверными clock/bal), blocker, title (заголовок\nверхнего окна). items — строки 'safe|подпись|x|y|флаги' по видимым\nинтерактивам с id: x/y — центр в CSS px окна, с frame — в рамке снимка такой\nширины; флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), D —\nнеактивна (нет денег/мест). free — только без X, scene — одна сцена.",
+      "examples": [
+        "itd.screen()",
+        "itd.screen({ free: true, frame: 1280 })"
       ]
     },
     "offline": {
@@ -642,6 +658,11 @@ export const CONTRACT = {
           "doc": ""
         },
         "active": {
+          "type": "boolean | null",
+          "optional": false,
+          "doc": ""
+        },
+        "disabled": {
           "type": "boolean | null",
           "optional": false,
           "doc": ""
@@ -1437,10 +1458,20 @@ export const CONTRACT = {
           "optional": false,
           "doc": ""
         },
+        "safe": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "id с «:» вместо точек (ITGAME-72)"
+        },
         "depth": {
           "type": "number",
           "optional": false,
           "doc": ""
+        },
+        "title": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "заголовок окна, если это его подложка (markTitle, ITGAME-72)"
         }
       }
     },
@@ -1731,6 +1762,121 @@ export const CONTRACT = {
           "type": "boolean",
           "optional": false,
           "doc": ""
+        }
+      }
+    },
+    "ScreenMap": {
+      "kind": "object",
+      "fields": {
+        "meta": {
+          "type": "ScreenMeta",
+          "optional": false,
+          "doc": ""
+        },
+        "n": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "items": {
+          "type": "string[]",
+          "optional": false,
+          "doc": ""
+        }
+      }
+    },
+    "ScreenMeta": {
+      "kind": "object",
+      "fields": {
+        "sha": {
+          "type": "string",
+          "optional": false,
+          "doc": "сборка вкладки (itd.version.sha)"
+        },
+        "tab": {
+          "type": "string",
+          "optional": false,
+          "doc": "первые 8 символов sid сокета вкладки"
+        },
+        "day": {
+          "type": "number | null",
+          "optional": false,
+          "doc": ""
+        },
+        "clock": {
+          "type": "string | null",
+          "optional": false,
+          "doc": ""
+        },
+        "t": {
+          "type": "number | null",
+          "optional": false,
+          "doc": "тик дня"
+        },
+        "bal": {
+          "type": "number | null",
+          "optional": false,
+          "doc": "баланс по серверу"
+        },
+        "speed": {
+          "type": "number | null",
+          "optional": false,
+          "doc": ""
+        },
+        "phase": {
+          "type": "'running' | 'day_report' | 'game_over' | 'won' | null",
+          "optional": false,
+          "doc": ""
+        },
+        "staff": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "«штат/лимит»"
+        },
+        "pay": {
+          "type": "number | null",
+          "optional": false,
+          "doc": "ФОТ в день"
+        },
+        "hudClock": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "что НАРИСОВАНО в hud.day"
+        },
+        "hudBal": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "что НАРИСОВАНО в hud.money"
+        },
+        "blocker": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "«safe|сцена@depth» перекрытия во весь холст или null"
+        },
+        "title": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "заголовок верхнего окна (markTitle) или null"
+        }
+      }
+    },
+    "ScreenOptions": {
+      "kind": "object",
+      "fields": {
+        "frame": {
+          "type": "number",
+          "optional": true,
+          "doc": "ширина рамки снимка инструмента, px: x/y сразу в ней (по умолчанию — CSS px окна)"
+        },
+        "free": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "только элементы, которые примут настоящий клик (без флага X)"
+        },
+        "scene": {
+          "type": "string",
+          "optional": true,
+          "doc": "только эта сцена (hud, office, serverRoom, menu)"
         }
       }
     },
