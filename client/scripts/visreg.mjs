@@ -31,8 +31,8 @@ const BASELINE = join(VISREG_DIR, 'baseline.json')
 const SELF_PORT = Number(process.env.VISREG_PORT) || 4173
 const UPDATE = process.argv.includes('--update')
 
-// Сценарии = фикстуры ITGAME-26 + меню без сценария.
-const SCENARIOS = ['menu', 'fresh', 'broke_day3', 'mid_day10', 'full_office', 'soft_lock', 'pre_victory', 'spare_pcs']
+// Сценарии = фикстуры ITGAME-26 + меню без сценария; broken_pc (ITGAME-74) — с ITGAME-48.
+const SCENARIOS = ['menu', 'fresh', 'broke_day3', 'mid_day10', 'full_office', 'soft_lock', 'pre_victory', 'spare_pcs', 'broken_pc']
 
 // ── Загрузка сцены: детерминированное состояние для скриншота ─────────────
 // window.itd появляется раньше, чем меню создаст кнопки: клик в этот зазор

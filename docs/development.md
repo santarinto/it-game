@@ -666,17 +666,18 @@ plus offscreen/contrast/tiny), which must not be worse than
 `baseline.json`. Update baselines after intended UI changes: `npm run
 visreg -- --update`, then commit.
 
-Baselines are machine-dependent (system `monospace` font, GPU rasterizer):
-the committed baseline was last regenerated **2026-09-26** on a Claude Code
-cloud-session container (headless Chromium 1194, SwiftShader software GL)
-— expect diffs when running visreg on a different machine or GPU driver.
-The browser is now pinned (see **Browser** above; `visreg` logs the binary
-it uses), but the baselines predate the pin and will be regenerated on it
-together with the game's own font (ITGAME-48). Until then visreg reports
-diffs: on 2026-10-10 (Arch Linux, fontconfig `monospace` = Noto Sans Mono)
-6 of 8 scenarios were at 0.82–1.39%, with identical diff pixel counts on the pinned
-Chrome 152 and on the system Chromium 153 — the drift comes from the font,
-not the browser version.
+Baselines depend on the browser build and the rasterizer, no longer on the
+system font: the game draws all text with its own fonts (ITGAME-48) —
+Departure Mono 1.500 plus ITD Symbols, an 8-glyph OFL subset of Unifont for
+⌂⏸▶☣✓✕✖✗ (files and licenses in `client/public/assets/fonts`, the stack is
+`FONT` in `client/src/render.ts`, `BootScene` waits for both before the
+menu). Emoji (achievement icons, 🏆📊🔒⚠️) still come from the system emoji
+font. The committed baseline (9 scenarios, `broken_pc` included) was
+regenerated **2026-10-10** on the pinned Chrome for Testing 152.0.7977.54
+(headless, SwiftShader software GL, Arch Linux, Noto Color Emoji); two
+consecutive runs without `--update` gave 0 differing pixels on every scenario.
+The layout-linter counts in `baseline.json` did not change with the font.
+Another machine may still differ by GPU rasterizer or emoji font.
 Kill stray Chromium processes before a run — they starve software WebGL.
 In CI, visreg is a report, not a gate (see [CI](#ci)).
 
