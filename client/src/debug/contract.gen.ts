@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "0b89bd385250",
+  "hash": "676f868bee3b",
   "methods": {
     "version": {
       "kind": "prop",
@@ -211,7 +211,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "HitResult",
-      "doc": "Попадёт ли НАСТОЯЩИЙ клик в центр объекта в него самого: эмуляция\nхит-теста Phaser (сцены сверху вниз, в сцене — interactive с наибольшей\nглубиной). ok:false + top — кто перехватит клик (например, затемнение\nотчёта дня поверх HUD). itd.click() этого не проверяет: он мимо хит-теста.",
+      "doc": "Попадёт ли НАСТОЯЩИЙ клик в центр объекта в него самого: настоящий\nхит-тест Phaser, тот же, что stack() (hitArea, renderList, topOnly; сцены\nсверху вниз). ok:false + top — кто перехватит клик (например, затемнение\nотчёта дня поверх HUD); top null — точку не берёт никто (hitArea объекта\nеё не накрывает). itd.click() этого не проверяет: он мимо хит-теста.",
       "examples": [
         "itd.hit('btn.menu')",
         "itd.hit('btn.menu').top"
@@ -272,7 +272,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "StackResult",
-      "doc": "Стек под точкой по НАСТОЯЩЕМУ хит-тесту Phaser (InputManager.hitTest:\nhitArea, камера, видимость контейнеров; порядок — sortGameObjects по\nrenderList камеры; сцены сверху вниз, globalTopOnly + topOnly). Точка —\nцентр (cx/cy) объекта по id/safe-id или мировые gx, gy (1280×720).\nstack — все interactive под точкой сверху вниз ('safe scene dN Type WxH';\n'!' — сцена ниже забравшей клик), wins — кто получит pointerdown.\nВ отличие от hit() — не по bounds и depth, а тем же кодом, что клик мышью.",
+      "doc": "Стек под точкой по НАСТОЯЩЕМУ хит-тесту Phaser (InputManager.hitTest:\nhitArea, камера, видимость контейнеров; порядок — sortGameObjects по\nrenderList камеры; сцены сверху вниз, globalTopOnly + topOnly). Точка —\nцентр (cx/cy) объекта по id/safe-id или мировые gx, gy (1280×720).\nstack — все interactive под точкой сверху вниз ('safe scene dN Type WxH';\n'!' — сцена ниже забравшей клик), wins — кто получит pointerdown.\nhit() и флаг X в screen() — тот же хит-тест, только верх в центре объекта.",
       "examples": [
         "itd.stack('office:repair:0')",
         "itd.stack(260, 190).wins"

@@ -22,6 +22,8 @@
 //   H1  itd.stack() под открытым отчётом (ITGAME-74): stack('btn:menu').wins — затемнение hud,
 //       btn:menu ниже в stack, совпадает с hit().top; stack('btn.next_day').wins — сама кнопка;
 //       stack('nope.nope') → ok:false; stack(-5,-5) — пустой stack, wins null
+//   H2  hit()/screen() X — настоящий хит-тест (владелец 10.10): hitArea btn.next_day 1×1 →
+//       hit() ok:false, top — затемнение (= stack().wins), screen() ставит X; вернули — ok
 //   C3  сдвиг btn.next_day на строку отчёта → находка {kind:'interactive'} с ним
 //   C4  сдвиг menu.zoom.1 на соседа → находка {kind:'interactive'} с ним;
 //       C4a ratio/threshold в каждой записи (ratio ≈ 0.58, threshold 0),
@@ -589,6 +591,33 @@ async function run() {
     check('H1: stack(нет узла) → ok:false, why; stack(-5,-5) вне холста → stack пуст, wins null',
       h1.bad.ok === false && h1.bad.why === 'нет узла' && h1.pt.ok === true && h1.pt.stack.length === 0 && h1.pt.wins === null,
       JSON.stringify({ bad: h1.bad, pt: h1.pt }))
+
+    // ── H2 (владелец 10.10): hit() и флаг X в screen() — настоящий хит-тест, не bounds.
+    // hitArea btn.next_day сжимаем до 1×1 в левом верхнем углу: bounds те же, но центр
+    // кнопки клик уже не берёт — его забирает затемнение отчёта под ней.
+    const h2 = await page.evaluate(() => {
+      const scene = window.__itd.scene.getScene('hud')
+      const btn = scene.children.list.find((o) => o.getData && o.getData('id') === 'btn.next_day')
+      if (!btn?.input?.hitArea) return null
+      const ha = btn.input.hitArea
+      const orig = { w: ha.width, h: ha.height }
+      ha.width = 1
+      ha.height = 1
+      const hit = window.itd.hit('btn.next_day')
+      const stack = window.itd.stack('btn.next_day')
+      const row = window.itd.screen().items.find((i) => i.startsWith('btn:next_day|'))
+      ha.width = orig.w
+      ha.height = orig.h
+      const back = window.itd.hit('btn.next_day')
+      return { hit, wins: stack.wins, row, back: back.ok }
+    })
+    check(
+      'H2: hitArea кнопки 1×1 — hit() ok:false, top = wins stack() (затемнение hud), screen() ставит X; hitArea вернули — ok',
+      !!h2 && h2.hit.ok === false && h2.hit.top?.scene === 'hud' && h2.hit.top?.id !== 'btn.next_day'
+        && h2.hit.top?.depth === h2.wins?.depth && h2.hit.top?.type === h2.wins?.type
+        && !!h2.row && h2.row.split('|')[4].includes('X') && h2.back === true,
+      JSON.stringify(h2),
+    )
 
     // ── C3: сдвиг btn.next_day на кромку текста отчёта → находка interactive
     const moveC3 = await page.evaluate(() => {

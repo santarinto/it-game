@@ -323,9 +323,10 @@ export interface AgentNode {
   disabled: boolean | null
 }
 
-// hit()/blocker() (приёмка 10.10): кто примет настоящий клик в точке —
-// эмуляция хит-теста Phaser (globalTopOnly): сцены сверху вниз, в сцене —
-// видимый interactive с наибольшей глубиной, чьи bounds содержат точку.
+// hit()/blocker() (приёмка 10.10): кто примет настоящий клик. hit() — настоящий
+// хит-тест Phaser, как stack() (ITGAME-74, владелец 10.10); blocker() — видимый
+// interactive с наибольшей глубиной, чьи bounds покрывают весь холст. depth у
+// вложенного в контейнер — глубина корневого контейнера.
 export interface HitTarget {
   scene: string
   type: string
@@ -586,10 +587,11 @@ export interface ItdApi {
    */
   offscreen(): OffscreenEntry[]
   /**
-   * Попадёт ли НАСТОЯЩИЙ клик в центр объекта в него самого: эмуляция
-   * хит-теста Phaser (сцены сверху вниз, в сцене — interactive с наибольшей
-   * глубиной). ok:false + top — кто перехватит клик (например, затемнение
-   * отчёта дня поверх HUD). itd.click() этого не проверяет: он мимо хит-теста.
+   * Попадёт ли НАСТОЯЩИЙ клик в центр объекта в него самого: настоящий
+   * хит-тест Phaser, тот же, что stack() (hitArea, renderList, topOnly; сцены
+   * сверху вниз). ok:false + top — кто перехватит клик (например, затемнение
+   * отчёта дня поверх HUD); top null — точку не берёт никто (hitArea объекта
+   * её не накрывает). itd.click() этого не проверяет: он мимо хит-теста.
    * @example itd.hit('btn.menu')
    * @example itd.hit('btn.menu').top
    */
@@ -649,7 +651,7 @@ export interface ItdApi {
    * центр (cx/cy) объекта по id/safe-id или мировые gx, gy (1280×720).
    * stack — все interactive под точкой сверху вниз ('safe scene dN Type WxH';
    * '!' — сцена ниже забравшей клик), wins — кто получит pointerdown.
-   * В отличие от hit() — не по bounds и depth, а тем же кодом, что клик мышью.
+   * hit() и флаг X в screen() — тот же хит-тест, только верх в центре объекта.
    * @example itd.stack('office:repair:0')
    * @example itd.stack(260, 190).wins
    */
@@ -1066,15 +1068,14 @@ function topOf(cands: HitCandidate[]): HitCandidate | null {
   return best
 }
 
+// Кто получит pointerdown в мировой точке — НАСТОЯЩИМ хит-тестом Phaser, тем же,
+// что stack() (hitArea, renderList, topOnly/globalTopOnly). hit() и флаг X в
+// screen() читают его (владелец, 10.10: раньше — эмуляция по bounds и depth).
 function hitAt(game: Phaser.Game, x: number, y: number): HitTarget | null {
-  for (const scene of game.scene.getScenes(true, true)) {
-    const cands: HitCandidate[] = []
-    interactiveIn(scene.scene.key, scene.children.list, null, cands)
-    const top = topOf(cands.filter((c) => c.b.contains(x, y)))
-    if (top) return top.t
-  }
-  return null
+  const first = phaserHits(game, x, y)[0]
+  return first && first.captured ? stackTarget(first) : null
 }
+
 
 function blockerOf(game: Phaser.Game): HitTarget | null {
   for (const scene of game.scene.getScenes(true, true)) {
@@ -1233,8 +1234,12 @@ function stackTarget(h: PhaserHit): HitTarget {
   const o = h.obj as unknown as { type?: string; depth?: number; getData?(k: string): unknown }
   const id = typeof o.getData?.('id') === 'string' ? (o.getData('id') as string) : null
   const title = o.getData?.('title')
+  // Вложенный в контейнер рисуется на глубине корневого контейнера — как у
+  // interactiveIn/blocker(): глубина сравнима между объектами сцены.
+  let root = h.obj as unknown as { depth?: number; parentContainer?: unknown }
+  while (root.parentContainer) root = root.parentContainer as typeof root
   return {
-    scene: h.scene, type: o.type ?? 'unknown', id, safe: safeId(id), depth: typeof o.depth === 'number' ? o.depth : 0,
+    scene: h.scene, type: o.type ?? 'unknown', id, safe: safeId(id), depth: typeof root.depth === 'number' ? root.depth : 0,
     title: typeof title === 'string' ? title : null,
   }
 }
@@ -1416,7 +1421,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.wait(s => s.day === 2)        — промис: поллинг state()/server() до условия (таймаут 5с, второй аргумент — свой); готовность меню — wait(s => s.menuReady), до старта партии state() null, но menuReady уже честен
   itd.overlaps({minAreaRatio}?)     — линтер вёрстки: kind: text — тексты одного depth; occlusion — текст под непрозрачной плашкой; interactive — интерактив частично перекрыт интерактивом или текстом (вложенность целиком — не находка); пара {scene, kind, a, b, overlap{w,h}, at{x,y}, ratio, threshold}: ratio — площадь пересечения / площадь меньшего из пары (occlusion — / площадь текста), threshold — порог сравнения; minAreaRatio 0..1 заменяет пороги по умолчанию (text/interactive 0, occlusion 0.25 + >50% по каждой оси; заданный minAreaRatio заменяет и правило по осям — для occlusion находок может стать больше): 0 — строгий режим, 0.3 — порог по площади для всех kind
   itd.offscreen()                   — линтер: вылезание за канвас 1280×720; + {scene:'page', type:'canvas'} — канвас не влез в окно (CSS px)
-  itd.hit('btn.menu')               — попадёт ли НАСТОЯЩИЙ клик в центр объекта в него: {ok, at{x,y}, top{scene,id,type,depth}} — top перехватит (затемнение отчёта поверх HUD); itd.click этого не видит
+  itd.hit('btn.menu')               — попадёт ли НАСТОЯЩИЙ клик в центр объекта в него (хит-тест Phaser, как stack): {ok, at{x,y}, top{scene,id,safe,type,depth,title}} — top перехватит (затемнение отчёта поверх HUD); itd.click этого не видит
   itd.blocker()                     — что перекрывает ввод во весь холст (затемнение отчёта, модалка) или null: {scene, type, id, safe, depth, title — заголовок окна}
   itd.screen({frame?, free?, scene?}) — карта экрана: {meta:{sha, tab, day, clock, t, bal, speed, phase, staff, pay, hudClock, hudBal, blocker, title, stale}, n, items:['safe|подпись|x|y|флаги']}; x/y — центр в CSS px окна (frame — в рамке снимка такой ширины); флаги A выбрана, X перекрыта, D неактивна; free — только без X
   itd.stack('office:repair:0')      — стек под центром объекта (или itd.stack(gx, gy)) по НАСТОЯЩЕМУ хит-тесту Phaser (hitArea, renderList, topOnly): {ok, at{x,y}, stack['safe scene dN Type WxH'], wins{scene,id,safe,type,depth,title}} — wins получит pointerdown; '!' — сцена под забравшей клик

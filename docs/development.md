@@ -288,11 +288,13 @@ documenting separately:
   `cx`/`cy` — the centre of the world bounds (acceptance 10.10).
 - **`itd.hit(id)` / `itd.blocker()`** (acceptance 10.10) — `itd.click()`
   bypasses the hit test, so it can't tell a covered button from a live one.
-  `hit(id)` emulates Phaser's `globalTopOnly` hit test at the object's
-  `cx`/`cy` (scenes top-down; within a scene the visible interactive with the
-  highest depth, later-drawn wins a tie) and answers `{ok, at, top}` — `top`
-  is who would take a real click (e.g. the day report's dimmer, depth 50,
-  over `btn.menu`). `blocker()` is the topmost visible interactive covering
+  `hit(id)` runs the real Phaser hit test at the object's `cx`/`cy` — the
+  same code as `itd.stack()` below (hit areas, `renderList` order,
+  `topOnly`/`globalTopOnly`; until 10.10 it was an emulation by bounds and
+  depth) — and answers `{ok, at, top}`: `top` is who would take a real click
+  (e.g. the day report's dimmer, depth 50, over `btn.menu`), `null` when no
+  hit area covers the point; `depth` of an object inside a container is the
+  root container's. `blocker()` is the topmost visible interactive covering
   the whole 1280×720 canvas (report dimmer, modal backdrop) or `null`.
   Both carry `safe` and `title` — the window title a scene stored on that
   backdrop with `markTitle()` (ITGAME-72).
@@ -312,7 +314,7 @@ documenting separately:
   `btn.gateway`) when money/seats/PCs are missing, also `nodes().disabled`.
   `free: true` keeps only items without `X`.
 - **`itd.stack(id | gx, gy)` / `itd.zones(a, b)`** (ITGAME-74) — the real
-  Phaser hit test, not `hit()`'s bounds-and-depth emulation: the same
+  Phaser hit test (`hit()` and the `X` flag of `screen()` use it too): the same
   `InputManager.hitTest` over each scene's input list (hit areas in the
   object's local space, camera, container visibility), ordered by
   `InputPlugin.sortGameObjects` (the camera's `renderList` of the last frame),
@@ -504,7 +506,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:buttons` | HUD buy-button enabled/tooltip/alpha states (ITGAME-17) | :4180, self-serve |
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35) | :4179, self-serve + temp saves dir |
 | `npm run qa:hud` | HUD layout column, toast stack, no overlaps (ITGAME-16) | :4174, self-serve |
-| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78); `itd.sandbox()`: the owner's shared key survives «Сдаться» and a second party, `fakeOwner()`, `restore()` puts back / keeps (ITGAME-77); `itd.stack()` under the day report: the dimmer wins over `btn.menu`, same as `hit().top` (ITGAME-74) | :4175, self-serve |
+| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78); `itd.sandbox()`: the owner's shared key survives «Сдаться» and a second party, `fakeOwner()`, `restore()` puts back / keeps (ITGAME-77); `itd.stack()` under the day report: the dimmer wins over `btn.menu`, same as `hit().top` (ITGAME-74); `hit()` and the `X` flag follow the real hit area — a 1×1 hitArea on `btn.next_day` makes it covered (owner 10.10) | :4175, self-serve |
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks; `broken_pc`: the repair zone covers the worker and the «✖ чинить» label, real clicks repair (ITGAME-75) | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37); receipts by command id — `id`/`rev` in `cmd()`, `trace().sent`/`states`, `net()`, and no false receipt with a tick or an observer's (`/ws/agent`) snapshot in flight (ITGAME-45) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
