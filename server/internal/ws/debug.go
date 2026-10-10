@@ -200,6 +200,12 @@ func (h *Handler) ServeDebug(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.serveDebugDrop(w, r)
+	case "/api/debug/journal":
+		if r.Method != http.MethodGet {
+			writeDebugErr(w, http.StatusMethodNotAllowed, "метод не тот")
+			return
+		}
+		h.serveJournal(w, r) // журнал партии для реплея (ITGAME-46)
 	case "/api/debug/events":
 		if r.Method != http.MethodGet {
 			writeDebugErr(w, http.StatusMethodNotAllowed, "метод не тот")
@@ -480,9 +486,11 @@ func (h *Handler) applyDebug(
 		reply(debugReply{Code: http.StatusOK, Body: stateReply{
 			SID: sid, State: snap(), Save: g.Export(), Events: jr.last(20),
 		}})
+		return false
 
 	case kindEvents:
 		reply(debugReply{Code: http.StatusOK, Body: map[string]any{"sid": sid, "events": jr.last(req.n)}})
+		return false
 
 	case kindLedger:
 		l, ok := g.LedgerOf(req.day)
@@ -492,78 +500,27 @@ func (h *Handler) applyDebug(
 			return false
 		}
 		reply(debugReply{Code: http.StatusOK, Body: newLedgerReply(l, g.LedgerDayList())})
+		return false
+	}
 
-	case kindPatch:
-		if err := applyDebugPatch(g, req.patch); err != "" {
-			reply(debugReply{Code: http.StatusBadRequest, Err: err})
-			return false
-		}
-		jr.add(fmt.Sprintf("debug · патч: %s", patchSummary(req.patch, g)))
-		if !persist() {
-			reply(debugReply{Code: http.StatusGone, Err: "session_taken"})
-			return true
-		}
-		push()
-		reply(debugReply{Code: http.StatusOK, Body: stateReply{
-			SID: sid, State: snap(), Save: g.Export(),
-		}})
-
-	case kindScenario:
-		g2, err := game.NewFixture(g.Config(), req.scenario, g.SeedString())
-		if err != nil {
-			reply(debugReply{Code: http.StatusBadRequest, Err: err.Error()})
-			return false
-		}
-		g, *gp, *scenario, *last = g2, g2, req.scenario, nil
-		jr.add(fmt.Sprintf("debug · сценарий %q (сид %s)", req.scenario, g.SeedString()))
-		if !persist() {
-			reply(debugReply{Code: http.StatusGone, Err: "session_taken"})
-			return true
-		}
-		push()
-		reply(debugReply{Code: http.StatusOK, Body: stateReply{
-			SID: sid, State: snap(), Save: g.Export(),
-		}})
-
-	case kindRestore:
-		// Дельта над ТЕКУЩИМ состоянием: отсутствующие в JSON поля
-		// сохраняют значения (ручные частичные сейвы удобны).
-		base := g.Export()
-		if err := json.Unmarshal(req.state, &base); err != nil {
-			reply(debugReply{Code: http.StatusBadRequest, Err: "state не JSON: " + err.Error()})
-			return false
-		}
-		base.Config = g.Config() // конфиг закреплён за сессией (difficulty)
-		g2, err := game.Restore(base)
-		if err != nil {
-			reply(debugReply{Code: http.StatusBadRequest, Err: "невалидное состояние: " + err.Error()})
-			return false
-		}
+	g2, sum, code, msg := debugMutate(g, req)
+	if code != 0 {
+		reply(debugReply{Code: code, Err: msg})
+		return false
+	}
+	if g2 != g {
+		// scenario/restore заменяют партию целиком: отчёт дня старой не дошлём
 		g, *gp, *last = g2, g2, nil
+	}
+	switch req.kind {
+	case kindPatch:
+		jr.add(fmt.Sprintf("debug · патч: %s", patchSummary(req.patch, g)))
+	case kindScenario:
+		*scenario = req.scenario
+		jr.add(fmt.Sprintf("debug · сценарий %q (сид %s)", req.scenario, g.SeedString()))
+	case kindRestore:
 		jr.add(fmt.Sprintf("debug · restore (день %d, $%d)", g.Day, g.Money))
-		if !persist() {
-			reply(debugReply{Code: http.StatusGone, Err: "session_taken"})
-			return true
-		}
-		push()
-		reply(debugReply{Code: http.StatusOK, Body: stateReply{
-			SID: sid, State: snap(), Save: g.Export(),
-		}})
-
 	case kindAdvance:
-		// Из фазы отчёта — сначала следующий день: офлайн-движок работает
-		// только из running (день без игрока не промотать).
-		if g.Phase == game.PhaseDayReport {
-			if err := g.NextDay(); err != nil {
-				reply(debugReply{Code: http.StatusConflict, Err: "next_day: " + err.Error()})
-				return false
-			}
-		}
-		miss := req.ticks
-		if req.days > 0 {
-			miss = req.days * g.Config().DayTicks()
-		}
-		sum := g.AdvanceOffline(miss)
 		jr.add(fmt.Sprintf("debug · advance: %d тиков, %d дней, доход $%d, ФОТ $%d, баланс $%d",
 			sum.Ticks, sum.Days, sum.Income, sum.Payroll, sum.Balance))
 		if sum.GameOver {
@@ -572,11 +529,13 @@ func (h *Handler) applyDebug(
 		if sum.Victory {
 			jr.add("победа в офлайн-промотке")
 		}
-		if !persist() {
-			reply(debugReply{Code: http.StatusGone, Err: "session_taken"})
-			return true
-		}
-		push()
+	}
+	if !persist() {
+		reply(debugReply{Code: http.StatusGone, Err: "session_taken"})
+		return true
+	}
+	push()
+	if req.kind == kindAdvance {
 		if sum.GameOver {
 			hub.write(ctx, gameOverMessage{Type: "game_over", DaysSurvived: g.Day,
 				PeakIncomePerTick: g.PeakIncomePerTick, Balance: g.Money, Reason: g.LoseReason})
@@ -585,8 +544,63 @@ func (h *Handler) applyDebug(
 				Difficulty: string(g.Config().Difficulty), Day: g.Day, Balance: g.Money})
 		}
 		reply(debugReply{Code: http.StatusOK, Body: advanceReply{SID: sid, Advance: sum, State: snap()}})
+		return false
 	}
+	reply(debugReply{Code: http.StatusOK, Body: stateReply{
+		SID: sid, State: snap(), Save: g.Export(),
+	}})
 	return false
+}
+
+// debugMutate — мутирующая часть debug-запроса (patch, scenario, restore,
+// advance): одна для актора и реплеера журнала (ITGAME-46), чтобы реплей
+// не расходился с живой сессией по построению. Возвращает игру после
+// запроса (та же или новая — scenario/restore заменяют её целиком), сводку
+// advance и при отказе HTTP-код с текстом; отказ игру не меняет.
+func debugMutate(g *game.Game, req debugRequest) (*game.Game, *game.OfflineSummary, int, string) {
+	switch req.kind {
+	case kindPatch:
+		if err := applyDebugPatch(g, req.patch); err != "" {
+			return g, nil, http.StatusBadRequest, err
+		}
+		return g, nil, 0, ""
+
+	case kindScenario:
+		g2, err := game.NewFixture(g.Config(), req.scenario, g.SeedString())
+		if err != nil {
+			return g, nil, http.StatusBadRequest, err.Error()
+		}
+		return g2, nil, 0, ""
+
+	case kindRestore:
+		// Дельта над ТЕКУЩИМ состоянием: отсутствующие в JSON поля
+		// сохраняют значения (ручные частичные сейвы удобны).
+		base := g.Export()
+		if err := json.Unmarshal(req.state, &base); err != nil {
+			return g, nil, http.StatusBadRequest, "state не JSON: " + err.Error()
+		}
+		base.Config = g.Config() // конфиг закреплён за сессией (difficulty)
+		g2, err := game.Restore(base)
+		if err != nil {
+			return g, nil, http.StatusBadRequest, "невалидное состояние: " + err.Error()
+		}
+		return g2, nil, 0, ""
+
+	case kindAdvance:
+		// Из фазы отчёта — сначала следующий день: офлайн-движок работает
+		// только из running (день без игрока не промотать).
+		if g.Phase == game.PhaseDayReport {
+			if err := g.NextDay(); err != nil {
+				return g, nil, http.StatusConflict, "next_day: " + err.Error()
+			}
+		}
+		miss := req.ticks
+		if req.days > 0 {
+			miss = req.days * g.Config().DayTicks()
+		}
+		return g, g.AdvanceOffline(miss), 0, ""
+	}
+	return g, nil, http.StatusBadRequest, "неизвестный debug-запрос " + req.kind
 }
 
 // applyDebugPatch — точечный чит с валидацией инвариантов дня.

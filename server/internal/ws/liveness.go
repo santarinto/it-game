@@ -51,6 +51,7 @@ type tabConn struct {
 	timeout time.Duration // таймаут чтения; drop может укоротить
 	dropped time.Time     // момент debug-обрыва; zero — не обрывали
 	pinging bool          // ping в полёте: второй не шлём
+	gone    string        // почему сторож закрыл соединение (журнал партии, ITGAME-46); "" — не он
 	rewatch chan struct{} // drop сменил таймаут — сторож пересчитывает шаг
 }
 
@@ -66,6 +67,17 @@ func (t *tabConn) hear() {
 		t.heard = time.Now()
 	}
 	t.mu.Unlock()
+}
+
+// goneWhy — read_timeout | debug_drop, если соединение закрыл сторож; иначе
+// "" (и у headless-сессии без вкладки).
+func (t *tabConn) goneWhy() string {
+	if t == nil {
+		return ""
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.gone
 }
 
 func (t *tabConn) isDropped() bool {
@@ -121,10 +133,13 @@ func (t *tabConn) watch(ctx context.Context, cancel context.CancelFunc, sid stri
 		}
 		t.mu.Unlock()
 		if idle > timeout {
-			why := "обрыв сети"
+			why, gone := "обрыв сети", "read_timeout"
 			if dropped {
-				why = "debug-обрыв"
+				why, gone = "debug-обрыв", "debug_drop"
 			}
+			t.mu.Lock()
+			t.gone = gone
+			t.mu.Unlock()
 			log.Printf("сессия %s: клиент молчит %s (таймаут чтения %s, %s) — соединение закрыто", sid, idle.Round(time.Millisecond), timeout, why)
 			t.c.CloseNow() // без close-фрейма: пиру его всё равно не доставить
 			cancel()       // актор встаёт; последний сейв — момент, когда заметили

@@ -222,6 +222,105 @@ gate (`?debug=1`/dev build) and doesn't require `ITGAME_DEBUG` by itself —
 only the `/api/debug/*` calls some of its methods make (`set`, `step`,
 `advanceDays`, `scenario`, …) need the server flag to succeed.
 
+## Party journal and replay
+
+A bug from a live party is reproduced without a browser: under
+`ITGAME_DEBUG=1` (`Handler.Journal`, set by `newMux` together with the debug
+routes; never on production) the session actor records the party as JSONL,
+and `server/cmd/replay` re-runs it on `game.Game` and checks a state hash
+after every record (ITGAME-46). The engine is deterministic — PCG by seed,
+no `time.Now` in `internal/game` — so seed + inputs by tick *is* the party;
+the first record whose hash differs is where determinism broke.
+
+    curl -s 'localhost:8080/api/debug/journal?sid=<sid>' > party.jsonl   # sid: itd.server().sid
+    make replay ARGS=party.jsonl                                       # or ARGS="-url http://localhost:8080 -sid <sid>"
+    make replay ARGS="-json party.jsonl"                               # one JSON object: ok, records, ticks, warnings, divergence, save
+
+`GET /api/debug/journal?sid=` (`application/x-ndjson`) works while the party
+is live and after it (until the server restarts or the journal is evicted):
+404 `journal_off` without the flag, 404 `no_journal` for a sid the server has
+not seen. Exit codes: 0 — replay matches, 1 — divergence, 2 — unreadable
+journal.
+
+**Format** (`server/internal/ws/journal.go`). Line 1 is the header —
+`{k:"header", v:1, sid, seed, difficulty, scenario, cfgHash, version, config,
+dropped}` (the full config, so custom test configs replay too). Then one line
+per record; every record carries `seq`, `tk`, `rev` (ITGAME-45), `day`,
+`tick`, `money`, `phase`, `speed` and `h` — the position and hash *after* the
+input:
+
+    {"k":"start","seq":1,"rev":1,"day":1,"tick":0,"money":600,"phase":"running","speed":1,"h":"81614dc3d1bbdadf"}
+    {"k":"cmd","seq":3,"tk":3,"rev":6,"day":1,"tick":3,"money":25,"phase":"running","speed":3,"h":"13751fcfb18e068b","id":2,"type":"buy_pc"}
+    {"k":"cmd","seq":5,"rev":6,"day":1,"tick":3,"money":25,"phase":"running","speed":3,"h":"13751fcfb18e068b","id":4,"type":"fire","slot":9,"err":"bad_slot"}
+    {"k":"debug","seq":6,"rev":7,"day":1,"tick":23,"money":25,"phase":"running","speed":3,"h":"00149c339a48dd8b","op":"advance","ticks":20}
+    {"k":"end","seq":7,"tk":2,"rev":9,"day":1,"tick":25,"money":25,"phase":"running","speed":3,"h":"d124dc5eecb4b816"}
+    {"k":"resume","seq":8,"rev":10,"day":1,"tick":30,…,"h":"63f852f5e117e4eb","pre":"d124dc5eecb4b816","offline":5,"saveSpeed":3,"save":{…}}
+
+(a real journal: `pre` of the `resume` equals `h` of the `end` before it —
+the save the server loaded is exactly the state the replay reached; 5
+offline ticks then move it to tick 30.)
+
+- `tk` — how many times the actor called `g.Tick()` since the previous
+  record; the replayer runs those ticks before applying the record. Speed is
+  only a snapshot field: it changes how often ticks fire, never what a tick
+  does (`internal/game` has no notion of it), and the tick count already
+  captures the frequency — a replay knows nothing about time and still
+  matches a party played at 1–3×.
+- `cmd` — every client command as received (`id`, `type`, `office`, `slot`,
+  `arg` = the command's speed for `set_speed`/`exit`), rejections included
+  with `err` — the replayer checks the rejection reproduces. `debug` — only
+  mutating `/api/debug/*` / bridge `debug_*` requests (`patch`, `scenario`,
+  `restore` with the raw delta, `advance`); the replayer applies them through
+  the same `debugMutate` as the actor.
+- `day` — a tick closed the day or the party (a milestone to localise a
+  divergence). `cp` — checkpoint: the full save plus the PCG position
+  (`Game.RNGState()`), written after every day report and after every 256 KiB
+  without one.
+- Impure inputs are explicit: `resume` — `pre` is the hash of the save the
+  server loaded (after `game.Restore`, i.e. PCG re-seeded from the start, as
+  `save.go` does), `offline` the catch-up ticks the server computed from the
+  wall clock, `save` the save itself; `end` — the actor left (`evicted` when
+  another actor took the session; `reason: read_timeout | debug_drop` when
+  the read watchdog closed the tab, ITGAME-76 — the party ran live until
+  then, its ticks are in `tk`, and the save the next `resume` loads is
+  exactly the state at this `end`).
+- `h` = sha256 (first 8 bytes) over `Export()` JSON (the day ledger and its
+  history, ITGAME-73, included — `itd.set({money})` lands in `adjust` through
+  the same `debugMutate` in the replay), the protocol snapshot
+  without `rev`/`cause` (derived fields: income, network, forecast) and the
+  PCG state.
+
+**Size.** One journal is capped at 4 MiB: over the cap the head is cut at the
+earliest checkpoint that brings it under the cap, and the replay starts from
+that checkpoint (`header.dropped` counts the cut records, `seq` keeps
+numbering). A ring rather than rotation, because the interesting part of a
+bug report is the end of the party; checkpoints make the ring replayable.
+Without a checkpoint to cut at (a finale has no save, so no checkpoints, and
+someone hammers rejected clicks) the journal grows to 8 MiB and then stops
+with `header.overflow`. At most 64 journals live in memory (the oldest closed
+one is evicted first); they are not persisted, saves don't depend on them.
+
+**Divergence report**: the line and the record, expected/actual hash,
+expected/actual `day/tick/money/phase/speed`, and on a checkpoint or `resume`
+a field-by-field diff of the save. A takeover is the one tolerated mismatch:
+the old actor's tick or command that landed between the new actor's
+`Load` and `Begin` (`run()`/`resume()`) is in the journal but not in the save
+the new actor loaded (and an evicted actor's last tick may be applied in
+memory with its save refused). On a `resume` after an unclosed or `evicted`
+journal the replayer resyncs from the record's `save` and prints a warning
+with the diff instead of failing; a mismatch on a normal reconnect is a
+divergence.
+
+Tests: `TestJournalReplayRandomParty` (`server/internal/ws/journal_test.go`)
+plays a random party on the real config — events, breakdowns, coffee, stars,
+rejected commands, debug patch/advance/restore, a reconnect with offline
+catch-up, a takeover, exit → «Продолжить» — then fetches
+`/api/debug/journal`, replays it and compares the final save and snapshot
+byte for byte with `GET /api/debug/state`; siblings cover the ring
+(`TestJournalRingTrimsAtCheckpoint`), the divergence report, `?seed=0` across
+a reconnect and the gate; `TestJournalThroughMux` (`cmd/server`) does it on
+the binary's routes. `npm run qa:journal` does it from a real browser tab.
+
 ## Debug API (`window.itd`)
 
 Client-only tooling, cosmetic for players and unknown to the server — two
@@ -557,6 +656,7 @@ documenting separately:
     make typecheck    # client type check
     make smoke-ui     # built client in headless Chromium: menu starts, clean console
     make sim ARGS=…   # headless balance runs
+    make replay ARGS=party.jsonl   # replay a party journal (see Party journal and replay)
     cd client && npm run visreg   # screenshot and layout regressions
 
 **Browser.** `smoke-ui`, the `qa:*` scripts and `visreg` run a pinned
@@ -600,11 +700,12 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
 | `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63); explicit exit freezes the party: the exit dialog pauses, Отмена/Esc/✕ restore the speed, «Сохранить и выйти» → «Продолжить» keeps tick/day/money and the speed, also from an open day report (ITGAME-65); on the victory screen (storage sid cleared) `itd.server().sid`/`liveSid` stay the live party's sid (ITGAME-68); office/server-room windows (router, fire dialog via a real right click on `broken_pc`, core, rack) close on `itd.scenario()`/`itd.restore()`, a click where «Уволить» was sends nothing (ITGAME-69); A1–A7 `itd.away` (ITGAME-76): `close` — while away the socket is `reconnecting`, commands `not_connected`, the server session is gone at once, the return resumes the same sid with `droppedAt` ≈ `leftAt`; `net` with `timeout: 1500` — the server session lives (200) until its read timeout and is gone (404) after, `droppedAt − drop.at` ≈ 1.5 s, `liveTicks` ≈ 3 at 2x, catch-up from `droppedAt`; `net` shorter than the timeout — no catch-up, ticks ran live; the owner key untouched; inside `itd.sandbox` the return lands in the sandbox party | :4181, self-serve + temp saves dir |
 | `npm run qa:report-pause` | the day report pauses the party (speed 0, time and balance stand still); Enter/Space/`btn.next_day`/`itd.cmd('next_day')` restore the pre-report speed; F5 with the report open keeps `itd.speedBeforeReport`, «Продолжить» reopens it paused and closing restores 3×; an outside `itd.speed(0)` over the report survives; `itd.set({tickInDay})` refused in `day_report`; `skipReports` changes the day without a modal or a stuck 0 (ITGAME-18, self-serve since ITGAME-70) | :4182, self-serve + temp saves dir |
+| `npm run qa:journal` | the journal of a live browser party (HUD clicks, `itd.cmd`, a rejection, `itd.set`/`itd.step`, F5 → «Продолжить» with offline catch-up) from `/api/debug/journal` replays with `cmd/replay -json` without divergence or warnings, and the replayed save equals the live one (ITGAME-46) | :4186, self-serve + temp saves dir |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |
 | `npm run visreg` | screenshot diff + layout linter per fixture scenario | :4173, self-serve, `VISREG_PORT` overrides |
 
 `qa:buttons`/`qa:hud`/`qa:facade`/`qa:slots`/`qa:trace`/`qa:contract`/`qa:tabs`/
-`qa:party`/`qa:report-pause`/`visreg` share `client/scripts/lib/selfserve.mjs`: it rebuilds `bin/itdirector` on every
+`qa:party`/`qa:report-pause`/`qa:journal`/`visreg` share `client/scripts/lib/selfserve.mjs`: it rebuilds `bin/itdirector` on every
 run (`go build` into a temp file, then an atomic rename — a no-op relink takes
 under 1 s, so QA never runs against a binary older than `server/`) and runs it
 over `client/dist`, refuses WHATWG bad ports (e.g. 4190, 6000 — fetch and
@@ -615,7 +716,7 @@ loudly instead of running the suite against the wrong server. It also sets
 `ITGAME_DEBUG=1` on the spawned `bin/itdirector` (see [Agent bridge](
 #agent-bridge-wsagent)), since `itd.set()`/`itd.step()`/`itd.advanceDays()`/… — used by
 `qa:buttons`, `qa:hud`, `qa:trace`, `qa:facade`, `qa:slots`, `qa:party`, `qa:report-pause` — need `/api/debug/*`
-registered. `qa:tabs`/`qa:party`/`qa:report-pause` additionally self-serves with a temporary saves
+registered (and the party journal recorded, `qa:journal`). `qa:tabs`/`qa:party`/`qa:report-pause`/`qa:journal` additionally self-serves with a temporary saves
 directory, since their session-takeover/«Continue»/F5 scenarios need a real saves store
 (`-saves off` won't do).
 `qa:meta`/`smoke-ui` instead self-serve a plain `vite preview` over `dist`

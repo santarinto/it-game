@@ -1,4 +1,4 @@
-.PHONY: help push dev dev-server dev-client test typecheck smoke-ui build sim
+.PHONY: help push dev dev-server dev-client test typecheck smoke-ui build sim replay
 .DEFAULT_GOAL := help
 
 # .env (DATABASE_URL) подхватывается автоматически; файла может не быть.
@@ -35,3 +35,7 @@ build: ## клиент в client/dist, сервер в bin/itdirector
 
 sim: ## headless-прогоны баланса: make sim ARGS="--diff hard --seed 1..50 --days 30 --policy all"
 	cd server && go run ./cmd/sim $(ARGS)
+
+replay: ## реплей журнала партии (ITGAME-46): make replay ARGS="party.jsonl" | ARGS="-url http://localhost:8080 -sid <sid>"
+	cd server && go build -o ../bin/itdirector-replay ./cmd/replay
+	bin/itdirector-replay $(ARGS)

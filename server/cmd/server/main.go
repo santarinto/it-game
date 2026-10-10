@@ -66,7 +66,7 @@ func main() {
 
 	debugRoutes := os.Getenv("ITGAME_DEBUG") == "1"
 	if debugRoutes {
-		log.Printf("ITGAME_DEBUG=1: отладочные маршруты /ws/agent и /api/debug/* включены")
+		log.Printf("ITGAME_DEBUG=1: отладочные маршруты /ws/agent и /api/debug/* включены, журнал партий пишется")
 	}
 
 	cfg := game.DefaultConfig()
@@ -108,7 +108,9 @@ func main() {
 // чтобы тесты управляли им напрямую, без глобального состояния.
 func newMux(cfg game.Config, database *db.DB, saves *store.Store, staticDir string, debugRoutes bool, readTimeout time.Duration) *http.ServeMux {
 	mux := http.NewServeMux()
-	wsHandler := &ws.Handler{Config: cfg, TickInterval: time.Second, Saves: saves, ReadTimeout: readTimeout}
+	// Журнал партии для реплея (ITGAME-46) — под тем же гейтом, что и
+	// /api/debug/*: на проде у игроков не пишется.
+	wsHandler := &ws.Handler{Config: cfg, TickInterval: time.Second, Saves: saves, ReadTimeout: readTimeout, Journal: debugRoutes}
 	mux.Handle("GET /ws", wsHandler)
 	if debugRoutes {
 		// WS-мост агента (ITGAME-29) и HTTP debug-API (ITGAME-26): только

@@ -29,12 +29,16 @@ type Handler struct {
 	// молчит дольше (ни сообщения, ни pong) — сервер считает его ушедшим.
 	// 0 — DefaultReadTimeout.
 	ReadTimeout time.Duration
+	// Journal — журнал партии для реплея (ITGAME-46): включает ITGAME_DEBUG=1.
+	Journal bool
 
 	// Реестр живых сессий (ITGAME-26/29): sid → актор с его каналами.
 	// Регистрирует сам актор, выписывается на выходе; агентские коннекты
 	// цепляются к найденной сессии без её отбирания.
-	debugMu sync.Mutex
-	live    map[string]*session
+	debugMu       sync.Mutex
+	live          map[string]*session
+	journals      *journalStore // лениво, под debugMu (journal.go)
+	journalLimits journalLimits // нули — умолчания; тесты кольца ставят малые
 }
 
 // session — живая сессия: актор плюс его каналы. Создаётся ДО запуска
@@ -316,7 +320,7 @@ func offlineTicks(savedAt time.Time, speed int, interval time.Duration) int {
 // пишет только актор (через hub — всем соединениям сессии), мьютексов
 // на игровом состоянии нет. Возвращает true, если сессию забрал другой
 // актор (eviction).
-func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid string, opts sessionOpts) bool {
+func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid string, opts sessionOpts) (evicted bool) {
 	commands := sess.commands
 	hub := sess.hub
 	// ── Старт: восстановление или новая игра ────────────────────────────
@@ -335,8 +339,12 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		rv          = &revClock{} // версия состояния (ITGAME-45)
 	)
 	withSaves := h.Saves != nil && store.ValidSID(sid)
+	var rt *resumeTrace // журнал партии (ITGAME-46): сейв до офлайн-догона
+	if h.Journal {
+		rt = &resumeTrace{}
+	}
 	if withSaves {
-		g, speed, lastReport, offline, resumed, scenario, journal, savedAt, rv.rev = h.resume(sid)
+		g, speed, lastReport, offline, resumed, scenario, journal, savedAt, rv.rev = h.resume(sid, rt)
 	}
 	// Первый снапшот сессии: start — новая партия, resume — из сейва.
 	if resumed {
@@ -377,6 +385,9 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 			return true
 		}
 	}
+
+	jn := h.openJournal(sid, &g, &speed, &resumeSpeed, &scenario, rv, resumed, rt)
+	defer func() { jn.end(evicted, sess.tab.goneWhy()) }()
 
 	ticker := time.NewTicker(h.TickInterval)
 	defer ticker.Stop()
@@ -438,12 +449,16 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		case <-kick:
 			return true
 		case req := <-debugC:
-			if h.applyDebug(ctx, hub, req, sid, gen, withSaves,
-				&g, &speed, resumeSpeed, &lastReport, journal, &scenario, rv) {
+			rev := rv.rev
+			taken := h.applyDebug(ctx, hub, req, sid, gen, withSaves,
+				&g, &speed, resumeSpeed, &lastReport, journal, &scenario, rv)
+			jn.debug(req, rv.rev != rev) // мутация = новая версия состояния
+			if taken {
 				return true
 			}
 		case cmd := <-commands:
 			if cmd.Cmd == cmdAbandon {
+				jn.command(cmd, nil)
 				if withSaves {
 					h.Saves.Delete(sid)
 				}
@@ -465,6 +480,10 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 			} else if err := g.Apply(cmd.Cmd, cmd.Office, cmd.Slot); err != nil {
 				rejected = &errorMessage{Type: "error", Code: err.Error()}
 			}
+			if rejected == nil {
+				rv.bump(causeCmd)
+			}
+			jn.command(cmd, rejected)
 			// Ошибки — только отправителю (его промах, не общее событие),
 			// состояние не меняют: rev текущий.
 			if rejected != nil {
@@ -474,7 +493,6 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 				}
 				continue
 			}
-			rv.bump(causeCmd)
 			// Успешная команда — точка сейва: покупки и переходы дней
 			// не должны теряться даже при жёстком kill -9. Финальная партия
 			// сейва не держит: после финала сессия жива до «В меню»
@@ -518,6 +536,9 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 					}
 				}
 			}
+			// В журнал — после сейва: тик вытесненного актора, чей сейв не
+			// прошёл, никто не увидит, и реплею он не нужен (ITGAME-46).
+			jn.tick(finished || report != nil)
 			if wasRunning && g.Phase == game.PhaseWon {
 				journal.add(fmt.Sprintf("д%d · цель достигнута: победа", g.Day))
 				hub.write(ctx, rv.stamp(snapshot(g, speed, false, scenario)))
@@ -548,7 +569,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 
 // resume — восстановить игру из сейва (если есть и валиден). Невалидный
 // или терминальный сейв удаляется — сессия начнётся заново.
-func (h *Handler) resume(sid string) (g *game.Game, speed int, last *game.DayReport, offline *game.OfflineSummary, ok bool, scenario string, journal *eventJournal, savedAt time.Time, rev uint64) {
+func (h *Handler) resume(sid string, rt *resumeTrace) (g *game.Game, speed int, last *game.DayReport, offline *game.OfflineSummary, ok bool, scenario string, journal *eventJournal, savedAt time.Time, rev uint64) {
 	journal = newEventJournal(500) // даже без сейва журнал валиден
 	raw, found := h.Saves.Load(sid)
 	if !found {
@@ -565,7 +586,9 @@ func (h *Handler) resume(sid string) (g *game.Game, speed int, last *game.DayRep
 		return nil, 1, nil, nil, false, "", journal, time.Time{}, 0
 	}
 	speed = min(max(ss.Speed, 0), 3)
-	offline = g.AdvanceOffline(offlineTicks(ss.SavedAt, speed, h.TickInterval))
+	miss := offlineTicks(ss.SavedAt, speed, h.TickInterval)
+	rt.capture(g, speed, ss.ResumeSpeed, ss.Scenario, ss.Rev, miss) // журнал: сейв до догона (ITGAME-46)
+	offline = g.AdvanceOffline(miss)
 	// Явный выход (ITGAME-65): сейв на паузе — догон выше нулевой, а партия
 	// продолжается на скорости до выхода; следующий persist обнулит ResumeSpeed.
 	if rs := min(ss.ResumeSpeed, 3); speed == 0 && rs > 0 {
