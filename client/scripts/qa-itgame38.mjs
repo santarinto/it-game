@@ -425,7 +425,13 @@ async function run() {
     })
     const hitC8 = c8?.find((e) => e.kind === 'interactive' && [e.a, e.b].includes('room.rack.0.0') && [e.a, e.b].includes('room.core'))
     check('C8: сдвиг спрайта room.rack.0.0 на room.core → interactive', !!hitC8, JSON.stringify(hitC8 ?? c8?.slice(0, 5) ?? null))
-    await page.evaluate(() => window.itd.click('nav.office0'))
+    // Назад в офис: кнопки покупки с ITGAME-94 живут в его сцене. Дребезг switchRoom
+    // (250 мс игрового времени, в headless кадры редкие) отвечает code debounced — повторяем.
+    for (let i = 0; i < 20; i++) {
+      const r = await page.evaluate(() => window.itd.click('nav.office0'))
+      if (r.code !== 'debounced') break
+      await delay(150)
+    }
     await delay(300)
 
     // ── A5: обычная кнопка покупки — не переключатель
@@ -474,8 +480,8 @@ async function run() {
     const soundLogB1 = await page.evaluate(() => window.itd.log(200).filter((e) => e.type === 'sound'))
     const lastSoundB1 = soundLogB1[soundLogB1.length - 1]
     check(
-      'B1: последняя sound-запись — sfx:error/hud/ok',
-      lastSoundB1?.key === 'sfx:error' && lastSoundB1?.scene === 'hud' && lastSoundB1?.ok === true &&
+      'B1: последняя sound-запись — sfx:error/office/ok (кнопка в комнате, ITGAME-94)',
+      lastSoundB1?.key === 'sfx:error' && lastSoundB1?.scene === 'office' && lastSoundB1?.ok === true &&
         lastSoundB1?.name === 'error' && typeof lastSoundB1?.volume === 'number' &&
         lastSoundB1.volume > 0 && lastSoundB1.volume <= 1,
       JSON.stringify(lastSoundB1),
@@ -483,7 +489,7 @@ async function run() {
 
     // ── S3 (ITGAME-72): нет денег — у btn.pc флаг D в screen() и disabled в nodes()
     const s3 = await page.evaluate(() => ({
-      item: window.itd.screen({ scene: 'hud' }).items.find((i) => i.startsWith('btn:pc|')),
+      item: window.itd.screen({ scene: 'office' }).items.find((i) => i.startsWith('btn:pc|')),
       node: window.itd.nodes().find((n) => n.id === 'btn.pc')?.disabled,
       menu: window.itd.nodes().find((n) => n.id === 'btn.menu')?.disabled,
     }))
@@ -549,6 +555,7 @@ async function run() {
         sc, len: JSON.stringify(sc).length, day: window.itd.state().day, blocker: window.itd.blocker(),
         free: window.itd.screen({ free: true }), half: window.itd.screen({ frame: innerWidth / 2 }),
         next: window.itd.nodes().find((n) => n.id === 'btn.next_day'),
+        pcHit: window.itd.hit('btn.pc').ok,
         rect: (() => { const r = document.querySelector('canvas').getBoundingClientRect(); return { left: r.left, top: r.top, k: r.width / 1280 } })(),
       }
     })
@@ -574,6 +581,12 @@ async function run() {
         s1.free.items.length > 0 && s1.free.items.every((i) => !i.split('|')[4].includes('X')) && !row(s1.free, 'btn:menu') &&
         !!halfNext && Math.abs(Number(halfNext[2]) - expX / 2) <= 1 && Math.abs(Number(halfNext[3]) - expY / 2) <= 1,
       JSON.stringify({ nextRow, menuRow, halfNext, expX, expY, free: s1.free.n, len: s1.len, n: s1.sc.n }),
+    )
+    const pcRow = row(s1.sc, 'btn:pc')
+    check(
+      'S2b: кнопка комнаты btn:pc под затемнением отчёта — X, hit() не ok, в free её нет (ITGAME-94)',
+      !!pcRow && pcRow[4].includes('X') && s1.pcHit === false && !row(s1.free, 'btn:pc'),
+      JSON.stringify({ pcRow, pcHit: s1.pcHit }),
     )
     const skipIdsBefore = await page.evaluate(() => window.itd.ids().filter((n) => n.id === 'btn.skip_reports'))
     check('C2: btn.skip_reports active===false (до клика)', skipIdsBefore[0]?.active === false, JSON.stringify(skipIdsBefore))

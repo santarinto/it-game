@@ -6,8 +6,9 @@ import { fmtMoney } from '../format'
 import { nav } from '../rooms'
 import { onPartyReset, partyChange } from '../party'
 import { debug, drawDebugFrames, setDebug } from '../debug'
-import { markActive, markDim, markDisabled, markTitle, rejectClick, tag } from '../debug/agentApi'
+import { markActive, markDim, markTitle, rejectClick, tag } from '../debug/agentApi'
 import { showModal, type ModalButton } from '../ui/modal'
+import { hideActionTooltips } from '../ui/actionButton'
 import { playSfx } from '../audio'
 import { emitUi } from '../uibus'
 import { activeZoom, applyZoom, ZOOM_OPTIONS, zoomLabel } from '../uiscale'
@@ -53,11 +54,11 @@ const ERROR_TEXTS: Record<ServerErrorCode, string> = {
   bad_option: 'Нет такого варианта',
 }
 
-interface Button {
-  setLabel(s: string): void
-  setEnabled(enabled: boolean, tooltip?: string): void
-  isEnabled(): boolean
-}
+// Правый край левого блока панели (ITGAME-16): правая колонка (цель/день/рынок)
+// начинается не левее x 848. До ITGAME-94 середину шапки занимали кнопки
+// покупки (x 420..840) и левый блок сжимался к 416; кнопки переехали в комнаты —
+// длинные строки («Сотрудники: 15 · в сети 15/15  Расходы …») больше не жмутся.
+const PANEL_LEFT_MAX = 832
 
 export class HUDScene extends Phaser.Scene {
   private moneyText!: Phaser.GameObjects.Text
@@ -69,14 +70,6 @@ export class HUDScene extends Phaser.Scene {
   private dayProfitText!: Phaser.GameObjects.Text
   private marketText!: Phaser.GameObjects.Text
   private debtText!: Phaser.GameObjects.Text
-  private pcBtn!: Button
-  private hireBtn!: Button
-  private bossBtn!: Button
-  private gatewayBtn!: Button
-  private buttonTooltip!: Phaser.GameObjects.Container
-  private buttonTooltipBg!: Phaser.GameObjects.Rectangle
-  private buttonTooltipText!: Phaser.GameObjects.Text
-  private hoveredButtonId!: string | null
   private navItems!: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; sub: Phaser.GameObjects.Text }[]
   private currentRoom!: 'office' | 'serverRoom'
   private reportUI!: Phaser.GameObjects.GameObject[]
@@ -164,7 +157,6 @@ export class HUDScene extends Phaser.Scene {
     this.noLinkToasted = false
     this.reconnectUI = []
     this.debugFrames = []
-    this.hoveredButtonId = null
     this.lastEventId = ''
     this.currentSpeed = 1
     this.reportPauseSeq = 0
@@ -223,42 +215,8 @@ export class HUDScene extends Phaser.Scene {
     }), 'hud.dayProfit')
     this.layoutPanel()
 
-    this.pcBtn = this.makeButton(420, 10, 'btn.pc', () => {
-      playSfx(this, 'select')
-      client.send('buy_pc', nav.activeOffice)
-    })
-    this.hireBtn = this.makeButton(420, 52, 'btn.hire', () => {
-      playSfx(this, 'select')
-      client.send('hire', nav.activeOffice)
-    })
-    this.bossBtn = this.makeButton(640, 10, 'btn.boss', () => {
-      playSfx(this, 'select')
-      client.send('hire_boss', nav.activeOffice)
-    })
-    this.gatewayBtn = this.makeButton(640, 52, 'btn.gateway', () => {
-      playSfx(this, 'select')
-      client.send('buy_gateway')
-    })
-
-    this.buttonTooltipText = tag(
-      this.add.text(10, 7, '', {
-        fontFamily: FONT,
-        fontSize: '12px',
-        color: '#ffcd75',
-        align: 'center',
-      }).setOrigin(0, 0).setVisible(false),
-      'hud.tooltip.text',
-    )
-    this.buttonTooltipBg = tag(
-      this.add.rectangle(0, 0, 10, 10, 0x14162b, 0.95)
-        .setOrigin(0, 0)
-        .setStrokeStyle(1, 0x41a6f6)
-        .setVisible(false),
-      'hud.tooltip.bg',
-    )
-    this.buttonTooltip = this.add.container(0, 0, [this.buttonTooltipBg, this.buttonTooltipText])
-      .setDepth(70)
-      .setVisible(false)
+    // Кнопки покупки (btn.pc/hire/boss/gateway) — в комнатах с ITGAME-94:
+    // OfficeScene/ServerRoomScene, механика — ui/actionButton.ts.
 
     // Темп времени: пауза и множители. Активная кнопка подсвечивается по speed
     // из снапшота — сервер источник истины.
@@ -606,8 +564,8 @@ export class HUDScene extends Phaser.Scene {
   // внутри строк — layoutRow (x-старт/gap/maxRight из прежней раскладки).
   private layoutPanel() {
     layoutColumn(4, [[this.moneyText], [this.incomeText, this.payrollText], [this.netText], [this.dayProfitText, this.debtText]], 0, HUD_H)
-    layoutRow(16, 16, [this.incomeText, this.payrollText], 416)
-    layoutRow(16, 12, [this.dayProfitText, this.debtText], 416)
+    layoutRow(16, 16, [this.incomeText, this.payrollText], PANEL_LEFT_MAX)
+    layoutRow(16, 12, [this.dayProfitText, this.debtText], PANEL_LEFT_MAX)
     layoutColumn(44, [[this.goalText], [this.dayText], [this.marketText]], 2, HUD_H)
   }
 
@@ -666,7 +624,6 @@ export class HUDScene extends Phaser.Scene {
       this.closeVictory()
     }
     const employees = s.offices.flatMap((o) => o.employees)
-    const active = s.offices[nav.activeOffice]
     this.moneyText.setText(fmtMoney(s.money))
     this.moneyText.setColor(s.money < 0 ? '#b13e53' : '#ffcd75')
     this.incomeText.setText(`+${fmtMoney(s.incomePerTick)}/сек`)
@@ -705,67 +662,6 @@ export class HUDScene extends Phaser.Scene {
     // в стартовые x/y и наезжали друг на друга или на HUD_H.
     this.layoutPanel()
 
-    // Состояние кнопок покупки (ITGAME-17): доступность, затемнение, тултипы
-    // 1. Кнопка ПК
-    const staffCap = active.boss !== '' ? s.officeSlots : s.staffLimit
-    if (active.nextPC === 0 || active.pcs >= s.officeSlots) {
-      this.pcBtn.setLabel('Купить ПК — мест нет')
-      this.pcBtn.setEnabled(false, 'В офисе нет свободных мест')
-    } else if (active.pcs >= staffCap) {
-      this.pcBtn.setLabel(`Купить ПК  ${fmtMoney(active.nextPC)}`)
-      this.pcBtn.setEnabled(false, `Нужен начальник для расширения свыше ${s.staffLimit} мест`)
-    } else if (s.money < active.nextPC) {
-      this.pcBtn.setLabel(`Купить ПК  ${fmtMoney(active.nextPC)}`)
-      this.pcBtn.setEnabled(false, `не хватает ${fmtMoney(active.nextPC - s.money)}`)
-    } else {
-      this.pcBtn.setLabel(`Купить ПК  ${fmtMoney(active.nextPC)}`)
-      this.pcBtn.setEnabled(true)
-    }
-
-    // 2. Кнопка найма сотрудника
-    const hirePrice = s.prices.hire
-    if (active.employees.length >= staffCap) {
-      this.hireBtn.setLabel(`Нанять  ${fmtMoney(hirePrice)}`)
-      const reason = active.boss === '' && active.employees.length >= s.staffLimit
-        ? `Нужен начальник для найма свыше ${s.staffLimit} сотрудников`
-        : 'Штат офиса укомплектован'
-      this.hireBtn.setEnabled(false, reason)
-    } else if (active.employees.length >= active.pcs) {
-      this.hireBtn.setLabel(`Нанять  ${fmtMoney(hirePrice)}`)
-      this.hireBtn.setEnabled(false, 'Нет свободного ПК — сначала купите ПК')
-    } else if (s.money < hirePrice) {
-      this.hireBtn.setLabel(`Нанять  ${fmtMoney(hirePrice)}`)
-      this.hireBtn.setEnabled(false, `не хватает ${fmtMoney(hirePrice - s.money)}`)
-    } else {
-      this.hireBtn.setLabel(`Нанять  ${fmtMoney(hirePrice)}`)
-      this.hireBtn.setEnabled(true)
-    }
-
-    // 3. Кнопка найма начальника
-    const bossPrice = s.prices.boss
-    if (active.boss !== '') {
-      this.bossBtn.setLabel('Начальник ✓')
-      this.bossBtn.setEnabled(false, `Начальник уже нанят: ${active.boss}`)
-    } else if (s.money < bossPrice) {
-      this.bossBtn.setLabel(`Начальник  ${fmtMoney(bossPrice)}`)
-      this.bossBtn.setEnabled(false, `не хватает ${fmtMoney(bossPrice - s.money)}`)
-    } else {
-      this.bossBtn.setLabel(`Начальник  ${fmtMoney(bossPrice)}`)
-      this.bossBtn.setEnabled(true)
-    }
-
-    // 4. Кнопка интернет-шлюза
-    const gwPrice = s.prices.gateway
-    if (s.gateway) {
-      this.gatewayBtn.setLabel('Шлюз ✓')
-      this.gatewayBtn.setEnabled(false, 'Интернет-шлюз уже подключён')
-    } else if (s.money < gwPrice) {
-      this.gatewayBtn.setLabel(`Шлюз  ${fmtMoney(gwPrice)}`)
-      this.gatewayBtn.setEnabled(false, `не хватает ${fmtMoney(gwPrice - s.money)}`)
-    } else {
-      this.gatewayBtn.setLabel(`Шлюз  ${fmtMoney(gwPrice)}`)
-      this.gatewayBtn.setEnabled(true)
-    }
     this.navItems.forEach((item, idx) => {
       if (idx === 3) return
       const o = s.offices[idx]
@@ -797,9 +693,12 @@ export class HUDScene extends Phaser.Scene {
   private lastEventId!: string
 
   private showEvent(ev: NonNullable<StateMessage['activeEvent']>) {
-    this.hideButtonTooltip()
+    // Панель события не модальная и встаёт сверху по центру — кнопки комнат
+    // (ITGAME-94, колонка у правого края) она не накрывает: тултип гасим только
+    // на новое событие, а не на каждый снапшот.
     if (ev.id !== this.lastEventId) {
       this.lastEventId = ev.id
+      this.hideButtonTooltip()
       playSfx(this, 'question')
     }
     this.closeEvent()
@@ -838,131 +737,10 @@ export class HUDScene extends Phaser.Scene {
     this.eventUI = []
   }
 
-  private makeButton(x: number, y: number, id: string, onClick: () => void): Button {
-    let enabled = true
-    let tooltipText: string | undefined
-    let isShaking = false
-
-    const bg = tag(
-      this.add
-        .rectangle(x, y, 200, 34, 0x3b5dc9)
-        .setOrigin(0, 0)
-        .setInteractive({ useHandCursor: true }),
-      id,
-    )
-    const txt = this.add
-      .text(x + 100, y + 17, '…', { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4' })
-      .setOrigin(0.5)
-
-    const applyState = () => {
-      if (enabled) {
-        const isHovered = this.hoveredButtonId === id
-        bg.setFillStyle(isHovered ? 0x41a6f6 : 0x3b5dc9)
-        bg.setStrokeStyle(0)
-        bg.setAlpha(1)
-        txt.setAlpha(1)
-      } else {
-        bg.setFillStyle(0x232640)
-        bg.setStrokeStyle(2, 0x3a3f5c)
-        bg.setAlpha(0.45)
-        txt.setAlpha(0.45)
-      }
-      markDisabled(bg, !enabled) // ITGAME-72: флаг D в itd.screen()
-    }
-
-    const shake = () => {
-      if (isShaking) return
-      isShaking = true
-      const origX = x
-      this.tweens.addCounter({
-        from: 0,
-        to: Math.PI * 4,
-        duration: 180,
-        onUpdate: (tween) => {
-          if (!bg.scene) return
-          const v = tween.getValue() ?? 0
-          const offset = Math.sin(v) * 5
-          bg.x = origX + offset
-          txt.x = origX + 100 + offset
-        },
-        onComplete: () => {
-          if (bg.scene) {
-            bg.x = origX
-            txt.x = origX + 100
-          }
-          isShaking = false
-        },
-      })
-    }
-
-    bg.on('pointerdown', () => {
-      if (!enabled) {
-        playSfx(this, 'error')
-        shake()
-        return
-      }
-      onClick()
-    })
-
-    bg.on('pointerover', () => {
-      this.hoveredButtonId = id
-      if (enabled) {
-        bg.setFillStyle(0x41a6f6)
-      } else {
-        bg.setFillStyle(0x232640)
-        if (tooltipText) {
-          this.showButtonTooltip(tooltipText, x, y)
-        }
-      }
-    })
-
-    bg.on('pointerout', () => {
-      if (this.hoveredButtonId === id) {
-        this.hoveredButtonId = null
-        this.hideButtonTooltip()
-      }
-      applyState()
-    })
-
-    this.hudInteractive.push(bg)
-
-    return {
-      setLabel: (s: string) => txt.setText(s),
-      setEnabled: (e: boolean, tooltip?: string) => {
-        enabled = e
-        tooltipText = tooltip
-        applyState()
-        if (this.hoveredButtonId === id) {
-          if (!enabled && tooltipText) {
-            this.showButtonTooltip(tooltipText, x, y)
-          } else {
-            this.hideButtonTooltip()
-          }
-        }
-      },
-      isEnabled: () => enabled,
-    }
-  }
-
-  private showButtonTooltip(text: string, x: number, y: number) {
-    if (!text) {
-      this.hideButtonTooltip()
-      return
-    }
-    this.buttonTooltipText.setText(text).setVisible(true)
-    this.buttonTooltipBg.setSize(this.buttonTooltipText.width + 20, this.buttonTooltipText.height + 14).setVisible(true)
-    const tx = Phaser.Math.Clamp(x + 100 - this.buttonTooltipBg.width / 2, 8, GAME_W - this.buttonTooltipBg.width - 8)
-    const ty = y + 38
-    this.buttonTooltip.setPosition(tx, ty).setVisible(true)
-  }
-
+  // Тултипы кнопок комнат (ITGAME-94: кнопки покупки переехали из шапки в
+  // OfficeScene/ServerRoomScene) гаснут, когда HUD открывает своё окно.
   private hideButtonTooltip() {
-    this.hoveredButtonId = null
-    if (this.buttonTooltip) {
-      this.buttonTooltip.setVisible(false)
-      this.buttonTooltipText.setVisible(false)
-      this.buttonTooltipBg.setVisible(false)
-    }
+    hideActionTooltips()
   }
 
   // Тосты (ITGAME-16): якорь сверху/снизу держит СВОЙ стек, максимум 3 —

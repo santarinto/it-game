@@ -2,7 +2,8 @@
 // (ITGAME-16). По каждому кейсу (0/1/9/15 сотрудников, длинные суммы,
 // длинные цель/рынок/долг, стресс тостов) на зумах 1× и 1.4×:
 //   (a) hud.* с непустым текстом — top >= 0 и bottom <= HUD_H
-//   (b) левый блок (money/income/payroll/net/dayProfit/debt) — right <= 416;
+//   (b) левый блок (money/income/payroll/net/dayProfit/debt) — right <= 832
+//       (до ITGAME-94 — 416: середину шапки занимали кнопки покупки);
 //       правая колонка (goal/day/market) — left >= 848
 //   (c) itd.overlaps() и itd.offscreen() пусты
 //   (d) тостов на якорь не больше 3, попарно не пересекаются, шире 924 нет,
@@ -30,6 +31,8 @@ const HUD_H = 96
 const GAME_W = 1280
 const GAME_H = 720
 
+// Правый край левого блока: PANEL_LEFT_MAX в HUDScene (ITGAME-94 — кнопки ушли из шапки).
+const LEFT_MAX = 832
 const LEFT_IDS = ['hud.money', 'hud.income', 'hud.payroll', 'hud.net', 'hud.dayProfit', 'hud.debt']
 const RIGHT_IDS = ['hud.goal', 'hud.day', 'hud.market']
 const HUD_IDS = [...LEFT_IDS, ...RIGHT_IDS]
@@ -196,13 +199,13 @@ async function runCase(browser, zoom, def) {
       offscreen: window.itd.offscreen ? window.itd.offscreen() : [],
     }))
 
-    // (a)+(b) панель: top>=0, bottom<=HUD_H; левый блок right<=416; правая колонка left>=848
+    // (a)+(b) панель: top>=0, bottom<=HUD_H; левый блок right<=LEFT_MAX; правая колонка left>=848
     const bad = panel.filter((n) => n.top < -0.01 || n.bottom > HUD_H + 0.01)
     check(`${label}: hud.* в границах 0..${HUD_H}`, bad.length === 0,
       bad.length ? bad.map((n) => `${n.id} ${n.top.toFixed(1)}..${n.bottom.toFixed(1)}`).join(', ') : 'ok')
 
-    const leftOver = panel.filter((n) => LEFT_IDS.includes(n.id) && n.right > 416 + 0.01)
-    check(`${label}: левый блок right<=416`, leftOver.length === 0,
+    const leftOver = panel.filter((n) => LEFT_IDS.includes(n.id) && n.right > LEFT_MAX + 0.01)
+    check(`${label}: левый блок right<=${LEFT_MAX}`, leftOver.length === 0,
       leftOver.length ? leftOver.map((n) => `${n.id} R=${n.right.toFixed(1)}`).join(', ') : 'ok')
 
     const rightOver = panel.filter((n) => RIGHT_IDS.includes(n.id) && n.left < 848 - 0.01)

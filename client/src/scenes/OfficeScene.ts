@@ -7,6 +7,7 @@ import type { CommandType, EmployeeInfo, OfficeInfo, StateMessage } from '../pro
 import { drawDebugFrames } from '../debug'
 import { tag } from '../debug/agentApi'
 import { partyModals } from '../ui/modal'
+import { ACTION_COL_CX, ActionBar, actionColY, type ActionButton } from '../ui/actionButton'
 import { coreFree, routerGain } from '../network-preview'
 import { playSfx } from '../audio'
 import { addSprite } from '../pixelart'
@@ -27,6 +28,9 @@ const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
 // переадресуются зоне. Явный depth — над столом и сотрудником при любом
 // порядке create().
 const SLOT_ZONE_DEPTH = 5
+
+// Верх колонки действий офиса (ITGAME-94): под слотом начальника (бокс до y 362).
+const ACTIONS_TOP = 384
 
 // Тултип — поверх сцены, но под окнами (подложка модалки — depth 70).
 const TOOLTIP_DEPTH = 40
@@ -127,6 +131,12 @@ export class OfficeScene extends Phaser.Scene {
   private hoveredSlot!: number
   // Окна устройств/увольнения: закрываются при смене партии (ITGAME-69).
   private modal!: ReturnType<typeof partyModals>
+  // Колонка действий офиса (ITGAME-94): «Купить ПК», «Нанять», «Начальник» —
+  // переехали сюда из шапки HUD, шлют команду в активный офис.
+  private actions!: ActionBar
+  private pcBtn!: ActionButton
+  private hireBtn!: ActionButton
+  private bossBtn!: ActionButton
 
   constructor() {
     super({ key: 'office', cameras: HIRES_CAMERA })
@@ -144,6 +154,7 @@ export class OfficeScene extends Phaser.Scene {
     this.modal = (...args) => {
       this.hoveredSlot = -1
       this.hideTooltip()
+      this.actions.hideTooltip()
       return openModal(...args)
     }
     // Правый клик по сотруднику — увольнение: контекстное меню браузера мешает.
@@ -156,6 +167,23 @@ export class OfficeScene extends Phaser.Scene {
     })
     this.tooltipBg = this.add.rectangle(0, 0, 10, 10, 0x14162b, 0.95).setOrigin(0).setStrokeStyle(1, 0x41a6f6)
     this.tooltip = this.add.container(0, 0, [this.tooltipBg, this.tooltipText]).setDepth(TOOLTIP_DEPTH).setVisible(false)
+
+    // Кнопки создаются один раз (до подписки — первый снапшот приходит сразу),
+    // render() только обновляет подписи и доступность.
+    this.actions = new ActionBar(this, { depth: TOOLTIP_DEPTH, blocked: () => this.windowOpen() })
+    // Колонка — под слотами сети и начальника (бокс начальника кончается на y 362).
+    this.pcBtn = this.actions.add(actionColY(ACTIONS_TOP, 0), 'btn.pc', () => {
+      playSfx(this, 'select')
+      client.send('buy_pc', nav.activeOffice)
+    })
+    this.hireBtn = this.actions.add(actionColY(ACTIONS_TOP, 1), 'btn.hire', () => {
+      playSfx(this, 'select')
+      client.send('hire', nav.activeOffice)
+    })
+    this.bossBtn = this.actions.add(actionColY(ACTIONS_TOP, 2), 'btn.boss', () => {
+      playSfx(this, 'select')
+      client.send('hire_boss', nav.activeOffice)
+    })
 
     const unsub = client.subscribe({
       onState: (s) => this.render(s),
@@ -213,12 +241,16 @@ export class OfficeScene extends Phaser.Scene {
         client.send('buy_office', nav.activeOffice)
       })
       this.objects.push(btn, txt)
+      // В закрытом офисе действовать не над чем — колонки нет, есть «Купить офис».
+      this.refreshActions(s, office)
       this.objects.push(...drawDebugFrames(this, this.objects))
       return
     }
+    this.refreshActions(s, office)
 
-    // Специальный слот роутера: рабочее место сюда не поставить.
-    const rx = GAME_W - 130
+    // Специальный слот роутера: рабочее место сюда не поставить. Столбец
+    // устройств офиса — по центру колонки действий (ITGAME-94).
+    const rx = ACTION_COL_CX
     const ry = 170
     const routerZone = tag(
       this.add.rectangle(rx, ry, 84, 84, 0x232640)
@@ -250,7 +282,7 @@ export class OfficeScene extends Phaser.Scene {
     }
 
     // Слот начальника — рядом со слотом роутера, но ниже.
-    const bx = GAME_W - 130
+    const bx = ACTION_COL_CX
     const by = 320
     this.objects.push(
       this.add.rectangle(bx, by, 84, 84, 0x232640).setStrokeStyle(2, 0x5d7275),
@@ -503,7 +535,59 @@ export class OfficeScene extends Phaser.Scene {
         })
       }
     })
-    this.objects.push(...drawDebugFrames(this, this.objects))
+    this.objects.push(...drawDebugFrames(this, [...this.objects, ...this.actions.interactive]))
+  }
+
+  // Доступность и подписи кнопок колонки (ITGAME-17, до ITGAME-94 — в HUDScene.refresh).
+  private refreshActions(s: StateMessage, office: OfficeInfo) {
+    const shown = office.unlocked
+    for (const b of [this.pcBtn, this.hireBtn, this.bossBtn]) b.setShown(shown)
+    if (!shown) return
+
+    // 1. Покупка ПК
+    const staffCap = office.boss !== '' ? s.officeSlots : s.staffLimit
+    if (office.nextPC === 0 || office.pcs >= s.officeSlots) {
+      this.pcBtn.setLabel('Купить ПК\nмест нет')
+      this.pcBtn.setEnabled(false, 'В офисе нет свободных мест')
+    } else if (office.pcs >= staffCap) {
+      this.pcBtn.setLabel(`Купить ПК\n${fmtMoney(office.nextPC)}`)
+      this.pcBtn.setEnabled(false, `Нужен начальник для расширения свыше ${s.staffLimit} мест`)
+    } else if (s.money < office.nextPC) {
+      this.pcBtn.setLabel(`Купить ПК\n${fmtMoney(office.nextPC)}`)
+      this.pcBtn.setEnabled(false, `не хватает ${fmtMoney(office.nextPC - s.money)}`)
+    } else {
+      this.pcBtn.setLabel(`Купить ПК\n${fmtMoney(office.nextPC)}`)
+      this.pcBtn.setEnabled(true)
+    }
+
+    // 2. Найм сотрудника
+    const hirePrice = s.prices.hire
+    this.hireBtn.setLabel(`Нанять\n${fmtMoney(hirePrice)}`)
+    if (office.employees.length >= staffCap) {
+      const reason = office.boss === '' && office.employees.length >= s.staffLimit
+        ? `Нужен начальник для найма свыше ${s.staffLimit} сотрудников`
+        : 'Штат офиса укомплектован'
+      this.hireBtn.setEnabled(false, reason)
+    } else if (office.employees.length >= office.pcs) {
+      this.hireBtn.setEnabled(false, 'Нет свободного ПК — сначала купите ПК')
+    } else if (s.money < hirePrice) {
+      this.hireBtn.setEnabled(false, `не хватает ${fmtMoney(hirePrice - s.money)}`)
+    } else {
+      this.hireBtn.setEnabled(true)
+    }
+
+    // 3. Найм начальника
+    const bossPrice = s.prices.boss
+    if (office.boss !== '') {
+      this.bossBtn.setLabel('Начальник ✓')
+      this.bossBtn.setEnabled(false, `Начальник уже нанят: ${office.boss}`)
+    } else if (s.money < bossPrice) {
+      this.bossBtn.setLabel(`Начальник\n${fmtMoney(bossPrice)}`)
+      this.bossBtn.setEnabled(false, `не хватает ${fmtMoney(bossPrice - s.money)}`)
+    } else {
+      this.bossBtn.setLabel(`Начальник\n${fmtMoney(bossPrice)}`)
+      this.bossBtn.setEnabled(true)
+    }
   }
 
   private showTooltip(e: EmployeeInfo, s: StateMessage, x: number, y: number) {

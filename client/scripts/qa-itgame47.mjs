@@ -6,7 +6,8 @@
 //        evaluate: HUD останавливается, пока таймер дребезга switchRoom (250 мс) ещё
 //        висит, switching === true (ITGAME-42)
 //   P2-0 вторая партия (fresh): состояние HUD сразу после create(), до первого снапшота —
-//        switching false, все списки UI пусты, hoveredButtonId null
+//        switching false, все списки UI пусты (hoveredButtonId ушёл из HUD вместе с
+//        кнопками покупки — ITGAME-94)
 //   P2a  sid новый, день 1; при живом сейве партии 1 старт спросил подтверждение (ITGAME-19)
 //   P2b  nav.office0 active, nav.office1 нет (ITGAME-41)
 //   P2c  в офисе нет «закрыт», есть «ОФИС 1» (ITGAME-41)
@@ -225,7 +226,6 @@ async function run() {
           offlineUI: hud.offlineUI.length,
           reconnectUI: hud.reconnectUI.length,
           debugFrames: hud.debugFrames.length,
-          hoveredButtonId: hud.hoveredButtonId,
         }
       })
       window.itd.click('menu.diff.normal')
@@ -237,8 +237,8 @@ async function run() {
     const at = p2.at
     const lens = at ? ['reportUI', 'eventUI', 'gameOverUI', 'victoryUI', 'offlineUI', 'reconnectUI', 'debugFrames'] : []
     check(
-      'P2-0: HUD после create() чист — switching false, списки UI пусты, hoveredButtonId null',
-      at != null && at.switching === false && lens.every((k) => at[k] === 0) && at.hoveredButtonId === null,
+      'P2-0: HUD после create() чист — switching false, списки UI пусты',
+      at != null && at.switching === false && lens.every((k) => at[k] === 0),
       JSON.stringify(at),
     )
 
@@ -1272,7 +1272,11 @@ async function run() {
         .then(() => true, () => false)
 
     // N1 (ITGAME-90): два настоящих клика «Купить ПК» без связи — один тост «нет связи»,
-    // звук отказа на каждый, buy_pc не ушёл.
+    // звук отказа на каждый, buy_pc не ушёл. Вкладка с W3 в серверной, а «Купить ПК» с
+    // ITGAME-94 — в офисе: сначала туда.
+    await waitSwitchIdle()
+    await page.evaluate(() => window.itd.click('nav.office0'))
+    await waitTrue(() => window.__itd.scene.isActive('office') && window.itd.ids().some((n) => n.id === 'btn.pc'), 5000)
     await page.evaluate(() => window.itd.set({ money: 99999 }))
     await nAway(7)
     const n1t = await nNow()

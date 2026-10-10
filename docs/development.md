@@ -534,8 +534,9 @@ documenting separately:
   canvas' `getBoundingClientRect`, so zoom, «по окну» and `#topbar` are
   included), or in a screenshot frame `frame` px wide. Flags: `A` — active
   toggle, `X` — covered (`hit()` not ok), `D` — disabled: `markDisabled()`,
-  set by the HUD buy/hire buttons (`btn.pc`, `btn.hire`, `btn.boss`,
-  `btn.gateway`) when money/seats/PCs are missing, also `nodes().disabled`.
+  set by the room action buttons (`btn.pc`, `btn.hire`, `btn.boss` in the
+  office, `btn.gateway` in the server room — see [Rendering](#rendering))
+  when money/seats/PCs are missing, also `nodes().disabled`.
   `free: true` keeps only items without `X`.
 - **`itd.stack(id | gx, gy)` / `itd.zones(a, b)`** (ITGAME-74) — the real
   Phaser hit test (`hit()` and the `X` flag of `screen()` use it too): the same
@@ -865,10 +866,10 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | Command | Checks | Port (`QA_PORT`/…) |
 |---|---|---|
 | `npm run qa:meta` | stats/achievements modals | :4173, `vite preview` — needs a Go server already on :8080 |
-| `npm run qa:buttons` | HUD buy-button enabled/tooltip/alpha states (ITGAME-17) | :4180, self-serve |
+| `npm run qa:buttons` | buy-button enabled/tooltip/alpha states (ITGAME-17); R1–R7 the room action column (ITGAME-94): `btn.pc`/`hire`/`boss` in the `office` scene at x 1142, 128×44, y 384/438/492, no overlap with any office object; the `room.tooltip` sits left of the column; a real mouse click at the `screen()` point buys a PC; under the router window `hit()` fails, `X`, no tooltip; in a locked office the column is hidden and `itd.click` answers `code: 'hidden'`; `btn.gateway` in `serverRoom` at x 1142 y 452 | :4180, self-serve |
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35) | :4179, self-serve + temp saves dir |
-| `npm run qa:hud` | HUD layout column, toast stack, no overlaps (ITGAME-16) | :4174, self-serve |
-| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78); `itd.sandbox()`: the owner's shared key survives «Сдаться» and a second party, `fakeOwner()`, `restore()` puts back / keeps (ITGAME-77); `itd.stack()` under the day report: the dimmer wins over `btn.menu`, same as `hit().top` (ITGAME-74); `hit()` and the `X` flag follow the real hit area — a 1×1 hitArea on `btn.next_day` makes it covered (owner 10.10); `itd.play()` on `fresh` (seed 7): hire → hire `FAIL no_free_pc` → day → buy_pc → hire `FAIL not_enough_money` → day with the balances 600>300>614>39>353, `itd.ledger()` books balanced, `adjust` after `itd.set` (ITGAME-73); K1 the office tooltip's text in its hidden container is `visible: false`, K2 «ТУПИК» and the day report give 0 overlaps entries from the dim (22 with the `dim` mark removed) (ITGAME-87); K3 `nodes().fill`, K4 `menuReady` false right after `sandbox.restore()` and the plate still for 1.5 s after it, `stale().shown` false/true/false (ITGAME-88) | :4175, self-serve |
+| `npm run qa:hud` | HUD layout column (left block right ≤ 832 since ITGAME-94, right column left ≥ 848), toast stack, no overlaps (ITGAME-16) | :4174, self-serve |
+| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72), the office's `btn:pc` under the report dim is `X` and `hit()` fails (S2b, ITGAME-94); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78); `itd.sandbox()`: the owner's shared key survives «Сдаться» and a second party, `fakeOwner()`, `restore()` puts back / keeps (ITGAME-77); `itd.stack()` under the day report: the dimmer wins over `btn.menu`, same as `hit().top` (ITGAME-74); `hit()` and the `X` flag follow the real hit area — a 1×1 hitArea on `btn.next_day` makes it covered (owner 10.10); `itd.play()` on `fresh` (seed 7): hire → hire `FAIL no_free_pc` → day → buy_pc → hire `FAIL not_enough_money` → day with the balances 600>300>614>39>353, `itd.ledger()` books balanced, `adjust` after `itd.set` (ITGAME-73); K1 the office tooltip's text in its hidden container is `visible: false`, K2 «ТУПИК» and the day report give 0 overlaps entries from the dim (22 with the `dim` mark removed) (ITGAME-87); K3 `nodes().fill`, K4 `menuReady` false right after `sandbox.restore()` and the plate still for 1.5 s after it, `stale().shown` false/true/false (ITGAME-88) | :4175, self-serve |
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks; `broken_pc`: one zone `office.slot.0` covers the worker and the «✖ чинить k/N» label, real clicks repair 0/3 → 1/3 → 2/3 → repaired, then the same zone motivates; right click and tooltip shared (ITGAME-75/92/93); the tooltip hides when the router/fire window opens and stays hidden after a snapshot and `itd.hover` (ITGAME-89) | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37); receipts by command id — `id`/`rev` in `cmd()`, `trace().sent`/`states`, `net()`, and no false receipt with a tick or an observer's (`/ws/agent`) snapshot in flight (ITGAME-45); `itd.trace.start()` → a real `page.mouse.click` on `btn.pc` → `stop(id)`: `pointer` down/up with world x/y = cx/cy, `wins` btn.pc, `got` [btn:pc], `sent` buy_pc; a click on `#build` — `onCanvas` false; `no_trace`, `cut` by `maxMs`, `bad_max`, two windows, `itd.click()` leaves `pointer` empty (ITGAME-88) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39); A11 the 10.10-b fields: `TraceApi.call` + `start`/`stop`, `pointer`, `fill`, `shown`, `seq`/`awayId`, journal `conn`/`src`, `end` spelled out (ITGAME-87/88/91) | :4178, self-serve |
@@ -948,7 +949,8 @@ Departure Mono 1.500 plus ITD Symbols, an 8-glyph OFL subset of Unifont for
 `FONT` in `client/src/render.ts`, `BootScene` waits for both before the
 menu). Emoji (achievement icons, 🏆📊🔒⚠️) still come from the system emoji
 font. The committed baseline (9 scenarios, `broken_pc` included) was
-regenerated **2026-10-10** on the pinned Chrome for Testing 152.0.7977.54
+regenerated **2026-10-10** (last time for ITGAME-94: the office action
+column; lint counts unchanged) on the pinned Chrome for Testing 152.0.7977.54
 (headless, SwiftShader software GL, Arch Linux, Noto Color Emoji); two
 consecutive runs without `--update` gave 0 differing pixels on every scenario.
 The layout-linter counts in `baseline.json` did not change with the font.
@@ -1030,6 +1032,30 @@ the effective downscale (`cssZoom * devicePixelRatio / RENDER_SCALE`) drops
 below 1, since nearest sampling then tears text strokes. `?rs=1` disables
 all of this for A/B comparisons and low-end machines (canvas back to 1:1
 with the world).
+
+**HUD and room actions (ITGAME-94).** The HUD header (`HUDScene`, 1280×96)
+holds only global controls: money and the pace rows on the left
+(`hud.money`/`income`/`payroll`/`net`/`dayProfit`/`debt`, laid out up to
+x 832 — `PANEL_LEFT_MAX`), goal/day/market on the right, «масштаб»
+`btn.zoom`, `btn.debug` (debug only), `btn.menu` ⌂ and `btn.speed.0..3`; the
+left column is the room nav. Room-specific actions live in the room scene,
+built by `client/src/ui/actionButton.ts` (`ActionBar`): a column at the
+right edge of the room, x 1142..1270 (`ACTION_COL_X`, buttons 128×44, two-line
+label «action / price», gap 10) — out of reach of the HUD toasts (≤ 924 px
+centred, right edge ≤ 1102), the event card (x 400..880) and the desks (the
+right desk column with its «мастер» button ends at x 1124). The room's
+devices sit on the same column centre (`ACTION_COL_CX` = 1206): office —
+router, boss, then `btn.pc` (y 384), `btn.hire` (438), `btn.boss` (492);
+server room — the gateway slot and `btn.gateway` (y 452) under it. The
+buttons are created once in the scene's `create()` (renders only update
+label and state), keep the ITGAME-17 machinery (dimmed when disabled, the
+reason in `room.tooltip.text` left of the button, shake + `error` sound on a
+refused click, `markDisabled` → `D`), and send to `nav.activeOffice`; in a
+locked office the column is hidden (`itd.click` → `code: 'hidden'`). The
+«нет связи» toast/sound (ITGAME-90) still comes from the HUD: `client.send`
+calls `onNotConnected` on every listener. The HUD hides room tooltips when it
+opens a window (`hideActionTooltips()`); the office/server-room windows hide
+them too and suppress them while open (ITGAME-89).
 
 The UI-scale cycle is 1×, 1.4× (default) and «по окну» (fit the window); 2×
 was dropped in ITGAME-61 — the canvas outgrew a laptop window and `#app`

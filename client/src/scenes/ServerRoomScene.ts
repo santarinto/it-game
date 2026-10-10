@@ -5,6 +5,8 @@ import { client } from '../net'
 import { drawDebugFrames } from '../debug'
 import { tag } from '../debug/agentApi'
 import { partyModals } from '../ui/modal'
+import { ACTION_COL_CX, ActionBar, type ActionButton } from '../ui/actionButton'
+import { playSfx } from '../audio'
 import { coreGain, serverGain } from '../network-preview'
 import { addSprite } from '../pixelart'
 import { FONT, HIRES_CAMERA } from '../render'
@@ -14,6 +16,9 @@ export class ServerRoomScene extends Phaser.Scene {
   private objects!: Phaser.GameObjects.GameObject[]
   // Окна стоек и core: закрываются при смене партии (ITGAME-69).
   private modal!: ReturnType<typeof partyModals>
+  // Колонка действий серверной (ITGAME-94): «Шлюз» переехал сюда из шапки HUD.
+  private actions!: ActionBar
+  private gatewayBtn!: ActionButton
 
   constructor() {
     super({ key: 'serverRoom', cameras: HIRES_CAMERA })
@@ -22,12 +27,31 @@ export class ServerRoomScene extends Phaser.Scene {
   create() {
     // сцены перезапускаются при переключении комнат — сбрасываем ссылки прошлого цикла
     this.objects = []
-    this.modal = partyModals(this)
+    const openModal = partyModals(this)
+    this.modal = (...args) => {
+      this.actions.hideTooltip()
+      return openModal(...args)
+    }
     // пол серверной справа от панели навигации — статичен, рисуем один раз
     this.add.rectangle(NAV_W, HUD_H, GAME_W - NAV_W, GAME_H - HUD_H, 0x1f2233).setOrigin(0)
     this.add.text(GAME_W / 2, HUD_H + 20, 'СЕРВЕРНАЯ', {
       fontFamily: FONT, fontSize: '16px', color: '#5d7275',
     }).setOrigin(0.5)
+
+    // Тултип кнопки — под окнами (подложка модалки — depth 70); при открытом
+    // окне не показывается (как в офисе, ITGAME-89).
+    this.actions = new ActionBar(this, {
+      depth: 40,
+      blocked: () => this.children.list.some((o) => {
+        const g = o as Phaser.GameObjects.GameObject & { depth?: number }
+        return (g.depth ?? 0) > 40 && g.input?.enabled === true
+      }),
+    })
+    // Под слотом шлюза (бокс до y 422, подпись «интернет ×1.2» до ~439).
+    this.gatewayBtn = this.actions.add(452, 'btn.gateway', () => {
+      playSfx(this, 'select')
+      client.send('buy_gateway')
+    })
 
     const unsub = client.subscribe({
       onState: (s) => this.render(s),
@@ -107,8 +131,8 @@ export class ServerRoomScene extends Phaser.Scene {
       }
     })
 
-    // слот шлюза
-    const gx = GAME_W - 150
+    // слот шлюза — по центру колонки действий, над кнопкой «Шлюз» (ITGAME-94)
+    const gx = ACTION_COL_CX
     const gy = 380
     this.objects.push(
       this.add.rectangle(gx, gy, 84, 84, 0x232640).setStrokeStyle(2, 0x5d7275),
@@ -135,7 +159,23 @@ export class ServerRoomScene extends Phaser.Scene {
         }).setOrigin(0.5),
     )
 
-    this.objects.push(...drawDebugFrames(this, this.objects))
+    this.refreshActions(s)
+    this.objects.push(...drawDebugFrames(this, [...this.objects, ...this.actions.interactive]))
+  }
+
+  // Доступность и подпись «Шлюза» (ITGAME-17, до ITGAME-94 — в HUDScene.refresh).
+  private refreshActions(s: StateMessage) {
+    const gwPrice = s.prices.gateway
+    if (s.gateway) {
+      this.gatewayBtn.setLabel('Шлюз ✓')
+      this.gatewayBtn.setEnabled(false, 'Интернет-шлюз уже подключён')
+    } else if (s.money < gwPrice) {
+      this.gatewayBtn.setLabel(`Шлюз\n${fmtMoney(gwPrice)}`)
+      this.gatewayBtn.setEnabled(false, `не хватает ${fmtMoney(gwPrice - s.money)}`)
+    } else {
+      this.gatewayBtn.setLabel(`Шлюз\n${fmtMoney(gwPrice)}`)
+      this.gatewayBtn.setEnabled(true)
+    }
   }
 
   private openServerModal(s: StateMessage, oi: number, sl: number) {
