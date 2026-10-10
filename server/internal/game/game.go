@@ -44,6 +44,10 @@ type Employee struct {
 type Game struct {
 	cfg Config
 	rng *rand.Rand
+	// pcg — источник rng: его позицию сериализуют RNGState/SetRNGState
+	// (ITGAME-46, чекпоинты журнала партии). rand.Rand в v2 своего
+	// состояния не держит — позиция потока целиком в PCG.
+	pcg *rand.PCG
 	// Seed — видимый сид RNG (ITGAME-26): генерится при создании партии,
 	// хранится в сейве, задаётся через ?seed=. Детерминизм — роллы
 	// событий/найма при одинаковых действиях, не тик-в-тик во времени.
@@ -125,9 +129,11 @@ func (g *Game) SeedString() string { return strconv.FormatUint(g.Seed, 10) }
 // NewWithSeed — игра с фиксированным сидом: детерминированные роллы для тестов.
 // Видимый сид игры — s1.
 func NewWithSeed(cfg Config, s1, s2 uint64) *Game {
+	pcg := rand.NewPCG(s1, s2)
 	g := &Game{
 		cfg:   cfg,
-		rng:   rand.New(rand.NewPCG(s1, s2)),
+		rng:   rand.New(pcg),
+		pcg:   pcg,
 		Seed:  s1,
 		Money: cfg.StartMoney, Phase: PhaseRunning, Day: 1,
 		Offices: make([]Office, 3),
@@ -138,6 +144,16 @@ func NewWithSeed(cfg Config, s1, s2 uint64) *Game {
 	g.beginLedger()
 	return g
 }
+
+// RNGState — позиция потока роллов (ITGAME-46): вместе с Export это полное
+// состояние партии — чекпоинт журнала восстанавливается из них тик-в-тик.
+func (g *Game) RNGState() []byte {
+	b, _ := g.pcg.MarshalBinary() // PCG.MarshalBinary не падает
+	return b
+}
+
+// SetRNGState — вернуть позицию потока роллов, снятую RNGState.
+func (g *Game) SetRNGState(b []byte) error { return g.pcg.UnmarshalBinary(b) }
 
 // Config возвращает баланс, с которым создана игра (для снапшотов протокола).
 func (g *Game) Config() Config { return g.cfg }

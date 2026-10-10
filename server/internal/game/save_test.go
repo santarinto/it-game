@@ -359,3 +359,43 @@ func TestExportDetachesOffices(t *testing.T) {
 		t.Fatalf("дельта должна слиться с копией: %+v", s.Offices[0])
 	}
 }
+
+// TestRestoreSeedZeroIsDeterministic — сид 0 (?seed=0) ресивится как любой
+// другой: два Restore одного сейва роллят одинаково и совпадают со свежей
+// партией. До ITGAME-46 сид 0 считался «сейвом без сида» — PCG случайный.
+func TestRestoreSeedZeroIsDeterministic(t *testing.T) {
+	g := NewSeeded(DefaultConfig(), 0)
+	a, err := Restore(g.Export())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Restore(g.Export())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := NewSeeded(DefaultConfig(), 0)
+	if string(a.RNGState()) != string(b.RNGState()) || string(a.RNGState()) != string(fresh.RNGState()) {
+		t.Fatal("PCG после Restore с сидом 0 не с сида")
+	}
+}
+
+// TestRNGStateRoundtrip — позиция PCG снимается и возвращается: роллы после
+// SetRNGState те же, что у оригинала (чекпоинты журнала, ITGAME-46).
+func TestRNGStateRoundtrip(t *testing.T) {
+	g := NewSeeded(DefaultConfig(), 7)
+	for range 13 {
+		g.rng.IntN(100)
+	}
+	c, err := Restore(g.Export())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetRNGState(g.RNGState()); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 50 {
+		if x, y := g.rng.IntN(1000), c.rng.IntN(1000); x != y {
+			t.Fatalf("ролл %d: %d != %d", i, x, y)
+		}
+	}
+}

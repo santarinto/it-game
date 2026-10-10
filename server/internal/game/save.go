@@ -175,13 +175,11 @@ func Restore(s Save) (*Game, error) {
 	g.DayEvents, g.ActiveEvent = bindActiveEvent(s.DayEvents, s.ActiveEvent)
 	g.restoreLedger(s.Ledger, s.LedgerHistory)
 	// RNG ресивится по сиду из сейва (ITGAME-26): та же последовательность
-	// роллов, что с начала партии. Старые сейвы без сида — свежий
-	// случайный, как до ITGAME-26.
-	switch {
-	case s.Seed != 0:
-		g.rng = rand.New(rand.NewPCG(s.Seed, mixSeed(s.Seed)))
-	default:
-		g.rng = rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
-	}
+	// роллов, что с начала партии. Сид 0 — тоже сид (?seed=0): ветка «нет
+	// сида — свежий случайный» для сейвов до ITGAME-26 делала партию с
+	// ?seed=0 невоспроизводимой с первого реконнекта (найдено реплеем,
+	// ITGAME-46), а сейвов старше TTL (24 ч) давно нет.
+	g.pcg = rand.NewPCG(s.Seed, mixSeed(s.Seed))
+	g.rng = rand.New(g.pcg)
 	return g, nil
 }
