@@ -348,7 +348,8 @@ func (g *Game) Motivate(office, slot int) error {
 	return nil
 }
 
-// RepairClick — один клик починки сломанного ПК: чинит на N-й клик.
+// RepairClick — один клик починки сломанного ПК: чинит на N-й клик
+// (N — RepairTarget(), роллится при поломке, ITGAME-93).
 func (g *Game) RepairClick(office, slot int) error {
 	o, err := g.office(office)
 	if err != nil {
@@ -362,9 +363,10 @@ func (g *Game) RepairClick(office, slot int) error {
 		return ErrNotBroken
 	}
 	e.RepairClicks++
-	if e.RepairClicks >= g.cfg.RepairClicksNeeded {
+	if e.RepairClicks >= e.RepairTarget() {
 		e.PCBroken = false
 		e.RepairClicks = 0
+		e.RepairNeeded = 0
 	}
 	return nil
 }
@@ -388,6 +390,7 @@ func (g *Game) CallMaster(office, slot int) error {
 	g.spend(CmdCallMaster, g.cfg.MasterCallPrice)
 	e.PCBroken = false
 	e.RepairClicks = 0
+	e.RepairNeeded = 0
 	return nil
 }
 
@@ -407,6 +410,7 @@ func (g *Game) NextDay() error {
 			o.Employees[j].MotivateCooldownUntil = 0
 			o.Employees[j].PCBroken = false
 			o.Employees[j].RepairClicks = 0
+			o.Employees[j].RepairNeeded = 0
 			o.Employees[j].OffendedUntil = 0
 		}
 		o.BossUnpaidToday = false

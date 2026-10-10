@@ -228,13 +228,18 @@ func TestFixtureBrokenPC(t *testing.T) {
 	if g.Money < cfg.MasterCallPrice {
 		t.Fatalf("broken_pc: $%d не хватает на мастера ($%d)", g.Money, cfg.MasterCallPrice)
 	}
-	for k := 0; k < cfg.RepairClicksNeeded; k++ {
+	// ITGAME-93: в игре N роллится 3..15, фикстура фиксирует 3 — на них
+	// держатся приёмка и qa:slots.
+	if n := o.Employees[0].RepairNeeded; n != 3 {
+		t.Fatalf("broken_pc: RepairNeeded=%d, фикстура фиксирует 3", n)
+	}
+	for k := 0; k < 3; k++ {
 		if err := g.RepairClick(0, 0); err != nil {
 			t.Fatalf("broken_pc: клик починки %d: %v", k, err)
 		}
 	}
 	if g.Offices[0].Employees[0].PCBroken {
-		t.Fatal("broken_pc: после RepairClicksNeeded кликов ПК всё ещё сломан")
+		t.Fatal("broken_pc: после 3 кликов ПК всё ещё сломан")
 	}
 }
 

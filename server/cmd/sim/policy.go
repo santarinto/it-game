@@ -38,8 +38,12 @@ func greedyPolicy(g *game.Game, _ *rand.Rand, _ int) {
 		// по кулдауну — жадная политика забирает и активный слой тоже
 		for j := range o.Employees {
 			if o.Employees[j].PCBroken {
-				for k := 0; k < cfg.RepairClicksNeeded; k++ {
-					_ = g.Apply(game.CmdRepairClick, i, j)
+				// N кликов роллится при поломке (ITGAME-93): кликаем, пока
+				// не починится — клики в sim бесплатны, N на экономику не влияет
+				for o.Employees[j].PCBroken {
+					if g.Apply(game.CmdRepairClick, i, j) != nil {
+						break
+					}
 				}
 			}
 			_ = g.Apply(game.CmdMotivate, i, j) // кулдаун → ошибка → мимо

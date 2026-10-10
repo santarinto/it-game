@@ -49,8 +49,11 @@ type Config struct {
 	MotivateTicks         int     // длительность мотивации, тиков
 	MotivateCooldownTicks int     // персональный кулдаун мотивации, тиков
 	BreakdownChancePct    int     // шанс поломки ПК за тик на офис, %
-	RepairClicksNeeded    int     // кликов по столу для починки
-	MasterCallPrice       int     // «вызвать мастера»: мгновенная починка
+	// Кликов по столу для починки (ITGAME-93): N роллится при поломке
+	// равномерно из RepairClicksMin..RepairClicksMax серверным PCG.
+	RepairClicksMin int
+	RepairClicksMax int
+	MasterCallPrice int // «вызвать мастера»: мгновенная починка
 
 	// Unseen Forces (итерация 10): дневные события. Числа — GDD «События».
 	EventChancePct  int     // шанс события в дне, %
@@ -169,7 +172,8 @@ func DefaultConfig() Config {
 		MotivateTicks:         18,
 		MotivateCooldownTicks: 36,
 		BreakdownChancePct:    2,
-		RepairClicksNeeded:    3,
+		RepairClicksMin:       3,
+		RepairClicksMax:       15,
 		MasterCallPrice:       150,
 
 		EventChancePct:  75,

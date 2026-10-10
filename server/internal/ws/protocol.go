@@ -135,7 +135,8 @@ type employeeInfo struct {
 	OfflineReason string `json:"offlineReason"`
 	// Активный день (итерация 9).
 	PCBroken        bool   `json:"pcBroken"`        // ПК сломан: доход места 0
-	RepairClicks    int    `json:"repairClicks"`    // клики почивки уже сделаны
+	RepairClicks    int    `json:"repairClicks"`    // клики починки уже сделаны (k из «k/N»)
+	RepairNeeded    int    `json:"repairNeeded"`    // N кликов этой поломки, 3..15 (ITGAME-93); 0 — ПК цел
 	MotivateReadyAt string `json:"motivateReadyAt"` // «HH:MM» клика возможен; "" — уже можно
 	// Unseen Forces (итерация 10).
 	Salary int `json:"salary"` // дневная зарплата этого сотрудника (с надбавками)
@@ -298,11 +299,15 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 			case net.ServerSlot[oi][i] == 0:
 				reason = "no_server"
 			}
+			repairNeeded := 0
+			if e.PCBroken {
+				repairNeeded = o.Employees[i].RepairTarget()
+			}
 			employees[i] = employeeInfo{Name: e.Name, IncomePerTick: e.IncomePerTick,
 				EffectiveIncomePerTick: g.EffectiveIncomePerTick(o, &o.Employees[i]),
 				Connected:              net.CoreLinked[oi][i], UnpaidToday: e.UnpaidToday, Effects: effects,
 				NetMult: net.Mults[oi][i], ServerSlot: net.ServerSlot[oi][i],
-				PCBroken: e.PCBroken, RepairClicks: e.RepairClicks, MotivateReadyAt: readyAt,
+				PCBroken: e.PCBroken, RepairClicks: e.RepairClicks, RepairNeeded: repairNeeded, MotivateReadyAt: readyAt,
 				Salary: cfg.SalaryPerDay + e.SalaryAdd, OfflineReason: reason,
 				Level: g.LevelFor(&o.Employees[i]), XP: e.XP, XPNext: g.XPNext(&o.Employees[i]),
 				Star: e.Star, FirePrice: g.FireCompensation(&o.Employees[i]), HiredToday: e.HireDay == g.Day}

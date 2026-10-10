@@ -41,7 +41,8 @@ export interface EmployeeInfo {
   offlineReason: '' | 'no_router' | 'no_core' | 'no_server'
   // Активный день (итерация 9).
   pcBroken: boolean // ПК сломан: доход места 0 до починки
-  repairClicks: number // клики починки уже сделаны
+  repairClicks: number // клики починки уже сделаны (k из «k/N»)
+  repairNeeded: number // N кликов этой поломки, 3..15 (ITGAME-93); 0 — ПК цел
   motivateReadyAt: string // «HH:MM» клика возможен; '' — уже можно
   // Unseen Forces (итерация 10).
   salary: number // дневная зарплата этого сотрудника с надбавками

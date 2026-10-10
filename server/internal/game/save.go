@@ -159,6 +159,22 @@ func Restore(s Save) (*Game, error) {
 	if s.Config.AuditFineShare == 0 {
 		s.Config.AuditFineShare = def.AuditFineShare
 	}
+	// Сейвы до ITGAME-93: фиксированные 3 клика (RepairClicksNeeded в
+	// конфиге игнорируется), у сломанного ПК нет своего N — он чинится за
+	// те же 3, что обещала метка «0/3» до реконнекта.
+	if s.Config.RepairClicksMin == 0 {
+		s.Config.RepairClicksMin = def.RepairClicksMin
+	}
+	if s.Config.RepairClicksMax == 0 {
+		s.Config.RepairClicksMax = def.RepairClicksMax
+	}
+	for oi := range s.Offices {
+		for ei := range s.Offices[oi].Employees {
+			if e := &s.Offices[oi].Employees[ei]; e.PCBroken && e.RepairNeeded <= 0 {
+				e.RepairNeeded = LegacyRepairClicks
+			}
+		}
+	}
 	if s.PrevDayIncome == 0 && s.Phase == PhaseDayReport {
 		s.PrevDayIncome = s.DayIncome // закрытый день — он и есть «прошлый»
 	}

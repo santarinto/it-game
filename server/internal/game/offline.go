@@ -164,6 +164,8 @@ func (g *Game) offlineTemplate() *Game {
 			o.Employees[j].CoffeeUntil = 0
 			o.Employees[j].MotivatedUntil = 0
 			o.Employees[j].PCBroken = false
+			o.Employees[j].RepairClicks = 0
+			o.Employees[j].RepairNeeded = 0
 			o.Employees[j].OffendedUntil = 0
 		}
 		o.BossUnpaidToday = false
@@ -183,6 +185,7 @@ func (g *Game) resetForNextDay() {
 			o.Employees[j].MotivateCooldownUntil = 0
 			o.Employees[j].PCBroken = false
 			o.Employees[j].RepairClicks = 0
+			o.Employees[j].RepairNeeded = 0
 			o.Employees[j].OffendedUntil = 0
 		}
 		o.BossUnpaidToday = false

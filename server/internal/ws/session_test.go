@@ -27,6 +27,7 @@ type testMessage struct {
 			Salary          int    `json:"salary"`
 			PCBroken        bool   `json:"pcBroken"`
 			RepairClicks    int    `json:"repairClicks"`
+			RepairNeeded    int    `json:"repairNeeded"`
 			MotivateReadyAt string `json:"motivateReadyAt"`
 			Level           int    `json:"level"`
 			XP              int    `json:"xp"`
@@ -384,14 +385,18 @@ func TestActiveDayBrokenSnapshot(t *testing.T) {
 	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 0}); err != nil {
 		t.Fatal(err)
 	}
-	// Ждём снапшот со сломанным ПК и чиним тремя кликами.
+	// Ждём снапшот со сломанным ПК и чиним N кликами (ITGAME-93: N 3..15).
 	broken := readUntil(t, ctx, c, func(m testMessage) bool {
 		return m.Type == "state" && len(m.Offices[0].Employees) == 1 && m.Offices[0].Employees[0].PCBroken
 	})
 	if broken.Offices[0].Employees[0].RepairClicks != 0 {
 		t.Fatalf("RepairClicks при поломке = %d, хотим 0", broken.Offices[0].Employees[0].RepairClicks)
 	}
-	for i := 0; i < 3; i++ {
+	need := broken.Offices[0].Employees[0].RepairNeeded
+	if need < 3 || need > 15 {
+		t.Fatalf("repairNeeded при поломке = %d, хотим 3..15", need)
+	}
+	for i := 0; i < need; i++ {
 		if err := wsjson.Write(ctx, c, clientMessage{Type: "repair_click", Office: 0, Slot: 0}); err != nil {
 			t.Fatal(err)
 		}

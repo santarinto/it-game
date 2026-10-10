@@ -27,7 +27,11 @@ type Employee struct {
 	MotivatedUntil        int  // бафф «мотивирован», пока тик < MotivatedUntil; 0 — нет
 	MotivateCooldownUntil int  // повторная мотивация возможна с этого тика дня
 	PCBroken              bool // ПК сломан: доход места 0 до починки
-	RepairClicks          int  // клики починки накоплены; чинит на RepairClicksNeeded
+	RepairClicks          int  // клики починки накоплены; чинит на RepairTarget()
+	// N кликов этой поломки (ITGAME-93): роллится в rollBreakdowns из
+	// RepairClicksMin..RepairClicksMax, игрок видит «k/N». 0 — ПК цел (или
+	// сейв до ITGAME-93: Restore дописывает LegacyRepairClicks).
+	RepairNeeded int
 
 	// Unseen Forces (итерация 10).
 	SalaryAdd     int // повышение: надбавка к дневной зарплате, навсегда
@@ -521,6 +525,32 @@ func (g *Game) Tick() *DayReport {
 		Incidents: g.DayIncidents, LostIncome: g.DayLostIncome, Events: g.EventLog}
 }
 
+// LegacyRepairClicks — N поломки без своего N: сейв до ITGAME-93, ручная
+// поломка тестом или debug-дельтой. Прежнее фиксированное число кликов.
+const LegacyRepairClicks = 3
+
+// RepairTarget — сколько кликов чинит этот ПК (N из «k/N»).
+func (e *Employee) RepairTarget() int {
+	if e.RepairNeeded > 0 {
+		return e.RepairNeeded
+	}
+	return LegacyRepairClicks
+}
+
+// rollRepairNeeded — N кликов новой поломки, равномерно из
+// RepairClicksMin..RepairClicksMax (ITGAME-93). Ролл из того же PCG, что и
+// сама поломка: журнал партии и реплей (ITGAME-46) воспроизводят его.
+func (g *Game) rollRepairNeeded() int {
+	lo, hi := g.cfg.RepairClicksMin, g.cfg.RepairClicksMax
+	if lo <= 0 {
+		lo = LegacyRepairClicks
+	}
+	if hi < lo {
+		return lo
+	}
+	return lo + g.rng.IntN(hi-lo+1)
+}
+
 // rollBreakdowns — инциденты дня: с шансом за тик на офис ломается ПК
 // случайного занятого слота. Максимум один сломанный ПК на офис
 // одновременно — иначе ранняя игра карается, а поздняя тонет в ремонте.
@@ -543,6 +573,7 @@ func (g *Game) rollBreakdowns() {
 		slot := g.rng.IntN(len(o.Employees))
 		o.Employees[slot].PCBroken = true
 		o.Employees[slot].RepairClicks = 0
+		o.Employees[slot].RepairNeeded = g.rollRepairNeeded()
 		g.DayIncidents++
 	}
 }

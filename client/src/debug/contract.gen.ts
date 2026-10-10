@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "31d756966c80",
+  "hash": "5880dc221493",
   "methods": {
     "version": {
       "kind": "prop",
@@ -1642,7 +1642,12 @@ export const CONTRACT = {
         "repairClicks": {
           "type": "number",
           "optional": false,
-          "doc": "клики починки уже сделаны"
+          "doc": "клики починки уже сделаны (k из «k/N»)"
+        },
+        "repairNeeded": {
+          "type": "number",
+          "optional": false,
+          "doc": "N кликов этой поломки, 3..15 (ITGAME-93); 0 — ПК цел"
         },
         "motivateReadyAt": {
           "type": "string",
