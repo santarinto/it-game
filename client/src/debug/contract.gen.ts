@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "676f868bee3b",
+  "hash": "c6d1517a4293",
   "methods": {
     "version": {
       "kind": "prop",
@@ -468,6 +468,37 @@ export const CONTRACT = {
       "doc": "Промотка n целых дней (1..90) ОФЛАЙН-движком через /api/debug/advance:\nдень N → N+n, тик дня тот же; set_speed сама не шлёт. Из фазы day_report\nсервер сначала делает обычный next_day (итог — день N+1+n, тик 0), а HUD,\nувидев running, закрывает отчёт и возвращает скорость до отчёта, как кнопка\n«Дальше» (никто другой set_speed не слал) — партия побежит живьём, тик 0 не\nгарантирован. Нужна пауза — itd.pause() ДО вызова (его set_speed сдвигает\nсчётчик, и HUD скорость не вернёт) или itd.step(): он сам ставит паузу.\nОфлайн-движок: без кофе-роллов, событий, поломок и XP; дни закрываются\nбез day_report и offline_report — отчётов дней в itd.log() НЕТ, там только\nсмена дня (type 'day') и game_over/victory при финале. Сводка {ticks,\ndays, income, payroll, balance, …} — в ответе .advance и строкой\n«debug · advance» в itd.snapshot().events. Вне фазы running (например\ngame_over) сервер отвечает 200 с advance.ticks 0 — ничего не промотано.",
       "examples": [
         "itd.advanceDays(3)"
+      ]
+    },
+    "play": {
+      "kind": "method",
+      "params": [
+        {
+          "name": "steps",
+          "type": "PlayStep[]",
+          "optional": false
+        }
+      ],
+      "returns": "Promise<string[]>",
+      "doc": "Партия из консоли (ITGAME-73): шаги по очереди, на каждый — строка\n«cmd | ok/FAIL code | dN tN | бал>бал | staff a>b | pay N | phase».\nШаг {cmd, office?, extra?} — команда с квитанцией (как itd.cmd), {days: n} —\nпромотка офлайн-движком (как itd.advanceDays). Таймеров нет: шаг ждёт\nквитанцию своей команды (ответ по id) и снапшот, который она породила\n(state.rev ≥ rev квитанции; у days — rev ответа advance); «после» — этот\nснапшот, «до» — последний снапшот вкладки перед шагом. FAIL не прерывает\nпартию; пропал снапшот за 5с — в вердикте «нет rev≥N». Деньги на идущей\nигре сдвигают и тики — для сверки ставьте первым шагом {cmd:'set_speed', extra:{speed:0}}.\nРазложение дневной разницы — itd.ledger(day).",
+      "examples": [
+        "await itd.play([{cmd:'set_speed', extra:{speed:0}}, {cmd:'hire'}, {cmd:'hire'}, {days:1}, {cmd:'buy_pc'}, {cmd:'hire'}, {days:1}])"
+      ]
+    },
+    "ledger": {
+      "kind": "method",
+      "params": [
+        {
+          "name": "day",
+          "type": "number",
+          "optional": true
+        }
+      ],
+      "returns": "Promise<DayLedger>",
+      "doc": "Бухгалтерия дня с сервера (ITGAME-73, GET /api/debug/ledger): из чего\nсложилась разница баланса — {day, balanceStart, income, eventMoney,\nevents[{what, money, clock}], purchases[{type, price, clock}], payroll,\ngatewayOpex, interest, adjust, balanceEnd, profit, delta, balanced, closed,\noffline, history}. balanceStart + income + eventMoney − purchasesTotal −\npayroll − gatewayOpex − interest + adjust = balanceEnd ровно (balanced).\nprofit = day_report.profit (покупки и процент в него не входят). Без day —\nтекущий день (balanceEnd — живой баланс, payroll 0 до вечера); иначе один из\nhistory: 7 последних закрытых дней + текущий, хранятся в сейве. Дня нет —\nошибка «нет книги дня N: есть [...]».",
+      "examples": [
+        "await itd.ledger()",
+        "await itd.ledger(1)"
       ]
     },
     "set": {
@@ -1223,6 +1254,106 @@ export const CONTRACT = {
         }
       }
     },
+    "DayLedger": {
+      "kind": "object",
+      "fields": {
+        "day": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "fromTick": {
+          "type": "number",
+          "optional": false,
+          "doc": "книга с этого тика: 0 — с утра; >0 — фикстура посреди дня или сейв до ITGAME-73"
+        },
+        "balanceStart": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "income": {
+          "type": "number",
+          "optional": false,
+          "doc": "доход тиков"
+        },
+        "eventMoney": {
+          "type": "number",
+          "optional": false,
+          "doc": "деньги событий, со знаком (= day_report.eventMoney)"
+        },
+        "events": {
+          "type": "LedgerEvent[]",
+          "optional": false,
+          "doc": ""
+        },
+        "purchases": {
+          "type": "LedgerPurchase[]",
+          "optional": false,
+          "doc": ""
+        },
+        "purchasesTotal": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "payroll": {
+          "type": "number",
+          "optional": false,
+          "doc": "зарплаты вечером (= day_report.payroll); у открытого дня 0"
+        },
+        "gatewayOpex": {
+          "type": "number",
+          "optional": false,
+          "doc": "опекс шлюза вечером"
+        },
+        "interest": {
+          "type": "number",
+          "optional": false,
+          "doc": "процент по долгу при закрытии дня (кредит), в «Прибыль» не входит"
+        },
+        "adjust": {
+          "type": "number",
+          "optional": false,
+          "doc": "debug-правка баланса (itd.set, itd.restore); в игре 0"
+        },
+        "balanceEnd": {
+          "type": "number",
+          "optional": false,
+          "doc": "у текущего дня — живой баланс"
+        },
+        "profit": {
+          "type": "number",
+          "optional": false,
+          "doc": "income + eventMoney − payroll − gatewayOpex = day_report.profit закрытого дня"
+        },
+        "delta": {
+          "type": "number",
+          "optional": false,
+          "doc": "balanceEnd − balanceStart"
+        },
+        "balanced": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "слагаемые сходятся с delta ровно"
+        },
+        "closed": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "вечер прошёл, ФОТ списан"
+        },
+        "offline": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "день закрыт офлайн-движком (itd.advanceDays/step, догон после реконнекта)"
+        },
+        "history": {
+          "type": "number[]",
+          "optional": false,
+          "doc": "дни, по которым есть книга: 7 закрытых + текущий"
+        }
+      }
+    },
     "DebugAdvanceResult": {
       "kind": "object",
       "fields": {
@@ -1607,6 +1738,51 @@ export const CONTRACT = {
         }
       }
     },
+    "LedgerEvent": {
+      "kind": "object",
+      "fields": {
+        "what": {
+          "type": "string",
+          "optional": false,
+          "doc": "«аудит провален», «дедлайн выполнен», «вирус: антивирус», …"
+        },
+        "money": {
+          "type": "number",
+          "optional": false,
+          "doc": "со знаком: штраф < 0, награда > 0"
+        },
+        "clock": {
+          "type": "string",
+          "optional": false,
+          "doc": "«HH:MM» игрового дня"
+        }
+      }
+    },
+    "LedgerPurchase": {
+      "kind": "object",
+      "fields": {
+        "type": {
+          "type": "string",
+          "optional": false,
+          "doc": "команда протокола: buy_pc, hire, fire, call_master, …; event_choice — звезда из события; «…» — сводная строка сверх 32"
+        },
+        "price": {
+          "type": "number",
+          "optional": false,
+          "doc": "списано, $"
+        },
+        "clock": {
+          "type": "string",
+          "optional": false,
+          "doc": "«HH:MM» игрового дня"
+        },
+        "n": {
+          "type": "number",
+          "optional": true,
+          "doc": "у сводной строки «…» — сколько покупок в ней"
+        }
+      }
+    },
     "LogEntry": {
       "kind": "object",
       "fields": {
@@ -1871,6 +2047,40 @@ export const CONTRACT = {
           "doc": ""
         }
       }
+    },
+    "PlayCmdStep": {
+      "kind": "object",
+      "fields": {
+        "cmd": {
+          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'abandon' | 'exit'",
+          "optional": false,
+          "doc": ""
+        },
+        "office": {
+          "type": "number",
+          "optional": true,
+          "doc": "по умолчанию 0"
+        },
+        "extra": {
+          "type": "Record<string, number>",
+          "optional": true,
+          "doc": "поля команды: {speed: 0} у set_speed, {slot: n} у fire/motivate/…"
+        }
+      }
+    },
+    "PlayDaysStep": {
+      "kind": "object",
+      "fields": {
+        "days": {
+          "type": "number",
+          "optional": false,
+          "doc": "1..90"
+        }
+      }
+    },
+    "PlayStep": {
+      "kind": "alias",
+      "type": "PlayCmdStep | PlayDaysStep"
     },
     "SandboxApi": {
       "kind": "object",

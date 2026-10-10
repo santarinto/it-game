@@ -49,6 +49,12 @@
 //   X4  вторая партия после «Сдаться» — новый sid песочницы, общий ключ не перезаписан
 //   X5  restore(): sidSame/diffSame, ключи владельца возвращены, служебные убраны; повтор — no_sandbox
 //   X6  владелец сам сменил общий ключ — restore() его не перетирает (kept)
+//   P1  itd.play (ITGAME-73) на fresh, сид 7, тик 0: set_speed 0 → hire → hire → days1 → buy_pc → hire → days1 —
+//       вердикты ok/ok/FAIL no_free_pc/ok/ok/FAIL not_enough_money/ok, цепочка балансов 600>300>614>39>353,
+//       «до» шага = «после» прошлого, без «нет rev», строка «cmd | ok/FAIL code | dN tN | бал>бал | staff a>b | pay N | phase»
+//   P2  itd.ledger(1)/(2)/(): сведены (balanced), покупки hire $300 / buy_pc $575, profit = delta + покупки,
+//       старт дня = конец прошлого; текущий день открыт, payroll 0; ledger(99) — «нет книги дня 99: есть [1 2 3]»
+//   P3  itd.set({money}) — правка видна в adjust, книга сведена
 //   + на странице нет pageerror
 //
 // Отклонения от буквального сценария в трекере (см. отчёт агента):
@@ -854,6 +860,71 @@ async function run() {
     )
     await ps.evaluate(() => { localStorage.removeItem('itd.sid'); localStorage.removeItem('itd.diff') })
     await ps.close()
+
+    // ── P1–P3 (ITGAME-73): партия и бухгалтерия из консоли. Своя вкладка с сидом 7
+    // (найм роллит выработку $13/тик: день 1 даёт ровно $614 — числа замера из задачи)
+    // и своя песочница — не выбивает партию основной вкладки.
+    const pp = await browser.newPage()
+    pp.on('pageerror', (e) => pageErrors.push(String(e)))
+    await pp.setViewport({ width: 1920, height: 1080 })
+    await pp.goto(`${BASE}/?scenario=fresh&seed=7&debug=1`, { waitUntil: 'domcontentloaded' })
+    await waitMenuReady(pp)
+    await pp.evaluate(() => window.itd.sandbox('qa73'))
+    await pp.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
+    await pp.evaluate(() => window.itd.click('menu.diff.normal'))
+    await pp.waitForFunction(() => window.itd.state().scenario === 'fresh' && window.itd.state().phase === 'running', { timeout: 20000 })
+    // живые тики до паузы съели бы выработку дня: тик 0 — как в замере (на пустом штате денег не двигает)
+    await pp.evaluate(() => window.itd.pause())
+    await pp.waitForFunction(() => window.itd.state().speed === 0, { timeout: 5000 })
+    await pp.evaluate(() => window.itd.set({ tickInDay: 0 }))
+    await pp.waitForFunction(() => window.itd.state().tickInDay === 0, { timeout: 5000 })
+    const p1 = await pp.evaluate(async () => {
+      const t0 = performance.now()
+      const rows = await window.itd.play([
+        { cmd: 'set_speed', extra: { speed: 0 } }, { cmd: 'hire' }, { cmd: 'hire' }, { days: 1 },
+        { cmd: 'buy_pc' }, { cmd: 'hire' }, { days: 1 },
+      ])
+      return { rows, ms: Math.round(performance.now() - t0), bad: await window.itd.play([{ nope: 1 }]) }
+    })
+    const cells = p1.rows.map((r) => r.split(' | '))
+    const bals = cells.map((c) => (c[3] ?? '').split('>').map(Number))
+    check(
+      'P1: itd.play — 7 строк, вердикты ok/ok/FAIL no_free_pc/ok/ok/FAIL not_enough_money/ok, балансы 600>300>614>39>353, «до» = «после» прошлого',
+      p1.rows.length === 7 && cells.every((c) => c.length === 7) &&
+        cells.map((c) => c[1]).join() === 'ok,ok,FAIL no_free_pc,ok,ok,FAIL not_enough_money,ok' &&
+        cells.map((c) => c[0]).join() === 'set_speed 0,hire,hire,days1,buy_pc,hire,days1' &&
+        bals.map((b) => b[1]).join() === '600,300,300,614,39,39,353' &&
+        bals.every((b, i) => i === 0 || b[0] === bals[i - 1][1]) &&
+        cells[3][2] === 'd2 t0' && cells[6][2] === 'd3 t0' && cells[1][4] === 'staff 0>1' && cells[2][4] === 'staff 1>1' &&
+        cells.every((c) => c[6] === 'running') && /^FAIL bad_step/.test(p1.bad[0]?.split(' | ')[1] ?? ''),
+      JSON.stringify(p1),
+    )
+    const p2 = await pp.evaluate(async () => ({
+      l1: await window.itd.ledger(1), l2: await window.itd.ledger(2), cur: await window.itd.ledger(),
+      bal: window.itd.state().balance,
+      miss: await window.itd.ledger(99).then(() => 'resolved', (e) => String(e.message)),
+      zero: await window.itd.ledger(0).then(() => 'resolved', (e) => String(e.message)),
+    }))
+    const sumOf = (l) => l.balanceStart + l.income + l.eventMoney - l.purchasesTotal - l.payroll - l.gatewayOpex - l.interest + l.adjust
+    const { l1, l2, cur } = p2
+    check(
+      'P2: itd.ledger — дни 1, 2 закрыты и сведены (hire $300 / buy_pc $575), profit = delta + покупки, старт = вчерашний конец; текущий день 3 открыт; ledger(99) — список дней',
+      [l1, l2, cur].every((l) => l.balanced === true && sumOf(l) === l.balanceEnd && l.delta === l.balanceEnd - l.balanceStart && l.adjust === 0) &&
+        l1.day === 1 && l1.closed && l1.offline && l1.balanceStart === 600 && l1.balanceEnd === 614 &&
+        l1.purchases.length === 1 && l1.purchases[0].type === 'hire' && l1.purchases[0].price === 300 &&
+        l1.profit === l1.delta + l1.purchasesTotal && l1.payroll > 0 &&
+        l2.day === 2 && l2.closed && l2.balanceStart === 614 && l2.balanceEnd === 353 &&
+        l2.purchases.length === 1 && l2.purchases[0].type === 'buy_pc' && l2.purchases[0].price === 575 &&
+        cur.day === 3 && !cur.closed && cur.payroll === 0 && cur.balanceStart === 353 && cur.balanceEnd === p2.bal &&
+        cur.history.join() === '1,2,3' && p2.miss.includes('нет книги дня 99: есть [1 2 3]') && p2.zero.startsWith('ledger: day'),
+      JSON.stringify(p2),
+    )
+    const p3 = await pp.evaluate(async () => {
+      await window.itd.set({ money: 1000 })
+      return window.itd.ledger()
+    })
+    check('P3: itd.set({money: 1000}) — adjust 647, книга сведена', p3.adjust === 1000 - 353 && p3.balanced && p3.balanceEnd === 1000, JSON.stringify(p3))
+    await pp.close()
 
     // ── Z1/Z2 (ITGAME-61): сохранённый 2× из старой версии — отдельная вкладка, окно как у владельца
     const pz = await browser.newPage()

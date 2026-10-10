@@ -424,6 +424,34 @@ documenting separately:
   (e.g. `game_over`) the server answers 200 with `advance.ticks` 0 and nothing
   moves. For a real day report, stop a tick short and let the last tick run
   live (`qa:facade` D1).
+- **`itd.play(steps)` / `itd.ledger(day?)`** (ITGAME-73) — a party and its
+  books from the console. `play` runs steps in order — `{cmd, office?, extra?}`
+  (an `itd.cmd` with its receipt) or `{days: n}` (an `itd.advanceDays`) — and
+  returns one line per step: `cmd | ok/FAIL code | dN tN | before>after
+  balance | staff a>b | pay N | phase`. No timers: a step waits for its own
+  receipt (by command id) and then for the snapshot with `rev ≥` the
+  receipt's `rev` (for `days`, the advance reply's `rev`); «before» is the
+  tab's last snapshot when the step starts. A `FAIL` does not stop the party;
+  a missing snapshot after 5 s shows as `(нет rev≥N)` in the verdict. Pause
+  first (`{cmd:'set_speed', extra:{speed:0}}`) or live ticks move the money
+  between steps. `ledger(day?)` reads `GET /api/debug/ledger?sid=&day=N` —
+  the server's book of a day: `balanceStart + income + eventMoney −
+  purchasesTotal − payroll − gatewayOpex − interest + adjust = balanceEnd`,
+  exactly (`balanced`). The book is written where `Money` changes
+  (`server/internal/game/ledger.go`): tick income, event money (same as
+  `DayEventMoney`, ITGAME-53 — `profit` equals the day report's «Прибыль»),
+  every purchase through `spend()` (the star hire from an event counts as a
+  purchase, `event_choice`), payroll and gateway opex at the evening, credit
+  interest (not part of «Прибыль»), and debug edits (`itd.set({money})`,
+  a `restore` delta) as `adjust`. The offline engine (`advanceDays`, the
+  reconnect catch-up) writes a closed book per day (`offline: true`). No
+  `day` — the current day (`balanceEnd` is the live balance, `payroll` is 0
+  until the evening); otherwise one of `history`: the current day plus the
+  last 7 closed ones. The books live in `Game` and in the save
+  (`ledger`/`ledgerHistory`) so a tab reload keeps yesterday; the save stays
+  small — 7 days, at most 32 purchase lines a day (the rest folds into a
+  «…» line with `n`). A fixture starts a fresh book; a save from before
+  ITGAME-73 starts one at its tick (`fromTick`).
 - **`itd.trace(action, windowMs)`** (ITGAME-37) is a *live* subscription,
   not a slice of `log()`/`net()`: it wires up listeners before `action` runs
   and keeps them for `windowMs` ms (0..10000, default 1000) after `action`
@@ -506,7 +534,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:buttons` | HUD buy-button enabled/tooltip/alpha states (ITGAME-17) | :4180, self-serve |
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35) | :4179, self-serve + temp saves dir |
 | `npm run qa:hud` | HUD layout column, toast stack, no overlaps (ITGAME-16) | :4174, self-serve |
-| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78); `itd.sandbox()`: the owner's shared key survives «Сдаться» and a second party, `fakeOwner()`, `restore()` puts back / keeps (ITGAME-77); `itd.stack()` under the day report: the dimmer wins over `btn.menu`, same as `hit().top` (ITGAME-74); `hit()` and the `X` flag follow the real hit area — a 1×1 hitArea on `btn.next_day` makes it covered (owner 10.10) | :4175, self-serve |
+| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78); `itd.sandbox()`: the owner's shared key survives «Сдаться» and a second party, `fakeOwner()`, `restore()` puts back / keeps (ITGAME-77); `itd.stack()` under the day report: the dimmer wins over `btn.menu`, same as `hit().top` (ITGAME-74); `hit()` and the `X` flag follow the real hit area — a 1×1 hitArea on `btn.next_day` makes it covered (owner 10.10); `itd.play()` on `fresh` (seed 7): hire → hire `FAIL no_free_pc` → day → buy_pc → hire `FAIL not_enough_money` → day with the balances 600>300>614>39>353, `itd.ledger()` books balanced, `adjust` after `itd.set` (ITGAME-73) | :4175, self-serve |
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks; `broken_pc`: the repair zone covers the worker and the «✖ чинить» label, real clicks repair (ITGAME-75) | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37); receipts by command id — `id`/`rev` in `cmd()`, `trace().sent`/`states`, `net()`, and no false receipt with a tick or an observer's (`/ws/agent`) snapshot in flight (ITGAME-45) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |

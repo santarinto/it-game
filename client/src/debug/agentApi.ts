@@ -104,6 +104,61 @@ export interface DebugAdvanceResult {
   state: StateMessage
 }
 
+// ── Партия и бухгалтерия из консоли (ITGAME-73) ────────────────────────────
+
+// Шаг itd.play(): команда с квитанцией (как itd.cmd) …
+export interface PlayCmdStep {
+  cmd: CommandType
+  office?: number // по умолчанию 0
+  extra?: Record<string, number> // поля команды: {speed: 0} у set_speed, {slot: n} у fire/motivate/…
+}
+
+// … или промотка n целых дней офлайн-движком (как itd.advanceDays).
+export interface PlayDaysStep {
+  days: number // 1..90
+}
+
+export type PlayStep = PlayCmdStep | PlayDaysStep
+
+// Покупка дня в itd.ledger(): списано командой.
+export interface LedgerPurchase {
+  type: string // команда протокола: buy_pc, hire, fire, call_master, …; event_choice — звезда из события; «…» — сводная строка сверх 32
+  price: number // списано, $
+  clock: string // «HH:MM» игрового дня
+  n?: number // у сводной строки «…» — сколько покупок в ней
+}
+
+// Деньги исхода события в itd.ledger(), со знаком.
+export interface LedgerEvent {
+  what: string // «аудит провален», «дедлайн выполнен», «вирус: антивирус», …
+  money: number // со знаком: штраф < 0, награда > 0
+  clock: string // «HH:MM» игрового дня
+}
+
+// Книга дня (GET /api/debug/ledger): balanceStart + income + eventMoney −
+// purchasesTotal − payroll − gatewayOpex − interest + adjust = balanceEnd.
+export interface DayLedger {
+  day: number
+  fromTick: number // книга с этого тика: 0 — с утра; >0 — фикстура посреди дня или сейв до ITGAME-73
+  balanceStart: number
+  income: number // доход тиков
+  eventMoney: number // деньги событий, со знаком (= day_report.eventMoney)
+  events: LedgerEvent[]
+  purchases: LedgerPurchase[]
+  purchasesTotal: number
+  payroll: number // зарплаты вечером (= day_report.payroll); у открытого дня 0
+  gatewayOpex: number // опекс шлюза вечером
+  interest: number // процент по долгу при закрытии дня (кредит), в «Прибыль» не входит
+  adjust: number // debug-правка баланса (itd.set, itd.restore); в игре 0
+  balanceEnd: number // у текущего дня — живой баланс
+  profit: number // income + eventMoney − payroll − gatewayOpex = day_report.profit закрытого дня
+  delta: number // balanceEnd − balanceStart
+  balanced: boolean // слагаемые сходятся с delta ровно
+  closed: boolean // вечер прошёл, ФОТ списан
+  offline: boolean // день закрыт офлайн-движком (itd.advanceDays/step, догон после реконнекта)
+  history: number[] // дни, по которым есть книга: 7 закрытых + текущий
+}
+
 // ── Штамп версии и ассеты (ITGAME-28) ──────────────────────────────────────
 
 // Версия сборки: sha коммита и время билда (vite define; dev — HEAD на
@@ -790,6 +845,35 @@ export interface ItdApi {
    */
   advanceDays(n: number): Promise<DebugAdvanceResult>
   /**
+   * Партия из консоли (ITGAME-73): шаги по очереди, на каждый — строка
+   * «cmd | ok/FAIL code | dN tN | бал>бал | staff a>b | pay N | phase».
+   * Шаг {cmd, office?, extra?} — команда с квитанцией (как itd.cmd), {days: n} —
+   * промотка офлайн-движком (как itd.advanceDays). Таймеров нет: шаг ждёт
+   * квитанцию своей команды (ответ по id) и снапшот, который она породила
+   * (state.rev ≥ rev квитанции; у days — rev ответа advance); «после» — этот
+   * снапшот, «до» — последний снапшот вкладки перед шагом. FAIL не прерывает
+   * партию; пропал снапшот за 5с — в вердикте «нет rev≥N». Деньги на идущей
+   * игре сдвигают и тики — для сверки ставьте первым шагом {cmd:'set_speed', extra:{speed:0}}.
+   * Разложение дневной разницы — itd.ledger(day).
+   * @example await itd.play([{cmd:'set_speed', extra:{speed:0}}, {cmd:'hire'}, {cmd:'hire'}, {days:1}, {cmd:'buy_pc'}, {cmd:'hire'}, {days:1}])
+   */
+  play(steps: PlayStep[]): Promise<string[]>
+  /**
+   * Бухгалтерия дня с сервера (ITGAME-73, GET /api/debug/ledger): из чего
+   * сложилась разница баланса — {day, balanceStart, income, eventMoney,
+   * events[{what, money, clock}], purchases[{type, price, clock}], payroll,
+   * gatewayOpex, interest, adjust, balanceEnd, profit, delta, balanced, closed,
+   * offline, history}. balanceStart + income + eventMoney − purchasesTotal −
+   * payroll − gatewayOpex − interest + adjust = balanceEnd ровно (balanced).
+   * profit = day_report.profit (покупки и процент в него не входят). Без day —
+   * текущий день (balanceEnd — живой баланс, payroll 0 до вечера); иначе один из
+   * history: 7 последних закрытых дней + текущий, хранятся в сейве. Дня нет —
+   * ошибка «нет книги дня N: есть [...]».
+   * @example await itd.ledger()
+   * @example await itd.ledger(1)
+   */
+  ledger(day?: number): Promise<DayLedger>
+  /**
    * Читы живой сессии: {money, day, tickInDay}.
    * @example itd.set({money: 50000})
    */
@@ -1404,7 +1488,7 @@ const KEYMAP: Record<string, { code: string; keyCode: number; key: string }> = {
 // COMMAND_TYPES в protocol.ts (ITGAME-39), zero дублей.
 const COMMANDS = new Set<string>(COMMAND_TYPES)
 
-const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/39)
+const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/39/73)
   itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); menuReady — меню создано, активно и сводка сейва устоялась
   itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rev/cause последнего снапшота (tick|cmd|debug|start|resume), rtt, reconnects, sid (куда уходят команды: liveSid ?? хранилище), liveSid (живая партия или null), sidSwitches; ждать версию — itd.wait((s, srv) => srv.rev >= N)
   itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy, visible, alpha, interactive, depth, active, disabled}; x/y — по origin объекта, cx/cy — центр bounds (точка для клика); disabled — кнопка покупки/найма неактивна
@@ -1445,6 +1529,8 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.pause() / resume() / speed(n) — темп сессии: set_speed 0/1/0..3 (серверный, живёт в сейве); до коннекта — {ok:false, code:'not_connected'}
   itd.step(2000) / step({ticks:60}) — пауза + промотка офлайн-движком (без кофе/событий/поломок/XP, день закрывается без day_report): мс (1 тик = 1000 мс, до 10 тиков) или {ticks: 1..10000}; из фазы отчёта — сначала next_day; сводка — в .advance и «debug · advance» в itd.snapshot().events; вне running (game_over) — 200 с advance.ticks 0, ничего не промотано
   itd.advanceDays(3)                — промотка дней офлайн-движком: день N → N+3 (из фазы отчёта — сначала next_day, и HUD вернёт скорость до отчёта: партия побежит живьём, для паузы — itd.pause() ДО вызова), без day_report; сводка {days, income, payroll, balance} — в ответе .advance и строкой «debug · advance» в itd.snapshot().events, в itd.log() — только смена дня
+  await itd.play([{cmd:'set_speed', extra:{speed:0}}, {cmd:'hire'}, {days:1}]) — партия из консоли: шаг {cmd, office?, extra?} (квитанция как у itd.cmd) или {days: n} (как itd.advanceDays); строка на шаг «cmd | ok/FAIL code | dN tN | бал>бал | staff a>b | pay N | phase»; без таймеров — шаг ждёт квитанцию и снапшот rev ≥ её rev; FAIL партию не прерывает
+  await itd.ledger(day?)            — бухгалтерия дня с сервера: {day, balanceStart, income, eventMoney, events[{what, money, clock}], purchases[{type, price, clock}], purchasesTotal, payroll, gatewayOpex, interest, adjust, balanceEnd, profit, delta, balanced, closed, offline, history}; слагаемые = balanceEnd − balanceStart ровно; profit = day_report.profit; без day — текущий (payroll 0 до вечера), иначе один из history (7 закрытых + текущий)
   itd.set({money: 50000})           — читы живой сессии: {money, day, tickInDay}
   itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs|broken_pc; сбрасывает клиентское состояние партии (офис → О1, оверлеи HUD, окна офиса/серверной, пауза отчёта); скорость не трогает — из отчёта или окна выхода партия остаётся на паузе: itd.resume(); работает и после финала
   itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы
@@ -1459,6 +1545,55 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
 Пример: await itd.scenario('soft_lock'); itd.state().day
 Пример: itd.set({money: 50000}); await itd.wait(s => s.balance === 50000)
 Пример: await itd.cmd('hire') → {ok:false, code:'no_free_pc'} — сервер отказал, ПК заняты`
+
+// ── itd.play (ITGAME-73) ───────────────────────────────────────────────────
+
+// Срез снапшота для строки шага.
+function playSnap(s: StateMessage | null) {
+  if (!s) return null
+  return {
+    day: s.day, t: s.tickInDay, bal: s.money, phase: s.phase, pay: s.payrollPerDay,
+    staff: s.offices.reduce((n, o) => n + o.employees.length, 0),
+  }
+}
+
+// Один шаг партии: действие, квитанция, снапшот rev ≥ её rev — строка.
+async function playStep(api: ItdApi, st: PlayStep): Promise<string> {
+  const before = playSnap(client.latest)
+  let name: string
+  let verdict: string
+  let after: StateMessage | null = null
+  if (st && typeof st === 'object' && 'days' in st) {
+    name = `days${st.days}`
+    try {
+      const r = await api.advanceDays(st.days)
+      after = await client.waitRev(r.state.rev, 5000)
+      verdict = after ? 'ok' : `ok (нет rev≥${r.state.rev})`
+      after ??= r.state
+    } catch (e) {
+      verdict = `FAIL ${e instanceof Error ? e.message : String(e)}`
+      after = client.latest
+    }
+  } else if (st && typeof st === 'object' && typeof (st as PlayCmdStep).cmd === 'string') {
+    const { cmd, office = 0, extra = {} } = st as PlayCmdStep
+    name = [cmd, ...Object.values(extra).map(String), ...(office ? [`o${office}`] : [])].join(' ')
+    const r = await api.cmd(cmd, office, extra)
+    verdict = r.ok ? 'ok' : `FAIL ${r.code ?? r.error ?? '?'}`
+    if (typeof r.rev === 'number') {
+      after = await client.waitRev(r.rev, 5000)
+      if (!after) verdict += ` (нет rev≥${r.rev})`
+    }
+    after ??= client.latest
+  } else {
+    return `${JSON.stringify(st)} | FAIL bad_step: {cmd, office?, extra?} или {days: n}`
+  }
+  const a = playSnap(after)
+  if (!a) return `${name} | ${verdict} | нет снапшота`
+  return [
+    name, verdict, `d${a.day} t${a.t}`, `${before?.bal ?? '?'}>${a.bal}`,
+    `staff ${before?.staff ?? '?'}>${a.staff}`, `pay ${a.pay}`, a.phase,
+  ].join(' | ')
+}
 
 function makeApi(game: Phaser.Game): ItdApi {
   const telemetry = startTelemetry(game)
@@ -1483,7 +1618,7 @@ function makeApi(game: Phaser.Game): ItdApi {
     return activeNodes(game)
   }
 
-  return {
+  const api: ItdApi = {
     version: BUILD,
     state: () => buildState(game),
     server: buildServer,
@@ -1761,6 +1896,20 @@ function makeApi(game: Phaser.Game): ItdApi {
       }
       return debugFetch<DebugAdvanceResult>('POST', '/advance', { days: n })
     },
+    async play(steps) {
+      if (!Array.isArray(steps)) {
+        throw new Error("play: массив шагов [{cmd, office?, extra?} | {days: n}]")
+      }
+      const rows: string[] = []
+      for (const st of steps) rows.push(await playStep(api, st))
+      return rows
+    },
+    ledger(day) {
+      if (day !== undefined && (!Number.isInteger(day) || day < 1)) {
+        return Promise.reject(new Error('ledger: day — целое ≥ 1 (без него — текущий день)'))
+      }
+      return debugFetch<DayLedger>('GET', day === undefined ? '/ledger' : `/ledger?day=${day}`)
+    },
     set(patch) {
       if (patch.tickInDay !== undefined && client.latest?.phase === 'day_report') {
         return Promise.reject(new Error('set: tickInDay недоступен в фазе day_report'))
@@ -1843,6 +1992,7 @@ function makeApi(game: Phaser.Game): ItdApi {
       types: CONTRACT.types,
     }),
   }
+  return api
 }
 
 // Ставится в main.ts после готовности сцен: до этого сцен ещё нет,
