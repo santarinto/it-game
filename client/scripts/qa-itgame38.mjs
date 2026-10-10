@@ -47,29 +47,17 @@
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию :4175,
 // как visreg.mjs/qa-itgame16.mjs — порт 4173/4174 заняты соседними прогонами).
 // Общий self-serve — client/scripts/lib/selfserve.mjs.
-import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer-core'
+import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
 
 const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 const SELF_PORT = Number(process.env.QA_PORT) || 4175
 const HINT_IDS = ['master', 'router', 'core', 'server', 'cooler', 'fridge', 'motivate', 'softlock']
 const VALID_OVERLAP_KINDS = new Set(['text', 'occlusion', 'interactive'])
-
-function chromePath() {
-  const cands = [
-    process.env.CHROME_PATH,
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/google-chrome-stable',
-  ].filter((p) => !!p)
-  const found = cands.find((p) => existsSync(p))
-  if (!found) throw new Error('chromium не найден — задайте CHROME_PATH')
-  return found
-}
 
 const BASE = process.env.QA_BASE || `http://127.0.0.1:${SELF_PORT}`
 

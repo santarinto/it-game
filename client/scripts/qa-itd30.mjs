@@ -9,22 +9,10 @@
 // I — «найм с занятым ПК»: fixed soft_lock + itd.cmd('hire') возвращает
 //     квитанцию сервера {ok:false, code:'no_free_pc'}, а не молчаливое
 //     ok:true; sid берётся из sessionStorage (вкладка-локально).
-import { existsSync } from 'node:fs'
 import puppeteer from 'puppeteer-core'
+import { chromePath } from './lib/chrome.mjs'
 
 const BASE = process.env.QA_BASE || 'http://localhost:5173'
-
-function chromePath() {
-  const cands = [
-    process.env.CHROME_PATH,
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/google-chrome-stable',
-  ].filter((p) => !!p)
-  const found = cands.find((p) => existsSync(p))
-  if (!found) throw new Error('chromium не найден — задайте CHROME_PATH')
-  return found
-}
 
 const browser = await puppeteer.launch({
   executablePath: chromePath(),

@@ -91,13 +91,20 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
-      # check-sprites (часть build), smoke-ui и visreg ищут Chromium по
-      # CHROME_PATH; на раннере предустановлен Google Chrome.
-      - name: Chrome для puppeteer
-        run: echo "CHROME_PATH=$(command -v google-chrome-stable || command -v google-chrome)" >> "$GITHUB_ENV"
       - name: npm ci
         working-directory: client
         run: npm ci --no-audit --no-fund
+      # smoke-ui и visreg гоняют закреплённый Chrome for Testing (ITGAME-48):
+      # версия — CHROME_BUILD в client/scripts/lib/chrome.mjs, не Chrome
+      # раннера, который обновляется сам. Кэш — по хэшу этого файла.
+      - name: Chrome for Testing — кэш
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/it-game/browsers
+          key: chrome-${{ runner.os }}-${{ hashFiles('client/scripts/lib/chrome.mjs') }}
+      - name: Chrome for Testing — установка
+        working-directory: client
+        run: npm run browser:install
       # itd.contract() (ITGAME-39): сверяет contract.gen.ts с ItdApi и коды
       # ошибок/команды протокола с ../server — до typecheck, чтобы отчёт был
       # виден раньше и не терялся среди ошибок tsc.
@@ -144,8 +151,10 @@ jobs:
           if-no-files-found: ignore
 
   # ── visreg (ITGAME-27): пока ОТЧЁТ, не гейт ─────────────────────────────────
-  # Эталоны сняты на машине владельца: системный monospace рендерится иначе,
-  # и даже на коммите эталонов diff 0.3–0.65% при пороге 0.5%. Шаг не роняет
+  # Браузер закреплён (Chrome for Testing, ITGAME-48), но текст — ещё системный
+  # monospace раннера, а эталоны сняты не здесь: diff 0.3–1.3% при пороге
+  # 0.5%. Эталоны пересоберутся на закреплённом браузере после выбора своего
+  # шрифта (ITGAME-48). Шаг не роняет
   # CI; при расхождении кладёт в артефакт кадры, снятые В CI, — их можно
   # принять эталонами (client/scripts/visreg/) и после этого сделать джобу
   # обязательной, убрав continue-on-error.
@@ -163,12 +172,16 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
-      - name: Chrome для puppeteer
-        run: echo "CHROME_PATH=$(command -v google-chrome-stable || command -v google-chrome)" >> "$GITHUB_ENV"
-      - name: npm ci + build
+      - name: Chrome for Testing — кэш
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/it-game/browsers
+          key: chrome-${{ runner.os }}-${{ hashFiles('client/scripts/lib/chrome.mjs') }}
+      - name: npm ci + browser:install + build
         working-directory: client
         run: |
           npm ci --no-audit --no-fund
+          npm run browser:install
           npm run build
       - name: visreg
         id: visreg
@@ -238,10 +251,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: client/package-lock.json
+      - name: Chrome for Testing — кэш
+        if: steps.hook.outputs.deployed == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/it-game/browsers
+          key: chrome-${{ runner.os }}-${{ hashFiles('client/scripts/lib/chrome.mjs') }}
       - name: smoke-ui — прод
         if: steps.hook.outputs.deployed == 'true'
         working-directory: client
         run: |
           npm ci --no-audit --no-fund
-          CHROME_PATH=$(command -v google-chrome-stable || command -v google-chrome) \
-            timeout 300 npm run smoke-ui -- https://itgame.santarinto.com
+          npm run browser:install
+          timeout 300 npm run smoke-ui -- https://itgame.santarinto.com

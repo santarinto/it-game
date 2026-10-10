@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url'
 import { PNG } from 'pngjs'
 import pixelmatch from 'pixelmatch'
 import puppeteer from 'puppeteer-core'
+import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
 
 const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -32,21 +33,6 @@ const UPDATE = process.argv.includes('--update')
 
 // Сценарии = фикстуры ITGAME-26 + меню без сценария.
 const SCENARIOS = ['menu', 'fresh', 'broke_day3', 'mid_day10', 'full_office', 'soft_lock', 'pre_victory', 'spare_pcs']
-
-function chromePath() {
-  const cands = [
-    process.env.CHROME_PATH,
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/google-chrome-stable',
-  ].filter((p) => !!p)
-  const found = cands.find((p) => existsSync(p))
-  if (!found) {
-    // throw, не process.exit: exit пропустил бы finally, который гасит сервер
-    throw new Error('VISREG FAIL: chromium не найден — задайте CHROME_PATH')
-  }
-  return found
-}
 
 // ── Загрузка сцены: детерминированное состояние для скриншота ─────────────
 // window.itd появляется раньше, чем меню создаст кнопки: клик в этот зазор
@@ -124,6 +110,9 @@ if (!process.env.BASE_URL) {
 try {
   if (UPDATE) mkdirSync(SHOTS_DIR, { recursive: true })
   const baseline = existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, 'utf8')) : {}
+  // Эталоны привязаны к браузеру (ITGAME-48): путь в логе — чтобы по отчёту
+  // было видно, закреплённый ли Chrome снимал кадры.
+  console.log(`VISREG: браузер ${chromePath()}`)
 
   for (const sc of SCENARIOS) {
     // Браузер НА сценарий: software-WebGL контексты не утекают между

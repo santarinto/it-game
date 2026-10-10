@@ -18,13 +18,17 @@ ENV_FILE=${CLAUDE_ENV_FILE:-/dev/null}
 # (поля libc) и пачкает дерево в каждой сессии.
 (cd client && npm ci --no-audit --no-fund --loglevel=error)
 
-# Chromium: в образе Playwright-сборка, не /usr/bin/chromium, которую ищут
-# smoke-ui, visreg и check-sprites (часть npm run build).
-chrome=$(find /opt/pw-browsers -path '*/chromium-*/chrome-linux/chrome' -type f 2>/dev/null | sort -V | tail -1 || true)
-if [ -n "$chrome" ]; then
-  echo "export CHROME_PATH=$chrome" >> "$ENV_FILE"
-else
-  echo "session-start: chromium не найден — smoke-ui/visreg/build без CHROME_PATH упадут" >&2
+# Браузер для smoke-ui/qa:*/visreg (ITGAME-48): закреплённый Chrome for
+# Testing (версия — client/scripts/lib/chrome.mjs), скрипты находят его сами.
+# Нет сети до storage.googleapis.com — фолбэк на Playwright-сборку образа
+# через CHROME_PATH (пиксели visreg с эталонами тогда могут не совпасть).
+if ! (cd client && npm run --silent browser:install); then
+  chrome=$(find /opt/pw-browsers -path '*/chromium-*/chrome-linux/chrome' -type f 2>/dev/null | sort -V | tail -1 || true)
+  if [ -n "$chrome" ]; then
+    echo "export CHROME_PATH=$chrome" >> "$ENV_FILE"
+  else
+    echo "session-start: браузер не найден — smoke-ui/qa/visreg упадут без CHROME_PATH" >&2
+  fi
 fi
 
 # PostgreSQL: поднять кластер, завести роль и две базы — рабочую (для

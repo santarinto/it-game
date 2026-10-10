@@ -7,25 +7,13 @@
 // client/scripts/lib/selfserve.mjs; нужен client/dist (npm run build).
 // QA_BASE — прогон против внешнего сервера. saves: 'off' — партия всегда
 // свежая, уникальный sid не нужен.
-import { existsSync } from 'node:fs'
 import { setTimeout as delay } from 'node:timers/promises'
 import puppeteer from 'puppeteer-core'
+import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
 
 const SELF_PORT = Number(process.env.QA_PORT) || 4180
 const BASE = process.env.QA_BASE || `http://127.0.0.1:${SELF_PORT}`
-
-function chromePath() {
-  const cands = [
-    process.env.CHROME_PATH,
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/google-chrome-stable',
-  ].filter((p) => !!p)
-  const found = cands.find((p) => existsSync(p))
-  if (!found) throw new Error('chromium не найден — задайте CHROME_PATH')
-  return found
-}
 
 const results = []
 const check = (name, pass, fact) => {

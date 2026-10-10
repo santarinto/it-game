@@ -10,23 +10,11 @@
 // серверный стор сейвов (server/internal/ws/session.go, ~строка 268,
 // store.Begin/kick) — внешнему серверу, заданному через QA_BASE, НУЖНЫ
 // сейвы (не запускайте его с -saves off, иначе шаги 5-7 не пройдут).
-import { existsSync } from 'node:fs'
 import puppeteer from 'puppeteer-core'
+import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
 
 const SELF_PORT = Number(process.env.QA_PORT) || 4179
-
-function chromePath() {
-  const cands = [
-    process.env.CHROME_PATH,
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/google-chrome-stable',
-  ].filter(Boolean)
-  const found = cands.find((p) => existsSync(p))
-  if (!found) throw new Error('chromium не найден — задайте CHROME_PATH')
-  return found
-}
 
 let stopServer = null
 if (!process.env.QA_BASE) {

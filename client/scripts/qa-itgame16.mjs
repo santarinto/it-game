@@ -14,12 +14,13 @@
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
 // :4174 — dist + собранный bin/itdirector, как visreg.mjs). Общий
 // self-serve — client/scripts/lib/selfserve.mjs.
-import { existsSync, mkdirSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer-core'
+import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
 
 const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -32,18 +33,6 @@ const GAME_H = 720
 const LEFT_IDS = ['hud.money', 'hud.income', 'hud.payroll', 'hud.net', 'hud.dayProfit', 'hud.debt']
 const RIGHT_IDS = ['hud.goal', 'hud.day', 'hud.market']
 const HUD_IDS = [...LEFT_IDS, ...RIGHT_IDS]
-
-function chromePath() {
-  const cands = [
-    process.env.CHROME_PATH,
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/google-chrome-stable',
-  ].filter((p) => !!p)
-  const found = cands.find((p) => existsSync(p))
-  if (!found) throw new Error('chromium не найден — задайте CHROME_PATH')
-  return found
-}
 
 const BASE = process.env.QA_BASE || `http://127.0.0.1:${SELF_PORT}`
 

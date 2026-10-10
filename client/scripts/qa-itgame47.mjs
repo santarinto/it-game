@@ -81,24 +81,12 @@
 //
 // Не используем бросающие ожидания на условиях, которые ломает баг: после delay() читаем
 // и пишем FAIL, а не умираем — чтобы до фикса прогон показал красные строки.
-import { existsSync } from 'node:fs'
 import { setTimeout as delay } from 'node:timers/promises'
 import puppeteer from 'puppeteer-core'
+import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
 
 const SELF_PORT = Number(process.env.QA_PORT) || 4181
-
-function chromePath() {
-  const cands = [
-    process.env.CHROME_PATH,
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/google-chrome-stable',
-  ].filter((p) => !!p)
-  const found = cands.find((p) => existsSync(p))
-  if (!found) throw new Error('chromium не найден — задайте CHROME_PATH')
-  return found
-}
 
 const results = []
 function check(name, pass, fact) {

@@ -8,32 +8,18 @@
 //   npm run smoke-ui -- https://…         # проверить живой URL (напр., прод)
 //   OFFICE=1 npm run smoke-ui [-- URL]    # + клик «НОРМА» и сцена office
 //                                          # (нужен живой WS за URL)
-// Браузер: CHROME_PATH, иначе /usr/bin/chromium, /usr/bin/google-chrome-stable.
-import { existsSync } from 'node:fs'
+// Браузер: CHROME_PATH, иначе закреплённый Chrome for Testing (npm run
+// browser:install), иначе системный Chromium — scripts/lib/chrome.mjs.
 import { spawn } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer-core'
+import { chromePath } from './lib/chrome.mjs'
 
 const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 const DEFAULT_URL = 'http://localhost:4173'
 const url = process.argv[2] || DEFAULT_URL
-
-function chromePath() {
-  const cands = [
-    process.env.CHROME_PATH,
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/google-chrome-stable',
-  ].filter((p) => !!p)
-  const found = cands.find((p) => existsSync(p))
-  if (!found) {
-    console.error('SMOKE-UI FAIL: chromium не найден — задайте CHROME_PATH')
-    process.exit(1)
-  }
-  return found
-}
 
 // Самобслуживание: без URL поднимаем vite preview над dist и сами гасим.
 let preview = null
@@ -56,8 +42,15 @@ async function selfServe() {
   process.exit(1)
 }
 
+let executablePath
+try {
+  executablePath = chromePath()
+} catch (e) {
+  console.error(`SMOKE-UI FAIL: ${e.message}`)
+  process.exit(1)
+}
 const browser = await puppeteer.launch({
-  executablePath: chromePath(),
+  executablePath,
   args: ['--no-sandbox', '--disable-dev-shm-usage'],
 })
 try {

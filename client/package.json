@@ -8,6 +8,7 @@
     "build": "node scripts/gen-contract.mjs --check && tsc --noEmit && vite build && node scripts/check-sprites.mjs",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
+    "browser:install": "node scripts/browser-install.mjs",
     "smoke-ui": "node scripts/smoke-ui.mjs",
     "qa:meta": "node scripts/qa-itgame10.mjs",
     "qa:buttons": "node scripts/qa-itgame17.mjs",
@@ -28,6 +29,7 @@
     "phaser": "^3.90.0"
   },
   "devDependencies": {
+    "@puppeteer/browsers": "^3.2.1",
     "pixelmatch": "^7.2.0",
     "pngjs": "^7.0.0",
     "puppeteer-core": "^25.9.0",

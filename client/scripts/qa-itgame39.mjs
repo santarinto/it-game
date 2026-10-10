@@ -16,23 +16,11 @@
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
 // :4178 — свой порт задачи; 4179 у qa:tabs, 4173–4177 у соседних скриптов).
-import { existsSync } from 'node:fs'
 import { selfServe } from './lib/selfserve.mjs'
 import puppeteer from 'puppeteer-core'
+import { chromePath } from './lib/chrome.mjs'
 
 const SELF_PORT = Number(process.env.QA_PORT) || 4178
-
-function chromePath() {
-  const cands = [
-    process.env.CHROME_PATH,
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/google-chrome-stable',
-  ].filter((p) => !!p)
-  const found = cands.find((p) => existsSync(p))
-  if (!found) throw new Error('chromium не найден — задайте CHROME_PATH')
-  return found
-}
 
 const BASE = process.env.QA_BASE || `http://127.0.0.1:${SELF_PORT}`
 

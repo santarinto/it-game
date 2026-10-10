@@ -22,8 +22,9 @@ Play: https://itgame.santarinto.com
 
 ## Getting started
 
-Requires Go 1.26, Node.js 22 and Chromium (the client build and UI tests use
-it; set `CHROME_PATH` if it is not in a standard location).
+Requires Go 1.26 and Node.js 22. UI tests (`smoke-ui`, `qa:*`, `visreg`) run
+a pinned Chrome for Testing: `cd client && npm run browser:install` (see
+[docs/development.md](docs/development.md#tests); `CHROME_PATH` overrides).
 
     make dev        # Go server :8080 + Vite :5173 → http://localhost:5173
     make build      # then: ./bin/itdirector -static client/dist

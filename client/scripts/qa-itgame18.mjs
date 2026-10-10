@@ -14,23 +14,11 @@
 //
 // sid задаётся явно (sessionStorage, только вкладке): реконнект после F5 под тем же sid
 // поднимает сейв, а ?scenario=fresh действует только на первую партию.
-import { existsSync } from 'node:fs'
 import puppeteer from 'puppeteer-core'
+import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
 
 const SELF_PORT = Number(process.env.QA_PORT) || 4182
-
-function chromePath() {
-  const cands = [
-    process.env.CHROME_PATH,
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/google-chrome-stable',
-  ].filter((p) => !!p)
-  const found = cands.find((p) => existsSync(p))
-  if (!found) throw new Error('chromium не найден — задайте CHROME_PATH')
-  return found
-}
 
 let stopServer = null
 if (!process.env.QA_BASE) {

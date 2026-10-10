@@ -323,9 +323,21 @@ documenting separately:
     make sim ARGS=…   # headless balance runs
     cd client && npm run visreg   # screenshot and layout regressions
 
-Chromium is used by `npm run build`, `smoke-ui` and `visreg`; scripts look
-for `CHROME_PATH`, then `/usr/bin/chromium`, `/usr/bin/chromium-browser`,
-`/usr/bin/google-chrome-stable`.
+**Browser.** `smoke-ui`, the `qa:*` scripts and `visreg` run a pinned
+Chrome for Testing (`npm run build` needs no browser). Install it once:
+
+    cd client && npm run browser:install
+
+The version lives in one place — `CHROME_BUILD` in
+`client/scripts/lib/chrome.mjs` (the Chrome revision of the locked
+`puppeteer-core`; bump both together, then regenerate the visreg baselines).
+It is downloaded with `@puppeteer/browsers` into
+`$XDG_CACHE_HOME/it-game/browsers` (`~/.cache/…`, outside the repo, shared
+by all worktrees; `CHROME_CACHE_DIR` overrides). `chromePath()` in the same
+file picks the browser: `CHROME_PATH` if set (taken as is, no version
+check), else the pinned build, else the system `/usr/bin/chromium`,
+`/usr/bin/chromium-browser`, `/usr/bin/google-chrome-stable` with a warning
+— the run works, but visreg pixels may not match the baselines.
 
 Self-served QA (`selfServe()` in `client/scripts/lib/selfserve.mjs`, used by
 `visreg` and the `qa:*` scripts without `QA_BASE`) rebuilds `bin/itdirector`
@@ -422,6 +434,13 @@ Baselines are machine-dependent (system `monospace` font, GPU rasterizer):
 the committed baseline was last regenerated **2026-09-26** on a Claude Code
 cloud-session container (headless Chromium 1194, SwiftShader software GL)
 — expect diffs when running visreg on a different machine or GPU driver.
+The browser is now pinned (see **Browser** above; `visreg` logs the binary
+it uses), but the baselines predate the pin and will be regenerated on it
+together with the game's own font (ITGAME-48). Until then visreg reports
+diffs: on 2026-10-10 (Arch Linux, fontconfig `monospace` = Noto Sans Mono)
+6 of 8 scenarios were at 0.82–1.39%, with identical diff pixel counts on the pinned
+Chrome 152 and on the system Chromium 153 — the drift comes from the font,
+not the browser version.
 Kill stray Chromium processes before a run — they starve software WebGL.
 In CI, visreg is a report, not a gate (see [CI](#ci)).
 
@@ -432,19 +451,22 @@ manual dispatch:
 
 - **server** — `go vet`, `go test` with a Postgres 16 service container,
   sim report in the job summary (non-blocking);
-- **client** — `npm ci`, typecheck, build, menu smoke test, then the Go
+- **client** — `npm ci`, `npm run browser:install` (the pinned Chrome for
+  Testing, cached by `actions/cache` keyed on `client/scripts/lib/chrome.mjs`
+  — not the runner's own Chrome), typecheck, build, menu smoke test, then the Go
   server over `dist` (with `ITGAME_DEBUG=1`, matching local self-serve —
   see [Agent bridge](#agent-bridge-wsagent)): office smoke test,
   `live-check-saves` and `live-check-difficulty2`;
-- **visreg** — report only; on mismatch it uploads screenshots taken on the
-  runner (`visreg-ci-shots`) that can be adopted as baselines before
+- **visreg** — on the same pinned Chrome; report only; on mismatch it uploads
+  screenshots taken on the runner (`visreg-ci-shots`) that can be adopted as baselines before
   making the job blocking;
 - **deploy** — see [Deploy](#deploy).
 
 ## Claude Code cloud sessions
 
 `.claude/hooks/session-start.sh` (runs only when `CLAUDE_CODE_REMOTE=true`)
-prepares a fresh container: Go modules, `npm ci`, `CHROME_PATH`, and a
+prepares a fresh container: Go modules, `npm ci`, `npm run browser:install`
+(falling back to the image's Playwright Chromium via `CHROME_PATH`), and a
 local PostgreSQL with role `itd` and databases `itdirector` /
 `itdirector_test`; it exports `DATABASE_URL` and `TEST_DATABASE_URL`.
 
