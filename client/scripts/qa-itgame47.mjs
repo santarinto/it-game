@@ -883,6 +883,37 @@ async function run() {
       JSON.stringify({ preHasBtn: o3PreIds.includes('btn.offline.continue'), preUI: o3Pre.offlineUI, offlineIds: o3Ids.filter((id) => id.startsWith('btn.offline.')), offlineUI: o3Hud.offlineUI }),
     )
 
+    // O3b/O3c (приёмка 10.10, решение владельца): окно «Пока вас не было» ставит
+    // паузу; «Продолжить →» возвращает скорость до окна, если темп никто не трогал,
+    // а после ручной смены скорости — оставляет её.
+    const offlineRun = async (touch) => page.evaluate(async (touch) => {
+      const w = (cond) => window.itd.wait(cond, 5000).then(() => true, () => false)
+      window.itd.speed(2)
+      const at2 = await w((s) => s.speed === 2)
+      window.__itd.scene.getScene('hud').showOfflineReport({
+        type: 'offline_report', ticks: 60, days: 1, income: 0, payroll: 0, balance: 0, gameOver: false, victory: false,
+      })
+      const paused = await w((s) => s.speed === 0)
+      if (touch) { window.itd.speed(1); await w((s) => s.speed === 1) }
+      const click = window.itd.click('btn.offline.continue')
+      const want = touch ? 1 : 2
+      const after = await w((s) => s.speed === want)
+      await new Promise((r) => setTimeout(r, 300))
+      return { at2, paused, click: click.ok, after, speed: window.itd.state().speed, open: window.itd.ids().some((x) => x.id === 'btn.offline.continue') }
+    }, touch)
+    const o3b = await offlineRun(false)
+    check(
+      'O3b: окно «Пока вас не было» ставит паузу, «Продолжить →» возвращает 2x',
+      o3b.at2 && o3b.paused && o3b.click && o3b.after && o3b.speed === 2 && !o3b.open,
+      JSON.stringify(o3b),
+    )
+    const o3c = await offlineRun(true)
+    check(
+      'O3c: скорость сменили под окном (1x) — «Продолжить →» её не перебивает',
+      o3c.at2 && o3c.paused && o3c.click && o3c.after && o3c.speed === 1 && !o3c.open,
+      JSON.stringify(o3c),
+    )
+
     // O4: окно выхода в меню
     await waitSwitchIdle()
     const o4Click = await page.evaluate(() => window.itd.click('btn.menu'))

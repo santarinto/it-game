@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "330dfbeb10a9",
+  "hash": "ce524a63105d",
   "methods": {
     "version": {
       "kind": "prop",
@@ -49,8 +49,8 @@ export const CONTRACT = {
     "ids": {
       "kind": "method",
       "params": [],
-      "returns": "{ id: string; scene: string; type: string; text: string | null; active: boolean | null; }[]",
-      "doc": "Стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*,\nmodal.*) + active — состояние переключателя, null у прочих (НЕ\nGameObject.active).",
+      "returns": "{ id: string; safe: string; scene: string; type: string; text: string | null; active: boolean | null; }[]",
+      "doc": "Стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*,\nmodal.*) + active — состояние переключателя, null у прочих (НЕ\nGameObject.active). safe — тот же id с «:» вместо точек (не режется\nинструментом агента как JWT); click/hover/hit принимают и его.",
       "examples": [
         "itd.ids()"
       ]
@@ -228,10 +228,25 @@ export const CONTRACT = {
     "offline": {
       "kind": "method",
       "params": [],
-      "returns": "OfflineCatchUp | null",
-      "doc": "Последний офлайн-догон этой страницы: {ticks, days, shown, at} или null.\nshown:false — догон внутри дня, окно «Пока вас не было» игроку не показано.\nДогона нет и при ticks 0 (сейв на паузе или в отчёте дня) — тогда null.",
+      "returns": "AgentOffline | null",
+      "doc": "Последний офлайн-догон этой страницы: {ticks, days, shown, at, open, paused}\nили null. shown:false — догон внутри дня, окно «Пока вас не было» игроку не\nпоказано; open — окно открыто сейчас; paused — скорость сейчас 0 (пока окно\nоткрыто, партия стоит).\nДогона нет и при ticks 0 (сейв на паузе или в отчёте дня) — тогда null.",
       "examples": [
         "itd.offline()"
+      ]
+    },
+    "injectError": {
+      "kind": "method",
+      "params": [
+        {
+          "name": "message",
+          "type": "string",
+          "optional": true
+        }
+      ],
+      "returns": "AgentResult",
+      "doc": "Бросить тестовую ошибку страницы (асинхронно, через setTimeout) — чтобы\nпроверить журнал itd.errors() и его поле load, когда настоящих ошибок 0.\nСообщение начинается с «itd.injectError»: в отчёте это не ошибка игры.",
+      "examples": [
+        "itd.injectError('проверка')"
       ]
     },
     "contrast": {
@@ -601,6 +616,11 @@ export const CONTRACT = {
           "optional": false,
           "doc": ""
         },
+        "safe": {
+          "type": "string | null",
+          "optional": false,
+          "doc": ""
+        },
         "visible": {
           "type": "boolean",
           "optional": false,
@@ -625,6 +645,41 @@ export const CONTRACT = {
           "type": "boolean | null",
           "optional": false,
           "doc": ""
+        }
+      }
+    },
+    "AgentOffline": {
+      "kind": "object",
+      "fields": {
+        "open": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "окно «Пока вас не было» открыто сейчас"
+        },
+        "paused": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "скорость партии сейчас 0"
+        },
+        "ticks": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "days": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "shown": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "показано ли игроку окно «Пока вас не было»"
+        },
+        "at": {
+          "type": "number",
+          "optional": false,
+          "doc": "epoch ms прихода"
         }
       }
     },
@@ -1533,31 +1588,6 @@ export const CONTRACT = {
           "type": "number",
           "optional": false,
           "doc": ""
-        }
-      }
-    },
-    "OfflineCatchUp": {
-      "kind": "object",
-      "fields": {
-        "ticks": {
-          "type": "number",
-          "optional": false,
-          "doc": ""
-        },
-        "days": {
-          "type": "number",
-          "optional": false,
-          "doc": ""
-        },
-        "shown": {
-          "type": "boolean",
-          "optional": false,
-          "doc": "показано ли игроку окно «Пока вас не было»"
-        },
-        "at": {
-          "type": "number",
-          "optional": false,
-          "doc": "epoch ms прихода"
         }
       }
     },

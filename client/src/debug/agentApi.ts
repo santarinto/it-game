@@ -283,6 +283,9 @@ export interface AgentNode {
   h: number
   cx: number
   cy: number
+  // id без точек (точка → «:»), обратимо: строка вида a.b.c режется инструментом
+  // браузерного агента как JWT. click/hover/hit принимают и такой id.
+  safe: string | null
   visible: boolean
   alpha: number
   interactive: boolean
@@ -308,6 +311,12 @@ export interface HitResult {
   at: { x: number; y: number } | null // центр цели, мировые 1280×720 (= nodes().cx/cy)
   top: HitTarget | null // кто примет клик в этой точке; null — никто
   why?: string // нет узла / узел невидим
+}
+
+// itd.offline(): последний догон + что сейчас на экране.
+export interface AgentOffline extends OfflineCatchUp {
+  open: boolean // окно «Пока вас не было» открыто сейчас
+  paused: boolean // скорость партии сейчас 0
 }
 
 export interface AgentResult {
@@ -402,10 +411,11 @@ export interface ItdApi {
   /**
    * Стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*,
    * modal.*) + active — состояние переключателя, null у прочих (НЕ
-   * GameObject.active).
+   * GameObject.active). safe — тот же id с «:» вместо точек (не режется
+   * инструментом агента как JWT); click/hover/hit принимают и его.
    * @example itd.ids()
    */
-  ids(): { id: string; scene: string; type: string; text: string | null; active: boolean | null }[]
+  ids(): { id: string; safe: string; scene: string; type: string; text: string | null; active: boolean | null }[]
   /**
    * Клик по id: дёргает pointerdown-обработчик напрямую, мимо input-слоя.
    * ok:false + code 'debounced' — обработчик отбросил клик (дребезг switchRoom
@@ -488,12 +498,21 @@ export interface ItdApi {
    */
   blocker(): HitTarget | null
   /**
-   * Последний офлайн-догон этой страницы: {ticks, days, shown, at} или null.
-   * shown:false — догон внутри дня, окно «Пока вас не было» игроку не показано.
+   * Последний офлайн-догон этой страницы: {ticks, days, shown, at, open, paused}
+   * или null. shown:false — догон внутри дня, окно «Пока вас не было» игроку не
+   * показано; open — окно открыто сейчас; paused — скорость сейчас 0 (пока окно
+   * открыто, партия стоит).
    * Догона нет и при ticks 0 (сейв на паузе или в отчёте дня) — тогда null.
    * @example itd.offline()
    */
-  offline(): OfflineCatchUp | null
+  offline(): AgentOffline | null
+  /**
+   * Бросить тестовую ошибку страницы (асинхронно, через setTimeout) — чтобы
+   * проверить журнал itd.errors() и его поле load, когда настоящих ошибок 0.
+   * Сообщение начинается с «itd.injectError»: в отчёте это не ошибка игры.
+   * @example itd.injectError('проверка')
+   */
+  injectError(message?: string): AgentResult
   /**
    * Линтер: контраст текста к фону ниже 3:1.
    * @example itd.contrast()
@@ -802,6 +821,7 @@ function walkObjects(sceneKey: string, objects: Phaser.GameObjects.GameObject[],
       h,
       cx: Math.round(cx * 10) / 10,
       cy: Math.round(cy * 10) / 10,
+      safe: safeId(typeof o.getData?.('id') === 'string' ? (o.getData('id') as string) : null),
       visible: o.visible !== false,
       alpha: typeof o.alpha === 'number' ? o.alpha : 1,
       interactive: o.input?.enabled === true,
@@ -879,7 +899,17 @@ function blockerOf(game: Phaser.Game): HitTarget | null {
   return null
 }
 
-function findById(game: Phaser.Game, id: string): { obj: Phaser.GameObjects.GameObject; scene: string } | null {
+// safe-id (приёмка 10.10): «:» вместо точки; в id игры двоеточий нет, замена обратима.
+function safeId(id: string | null): string | null {
+  return id === null ? null : id.replace(/\./g, ':')
+}
+
+function realId(id: string): string {
+  return id.replace(/:/g, '.')
+}
+
+function findById(game: Phaser.Game, rawId: string): { obj: Phaser.GameObjects.GameObject; scene: string } | null {
+  const id = realId(rawId)
   for (const scene of game.scene.getScenes(true)) {
     const found = findInList(scene.children.list, id)
     if (found) return { obj: found, scene: scene.scene.key }
@@ -937,7 +967,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt, reconnects, sid, sidSwitches
   itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy, visible, alpha, interactive, depth, active}; x/y — по origin объекта, cx/cy — центр bounds (точка для клика)
   itd.text()                        — nodes() с непустым текстом
-  itd.ids()                         — стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*, modal.*) + active
+  itd.ids()                         — стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*, modal.*) + active; safe — id с «:» вместо точек (не режется как JWT), click/hover/hit принимают и его
                                        active — состояние переключателя (btn.speed.*, nav.*, btn.skip_reports, btn.debug, menu.zoom.*), null у прочих; НЕ GameObject.active
   itd.click('btn.hire')             — клик по id: дергает pointerdown-обработчик напрямую, мимо input-слоя
                                        ok:false + code 'debounced' — обработчик отбросил клик (дребезг switchRoom 250 мс игрового времени)
@@ -951,7 +981,8 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.offscreen()                   — линтер: вылезание за канвас 1280×720; + {scene:'page', type:'canvas'} — канвас не влез в окно (CSS px)
   itd.hit('btn.menu')               — попадёт ли НАСТОЯЩИЙ клик в центр объекта в него: {ok, at{x,y}, top{scene,id,type,depth}} — top перехватит (затемнение отчёта поверх HUD); itd.click этого не видит
   itd.blocker()                     — что перекрывает ввод во весь холст (затемнение отчёта, модалка) или null
-  itd.offline()                     — последний офлайн-догон страницы {ticks, days, shown, at}: shown:false — догон внутри дня, окна «Пока вас не было» не было
+  itd.offline()                     — последний офлайн-догон страницы {ticks, days, shown, at, open, paused}: shown:false — догон внутри дня, окна «Пока вас не было» не было; пока окно открыто, партия на паузе
+  itd.injectError('x')              — бросить тестовую ошибку страницы «itd.injectError: x» (проверить журнал errors() и поле load)
   itd.contrast()                    — линтер: контраст текста к фону ниже 3:1
   itd.tiny()                        — линтер: шрифт мельче 12px
   itd.log(50)                       — журнал переходов (кольцевой на 200, переживает чистку консоли); + {type:'sound', key:'sfx:bong', name, volume, scene, ok}, {type:'toast', text, where, ms, bg, scene}
@@ -1012,7 +1043,7 @@ function makeApi(game: Phaser.Game): ItdApi {
     ids: () =>
       warmedNodes()
         .filter((n) => n.id !== null)
-        .map((n) => ({ id: n.id as string, scene: n.scene, type: n.type, text: n.text, active: n.active })),
+        .map((n) => ({ id: n.id as string, safe: n.safe as string, scene: n.scene, type: n.type, text: n.text, active: n.active })),
     click(id) {
       warmIfHidden()
       const hit = findById(game, id)
@@ -1104,8 +1135,9 @@ function makeApi(game: Phaser.Game): ItdApi {
     },
     overlaps: (opts) => findOverlaps(game, opts),
     offscreen: () => findOffscreen(game),
-    hit(id) {
+    hit(rawId) {
       warmIfHidden()
+      const id = realId(rawId)
       const n = activeNodes(game).find((x) => x.id === id)
       if (!n) return { ok: false, id, at: null, top: null, why: 'нет узла' }
       if (!n.visible) return { ok: false, id, at: { x: n.cx, y: n.cy }, top: null, why: 'узел невидим' }
@@ -1116,7 +1148,17 @@ function makeApi(game: Phaser.Game): ItdApi {
       warmIfHidden()
       return blockerOf(game)
     },
-    offline: () => client.lastOffline,
+    offline() {
+      const last = client.lastOffline
+      if (!last) return null
+      warmIfHidden()
+      const open = activeNodes(game).some((n) => n.visible && (n.id === 'btn.offline.continue' || n.id === 'btn.offline.menu'))
+      return { ...last, open, paused: (client.latest?.speed ?? 0) === 0 }
+    },
+    injectError(message = 'проверка журнала') {
+      setTimeout(() => { throw new Error(`itd.injectError: ${message}`) }, 0)
+      return { ok: true }
+    },
     contrast: () => findLowContrast(game),
     tiny: () => findTiny(game),
     assets() {

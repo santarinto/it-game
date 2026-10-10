@@ -57,7 +57,11 @@ written `<sid>.json`. On reconnect with the same `sid` within the TTL
 - missed time is simulated offline with a summary formula (no coffee rolls,
   events, breakdowns or XP; lunch and amenity debuffs apply; session speed
   applies, pause freezes). A day or more away produces a "while you were
-  away" report; bankruptcy or victory can happen offline;
+  away" report; bankruptcy or victory can happen offline. While that window
+  is open the HUD pauses the party (`set_speed 0`) and «Продолжить →»
+  restores the pre-window speed unless another `set_speed` happened
+  meanwhile — the `speedSeq` rule of the exit dialog (owner decision 10.10;
+  `qa:party` O3b/O3c);
 - an explicit exit («Сохранить и выйти») sends the session command `exit {speed: N}` right before the
   client closes the socket (readLoop hands every frame to the actor before it reads the next, so it is
   saved first). The actor pauses (speed 0, ticker off) and saves `speed: 0` plus `resumeSpeed: N`: the
@@ -206,14 +210,21 @@ documenting separately:
   over `btn.menu`). `blocker()` is the topmost visible interactive covering
   the whole 1280×720 canvas (report dimmer, modal backdrop) or `null`.
 - **`itd.offline()`** — the page's last offline catch-up `{ticks, days,
-  shown, at}` or `null`. The server now sends `offline_report` whenever the
+  shown, at, open, paused}` or `null` (`open` — the window is on screen now,
+  `paused` — session speed is 0 now). The server now sends `offline_report` whenever the
   catch-up advanced any tick (or hit a finale); the HUD shows «Пока вас не
   было» only for `days > 0` or a finale (`offlineShown()` in `net.ts`), so a
   short in-day gap stays silent for the player but is visible here. A save
   paused or sitting in a day report catches up nothing — no message, `null`.
 - **`itd.errors()`** — page errors, kept in the tab's `sessionStorage`
   (`itd.errors`, last 100) so they survive a reload/navigation; `load` is the
-  page-load number in this tab (`itd.loads`).
+  page-load number in this tab (`itd.loads`). `itd.injectError(msg)` throws
+  an «itd.injectError: …» page error on purpose, to test the journal when
+  the game has none.
+- **`safe` ids** — `ids()`/`nodes()` also carry `safe`, the id with `:`
+  instead of dots (game ids have no colons, so it is reversible):
+  the browser agent's tool blocks `a.b.c` strings as JWTs. `click`, `hover`
+  and `hit` accept either form.
 - **`itd.overlaps()`** — the layout linter; each finding carries a `kind`
   (ITGAME-38): `text` (two same-depth texts), `occlusion` (text under an
   opaque plate), or `interactive` (an interactive container/sprite/checkbox

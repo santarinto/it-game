@@ -114,6 +114,10 @@ export class HUDScene extends Phaser.Scene {
   // темп после паузы никто не трогал (как reportPauseSeq у отчёта).
   private exitPauseFrom!: number
   private exitPauseSeq!: number
+  // Пауза окна «Пока вас не было» (приёмка 10.10, решение владельца): то же правило,
+  // что у окна выхода — «Продолжить →» вернёт скорость, если темп никто не трогал.
+  private offlinePauseFrom!: number
+  private offlinePauseSeq!: number
   private speedBtns!: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; speed: number }[]
   private hudInteractive!: Phaser.GameObjects.GameObject[]
   private debugFrames!: Phaser.GameObjects.GameObject[]
@@ -155,6 +159,8 @@ export class HUDScene extends Phaser.Scene {
     this.reportPauseSeq = 0
     this.exitPauseFrom = 0
     this.exitPauseSeq = 0
+    this.offlinePauseFrom = 0
+    this.offlinePauseSeq = 0
     this.currentRoom = 'office' // MenuScene.startGame стартует сцену 'office'
     // ITGAME-42: таймер дребезга switchRoom (delayedCall 250 мс) гибнет в
     // Clock.shutdown(), если HUD закрыли раньше — флаг залипал на синглтоне,
@@ -445,6 +451,15 @@ export class HUDScene extends Phaser.Scene {
       .text(CX, 275, body, { fontFamily: 'monospace', fontSize: '15px', color: '#f4f4f4', lineSpacing: 7, align: 'center' })
       .setOrigin(0.5).setDepth(56)
     const final = r.gameOver || r.victory
+    // Итог читают на паузе: партия не идёт под окном. Повторный отчёт (окно уже
+    // открыто) паузу не перезаписывает — иначе «Продолжить» вернул бы 0.
+    if (!final && this.offlinePauseFrom === 0) {
+      const live = client.latest?.speed ?? 0
+      if (live > 0 && client.send('set_speed', 0, { speed: 0 })) {
+        this.offlinePauseFrom = live
+        this.offlinePauseSeq = client.speedSeq
+      }
+    }
     this.offlineUI = [overlay, panel, title, bodyText]
     if (final) {
       const btnBg = tag(
@@ -473,7 +488,7 @@ export class HUDScene extends Phaser.Scene {
       const btnText = this.add
         .text(CX, 409, 'Продолжить →', { fontFamily: 'monospace', fontSize: '14px', color: '#f4f4f4' })
         .setOrigin(0.5).setDepth(57)
-      btnBg.on('pointerdown', () => this.closeOfflineReport())
+      btnBg.on('pointerdown', () => this.continueAfterOffline())
       btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
       btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
       this.offlineUI.push(btnBg, btnText)
@@ -483,6 +498,15 @@ export class HUDScene extends Phaser.Scene {
   private closeOfflineReport() {
     this.offlineUI.forEach((o) => o.destroy())
     this.offlineUI = []
+  }
+
+  // «Продолжить →»: снять окно и вернуть скорость до него, если после паузы окна
+  // темп никто не менял (⏸/1x, itd.speed) — правило speedSeq окна выхода.
+  private continueAfterOffline() {
+    const prev = this.offlinePauseFrom
+    this.offlinePauseFrom = 0
+    this.closeOfflineReport()
+    if (prev > 0 && client.speedSeq === this.offlinePauseSeq) client.send('set_speed', 0, { speed: prev })
   }
 
   // Панель навигации: значки офисов и серверной в колонке слева.
@@ -1309,6 +1333,7 @@ export class HUDScene extends Phaser.Scene {
     this.exitModalClose?.()
     this.exitModalClose = null
     this.exitPauseFrom = 0 // новая партия остаётся на паузе, set_speed отсюда не шлём
+    this.offlinePauseFrom = 0
     this.speedBeforeReport = null
     this.reportPauseSeq = 0
     this.lastEventId = ''
