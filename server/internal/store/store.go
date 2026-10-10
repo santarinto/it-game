@@ -93,6 +93,17 @@ func (s *Store) Load(sid string) ([]byte, bool) {
 		}
 		return append([]byte(nil), e.data...), true
 	}
+	e, ok := s.loadDiskLocked(sid)
+	if !ok {
+		return nil, false
+	}
+	s.entries[sid] = e
+	return append([]byte(nil), e.data...), true
+}
+
+// loadDiskLocked — сейв с диска в новую запись (без владельца). Битый или
+// истёкший файл удаляется.
+func (s *Store) loadDiskLocked(sid string) (*entry, bool) {
 	var env diskEnvelope
 	raw, err := os.ReadFile(s.path(sid))
 	if err != nil || json.Unmarshal(raw, &env) != nil || len(env.Data) == 0 {
@@ -105,19 +116,30 @@ func (s *Store) Load(sid string) ([]byte, bool) {
 		s.removeFile(sid)
 		return nil, false
 	}
-	s.entries[sid] = &entry{data: []byte(env.Data), savedAt: env.SavedAt}
-	return append([]byte(nil), env.Data...), true
+	return &entry{data: []byte(env.Data), savedAt: env.SavedAt}, true
 }
 
 // Begin — заявить владение сессией. Возвращает номер поколения (для Put)
 // и канал, который закроется, если сессию заберёт другой актор.
+//
+// Актор зовёт Begin ДО Load (ITGAME-46): после Begin прежний владелец
+// писать не может, и Load отдаёт его последний сейв — ничего из
+// подтверждённого им не теряется. Поэтому Begin сам поднимает сейв с диска
+// (рестарт сервера: записи в памяти нет), а истёкший — забывает здесь же:
+// Load после Begin не должен удалять запись нового владельца.
 func (s *Store) Begin(sid string) (uint64, <-chan struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, ok := s.entries[sid]
 	if !ok {
-		e = &entry{}
+		if e, ok = s.loadDiskLocked(sid); !ok {
+			e = &entry{}
+		}
 		s.entries[sid] = e
+	}
+	if len(e.data) > 0 && s.expired(e) {
+		e.data, e.savedAt = nil, time.Time{}
+		s.removeFile(sid)
 	}
 	if e.kick != nil {
 		close(e.kick) // предыдущий владелец: сессию забрали

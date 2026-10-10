@@ -104,7 +104,7 @@ type journalRecord struct {
 	Pre       string `json:"pre,omitempty"`
 	Offline   int    `json:"offline,omitempty"`
 	SaveSpeed int    `json:"saveSpeed,omitempty"`
-	Took      bool   `json:"took,omitempty"` // прежний актор не закрыл журнал — его вытеснили
+	Took      bool   `json:"took,omitempty"` // прежний актор не закрыл журнал и за journalTakeoverWait — перехвачен
 
 	// cp (и resume): полное состояние; RS — скорость возврата после exit (ITGAME-65).
 	Save *game.Save `json:"save,omitempty"`
@@ -274,7 +274,14 @@ type journalWriter struct {
 	resumeSpeed *int
 	scenario    *string
 	rv          *revClock
+	done        chan struct{} // закрыт после end: следующий актор ждёт его, прежде чем писать resume
 }
+
+// journalTakeoverWait — сколько новый актор ждёт end вытесненного. Тот после
+// пинка (store.Begin) выходит за одну итерацию цикла, а его последний
+// сохранённый тик ложится в журнал уже после сейва — без ожидания он мог
+// прийти, когда журнал перехвачен, и пропасть (сейв с тиком, журнал без).
+const journalTakeoverWait = time.Second
 
 // resumeTrace — что resume() видел до офлайн-догона: восстановленный сейв
 // (PCG после Restore — с начала по сиду, сохранять нечего), темп, фикстура,
@@ -319,11 +326,23 @@ func (h *Handler) openJournal(sid string, g **game.Game, speed, resumeSpeed *int
 		return nil
 	}
 	st := h.journalStore()
-	w := &journalWriter{st: st, g: g, speed: speed, resumeSpeed: resumeSpeed, scenario: scenario, rv: rv}
+	w := &journalWriter{st: st, g: g, speed: speed, resumeSpeed: resumeSpeed, scenario: scenario, rv: rv,
+		done: make(chan struct{})}
 	cur := *g
 
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	if prev := st.bySID[sid]; resumed && prev != nil && prev.owner != nil {
+		// Вытеснение: Begin уже пнул прежнего актора — дождаться его end,
+		// чтобы все его сохранённые входы легли в журнал до нашего resume.
+		done := prev.owner.done
+		st.mu.Unlock()
+		select {
+		case <-done:
+		case <-time.After(journalTakeoverWait):
+		}
+		st.mu.Lock()
+	}
 	j := st.bySID[sid]
 	if !resumed || j == nil || j.header.Overflow {
 		j = &journal{header: journalHeader{
@@ -467,6 +486,7 @@ func (w *journalWriter) end(evicted bool, reason string) {
 	if w == nil {
 		return
 	}
+	defer close(w.done)
 	w.st.mu.Lock()
 	defer w.st.mu.Unlock()
 	if w.j.owner != w {

@@ -302,13 +302,24 @@ one is evicted first); they are not persisted, saves don't depend on them.
 
 **Divergence report**: the line and the record, expected/actual hash,
 expected/actual `day/tick/money/phase/speed`, and on a checkpoint or `resume`
-a field-by-field diff of the save. A takeover is the one tolerated mismatch:
-the old actor's tick or command that landed between the new actor's
-`Load` and `Begin` (`run()`/`resume()`) is in the journal but not in the save
-the new actor loaded (and an evicted actor's last tick may be applied in
-memory with its save refused). On a `resume` after an unclosed or `evicted`
-journal the replayer resyncs from the record's `save` and prints a warning
-with the diff instead of failing; a mismatch on a normal reconnect is a
+a field-by-field diff of the save.
+
+**Takeover** (a second tab or a reconnect before the server noticed the old
+socket died) is exact too. The new actor calls `store.Begin` *before* reading
+the save (`run()`; `Begin` warms a cold sid from disk and forgets an expired
+save itself, `resume()` drops a bad save with `Finish(gen)`, not `Delete`,
+which would kick the new owner): after `Begin` the old actor's `Put` fails, so
+the save it loads holds everything the old actor saved and acknowledged, and
+nothing else. The old actor journals ticks, commands and debug requests only
+after its save went through, and the new actor waits (up to 1 s) for the old
+one's `end` before writing its `resume`. Until ITGAME-46 `Load` came first:
+the old actor's ticks and commands in the `Load`→`Begin` window were saved,
+sent to the old tab as accepted and lost in the new party
+(`TestTakeoverKeepsAckedCommand`: a `hire` the old tab got `re` for, absent
+after the takeover). If the journal still disagrees with the loaded save after
+a takeover (`took`: the old actor did not close the journal within 1 s), the
+replayer resyncs from the record's `save` with a warning and the diff; the
+tests require zero warnings. A mismatch on a normal reconnect is always a
 divergence.
 
 Tests: `TestJournalReplayRandomParty` (`server/internal/ws/journal_test.go`)

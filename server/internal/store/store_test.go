@@ -209,3 +209,50 @@ func TestValidSID(t *testing.T) {
 		}
 	}
 }
+
+// TestBeginWarmsFromDisk — Begin до Load (ITGAME-46): после рестарта записи
+// в памяти нет, Begin сам поднимает сейв с диска, и Load под владельцем его
+// отдаёт, а не «нет сейва» от пустой записи.
+func TestBeginWarmsFromDisk(t *testing.T) {
+	s := newTestStore(t, time.Hour)
+	gen, _ := s.Begin("warm-1234")
+	s.Put("warm-1234", gen, []byte(`{"day":3}`), time.Now())
+	s2, err := New(s.dir, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen2, kick := s2.Begin("warm-1234")
+	data, ok := s2.Load("warm-1234")
+	if !ok || string(data) != `{"day":3}` {
+		t.Fatalf("Begin на холодном sid потерял сейв: %q %v", data, ok)
+	}
+	if !s2.Put("warm-1234", gen2, []byte(`{"day":4}`), time.Now()) {
+		t.Fatal("владелец после Begin+Load не может писать")
+	}
+	select {
+	case <-kick:
+		t.Fatal("Load пнул собственного владельца")
+	default:
+	}
+}
+
+// TestBeginForgetsExpired — истёкший сейв в памяти Begin забывает сам: Load
+// после Begin не удаляет запись нового владельца и не закрывает его kick.
+func TestBeginForgetsExpired(t *testing.T) {
+	s := newTestStore(t, 30*time.Millisecond)
+	gen, _ := s.Begin("expire-1234")
+	s.Put("expire-1234", gen, []byte(`{}`), time.Now())
+	time.Sleep(50 * time.Millisecond)
+	gen2, kick := s.Begin("expire-1234")
+	if _, ok := s.Load("expire-1234"); ok {
+		t.Fatal("истёкший сейв читается")
+	}
+	select {
+	case <-kick:
+		t.Fatal("Load истёкшего сейва пнул нового владельца")
+	default:
+	}
+	if !s.Put("expire-1234", gen2, []byte(`{}`), time.Now()) {
+		t.Fatal("новый владелец потерял запись")
+	}
+}

@@ -395,8 +395,8 @@ func TestJournalReplayRandomParty(t *testing.T) {
 	for _, w := range res.Warnings {
 		t.Logf("предупреждение реплея: %s", w)
 	}
-	if len(res.Warnings) > 1 {
-		t.Errorf("ресинков %d, а вытеснение одно", len(res.Warnings))
+	if len(res.Warnings) != 0 {
+		t.Errorf("реплей ресинхронизировался по сейву (%d): вытеснение потеряло вход", len(res.Warnings))
 	}
 	if kinds["resume"] != 3 || took != 1 || offline == 0 {
 		t.Errorf("resume=%d (ждали 3), вытеснений=%d (ждали 1), offline=%d (ждали > 0)", kinds["resume"], took, offline)
@@ -448,6 +448,55 @@ func TestJournalStartsAtResumeAfterRestart(t *testing.T) {
 	res, recs := replayAndCompare(t, srv2, sid)
 	if recs[0].K != "resume" || recs[0].Save == nil || res.FromSeq != 1 {
 		t.Fatalf("журнал после рестарта начат с %q (save=%v), from seq %d", recs[0].K, recs[0].Save != nil, res.FromSeq)
+	}
+}
+
+// TestTakeoverKeepsAckedCommand — вытеснение не теряет команду, которую
+// прежний актор уже подтвердил своей вкладке (ITGAME-46). Крючок afterLoad
+// держит новый актор между чтением сейва и стартом партии; в это окно
+// старая вкладка шлёт hire. Пока Begin шёл после Load, старый актор успевал
+// сохранить и подтвердить найм, а новый поднимал сейв без него: игрок видел
+// «нанят», а сотрудник исчезал. Теперь команда либо в новой партии, либо не
+// подтверждена; реплей вытеснения сходится без ресинка по сейву.
+func TestTakeoverKeepsAckedCommand(t *testing.T) {
+	const sid = "journal-takeover-1"
+	cfg := game.DefaultConfig()
+	cfg.StartMoney = 100000
+	h, srv := journalServer(t, cfg, time.Hour, journalLimits{}) // без тиков: окно — только команда
+	old := dialTab(t, srv, "?sid="+sid+"&seed=11")
+	old.do(t, map[string]any{"type": "buy_pc", "office": 0})
+
+	var acked bool
+	h.afterLoad = func(string) {
+		h.afterLoad = nil
+		old.id++
+		id := old.id
+		_ = wsjson.Write(old.ctx, old.c, map[string]any{"type": "hire", "office": 0, "id": id}) // горутина актора: без t.Fatal
+		deadline := time.Now().Add(300 * time.Millisecond)
+		for time.Now().Before(deadline) {
+			old.mu.Lock()
+			acked = old.re >= id
+			old.mu.Unlock()
+			if acked {
+				return
+			}
+			select {
+			case <-old.closed:
+				return
+			case <-time.After(time.Millisecond):
+			}
+		}
+	}
+	tb := dialTab(t, srv, "?sid="+sid)
+	staff := len(tb.first.Offices[0].Employees)
+	t.Logf("старая вкладка получила подтверждение найма: %v; сотрудников в новой партии: %d", acked, staff)
+	if acked && staff != 1 {
+		t.Fatalf("найм подтверждён старой вкладке, но в поднятой партии сотрудников %d", staff)
+	}
+	tb.do(t, map[string]any{"type": "set_speed", "speed": 0})
+	res, _ := replayAndCompare(t, srv, sid)
+	if len(res.Warnings) != 0 {
+		t.Fatalf("реплей вытеснения с ресинком: %v", res.Warnings)
 	}
 }
 
