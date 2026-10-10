@@ -14,10 +14,14 @@ import { SPRITES } from '../assets/manifest'
 import { HIRES_CAMERA } from '../render'
 
 const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
-// Оверлей «сломанный ПК» обязан перехватывать клики раньше спрайта
-// сотрудника — иначе левая треть зоны ремонта кликает мотивацию вместо
-// ремонта: для Phaser-хиттеста при равных depth побеждает
-// последний в списке рендера, так что явный depth надёжнее порядка create().
+// Зона ремонта «сломанный ПК» (office.repair.i) обязана перехватывать клики
+// раньше спрайта сотрудника — иначе клик уходит в мотивацию вместо ремонта:
+// для Phaser-хиттеста при равных depth побеждает последний в списке рендера,
+// так что явный depth надёжнее порядка create(). ITGAME-75: зона — не
+// мигающий прямоугольник 58×48 (он только рисует), а объединение bounds
+// сотрудника, стола и метки «✖ чинить N/3»: раньше полоса 16 px над
+// прямоугольником и по 3 px по бокам оставались за сотрудником, а метка не
+// кликалась вовсе — клик «по значку поломки» мотивировал.
 const REPAIR_OVERLAY_DEPTH = 5
 
 // Метки причин отсутствия сети над столом (итерация 11).
@@ -81,7 +85,9 @@ const SLOT_LAYOUT_HD = {
   // ЦЕЛИКОМ ВНУТРИ бокса сотрудника: высота 48 (было 54 — нижний край
   // y+35 вылезал за y+32 бокса на 3px, частичное пересечение с
   // office.worker.i) даёт y −16..+32 — ровно по нижнему краю бокса.
-  // Ширина 58 → x ±29, тоже с запасом внутри ±32.
+  // Ширина 58 → x ±29, тоже с запасом внутри ±32. С ITGAME-75 это только
+  // мигающая картинка: кликабельная зона office.repair.i — объединение
+  // bounds сотрудника и метки «✖ чинить» (см. render()).
   repairOverlay: { y: 8, width: 58, height: 48 },
   // ЦЕЛИКОМ СНАРУЖИ бокса сотрудника (сверху): «✖ чинить N/3» шириной
   // 80px при 11px в бокс ±32 не поместится ни при каком центрировании —
@@ -304,23 +310,14 @@ export class OfficeScene extends Phaser.Scene {
         this.objects.push(deskImg)
       }
       // Сломанный ПК: доход места 0; клики по столу чинят, мастер чинит за деньги.
+      // Мигающий прямоугольник — только картинка; кликабельная зона
+      // office.repair.i строится ниже, когда известны bounds сотрудника.
+      let repairLabel: Phaser.GameObjects.Text | null = null
       if (e?.pcBroken) {
-        const overlay = tag(
-          this.add.rectangle(
-            x, y + layout.repairOverlay.y, layout.repairOverlay.width, layout.repairOverlay.height,
-            0xb13e53, 0.3,
-          )
-            .setInteractive({ useHandCursor: true })
-            // Выше сотрудника: иначе спрайт сотрудника (создаётся ниже, и
-            // при показе desk_pc+worker перекрывает левую треть зоны) крадёт
-            // клик по ремонту, отправляя мотивацию вместо repair_click.
-            .setDepth(REPAIR_OVERLAY_DEPTH),
-          `office.repair.${i}`,
-        )
-        overlay.on('pointerdown', () => {
-          playSfx(this, 'click')
-          client.send('repair_click', nav.activeOffice, { slot: i })
-        })
+        const overlay = this.add.rectangle(
+          x, y + layout.repairOverlay.y, layout.repairOverlay.width, layout.repairOverlay.height,
+          0xb13e53, 0.3,
+        ).setDepth(REPAIR_OVERLAY_DEPTH)
         this.tweens.add({
           targets: overlay, alpha: { from: 0.65, to: 0.15 }, duration: 420, yoyo: true, repeat: -1,
         })
@@ -336,12 +333,10 @@ export class OfficeScene extends Phaser.Scene {
           playSfx(this, 'select')
           client.send('call_master', nav.activeOffice, { slot: i })
         })
-        this.objects.push(
-          this.add.text(x, y + layout.repairText.y, `✖ чинить ${e.repairClicks}/3`, {
-            fontFamily: 'monospace', fontSize: '11px', color: '#b13e53',
-          }).setOrigin(0.5),
-          overlay, masterBg, masterTxt,
-        )
+        repairLabel = this.add.text(x, y + layout.repairText.y, `✖ чинить ${e.repairClicks}/3`, {
+          fontFamily: 'monospace', fontSize: '11px', color: '#b13e53',
+        }).setOrigin(0.5)
+        this.objects.push(repairLabel, overlay, masterBg, masterTxt)
       }
       if (e) {
         // Слот-картинка занятого места (id office.worker.i, тултип/клик):
@@ -397,12 +392,52 @@ export class OfficeScene extends Phaser.Scene {
         // при отрисовке стола выше); повторный push задвоил бы объект и
         // вызвал бы двойной destroy()/killTweensOf() на следующей перерисовке.
         if (slotImg !== deskImg) this.objects.push(worker)
+        // ITGAME-75: пока ПК сломан, зона ремонта накрывает весь видимый
+        // значок поломки — сотрудника/стол целиком и метку «✖ чинить» над
+        // ними (прямоугольник объединения bounds, наружу до целых px). Внутри
+        // неё сотрудник ввода не получает (topOnly), поэтому зона сама ведёт
+        // его тултип и ПКМ-увольнение; ЛКМ — только ремонт, не мотивация.
+        // Почти прозрачная заливка: при alpha 0 Phaser не считает объект
+        // целью ввода (willRender), как у room.core в серверной.
+        let hoverZone: Phaser.Geom.Rectangle | null = null
+        if (e.pcBroken) {
+          const r = Phaser.Geom.Rectangle.Union(slotImg.getBounds(), deskImg?.getBounds() ?? slotImg.getBounds())
+          if (repairLabel) Phaser.Geom.Rectangle.Union(r, repairLabel.getBounds(), r)
+          const zx = Math.floor(r.x)
+          const zy = Math.floor(r.y)
+          const zone = tag(
+            this.add.rectangle(zx, zy, Math.ceil(r.right) - zx, Math.ceil(r.bottom) - zy, 0x000000, 0.001)
+              .setOrigin(0).setInteractive({ useHandCursor: true }).setDepth(REPAIR_OVERLAY_DEPTH),
+            `office.repair.${i}`,
+          )
+          zone.on('pointerdown', (p: Phaser.Input.Pointer) => {
+            if (p.rightButtonDown()) {
+              this.openFireModal(e, i)
+              return
+            }
+            playSfx(this, 'click')
+            client.send('repair_click', nav.activeOffice, { slot: i })
+          })
+          zone.on('pointerover', () => {
+            this.hoveredSlot = i
+            this.showTooltip(e, s, wx, wy)
+          })
+          zone.on('pointerout', () => {
+            this.hoveredSlot = -1
+            this.hideTooltip()
+          })
+          this.objects.push(zone)
+          hoverZone = zone.getBounds()
+        }
         // Спрайт пересоздан — восстанавливаем тултип, но только если курсор
         // реально над спрайтом: pointerout не срабатывает по уничтоженному
         // объекту, и без этой проверки hoveredSlot «залипает».
         if (this.hoveredSlot === i) {
           const p = this.input.activePointer
-          if (Math.abs(p.worldX - wx) <= 32 && Math.abs(p.worldY - wy) <= 32) {
+          const over = hoverZone
+            ? hoverZone.contains(p.worldX, p.worldY)
+            : Math.abs(p.worldX - wx) <= 32 && Math.abs(p.worldY - wy) <= 32
+          if (over) {
             this.showTooltip(e, s, wx, wy)
           } else {
             this.hoveredSlot = -1
@@ -501,7 +536,10 @@ export class OfficeScene extends Phaser.Scene {
     if (e.pcBroken) {
       lines.push('ПК СЛОМАН — доход 0; кликайте по столу')
     }
-    lines.push(e.motivateReadyAt ? `мотивация: после ${e.motivateReadyAt}` : 'мотивация: готова (клик)')
+    // ITGAME-75: пока ПК сломан, ЛКМ по месту — ремонт, мотивации кликом нет.
+    lines.push(e.pcBroken
+      ? 'мотивация: после починки ПК'
+      : e.motivateReadyAt ? `мотивация: после ${e.motivateReadyAt}` : 'мотивация: готова (клик)')
     lines.push(`уволить: ${fmtMoney(e.firePrice)} (правый клик)`)
     const EFFECT_NAMES: Record<string, string> = { thirst: 'жажда', hunger: 'голоден', coffee: 'выпил кофе', motivated: 'мотивирован', offended: 'обижен' }
     // Ремень безопасности: старый сервер мог прислать null вместо [] —

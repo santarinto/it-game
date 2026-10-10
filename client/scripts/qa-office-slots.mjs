@@ -3,9 +3,9 @@
 // (worker — includesDesk=true, легаси 64px) либо стол
 // desk_pc/_broken + сотрудника поверх в ТОЙ ЖЕ точке (includesDesk=false,
 // HD 128px), на обеде слот превращается в desk_pc + подпись «обед» (стол
-// рисуется РОВНО один раз, не дважды), сломанный ПК кликается мышью по
-// всей зоне ремонта (не только по краям — раньше сотрудник перехватывал
-// левую треть), слот шлюза серверной рисует gateway (не router), полка
+// рисуется РОВНО один раз, не дважды), сломанный ПК (fixtures/broken_pc.json)
+// кликается мышью по всему значку поломки — сотрудник и метка «✖ чинить»
+// (ITGAME-75; проверка — itd.stack/itd.zones, настоящий хит-тест Phaser), слот шлюза серверной рисует gateway (не router), полка
 // быта (office.amenity.cooler/fridge/coffee_machine) и слот сети офиса
 // рисуют свои HD-текстуры, занятые/пустые серверные стойки — rack_server/
 // rack_empty (пустая — с подсветкой первой свободной, ITGAME-11), ПК куплен
@@ -125,21 +125,6 @@ async function shot(page, name) {
   if (box) {
     await page.screenshot({ path: join(SHOTS_DIR, `${name}.png`), clip: box })
   }
-}
-
-// Восстановить save с дельтой над офисом 0 (см. probe2/qa-itgame16.mjs):
-// snapshot() → правим Employees[slot] → restore({offices}) — дельта над
-// текущим состоянием, остальные поля офиса/сейва не трогаем.
-async function setPcBroken(page, slot, broken) {
-  return page.evaluate(async (args) => {
-    const { slot, broken } = args
-    const snap = await window.itd.snapshot()
-    const save = snap.save
-    const emps = save.offices[0].Employees.map((e, i) => (i === slot ? { ...e, PCBroken: broken } : e))
-    save.offices[0] = { ...save.offices[0], Employees: emps }
-    await window.itd.restore({ offices: save.offices })
-    return true
-  }, { slot, broken })
 }
 
 async function lastOut(page, n = 8) {
@@ -310,19 +295,29 @@ async function caseLunch(browser) {
   }
 }
 
-// ── Кейс 3: сломанный ПК — реальный клик мышью по всей зоне ремонта ─────────
+// ── Кейс 3: сломанный ПК — реальный клик мышью по всему значку поломки ─────
+// Фикстура broken_pc (ITGAME-74): у слота 0 сломан ПК, слоты 1-2 работают.
+// ITGAME-75: зона ремонта office.repair.0 обязана накрывать ВЕСЬ видимый
+// значок поломки — сотрудника/стол целиком и метку «✖ чинить N/3» над ним;
+// раньше полоса 16 px над мигающим прямоугольником 58×48 и по 3 px по бокам
+// оставались за сотрудником (клик мотивировал), а метка не кликалась вовсе.
+// Проверяем настоящим хит-тестом Phaser (itd.stack/itd.zones) и мышью.
 async function caseBrokenPc(browser) {
   const page = await browser.newPage()
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e)))
   await page.setViewport({ width: 1920, height: 1080 })
   try {
-    await loadScenario(page, 'full_office', 'broken')
-    await setPcBroken(page, 0, true)
-    await delay(300)
+    await loadScenario(page, 'broken_pc', 'broken')
 
-    const repair = await page.evaluate(() => window.itd.nodes().find((n) => n.id === 'office.repair.0'))
-    if (!repair) throw new Error('office.repair.0 не найден после restore(PCBroken=true)')
+    const geo = await page.evaluate(() => {
+      const ns = window.itd.nodes()
+      const by = (id) => ns.find((n) => n.id === id) ?? null
+      const label = ns.find((n) => n.scene === 'office' && /^✖ чинить/.test(n.text ?? '')) ?? null
+      return { repair: by('office.repair.0'), worker: by('office.worker.0'), label, others: [by('office.repair.1'), by('office.repair.2')] }
+    })
+    if (!geo.repair || !geo.worker || !geo.label) throw new Error(`broken_pc: нет узлов ${JSON.stringify(geo)}`)
+    check('broken_pc: сломан только слот 0 (office.repair.1/2 нет)', geo.others.every((n) => n === null), JSON.stringify(geo.others))
 
     if (!WORKER_INCLUDES_DESK) {
       // HD: стол слота — desk_pc_broken (экран красный), сотрудник поверх
@@ -338,20 +333,57 @@ async function caseBrokenPc(browser) {
         deskHere ? `key=${deskHere.key}` : 'стол не найден в точке слота')
     }
 
-    const box = await canvasBox(page)
+    // Точки значка поломки: метка «✖ чинить» (✖ — её левый край), полоса над
+    // старым прямоугольником, углы и края кадра сотрудника, центр.
+    const w = geo.worker
+    const l = geo.label
     const spots = [
-      { label: 'центр', wx: repair.x, wy: repair.y },
-      { label: 'левая треть', wx: repair.x - repair.w / 3, wy: repair.y },
-      { label: 'правая треть', wx: repair.x + repair.w / 3, wy: repair.y },
+      { label: '✖ метки', x: l.cx - l.w / 2 + 4, y: l.cy },
+      { label: 'центр метки', x: l.cx, y: l.cy },
+      { label: 'зазор метка/сотрудник', x: w.cx, y: (l.cy + l.h / 2 + w.cy - w.h / 2) / 2 },
+      { label: 'верх сотрудника (бывшая полоса)', x: w.cx, y: w.cy - w.h / 2 + 4 },
+      { label: 'левый верхний угол сотрудника', x: w.cx - w.w / 2 + 1, y: w.cy - w.h / 2 + 1 },
+      { label: 'правый край сотрудника', x: w.cx + w.w / 2 - 1, y: w.cy },
+      { label: 'левый нижний угол сотрудника', x: w.cx - w.w / 2 + 1, y: w.cy + w.h / 2 - 1 },
+      { label: 'центр', x: w.cx, y: w.cy },
     ]
-    for (const spot of spots) {
-      await worldClick(page, box, spot.wx, spot.wy)
-      await delay(150)
-      const out = await lastOut(page, 5)
-      const last = out[out.length - 1]
-      check(`broken_pc: клик по «${spot.label}» зоны ремонта шлёт repair_click`,
-        last?.type === 'repair_click' && last?.info?.slot === 0,
-        JSON.stringify(last))
+    const stacks = await page.evaluate((pts) => pts.map((p) => window.itd.stack(p.x, p.y)), spots)
+    spots.forEach((p, k) => {
+      check(`broken_pc: itd.stack «${p.label}» → wins office.repair.0`, stacks[k].wins?.id === 'office.repair.0',
+        JSON.stringify({ at: stacks[k].at, stack: stacks[k].stack, wins: stacks[k].wins?.id ?? null }))
+    })
+    const zones = await page.evaluate(() => window.itd.zones('office:repair:0', 'office:worker:0'))
+    check('broken_pc: itd.zones — сотрудник перекрыт зоной ремонта целиком, у зоны ремонта нет отданных сотруднику точек',
+      zones.ok && zones.area.b > 0 && zones.area.bUnderA === zones.area.b && zones.aUnderB.length === 0,
+      JSON.stringify({ area: zones.area, aUnderB: zones.aUnderB, bUnderA: zones.bUnderA }))
+    const lint = await page.evaluate(() => ({ ov: window.itd.overlaps(), off: window.itd.offscreen() }))
+    check('broken_pc: itd.overlaps()/offscreen() пусты', lint.ov.length === 0 && lint.off.length === 0,
+      JSON.stringify({ ov: lint.ov.slice(0, 5), off: lint.off.slice(0, 5) }))
+
+    // ПКМ по зоне ремонта — увольнение, как ПКМ по сотруднику (зона его накрывает).
+    const box = await canvasBox(page)
+    const lastAt = (await lastOut(page, 50)).at(-1)?.at ?? 0
+    await page.mouse.click(box.x + w.cx * box.k, box.y + w.cy * box.k, { button: 'right' })
+    await delay(200)
+    const fireOpen = await page.evaluate(() => window.itd.text().some((n) => n.text === 'Уволить сотрудника?'))
+    const sentRight = (await lastOut(page, 50)).filter((m) => m.at > lastAt)
+    check('broken_pc: ПКМ по зоне ремонта открывает «Уволить сотрудника?», ничего не шлёт',
+      fireOpen && sentRight.length === 0,
+      JSON.stringify({ fireOpen, sent: sentRight.map((m) => m.type) }))
+    await page.evaluate(() => window.itd.click('modal.close'))
+    await delay(150)
+
+    // Три настоящих клика по точкам, которые раньше уходили сотруднику или в никуда.
+    // Только сообщения после клика: «последнее исходящее» без отсечки по времени
+    // засчитало бы клик в пустоту (по метке до фикса) за предыдущий repair_click.
+    for (const p of [spots[0], spots[2], spots[3]]) {
+      const since = (await lastOut(page, 50)).at(-1)?.at ?? 0
+      await worldClick(page, box, p.x, p.y)
+      await delay(200)
+      const sent = (await lastOut(page, 50)).filter((m) => m.at > since)
+      check(`broken_pc: клик мышью «${p.label}» шлёт ровно repair_click слота 0, не motivate`,
+        sent.length === 1 && sent[0].type === 'repair_click' && sent[0].info?.slot === 0,
+        JSON.stringify(sent.map((m) => ({ type: m.type, info: m.info }))))
     }
     // RepairClicksNeeded=3 (server/internal/game/commands.go) — три реальных
     // клика подряд должны полностью починить ПК (RepairClicks сбрасывается
@@ -360,6 +392,13 @@ async function caseBrokenPc(browser) {
     const e = snap.save.offices[0].Employees[0]
     check('broken_pc: 3 реальных клика полностью чинят ПК', e.PCBroken === false,
       `RepairClicks=${e.RepairClicks} PCBroken=${e.PCBroken}`)
+    await delay(300)
+    const after = await page.evaluate(() => ({
+      repair: window.itd.nodes().some((n) => n.id === 'office.repair.0'),
+      wins: window.itd.stack('office:worker:0').wins?.id ?? null,
+    }))
+    check('broken_pc: после починки зоны нет, клик по сотруднику снова его (мотивация)',
+      !after.repair && after.wins === 'office.worker.0', JSON.stringify(after))
 
     check('broken_pc: нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))
     await shot(page, 'broken_pc')
