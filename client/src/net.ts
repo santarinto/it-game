@@ -55,6 +55,51 @@ let sidOrigin: 'session' | 'local' | 'generated' | null = null
 // гарда общего ключа должна знать, чья партия на самом деле.
 let partyOrigin: 'session' | 'local' | 'generated' | null = null
 
+// Песочница агента (ITGAME-77, itd.sandbox): запись во вкладке (sessionStorage) —
+// метка и снятые при входе ключи владельца. Пока она есть, партии вкладки живут
+// только под вкладочными sid вида a-<метка>-<время>: новая партия и финал НЕ
+// откатываются к общему localStorage-ключу владельца (иначе после «Сдаться»
+// sessionId() взял бы его sid, а «НОРМА» перезаписала бы его новым).
+export const SANDBOX_KEY = 'itd.sandbox'
+export interface SandboxRecord {
+  label: string
+  ownerSid: string | null // localStorage itd.sid при входе
+  ownerDiff: string | null // localStorage itd.diff при входе
+  tabSid: string | null // sessionStorage itd.sid вкладки при входе
+  tabAuto: string | null // sessionStorage itd.sid.auto при входе
+  fake: { sid: string; diff: string } | null // «чужой» общий ключ fakeOwner()
+  at: number
+}
+
+export function sandboxRecord(): SandboxRecord | null {
+  try {
+    const raw = sessionStorage.getItem(SANDBOX_KEY)
+    const r = raw ? (JSON.parse(raw) as SandboxRecord) : null
+    return r && typeof r.label === 'string' ? r : null
+  } catch {
+    return null
+  }
+}
+
+export function sandboxSid(label: string): string {
+  return `a-${label}-${Date.now()}`
+}
+
+// Явный sid вкладки (без метки зеркала — prepareNewGame его чтит), память тоже.
+export function adoptTabSid(sid: string): void {
+  sessionStorage.setItem(SID_KEY, sid)
+  sessionStorage.removeItem(SID_AUTO_KEY)
+  memorySid = sid
+  sidOrigin = 'session'
+}
+
+// Выход из песочницы: память вкладки забывает её sid — следующее чтение
+// sessionId() честно возьмёт хранилища.
+export function forgetTabSid(): void {
+  memorySid = null
+  sidOrigin = null
+}
+
 function newSid(): string {
   return typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -73,6 +118,14 @@ export function sessionId(): string {
   const fromSession = sessionStorage.getItem(SID_KEY)
   if (fromSession) {
     memorySid = fromSession
+    sidOrigin = 'session'
+    return memorySid
+  }
+  // Песочница (ITGAME-77): общий ключ владельца не читаем — свежий sid песочницы
+  // в памяти с origin 'session': persistSid() положит его только в зеркало вкладки.
+  const sandbox = sandboxRecord()
+  if (sandbox) {
+    if (!memorySid) memorySid = sandboxSid(sandbox.label)
     sidOrigin = 'session'
     return memorySid
   }
@@ -110,6 +163,15 @@ function persistSid(): void {
 export function prepareNewGame(): void {
   const explicit = sessionStorage.getItem(SID_KEY)
   if (explicit !== null && explicit !== sessionStorage.getItem(SID_AUTO_KEY)) return
+  const sandbox = sandboxRecord()
+  if (sandbox) {
+    // новая партия песочницы — новый sid песочницы, общий ключ не трогаем (ITGAME-77)
+    sessionStorage.removeItem(SID_KEY)
+    sessionStorage.removeItem(SID_AUTO_KEY)
+    memorySid = sandboxSid(sandbox.label)
+    sidOrigin = 'session'
+    return
+  }
   const sid = newSid()
   memorySid = sid
   sidOrigin = 'generated'
@@ -126,6 +188,7 @@ export function prepareNewGame(): void {
 // только с настоящей партией — «ПРОДОЛЖИТЬ» больше не судит по ключу,
 // созданному голым чтением.
 export function hasSavedSession(): boolean {
+  if (sandboxRecord()) return sessionStorage.getItem(SID_KEY) !== null // общий ключ — владельца (ITGAME-77)
   return sessionStorage.getItem(SID_KEY) !== null || localStorage.getItem(SID_KEY) !== null
 }
 

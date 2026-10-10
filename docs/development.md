@@ -258,6 +258,25 @@ documenting separately:
   page-load number in this tab (`itd.loads`). `itd.injectError(msg)` throws
   an «itd.injectError: …» page error on purpose, to test the journal when
   the game has none; such entries carry `injected: true`.
+- **`itd.sandbox(label)`** (ITGAME-77) — the agent's own party in this tab in
+  one call, with the owner's keys guarded. From the menu (in a party:
+  `code: 'in_party'`) it records the owner's shared `localStorage`
+  `itd.sid`/`itd.diff` and the tab's `sessionStorage` `itd.sid`/`itd.sid.auto`
+  in `sessionStorage` `itd.sandbox` (survives a reload), sets the explicit tab
+  sid `a-<label>-<ms>` and restarts the menu → `{ok, sid, owner: {sid, diff}}`.
+  While the record exists `net.ts` never falls back to the shared key: a new
+  party (`prepareNewGame`) and the sid after a finale or «Сдаться»
+  (`sessionId()`) are fresh sandbox sids, and `hasSavedSession()` looks at the
+  tab only — before, «Сдаться» dropped the tab sid and the next «НОРМА»
+  overwrote the owner's key. `itd.sandbox.fakeOwner()` writes a foreign shared
+  key (`fake-owner-<ms>`, a different difficulty) through the game — the
+  browser agent's `javascript_tool` can't write `localStorage` — so the
+  `clearSession()` guard can be measured. `itd.sandbox.restore()` (menu only)
+  answers `{sidSame, diffSame, fake, restored, kept, removed}`: `sidSame`/
+  `diffSame` — the shared key is still what it was at entry (or the fake);
+  our fake or an erased value is put back, a foreign value (the owner played
+  in another tab meanwhile) is left alone and listed in `kept`; the tab keys
+  return to their entry values and `itd.sandbox` is removed.
 - **`itd.cmd('abandon')`** goes the «Сдаться» button's way
   (`HUDScene.abandonParty`: delete the save, back to the menu). A bare
   `abandon` frame let the client reconnect, and the server started a new
@@ -390,7 +409,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:buttons` | HUD buy-button enabled/tooltip/alpha states (ITGAME-17) | :4180, self-serve |
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35) | :4179, self-serve + temp saves dir |
 | `npm run qa:hud` | HUD layout column, toast stack, no overlaps (ITGAME-16) | :4174, self-serve |
-| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78) | :4175, self-serve |
+| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78); `itd.sandbox()`: the owner's shared key survives «Сдаться» and a second party, `fakeOwner()`, `restore()` puts back / keeps (ITGAME-77) | :4175, self-serve |
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |

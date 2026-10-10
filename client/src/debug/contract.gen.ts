@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "9ef72b5fc187",
+  "hash": "1bcfc83fa2f3",
   "methods": {
     "version": {
       "kind": "prop",
@@ -249,6 +249,12 @@ export const CONTRACT = {
       "examples": [
         "await itd.stale()"
       ]
+    },
+    "sandbox": {
+      "kind": "prop",
+      "type": "SandboxApi",
+      "readonly": true,
+      "doc": "Песочница агента (ITGAME-77): itd.sandbox('acc3') → {ok, sid, owner:{sid,\ndiff}} — ставит вкладке свой sid a-<метка>-<время> и запоминает общие ключи\nвладельца (localStorage itd.sid/itd.diff) и вкладки (sessionStorage); меню\nперечитывает сводку. Пока песочница есть, новая партия и финал («Сдаться»)\nберут новый sid песочницы, а не общий ключ. Ставится из меню (в партии —\ncode in_party). itd.sandbox.restore() → {sidSame, diffSame, fake, restored,\nkept, removed}: сверка (то и есть замер гарда), возврат ключей как при\nвходе — наше (fake) или стёртое значение возвращается, чужое (kept) не\nперетирается; тоже только из меню. itd.sandbox.fakeOwner() → {sid, diff} —\n«чужой» общий ключ вызовом игры (agent javascript_tool писать в\nlocalStorage не может); restore() вернёт настоящий."
     },
     "offline": {
       "kind": "method",
@@ -1399,6 +1405,36 @@ export const CONTRACT = {
         }
       }
     },
+    "FakeOwnerResult": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "optional": false,
+          "doc": ""
+        },
+        "sid": {
+          "type": "string",
+          "optional": true,
+          "doc": "«чужой» общий sid: fake-owner-<время>"
+        },
+        "diff": {
+          "type": "string",
+          "optional": true,
+          "doc": "его сложность — всегда не та, что у владельца"
+        },
+        "code": {
+          "type": "'no_sandbox'",
+          "optional": true,
+          "doc": ""
+        },
+        "error": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
+        }
+      }
+    },
     "FieldSpec": {
       "kind": "object",
       "fields": {
@@ -1770,6 +1806,101 @@ export const CONTRACT = {
         "optional": {
           "type": "boolean",
           "optional": false,
+          "doc": ""
+        }
+      }
+    },
+    "SandboxApi": {
+      "kind": "object",
+      "fields": {
+        "restore": {
+          "type": "() => SandboxRestore",
+          "optional": false,
+          "doc": "Выйти: сверить и вернуть ключи владельца, убрать служебные; не в партии."
+        },
+        "fakeOwner": {
+          "type": "() => FakeOwnerResult",
+          "optional": false,
+          "doc": "Поставить «чужой» общий ключ (localStorage itd.sid/itd.diff) вызовом игры; restore() его уберёт."
+        }
+      }
+    },
+    "SandboxRestore": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "optional": false,
+          "doc": ""
+        },
+        "sidSame": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "localStorage itd.sid — тот, что был при входе (или fakeOwner): гард не тронул"
+        },
+        "diffSame": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "то же для itd.diff"
+        },
+        "fake": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "сверяли с «чужим» ключом fakeOwner()"
+        },
+        "restored": {
+          "type": "string[]",
+          "optional": true,
+          "doc": "ключи, возвращённые как при входе"
+        },
+        "kept": {
+          "type": "string[]",
+          "optional": true,
+          "doc": "общие ключи с ЧУЖИМ значением — не перетёрты: их мог записать сам владелец"
+        },
+        "removed": {
+          "type": "string[]",
+          "optional": true,
+          "doc": "служебные ключи вкладки, убранные при выходе"
+        },
+        "code": {
+          "type": "'in_party' | 'no_sandbox'",
+          "optional": true,
+          "doc": ""
+        },
+        "error": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
+        }
+      }
+    },
+    "SandboxResult": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "optional": false,
+          "doc": ""
+        },
+        "sid": {
+          "type": "string",
+          "optional": true,
+          "doc": "sid песочницы во вкладке: a-<метка>-<время>"
+        },
+        "owner": {
+          "type": "{ sid: boolean; diff: string | null; }",
+          "optional": true,
+          "doc": "общий ключ владельца при входе: есть ли sid, его сложность"
+        },
+        "code": {
+          "type": "'bad_label' | 'in_party'",
+          "optional": true,
+          "doc": ""
+        },
+        "error": {
+          "type": "string",
+          "optional": true,
           "doc": ""
         }
       }

@@ -38,6 +38,12 @@
 //       и равен day_report.profit дня 10 (последний тик — живой, ради настоящего отчёта)
 //   D3  mid_day10 (день 10, тик 12) на паузе, itd.step({ticks: 60}) — 60 тиков за ОДИН вызов:
 //       .advance.ticks 60, .advance.days 1, день 11 тик 18 (ITGAME-56; ms-форма — D1)
+//   X1  itd.sandbox('qa38') при «владельце» в общем ключе: sid a-qa38-… во вкладке, owner {sid, diff}; bad_label (ITGAME-77)
+//   X2  партия песочницы под её sid, общий ключ цел; в партии sandbox()/restore() — in_party; fakeOwner()
+//   X3  «Сдаться» — fake в общем ключе цел (гард clearSession), вкладка на новом sid песочницы, «Продолжить» нет
+//   X4  вторая партия после «Сдаться» — новый sid песочницы, общий ключ не перезаписан
+//   X5  restore(): sidSame/diffSame, ключи владельца возвращены, служебные убраны; повтор — no_sandbox
+//   X6  владелец сам сменил общий ключ — restore() его не перетирает (kept)
 //   + на странице нет pageerror
 //
 // Отклонения от буквального сценария в трекере (см. отчёт агента):
@@ -703,6 +709,98 @@ async function run() {
         stepD3.day === 11 && stepD3.tickInDay === 18 && stD3.day === 11 && stD3.tickInDay === 18,
       JSON.stringify({ stepD3, stD3 }),
     )
+
+    // ── X1–X6 (ITGAME-77): песочница агента — своя вкладка, «владелец» в общем ключе
+    const ps = await browser.newPage()
+    ps.on('pageerror', (e) => pageErrors.push(String(e)))
+    await ps.setViewport({ width: 1920, height: 1080 })
+    await ps.goto(`${BASE}/?debug=1&seed=1`, { waitUntil: 'domcontentloaded' })
+    await waitMenuReady(ps)
+    // QA-скрипт пишет в localStorage сам: это «владелец» (агенту в браузере так нельзя — для этого fakeOwner)
+    await ps.evaluate(() => { localStorage.setItem('itd.sid', 'owner-qa38'); localStorage.setItem('itd.diff', 'normal') })
+    await ps.reload({ waitUntil: 'domcontentloaded' })
+    await waitMenuReady(ps)
+    const x1 = await ps.evaluate(() => ({
+      bad: window.itd.sandbox('a.b'), sb: window.itd.sandbox('qa38'), tab: sessionStorage.getItem('itd.sid'),
+      sid: window.itd.server().sid,
+    }))
+    check(
+      'X1: sandbox(qa38) → sid a-qa38-…, owner {sid:true, diff:normal}, sid во вкладке; метка с точкой — bad_label',
+      x1.sb.ok && /^a-qa38-\d+$/.test(x1.sb.sid) && x1.sb.owner?.sid === true && x1.sb.owner?.diff === 'normal' &&
+        x1.tab === x1.sb.sid && x1.sid === x1.sb.sid && x1.bad.ok === false && x1.bad.code === 'bad_label',
+      JSON.stringify(x1),
+    )
+    await ps.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
+    await ps.evaluate(() => window.itd.click('menu.diff.normal'))
+    await ps.waitForFunction(() => window.itd.state().connected === true, { timeout: 20000 })
+    const x2 = await ps.evaluate(() => ({
+      sid: window.itd.server().sid, ls: localStorage.getItem('itd.sid'), diff: localStorage.getItem('itd.diff'),
+      again: window.itd.sandbox('qa38'), restore: window.itd.sandbox.restore(), fake: window.itd.sandbox.fakeOwner(),
+    }))
+    x2.lsAfterFake = await ps.evaluate(() => [localStorage.getItem('itd.sid'), localStorage.getItem('itd.diff')])
+    check(
+      'X2: партия песочницы под её sid, общий ключ владельца не тронут; в партии sandbox()/restore() — in_party; fakeOwner ставит чужой ключ',
+      x2.sid === x1.sb.sid && x2.ls === 'owner-qa38' && x2.diff === 'normal' && x2.again.code === 'in_party' &&
+        x2.restore.code === 'in_party' && x2.fake.ok && /^fake-owner-/.test(x2.fake.sid) && x2.fake.diff === 'hard' &&
+        x2.lsAfterFake[0] === x2.fake.sid && x2.lsAfterFake[1] === 'hard',
+      JSON.stringify(x2),
+    )
+    // «Сдаться» — путём кнопки; гард clearSession (45487c7) не должен стереть «чужой» общий ключ
+    await ps.evaluate(() => window.itd.cmd('abandon'))
+    await ps.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
+    const x3 = await ps.evaluate(() => ({
+      ls: [localStorage.getItem('itd.sid'), localStorage.getItem('itd.diff')], tab: sessionStorage.getItem('itd.sid'),
+      sid: window.itd.server().sid, cont: window.itd.ids().some((n) => n.id === 'menu.continue'),
+    }))
+    check(
+      'X3: после «Сдаться» общий ключ — всё ещё fake (гард держит), вкладка на новом sid песочницы, «Продолжить» нет',
+      x3.ls[0] === x2.fake.sid && x3.ls[1] === 'hard' && x3.tab === null && /^a-qa38-/.test(x3.sid) && x3.sid !== x1.sb.sid && !x3.cont,
+      JSON.stringify(x3),
+    )
+    // Новая партия после «Сдаться» (раньше «НОРМА» тут перезаписывала общий ключ) и выход в меню
+    await ps.evaluate(() => window.itd.click('menu.diff.normal'))
+    await ps.waitForFunction(() => window.itd.state().connected === true, { timeout: 20000 })
+    const x4sid = await ps.evaluate(() => window.itd.server().sid)
+    await ps.evaluate(() => window.itd.click('btn.menu'))
+    await delay(300)
+    await ps.evaluate(() => window.itd.click('modal.btn.0'))
+    await ps.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
+    const x4 = await ps.evaluate(() => [localStorage.getItem('itd.sid'), localStorage.getItem('itd.diff')])
+    check(
+      'X4: вторая партия песочницы — новый sid a-qa38-…, общий ключ не перезаписан',
+      /^a-qa38-/.test(x4sid) && x4sid !== x1.sb.sid && x4[0] === x2.fake.sid && x4[1] === 'hard',
+      JSON.stringify({ x4sid, x4 }),
+    )
+    const x5 = await ps.evaluate(() => {
+      const r = window.itd.sandbox.restore()
+      return {
+        r, again: window.itd.sandbox.restore(), ls: [localStorage.getItem('itd.sid'), localStorage.getItem('itd.diff')],
+        tab: sessionStorage.getItem('itd.sid'), rec: sessionStorage.getItem('itd.sandbox'), sid: window.itd.server().sid,
+      }
+    })
+    check(
+      'X5: restore() — sidSame/diffSame (fake цел), ключи владельца возвращены, служебные убраны, вкладка снова на sid владельца; повтор — no_sandbox',
+      x5.r.ok && x5.r.sidSame === true && x5.r.diffSame === true && x5.r.fake === true &&
+        x5.r.restored.includes('localStorage.itd.sid') && x5.r.restored.includes('localStorage.itd.diff') && x5.r.kept.length === 0 &&
+        x5.r.removed.includes('sessionStorage.itd.sandbox') && x5.ls[0] === 'owner-qa38' && x5.ls[1] === 'normal' &&
+        x5.tab === null && x5.rec === null && x5.sid === 'owner-qa38' && x5.again.code === 'no_sandbox',
+      JSON.stringify(x5),
+    )
+    // Владелец сам сменил общий ключ в другой вкладке — restore() его не перетирает
+    await ps.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
+    const x6 = await ps.evaluate(() => {
+      window.itd.sandbox('qa38b')
+      localStorage.setItem('itd.sid', 'owner-new')
+      const r = window.itd.sandbox.restore()
+      return { r, ls: localStorage.getItem('itd.sid') }
+    })
+    check(
+      'X6: чужое значение общего ключа — sidSame false, kept, не перетёрто',
+      x6.r.ok && x6.r.sidSame === false && x6.r.diffSame === true && x6.r.kept.includes('localStorage.itd.sid') && x6.ls === 'owner-new',
+      JSON.stringify(x6),
+    )
+    await ps.evaluate(() => { localStorage.removeItem('itd.sid'); localStorage.removeItem('itd.diff') })
+    await ps.close()
 
     // ── Z1/Z2 (ITGAME-61): сохранённый 2× из старой версии — отдельная вкладка, окно как у владельца
     const pz = await browser.newPage()

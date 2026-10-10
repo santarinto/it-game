@@ -8,6 +8,9 @@ import { COMMAND_TYPES } from '../protocol'
 import type { CommandType, ServerErrorCode, StateMessage } from '../protocol'
 import { CONTRACT } from './contract.gen'
 import { checkStale, lastStale } from '../buildstamp'
+import { makeSandbox } from './sandbox'
+import type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult } from './sandbox'
+export type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult }
 import type { StaleInfo } from '../buildstamp'
 export type { StaleInfo }
 import { AI_SPRITES } from '../scenes/BootScene'
@@ -581,6 +584,23 @@ export interface ItdApi {
    * @example await itd.stale()
    */
   stale(): Promise<StaleInfo>
+  /**
+   * Песочница агента (ITGAME-77): itd.sandbox('acc3') → {ok, sid, owner:{sid,
+   * diff}} — ставит вкладке свой sid a-<метка>-<время> и запоминает общие ключи
+   * владельца (localStorage itd.sid/itd.diff) и вкладки (sessionStorage); меню
+   * перечитывает сводку. Пока песочница есть, новая партия и финал («Сдаться»)
+   * берут новый sid песочницы, а не общий ключ. Ставится из меню (в партии —
+   * code in_party). itd.sandbox.restore() → {sidSame, diffSame, fake, restored,
+   * kept, removed}: сверка (то и есть замер гарда), возврат ключей как при
+   * входе — наше (fake) или стёртое значение возвращается, чужое (kept) не
+   * перетирается; тоже только из меню. itd.sandbox.fakeOwner() → {sid, diff} —
+   * «чужой» общий ключ вызовом игры (agent javascript_tool писать в
+   * localStorage не может); restore() вернёт настоящий.
+   * @example itd.sandbox('acc3')
+   * @example itd.sandbox.fakeOwner()
+   * @example itd.sandbox.restore()
+   */
+  readonly sandbox: SandboxApi
   /**
    * Последний офлайн-догон этой страницы: {ticks, days, shown, at, droppedAt,
    * leftAt, liveTicks, open, paused} или null. droppedAt — последний сейв
@@ -1172,6 +1192,9 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.errors()                      — ошибки страницы (window.onerror + unhandledrejection), переживают перезагрузку вкладки: load — номер загрузки
   itd.net(20)                       — последние сообщения WS в обе стороны + сокет/rtt/реконнекты
   itd.version                       — {sha, builtAt} сборки (+ <meta name="build"> в html)
+  itd.sandbox('acc3')               — своя партия вкладки: sid a-acc3-<время> во вкладку, ключи владельца (localStorage itd.sid/itd.diff, sessionStorage вкладки) запомнены → {ok, sid, owner:{sid, diff}}; новая партия и «Сдаться» берут новый sid песочницы, общий ключ не трогают; из меню (в партии — in_party)
+  itd.sandbox.fakeOwner()           — «чужой» общий ключ itd.sid/itd.diff вызовом игры (проверить гард «Сдаться») → {sid, diff}; restore() вернёт настоящий
+  itd.sandbox.restore()             — выйти из песочницы (из меню): {sidSame, diffSame, fake, restored, kept, removed} — sidSame/diffSame: общий ключ тот, что при входе (или fake); наше/стёртое значение возвращено, чужое (kept) не перетёрто
   await itd.stale()                 — вкладка на старом JS? {client, server, dist, stale, at}: client — sha вкладки, dist — sha сборки, которую стенд отдаст на F5, server — sha бинаря (/api/version); stale null — сверить не с чем (vite dev, сборка без git); красная метка «устарело, обнови» в #topbar — та же проверка
   itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне палитры манифеста ключа (hd32/sweetie16), дубли ключей
   itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк)
@@ -1189,7 +1212,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.unlockAchievement('id')       — принудительно открыть ачивку: {ok:true, achievement} | {ok:false, code}
   itd.contract()                    — машинный контракт API (методы, типы, коды ошибок); version.hash — цитировать в отчётах, а не пересказ help()
 Фоновая вкладка: RAF стоит, но itd сам ведёт луп (пульс 300мс + прогрев в каждом вызове) — ids()/nodes()/click() живут без скриншотов и без «принудительного кадра».
-Параллельные вкладки: sid берётся из sessionStorage РАНЬШЕ localStorage; в хранилища ключ попадает ТОЛЬКО с реальной партиёй (чтение его не пишет — «ПРОДОЛЖИТЬ» не врёт). Одна партия = один sid: агрессивным прогонам — sessionStorage.setItem('itd.sid', 'a-<имя>-'+Date.now()) (виден только вкладке, общий ключ не трогает; ЯВНО выставленный sid чтится и для новой партии), игроку достаётся localStorage + зеркало вкладки. Кнопка сложности/1-4 = НОВАЯ партия: без явного sessionStorage-sid берётся свежий sid, чужой сейв из общего ключа НЕ продолжается молча; «ПРОДОЛЖИТЬ»/Enter = восстановление текущего sid. server().sidSwitches > 0 — общий ключ перезаписала соседняя вкладка, реконнект ушёл бы в её партию.
+Параллельные вкладки: sid берётся из sessionStorage РАНЬШЕ localStorage; в хранилища ключ попадает ТОЛЬКО с реальной партиёй (чтение его не пишет — «ПРОДОЛЖИТЬ» не врёт). Одна партия = один sid: агрессивным прогонам — itd.sandbox('<имя>') (или вручную sessionStorage.setItem('itd.sid', 'a-<имя>-'+Date.now()): виден только вкладке, общий ключ не трогает; ЯВНО выставленный sid чтится и для новой партии), игроку достаётся localStorage + зеркало вкладки. Кнопка сложности/1-4 = НОВАЯ партия: без явного sessionStorage-sid берётся свежий sid, чужой сейв из общего ключа НЕ продолжается молча; «ПРОДОЛЖИТЬ»/Enter = восстановление текущего sid. server().sidSwitches > 0 — общий ключ перезаписала соседняя вкладка, реконнект ушёл бы в её партию.
 Пример: await itd.scenario('soft_lock'); itd.state().day
 Пример: itd.set({money: 50000}); await itd.wait(s => s.balance === 50000)
 Пример: await itd.cmd('hire') → {ok:false, code:'no_free_pc'} — сервер отказал, ПК заняты`
@@ -1346,6 +1369,7 @@ function makeApi(game: Phaser.Game): ItdApi {
       return buildScreen(game, opts)
     },
     stale: () => checkStale(),
+    sandbox: makeSandbox(game),
     offline() {
       const last = client.lastOffline
       if (!last) return null
