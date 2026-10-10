@@ -22,8 +22,23 @@ export const ZOOM_OPTIONS: { value: ZoomValue; label: string }[] = [
 
 const DEFAULT_ZOOM: ZoomValue = 1.4
 
+// Выбор этой вкладки (ITGAME-67): хранилище может быть закрыто или переполнено —
+// тогда выбор живёт до перезагрузки, а HUD-цикл 1 → 1.4 → fit не залипает на дефолте.
+let chosenZoom: ZoomValue | null = null
+
+// Чтение ключа в try/catch, как adminLinkWanted в main.ts: activeZoom() зовётся
+// при старте (zoomNumber() в main.ts) — закрытое хранилище не должно ронять загрузку.
+function storedZoom(): string | null {
+  try {
+    return localStorage.getItem(ZOOM_KEY)
+  } catch {
+    return null
+  }
+}
+
 export function activeZoom(): ZoomValue {
-  const raw = localStorage.getItem(ZOOM_KEY)
+  if (chosenZoom !== null) return chosenZoom
+  const raw = storedZoom()
   if (raw === FIT) return FIT
   if (raw === '2') {
     // 2× убран из цикла (ITGAME-61): «по окну» — самый крупный масштаб, что влезает в окно.
@@ -68,7 +83,12 @@ export function setCssZoom(game: Phaser.Game, z: number): void {
 }
 
 export function applyZoom(game: Phaser.Game, v: ZoomValue): void {
-  localStorage.setItem(ZOOM_KEY, String(v))
+  chosenZoom = v
+  try {
+    localStorage.setItem(ZOOM_KEY, String(v))
+  } catch {
+    // не запомнили между запусками — в этой вкладке выбор держит chosenZoom
+  }
   setCssZoom(game, v === FIT ? fitZoom() : v)
 }
 

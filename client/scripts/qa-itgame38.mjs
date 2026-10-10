@@ -23,6 +23,8 @@
 //   Z2  окно 1237×700, «по окну» — у #app нет горизонтального скролла
 //   Z3  окно 1237×700: на 1.4× itd.offscreen() даёт одну запись {scene:'page', type:'canvas'}, out.right > 0, out.left 0; на «по окну» её нет (ITGAME-61)
 //   Z4  btn.zoom в HUD: три клика обходят 1 → 1.4 → fit по кругу и возвращают исходный
+//   Z5  хранилище закрыто для itd.uiScale (getItem/setItem бросают): меню грузится, active 1.4,
+//       клик menu.zoom.1 переключает active и CSS-зум канваса в этой вкладке (ITGAME-67)
 //   A6  btn.debug active: true → false → true по кликам
 //   A7  рестарт партии без перезагрузки: speed/nav active живые, нет pageerror (D2)
 //   D1  mid_day10 на паузе, itd.step до 12:00/14:00/17:00 → hud.dayProfit одинаков (±$50), > 0
@@ -661,6 +663,39 @@ async function run() {
     const pageZ3fit = (await pz.evaluate(() => window.itd.offscreen())).filter((e) => e.scene === 'page')
     check('Z3: «по окну» — записи page нет', pageZ3fit.length === 0, JSON.stringify(pageZ3fit))
     await pz.close()
+
+    // ── Z5 (ITGAME-67): хранилище бросает на ключе масштаба — загрузка не падает, выбор живёт во вкладке.
+    // Бросаем только на itd.uiScale: остальной клиент (sid, мета) от хранилища зависит и вне задачи.
+    const pb = await browser.newPage()
+    pb.on('pageerror', (e) => pageErrors.push(`Z5: ${e}`))
+    await pb.evaluateOnNewDocument(() => {
+      const get = Storage.prototype.getItem, set = Storage.prototype.setItem
+      Storage.prototype.getItem = function (k) {
+        if (k === 'itd.uiScale') throw new DOMException('blocked', 'SecurityError')
+        return get.call(this, k)
+      }
+      Storage.prototype.setItem = function (k, v) {
+        if (k === 'itd.uiScale') throw new DOMException('blocked', 'QuotaExceededError')
+        return set.call(this, k, v)
+      }
+    })
+    await pb.goto(`${BASE}/?debug=1`, { waitUntil: 'domcontentloaded' })
+    const readyZ5 = await waitMenuReady(pb).then(() => true, () => false)
+    const zoomZ5 = readyZ5 ? oneOf(byPrefix(await ids(pb), 'menu.zoom.'))?.id : null
+    if (readyZ5) await pb.evaluate(() => window.itd.click('menu.zoom.1'))
+    await delay(150)
+    const afterZ5 = readyZ5
+      ? await pb.evaluate(() => ({
+          active: window.itd.ids().find((n) => n.id.startsWith('menu.zoom.') && n.active === true)?.id,
+          cssW: Math.round(document.querySelector('#app canvas').getBoundingClientRect().width),
+        }))
+      : null
+    check(
+      'Z5: itd.uiScale бросает → меню грузится, active 1.4; menu.zoom.1 → active 1, канвас 1280 CSS px',
+      readyZ5 && zoomZ5 === 'menu.zoom.1.4' && afterZ5?.active === 'menu.zoom.1' && afterZ5?.cssW === 1280,
+      JSON.stringify({ readyZ5, zoomZ5, afterZ5 }),
+    )
+    await pb.close()
 
     // ── нет ошибок на странице за весь прогон
     check('на странице нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))
