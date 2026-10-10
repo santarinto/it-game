@@ -7,7 +7,7 @@ import { nav } from '../rooms'
 import { onPartyReset, partyChange } from '../party'
 import { debug, drawDebugFrames, setDebug } from '../debug'
 import { markActive, markDisabled, markTitle, rejectClick, tag } from '../debug/agentApi'
-import { showModal } from '../ui/modal'
+import { showModal, type ModalButton } from '../ui/modal'
 import { playSfx } from '../audio'
 import { emitUi } from '../uibus'
 import { activeZoom, applyZoom, ZOOM_OPTIONS, zoomLabel } from '../uiscale'
@@ -124,7 +124,15 @@ export class HUDScene extends Phaser.Scene {
   private reconnectUI!: Phaser.GameObjects.GameObject[]
   private offlineUI!: Phaser.GameObjects.GameObject[]
   // Закрывалка окна «Выйти в меню?» (ITGAME-64): resetParty() гасит окно новой партии.
+  // Цепочка выхода держит одно окно: сам диалог, «Удалить партию навсегда?» (ITGAME-86),
+  // «Нет связи» и ожидание связи (ITGAME-85) — kind говорит, какое открыто.
   private exitModalClose!: (() => void) | null
+  private exitModalKind!: 'exit' | 'surrender' | 'nolink' | 'wait' | null
+  // «Подождать» без связи (ITGAME-85): скорость возврата для exit, который уйдёт с первым
+  // снапшотом нового сокета; null — не ждём.
+  private exitWaitResume!: number | null
+  // Тост «нет связи» уже показан в этой серии обрыва (ITGAME-90); снимает его первый снапшот.
+  private noLinkToasted!: boolean
   // Стек тостов (ITGAME-16): якорь сверху/снизу — свой список, не больше 3
   // штук одновременно. Сцена переживает рестарт (client.subscribe/restart),
   // поэтому сбрасывается явно в create(), а не инициализатором поля.
@@ -151,6 +159,9 @@ export class HUDScene extends Phaser.Scene {
     this.victoryUI = []
     this.offlineUI = []
     this.exitModalClose = null
+    this.exitModalKind = null
+    this.exitWaitResume = null
+    this.noLinkToasted = false
     this.reconnectUI = []
     this.debugFrames = []
     this.hoveredButtonId = null
@@ -321,10 +332,23 @@ export class HUDScene extends Phaser.Scene {
     this.createNavPanel()
 
     const unsub = client.subscribe({
-      onState: (s) => this.refresh(s),
+      onState: (s) => {
+        this.noLinkToasted = false // снапшот пришёл — связь есть, следующий обрыв — новая серия
+        this.refresh(s)
+        // «Подождать» (ITGAME-85): связь вернулась — exit уходит с первым снапшотом.
+        if (this.exitWaitResume !== null) this.trySendExit(this.exitWaitResume)
+      },
       onError: (code) => {
         playSfx(this, 'error')
         this.toast((ERROR_TEXTS as Record<string, string>)[code] ?? code)
+      },
+      // ITGAME-90: команда не ушла (сокет не открыт) — звук отказа на каждый клик,
+      // тост один на серию обрыва, без спама.
+      onNotConnected: () => {
+        playSfx(this, 'error')
+        if (this.noLinkToasted) return
+        this.noLinkToasted = true
+        this.toast('Нет связи — действие не отправлено')
       },
       onDisconnect: (reason) => this.showDisconnect(reason),
       onDayReport: (r) => this.onDayReport(r),
@@ -349,8 +373,10 @@ export class HUDScene extends Phaser.Scene {
       for (const name of ['ENTER', 'SPACE', 'ESC'] as const) {
         kb.on(`keydown-${name}`, () => {
           // Диалог выхода сверху (ITGAME-65): Esc = «Отмена», Enter/Space под ним отчёт не листают.
+          // В «Удалить партию навсегда?» (ITGAME-86) фокус на «Отмена»: Enter/Space — тоже отмена.
           if (this.exitModalClose) {
-            if (name === 'ESC' && this.cancelExit()) emitUi({ type: 'key', key: name, scene: this.scene.key, action: 'close_modal' })
+            const cancels = name === 'ESC' || this.exitModalKind === 'surrender'
+            if (cancels && this.cancelExit()) emitUi({ type: 'key', key: name, scene: this.scene.key, action: 'close_modal' })
             return
           }
           if (this.proceedNextDay()) emitUi({ type: 'key', key: name, scene: this.scene.key, action: 'next_day' })
@@ -380,6 +406,12 @@ export class HUDScene extends Phaser.Scene {
 
   private showDisconnect(reason?: string) {
     this.hideButtonTooltip()
+    // Связь не вернётся сама (session_taken): окно выхода и ожидание связи долой —
+    // экран обрыва говорит, что делать.
+    this.exitWaitResume = null
+    this.exitModalClose?.()
+    this.exitModalClose = null
+    this.exitModalKind = null
     this.reconnectUI.forEach((o) => o.destroy())
     this.reconnectUI = []
     const taken = reason === 'session_taken'
@@ -1334,6 +1366,8 @@ export class HUDScene extends Phaser.Scene {
     this.closeVictory()
     this.exitModalClose?.()
     this.exitModalClose = null
+    this.exitModalKind = null
+    this.exitWaitResume = null
     this.exitPauseFrom = 0 // новая партия остаётся на паузе, set_speed отсюда не шлём
     this.offlinePauseFrom = 0
     this.speedBeforeReport = null
@@ -1347,26 +1381,39 @@ export class HUDScene extends Phaser.Scene {
     this.hideButtonTooltip()
     if (this.exitModalClose) return // уже открыт (itd.click мимо подложки)
     // ITGAME-65: пока диалог открыт, партия на паузе. Пауза отчёта главнее: её
-    // set_speed 0 уже стоит, лишний сломал бы reportPauseSeq.
+    // set_speed 0 уже стоит, лишний сломал бы reportPauseSeq. Без связи паузу не шлём
+    // (ITGAME-90: тост «нет связи» тут лишний — о связи скажет «Сохранить и выйти»).
     this.exitPauseFrom = 0
     const live = client.latest?.speed ?? 0
-    if (this.speedBeforeReport === null && live > 0 && client.send('set_speed', 0, { speed: 0 })) {
+    if (this.speedBeforeReport === null && live > 0 && client.socketStatus() === 'open' &&
+      client.send('set_speed', 0, { speed: 0 })) {
       this.exitPauseFrom = live
       this.exitPauseSeq = client.speedSeq
     }
-    this.exitModalClose = showModal(this, 'Выйти в меню?', ['Прогресс сохранится — продолжите', 'с главного меню в любое время.'], [
+    this.openExitModal('exit', 'Выйти в меню?', ['Прогресс сохранится — продолжите', 'с главного меню в любое время.'], [
       { label: 'Сохранить и выйти', onClick: () => this.saveAndExit() },
-      { label: 'Сдаться (удалить сейв)', onClick: () => { this.exitModalClose = null; this.abandonParty() } },
+      { label: 'Сдаться (удалить сейв)', onClick: () => this.confirmSurrender() },
       { label: 'Отмена', onClick: () => { this.cancelExit() } },
-    ], undefined, () => { this.cancelExit() })
+    ])
+  }
+
+  // Окно цепочки выхода: прежнее закрывается молча, закрытие без выбора (✕, подложка)
+  // и Esc — cancelExit(). Кнопка закрывает своё окно сама после onClick (showModal).
+  private openExitModal(kind: 'exit' | 'surrender' | 'nolink' | 'wait', title: string, lines: string[], buttons: ModalButton[]) {
+    this.exitModalClose?.()
+    this.exitModalKind = kind
+    this.exitModalClose = showModal(this, title, lines, buttons, undefined, () => { this.cancelExit() })
   }
 
   // «Отмена», Esc, подложка, ✕ (ITGAME-65): закрыть диалог и вернуть скорость, если
-  // паузу ставил он и темп после неё не менялся (itd.pause(), отчёт дня).
+  // паузу ставил он и темп после неё не менялся (itd.pause(), отчёт дня). То же для
+  // окон «Сдаться», «Нет связи» и ожидания связи: назад в игру, ожидание exit снято.
   private cancelExit(): boolean {
     const close = this.exitModalClose
     if (!close) return false
     this.exitModalClose = null
+    this.exitModalKind = null
+    this.exitWaitResume = null
     close() // повторный close() из showModal — no-op
     const prev = this.exitPauseFrom
     this.exitPauseFrom = 0
@@ -1374,11 +1421,25 @@ export class HUDScene extends Phaser.Scene {
     return true
   }
 
-  // «Сдаться»: удалить сейв и уйти в меню. Тот же путь у itd.cmd('abandon') —
+  // «Сдаться» (ITGAME-86): необратимо — сперва подтверждение в стиле «Уволить сотрудника?»,
+  // по умолчанию «Отмена» (рамка фокуса; Enter/Space/Esc — отмена, назад в игру).
+  private confirmSurrender() {
+    this.openExitModal('surrender', 'Удалить партию навсегда?', [
+      'Сейв удалится — «Продолжить»', 'эту партию больше не вернёт.', 'Enter / Esc — отмена',
+    ], [
+      { label: 'Удалить', danger: true, onClick: () => this.abandonParty() },
+      { label: 'Отмена', focus: true, onClick: () => { this.cancelExit() } },
+    ])
+  }
+
+  // Удалить сейв и уйти в меню: «Удалить» в подтверждении «Сдаться». Тот же путь у
+  // itd.cmd('abandon') — без подтверждения: это команда агента, не клик (ITGAME-86);
   // голая команда мимо клиента переподключала сокет в новую партию (ретро 10.10).
   abandonParty() {
     this.exitModalClose?.() // закрывалка молчит: скорость не возвращает
     this.exitModalClose = null
+    this.exitModalKind = null
+    this.exitWaitResume = null
     this.exitPauseFrom = 0
     client.abandon()
     this.returnToMenu()
@@ -1386,12 +1447,55 @@ export class HUDScene extends Phaser.Scene {
 
   // «Сохранить и выйти» (ITGAME-65): сервер сохраняет партию на паузе (догона нет) и
   // запоминает скорость возврата — до отчёта дня, до диалога или текущую (0 — была пауза).
+  // Без связи exit не уйдёт (sendCmd → 0, disconnect() гасит реконнект), а сервер гонит
+  // партию дальше — игрок узнаёт об этом окном «Нет связи» (ITGAME-85, решение владельца).
   private saveAndExit() {
-    this.exitModalClose = null
     const ours = this.exitPauseFrom > 0 && client.speedSeq === this.exitPauseSeq
     const resume = this.speedBeforeReport ?? (ours ? this.exitPauseFrom : (client.latest?.speed ?? 0))
+    if (this.trySendExit(resume)) return
+    // Пауза диалога (если ушла до обрыва) остаётся за cancelExit: «Отмена» вернёт скорость.
+    this.openExitModal('nolink', 'Нет связи — сохранение не дойдёт', [
+      'Сервер не узнает о выходе: партия', 'продолжит идти без вас до возврата.',
+    ], [
+      { label: 'Подождать', onClick: () => this.waitAndExit(resume) },
+      { label: 'Выйти без сохранения', onClick: () => this.exitUnsaved() },
+    ])
+  }
+
+  // exit ушёл — только тогда в меню (ITGAME-85): до disconnect(), сервер обработает его
+  // до закрытия сокета. Сокет не открыт — false, ничего не тронуто.
+  private trySendExit(resume: number): boolean {
+    if (client.socketStatus() !== 'open' || !client.send('exit', 0, { speed: resume })) return false
+    this.exitModalClose?.()
+    this.exitModalClose = null
+    this.exitModalKind = null
+    this.exitWaitResume = null
     this.exitPauseFrom = 0
-    client.send('exit', 0, { speed: resume }) // до disconnect(): сервер обработает до закрытия сокета
+    this.returnToMenu()
+    return true
+  }
+
+  // «Подождать»: таймер переподключения идёт своим ходом (disconnect() не зовём); первый
+  // снапшот нового сокета отправит exit и уведёт в меню (onState). Связь уже есть — сразу.
+  private waitAndExit(resume: number) {
+    if (this.trySendExit(resume)) return
+    this.exitWaitResume = resume
+    this.openExitModal('wait', 'Ждём связь…', [
+      'Сохраним и выйдем в меню,', 'как только связь вернётся.',
+    ], [
+      { label: 'Выйти без сохранения', onClick: () => this.exitUnsaved() },
+      { label: 'Отмена', onClick: () => { this.cancelExit() } },
+    ])
+  }
+
+  // «Выйти без сохранения»: в меню как раньше — партия идёт на сервере, «Продолжить»
+  // покажет догон. Игрок предупреждён окном «Нет связи».
+  private exitUnsaved() {
+    this.exitModalClose?.()
+    this.exitModalClose = null
+    this.exitModalKind = null
+    this.exitWaitResume = null
+    this.exitPauseFrom = 0
     this.returnToMenu()
   }
 }

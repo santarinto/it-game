@@ -8,6 +8,10 @@ import { onPartyReplaced } from '../party'
 export interface ModalButton {
   label: string
   onClick: () => void
+  // ITGAME-86, по образцу «НАЧАТЬ ЗАНОВО?» в меню: danger — необратимое действие
+  // (красная плашка), focus — действие по умолчанию (тёмная плашка в рамке фокуса).
+  danger?: boolean
+  focus?: boolean
 }
 
 // Схема заполнения стойки: filled из total юнитов заняты.
@@ -100,11 +104,14 @@ export function showModal(
   }
   buttons.forEach((b, i) => {
     const by = cy + panelH / 2 - 26 - (buttons.length - 1 - i) * 46
+    const fill = b.danger ? 0xb13e53 : b.focus ? 0x232640 : 0x3b5dc9
+    const hover = b.danger ? 0xef7d57 : b.focus ? 0x2e335a : 0x41a6f6
     const bg = tag(
-      scene.add.rectangle(cx + shift - 110, by - 17, 220, 34, 0x3b5dc9).setOrigin(0).setDepth(72)
+      scene.add.rectangle(cx + shift - 110, by - 17, 220, 34, fill).setOrigin(0).setDepth(72)
         .setInteractive({ useHandCursor: true }),
       `modal.btn.${i}`,
     )
+    if (b.focus) bg.setStrokeStyle(3, 0x41a6f6)
     const txt = scene.add
       .text(cx + shift, by, b.label, { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4' })
       .setOrigin(0.5).setDepth(73)
@@ -112,8 +119,8 @@ export function showModal(
       b.onClick()
       close()
     })
-    bg.on('pointerover', () => bg.setFillStyle(0x41a6f6))
-    bg.on('pointerout', () => bg.setFillStyle(0x3b5dc9))
+    bg.on('pointerover', () => bg.setFillStyle(hover))
+    bg.on('pointerout', () => bg.setFillStyle(fill))
     objs.push(bg, txt)
   })
   objs.push(...drawDebugFrames(scene, objs))

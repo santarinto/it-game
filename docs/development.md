@@ -73,6 +73,21 @@ written `<sid>.json`. On reconnect with the same `sid` within the TTL
   «Отмена», Esc, ✕ and a backdrop click restore the previous speed unless another `set_speed` happened
   meanwhile (the `speedSeq` rule of the day-report pause). Closing the tab, a network drop and bfcache
   (`GameClient.suspend`) are not an explicit exit: offline catch-up applies as before (ITGAME-65);
+- the HUD goes to the menu only after `exit` actually left (`client.send` → true). With the socket not
+  open (reconnecting, `itd.away`) «Сохранить и выйти» opens «Нет связи — сохранение не дойдёт»
+  (ITGAME-85, owner decision 10.10): «Подождать» shows «Ждём связь…» while the reconnect timer keeps
+  running, and the first snapshot of the new socket sends `exit {speed: N}` (N as above, computed at
+  the click) and goes to the menu exactly like the normal path; «Выйти без сохранения» goes to the menu
+  as before — the server keeps the party running and «Продолжить» shows the catch-up. ✕, a backdrop
+  click or Esc in either window go back to the game (and restore the dialog's pause like «Отмена»).
+  The dialog's own pause is sent only with an open socket;
+- «Сдаться (удалить сейв)» asks first (ITGAME-86): «Удалить партию навсегда?» with «Удалить» (red) /
+  «Отмена» (default, focus frame); Enter, Space, Esc, ✕ and the backdrop are «Отмена» — back to the
+  game, same sid, the save untouched. `itd.cmd('abandon')` skips the question (see Debug API);
+- a player command that could not leave because the socket is not open (`send()` → false; the
+  `onNotConnected` listener) plays the `error` sound on every click and shows one toast «Нет связи —
+  действие не отправлено» per outage — the next snapshot re-arms it (ITGAME-90). Buy buttons keep
+  their money/slot disabled states; the connection is not one of them;
 - game endings and `abandon` delete the save; another tab with the same
   `sid` takes the session over and the old one is closed with
   `session_taken`. Locally the ending clears the tab's `sessionStorage`, and
@@ -536,7 +551,10 @@ documenting separately:
 - **`itd.cmd('abandon')`** goes the «Сдаться» button's way
   (`HUDScene.abandonParty`: delete the save, back to the menu). A bare
   `abandon` frame let the client reconnect, and the server started a new
-  party under the same sid (retro 10.10).
+  party under the same sid (retro 10.10). It skips the «Удалить партию
+  навсегда?» confirmation (ITGAME-86): an agent's command is a deliberate
+  indirect action, not a stray click; to test the dialog click `btn.menu` →
+  `modal.btn.1` → `modal.btn.0` («Удалить») / `modal.btn.1` («Отмена»).
 - **`safe` ids** — `ids()`/`nodes()` also carry `safe`, the id with `:`
   instead of dots (game ids have no colons, so it is reversible):
   the browser agent's tool blocks `a.b.c` strings as JWTs. `click`, `hover`
@@ -722,7 +740,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks; `broken_pc`: the repair zone covers the worker and the «✖ чинить» label, real clicks repair (ITGAME-75) | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37); receipts by command id — `id`/`rev` in `cmd()`, `trace().sent`/`states`, `net()`, and no false receipt with a tick or an observer's (`/ws/agent`) snapshot in flight (ITGAME-45) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
-| `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63); explicit exit freezes the party: the exit dialog pauses, Отмена/Esc/✕ restore the speed, «Сохранить и выйти» → «Продолжить» keeps tick/day/money and the speed, also from an open day report (ITGAME-65); on the victory screen (storage sid cleared) `itd.server().sid`/`liveSid` stay the live party's sid (ITGAME-68); office/server-room windows (router, fire dialog via a real right click on `broken_pc`, core, rack) close on `itd.scenario()`/`itd.restore()`, a click where «Уволить» was sends nothing (ITGAME-69); A1–A7 `itd.away` (ITGAME-76): `close` — while away the socket is `reconnecting`, commands `not_connected`, the server session is gone at once, the return resumes the same sid with `droppedAt` ≈ `leftAt`; `net` with `timeout: 1500` — the server session lives (200) until its read timeout and is gone (404) after, `droppedAt − drop.at` ≈ 1.5 s, `liveTicks` ≈ 3 at 2x, catch-up from `droppedAt`; `net` shorter than the timeout — no catch-up, ticks ran live; the owner key untouched; inside `itd.sandbox` the return lands in the sandbox party | :4181, self-serve + temp saves dir |
+| `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63); explicit exit freezes the party: the exit dialog pauses, Отмена/Esc/✕ restore the speed, «Сохранить и выйти» → «Продолжить» keeps tick/day/money and the speed, also from an open day report (ITGAME-65); on the victory screen (storage sid cleared) `itd.server().sid`/`liveSid` stay the live party's sid (ITGAME-68); office/server-room windows (router, fire dialog via a real right click on `broken_pc`, core, rack) close on `itd.scenario()`/`itd.restore()`, a click where «Уволить» was sends nothing (ITGAME-69); A1–A7 `itd.away` (ITGAME-76): `close` — while away the socket is `reconnecting`, commands `not_connected`, the server session is gone at once, the return resumes the same sid with `droppedAt` ≈ `leftAt`; `net` with `timeout: 1500` — the server session lives (200) until its read timeout and is gone (404) after, `droppedAt − drop.at` ≈ 1.5 s, `liveTicks` ≈ 3 at 2x, catch-up from `droppedAt`; `net` shorter than the timeout — no catch-up, ticks ran live; the owner key untouched; inside `itd.sandbox` the return lands in the sandbox party; N1–N6 with the socket dropped (`itd.away` net) and real mouse clicks: «Купить ПК» twice — one «Нет связи» toast, `error` sound each, no `buy_pc` (ITGAME-90); «Сохранить и выйти» → «Нет связи — сохранение не дойдёт», no `exit`, Esc back; «Подождать» → «Ждём связь…» → after the return `exit {speed:2}` and the menu, «Продолжить» 3 s later on the same day/clock; «Подождать» → ✕ sends nothing; «Выйти без сохранения» → menu, the party ran on; open socket unchanged (ITGAME-85); D1–D3 «Сдаться» → «Удалить партию навсегда?»: Enter/«Отмена» keep the sid and the save, «Удалить» sends `abandon`, 404 (ITGAME-86) | :4181, self-serve + temp saves dir |
 | `npm run qa:report-pause` | the day report pauses the party (speed 0, time and balance stand still); Enter/Space/`btn.next_day`/`itd.cmd('next_day')` restore the pre-report speed; F5 with the report open keeps `itd.speedBeforeReport`, «Продолжить» reopens it paused and closing restores 3×; an outside `itd.speed(0)` over the report survives; `itd.set({tickInDay})` refused in `day_report`; `skipReports` changes the day without a modal or a stuck 0 (ITGAME-18, self-serve since ITGAME-70) | :4182, self-serve + temp saves dir |
 | `npm run qa:journal` | the journal of a live browser party (HUD clicks, `itd.cmd`, a rejection, `itd.set`/`itd.step`, F5 → «Продолжить» with offline catch-up) from `/api/debug/journal` replays with `cmd/replay -json` without divergence or warnings, and the replayed save equals the live one; `itd.journal({tail, sid})` gives the same journal from the tab — tail lines, kinds/total, ids, saves stripped (ITGAME-46) | :4186, self-serve + temp saves dir |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |

@@ -79,6 +79,18 @@
 //   A5   net короче таймаута: offline null (сервер не заметил), тики шли вживую весь уход
 //   A6   после уходов sid вкладки и общий ключ localStorage те же
 //   A7   в песочнице (itd.sandbox) away возвращает в её партию, ключ владельца не тронут
+//   N1   itd.away net, два настоящих клика btn.pc — один тост «Нет связи…», звук error на каждый,
+//        buy_pc не ушёл (ITGAME-90)
+//   N2   без связи btn.menu → modal.btn.0 — окно «Нет связи — сохранение не дойдёт», exit не ушёл,
+//        HUD на месте; Esc — назад в игру (ITGAME-85)
+//   N3   «Подождать» → «Ждём связь…»; связь вернулась — exit {speed:2} ушёл сам, меню; «Продолжить»
+//        через 3 с — resumed, тот же день/время по проводу, speed 2
+//   N4   «Подождать» → ✕: после возврата exit не ушёл, вкладка в игре на 2x
+//   N5   «Выйти без сохранения» — меню, exit не ушёл; «Продолжить» — время ушло вперёд (партия шла)
+//   N6   связь есть — «Сохранить и выйти» шлёт exit и уходит в меню, как раньше
+//   D1   «Сдаться» → «Удалить партию навсегда?» (Удалить / Отмена); Enter — отмена, sid тот же (ITGAME-86)
+//   D2   «Отмена» — abandon не ушёл; выход с сохранением → «Продолжить» есть, resumed, тот же sid
+//   D3   «Удалить» — abandon ушёл, меню, sid партии нет ни в ключах вкладки, ни в общем; на сервере 404
 //   Z    на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию :4181; порт не из
@@ -1203,6 +1215,166 @@ async function run() {
     check('A6: после трёх уходов sid вкладки и общий ключ те же', awOwnerAfter === awOwner && (await page.evaluate(() => window.itd.server().sid)) === awSid,
       JSON.stringify({ awOwner, awOwnerAfter, awSid }))
 
+    // ── N: без связи (ITGAME-85, ITGAME-90) — сокет оборван itd.away net, клики настоящей мышью ──
+    // Состояние тут: партия владельца, 2x, сокет открыт.
+    const realClick = async (id) => {
+      const b = await page.evaluate((id) => {
+        const r = document.querySelector('canvas').getBoundingClientRect()
+        const n = window.itd.nodes().find((x) => x.id === id)
+        const k = r.width / 1280
+        return n ? { x: r.x + n.cx * k, y: r.y + n.cy * k } : null
+      }, id)
+      if (b) await page.mouse.click(b.x, b.y)
+      await delay(150)
+      return !!b
+    }
+    const nNow = () => page.evaluate(() => Date.now())
+    const nTitle = () => page.evaluate(() => window.itd.blocker()?.title ?? null)
+    const nScenes = () => page.evaluate(() => ({ hud: window.__itd.scene.isActive('hud'), menu: window.__itd.scene.isActive('menu') }))
+    // Уход net на sec секунд, не дожидаясь возврата (сокет оборван, сервер заметит через 1.5 с).
+    const nAway = async (sec) => {
+      await freshDay2x()
+      await page.evaluate((sec) => {
+        window.__qa85 = window.itd.away(sec, { mode: 'net', timeout: 1500 })
+      }, sec)
+      await delay(300)
+    }
+    // Последний снапшот провода до t и первый после t (day/clock — где партия на самом деле).
+    const nLastInBefore = (t) =>
+      page.evaluate((t) => window.itd.net(100).last.filter((m) => m.dir === 'in' && m.type === 'state' && m.at <= t).at(-1)?.info ?? null, t)
+    const nFirstInAfter = (t) =>
+      page.evaluate((t) => window.itd.net(100).last.find((m) => m.dir === 'in' && m.type === 'state' && m.at > t)?.info ?? null, t)
+    const nContinue = () =>
+      page.evaluate(async () => {
+        window.itd.click('menu.continue')
+        try {
+          await window.itd.wait((s) => s.connected === true, 15000)
+        } catch {
+          /* читаем и пишем FAIL ниже */
+        }
+        const snap = window.itd.server().snapshot
+        return { resumed: snap?.resumed ?? null, speed: snap?.speed ?? null, sid: window.itd.server().sid }
+      })
+    const nMenu = (ms) =>
+      page
+        .waitForFunction(() => window.itd.state().menuReady === true, { timeout: ms, polling: 100 })
+        .then(() => true, () => false)
+
+    // N1 (ITGAME-90): два настоящих клика «Купить ПК» без связи — один тост «нет связи»,
+    // звук отказа на каждый, buy_pc не ушёл.
+    await page.evaluate(() => window.itd.set({ money: 99999 }))
+    await nAway(7)
+    const n1t = await nNow()
+    const n1pc = await page.evaluate(() => window.itd.nodes().find((n) => n.id === 'btn.pc')?.disabled ?? null)
+    await realClick('btn.pc')
+    await realClick('btn.pc')
+    const n1 = await page.evaluate((t) => {
+      const log = window.itd.log(100).filter((e) => e.t >= t)
+      return {
+        toasts: log.filter((e) => e.type === 'toast').map((e) => e.text),
+        errors: log.filter((e) => e.type === 'sound' && e.name === 'error').length,
+      }
+    }, n1t)
+    const n1out = await outSince(n1t)
+    check(
+      'N1: без связи два настоящих клика «Купить ПК» — один тост «Нет связи…», звук отказа на каждый, buy_pc не ушёл (ITGAME-90)',
+      n1pc === false && n1.toasts.length === 1 && /нет связи/i.test(n1.toasts[0]) && n1.errors >= 2 && !n1out.includes('buy_pc'),
+      JSON.stringify({ disabled: n1pc, ...n1, out: n1out }),
+    )
+
+    // N2 (ITGAME-85): «Сохранить и выйти» без связи — окно «Нет связи», exit не ушёл, игра на месте;
+    // Esc — назад в игру.
+    await realClick('btn.menu')
+    const n2exitTitle = await nTitle()
+    await realClick('modal.btn.0')
+    const n2 = { exitTitle: n2exitTitle, title: await nTitle(), ids: await modalIds(), ...(await nScenes()) }
+    await page.evaluate(() => window.itd.key('esc'))
+    await delay(150)
+    const n2esc = { title: await nTitle(), ...(await nScenes()) }
+    const n2out = await outSince(n1t)
+    check(
+      'N2: без связи «Сохранить и выйти» открывает «Нет связи — сохранение не дойдёт» (Подождать / Выйти без сохранения), exit не ушёл, в меню не ушли; Esc — назад в игру (ITGAME-85)',
+      n2.exitTitle === 'Выйти в меню?' && n2.title === 'Нет связи — сохранение не дойдёт' && n2.ids.includes('modal.btn.1') &&
+        !n2.ids.includes('modal.btn.2') && n2.hud && !n2.menu && n2esc.title === null && n2esc.hud && !n2esc.menu && !n2out.includes('exit'),
+      JSON.stringify({ n2, n2esc, out: n2out }),
+    )
+
+    // N3: «Подождать» → «Ждём связь…»; после возврата связи exit {speed:2} уходит сам и вкладка в меню;
+    // через 3 с «Продолжить» — тот же день/время (партия стояла на паузе), speed 2.
+    await realClick('btn.menu')
+    await realClick('modal.btn.0')
+    await realClick('modal.btn.0')
+    const n3wait = { title: await nTitle(), ...(await nScenes()) }
+    const n3menu = await nMenu(20000)
+    const n3wire = await page.evaluate((t) => window.itd.net(100).last.filter((m) => m.dir === 'out' && m.at > t), n1t)
+    const n3exit = n3wire.find((m) => m.type === 'exit') ?? null
+    const n3before = n3exit ? await nLastInBefore(n3exit.at) : null
+    await delay(3000)
+    const n3t = await nNow()
+    const n3cont = n3menu ? await nContinue() : null
+    const n3after = await nFirstInAfter(n3t)
+    check(
+      'N3: «Подождать» — окно «Ждём связь…», вкладка в игре; связь вернулась — exit {speed:2} ушёл сам, вкладка в меню; «Продолжить» через 3 с — resumed, тот же день/время, speed 2 (ITGAME-85)',
+      n3wait.title === 'Ждём связь…' && n3wait.hud && !n3wait.menu && n3menu && n3exit?.info?.speed === 2 &&
+        n3cont?.resumed === true && n3cont.speed === 2 && n3before != null && n3after != null &&
+        n3after.day === n3before.day && n3after.clock === n3before.clock,
+      JSON.stringify({ wait: n3wait, menu: n3menu, exit: n3exit, before: n3before, cont: n3cont, after: n3after }),
+    )
+
+    // N4: «Подождать», затем ✕ — назад в игру; связь вернулась — exit не ушёл, вкладка в игре на 2x.
+    await nAway(2.5)
+    const n4t = await nNow()
+    await realClick('btn.menu')
+    await realClick('modal.btn.0')
+    await realClick('modal.btn.0')
+    const n4waitTitle = await nTitle()
+    await realClick('modal.close')
+    const n4ret = await page.evaluate(() => window.__qa85)
+    await delay(500)
+    const n4 = {
+      waitTitle: n4waitTitle, title: await nTitle(), ret: n4ret?.ok ?? null, out: await outSince(n4t), ...(await nScenes()),
+      speed: await page.evaluate(() => window.itd.server().snapshot?.speed ?? null),
+    }
+    check(
+      'N4: «Подождать» → ✕ отменяет ожидание: связь вернулась, exit не ушёл, вкладка в игре, speed 2 (ITGAME-85)',
+      n4.waitTitle === 'Ждём связь…' && n4.title === null && n4.ret === true && !n4.out.includes('exit') && n4.hud && !n4.menu && n4.speed === 2,
+      JSON.stringify(n4),
+    )
+
+    // N5: «Выйти без сохранения» — в меню сразу, exit не ушёл; партия шла дальше: «Продолжить» — другое время.
+    await nAway(4)
+    const n5t = await nNow()
+    const n5before = await nLastInBefore(n5t)
+    await realClick('btn.menu')
+    await realClick('modal.btn.0')
+    await realClick('modal.btn.1')
+    const n5menu = await nMenu(5000)
+    const n5out = await outSince(n5t)
+    await delay(3000)
+    const n5t2 = await nNow()
+    const n5cont = n5menu ? await nContinue() : null
+    const n5after = await nFirstInAfter(n5t2)
+    check(
+      'N5: «Выйти без сохранения» — меню сразу, exit не ушёл; партия шла на сервере: «Продолжить» — resumed, время ушло вперёд (ITGAME-85)',
+      n5menu && !n5out.includes('exit') && n5cont?.resumed === true && n5before != null && n5after != null &&
+        !(n5after.day === n5before.day && n5after.clock === n5before.clock),
+      JSON.stringify({ menu: n5menu, out: n5out, before: n5before, cont: n5cont, after: n5after }),
+    )
+
+    // N6: при открытой связи «Сохранить и выйти» — как раньше: exit ушёл, меню без окна «Нет связи».
+    await freshDay2x()
+    const n6t = await nNow()
+    await realClick('btn.menu')
+    await realClick('modal.btn.0')
+    const n6menu = await nMenu(5000)
+    const n6out = await outSince(n6t)
+    const n6cont = n6menu ? await nContinue() : null
+    check(
+      'N6: связь есть — «Сохранить и выйти» шлёт exit и уходит в меню без окна «Нет связи»; «Продолжить» — resumed (ITGAME-85)',
+      n6menu && n6out.includes('exit') && n6cont?.resumed === true,
+      JSON.stringify({ menu: n6menu, out: n6out, cont: n6cont }),
+    )
+
     // A7: песочница — away возвращается в партию песочницы, ключ владельца не трогает
     await page.evaluate(async () => {
       window.itd.click('btn.menu')
@@ -1230,6 +1402,65 @@ async function run() {
     })
     await waitMenu()
     await page.evaluate(() => window.itd.sandbox.restore())
+
+    // ── D: «Сдаться» с подтверждением (ITGAME-86) ─────────────────────────
+    // Партия владельца из меню; клики настоящей мышью.
+    const dCont = await nContinue()
+    const dSid = dCont?.sid ?? null
+    await page.evaluate(() => window.itd.pause())
+    const dt = await nNow()
+    await realClick('btn.menu')
+    await realClick('modal.btn.1')
+    const d1 = {
+      title: await nTitle(), ids: await modalIds(),
+      labels: await page.evaluate(() =>
+        window.itd.text().filter((n) => n.scene === 'hud' && (n.text === 'Удалить' || n.text === 'Отмена')).map((n) => n.text)),
+    }
+    await page.evaluate(() => window.itd.key('enter'))
+    await delay(150)
+    const d1enter = { title: await nTitle(), ...(await nScenes()), sid: await page.evaluate(() => window.itd.server().sid) }
+    check(
+      'D1: «Сдаться» открывает «Удалить партию навсегда?» (Удалить / Отмена); Enter — отмена: окно закрыто, игра на месте, sid тот же (ITGAME-86)',
+      dSid != null && d1.title === 'Удалить партию навсегда?' && d1.ids.includes('modal.btn.1') && !d1.ids.includes('modal.btn.2') &&
+        d1.labels.includes('Удалить') && d1.labels.includes('Отмена') && d1enter.title === null && d1enter.hud && !d1enter.menu &&
+        d1enter.sid === dSid,
+      JSON.stringify({ dSid, d1, d1enter }),
+    )
+    await realClick('btn.menu')
+    await realClick('modal.btn.1')
+    await realClick('modal.btn.1')
+    const d2 = { title: await nTitle(), ...(await nScenes()), sid: await page.evaluate(() => window.itd.server().sid), out: await outSince(dt) }
+    // выход с сохранением: «Продолжить» на месте, та же партия
+    await realClick('btn.menu')
+    await realClick('modal.btn.0')
+    await waitMenu()
+    const d2menu = await page.evaluate(() => window.itd.ids().some((n) => n.id === 'menu.continue'))
+    const d2cont = await nContinue()
+    check(
+      'D2: «Отмена» в подтверждении — abandon не ушёл, сейв жив: «Продолжить» есть, resumed, sid тот же (ITGAME-86)',
+      d2.title === null && d2.hud && d2.sid === dSid && !d2.out.includes('abandon') && d2menu && d2cont?.resumed === true && d2cont.sid === dSid,
+      JSON.stringify({ d2, d2menu, d2cont }),
+    )
+    const d3t = await nNow()
+    await realClick('btn.menu')
+    await realClick('modal.btn.1')
+    await realClick('modal.btn.0')
+    const d3menu = await nMenu(5000)
+    await delay(300)
+    const d3 = {
+      menu: d3menu, out: await outSince(d3t),
+      cont: await page.evaluate(() => window.itd.ids().some((n) => n.id === 'menu.continue')),
+      live: await page.evaluate(async (sid) => (await fetch(`/api/debug/state?sid=${encodeURIComponent(sid)}`)).status, dSid),
+      keys: await page.evaluate(() => ({ ls: localStorage.getItem('itd.sid'), ss: sessionStorage.getItem('itd.sid'), sb: sessionStorage.getItem('itd.sandbox') })),
+      dSid,
+    }
+    check(
+      // «Продолжить» в меню может остаться — за ЧУЖИМ сейвом общего ключа (партия 1, гард clearSession);
+      // этой партии нет ни в ключах, ни на сервере.
+      'D3: «Удалить» — abandon ушёл, вкладка в меню, sid партии стёрт из ключей вкладки и общего, партии на сервере нет (ITGAME-86)',
+      d3.menu && d3.out.includes('abandon') && d3.keys.ss !== dSid && d3.keys.ls !== dSid && d3.live === 404,
+      JSON.stringify(d3),
+    )
   } catch (e) {
     check('сценарий выполнен без исключений', false, e instanceof Error ? e.message : String(e))
   } finally {

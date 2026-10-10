@@ -66,6 +66,9 @@ export interface Listener {
   onOfflineReport?(r: OfflineReportMessage): void
   // Реконнект в процессе (деплой рвёт WS): баннер «переподключение».
   onReconnecting?(attempt: number): void
+  // Команда send() не ушла: сокет не открыт или вкладка в уходе (ITGAME-90) —
+  // HUD скажет игроку «нет связи» вместо молчаливого клика.
+  onNotConnected?(cmd: CommandType): void
   // Наблюдатель (телеметрия itd): видит разовые сообщения, но не показывает
   // их игроку — его получение не снимает сообщение с очереди (ITGAME-19).
   observer?: boolean
@@ -809,7 +812,10 @@ export class GameClient {
     // Соединение ещё не открыто или уже потеряно — команду безопасно игнорируем,
     // сервер всё равно источник истины. Возвращаем факт отправки: вызывающий
     // (itd.pause(), itd.cmd) обязан отличить «отправлено» от тихого no-op.
-    return this.sendCmd(cmd, office, extra) > 0
+    // Не ушла — слушатели узнают (ITGAME-90): клик без связи не должен молчать.
+    if (this.sendCmd(cmd, office, extra) > 0) return true
+    this.listeners.forEach((l) => l.onNotConnected?.(cmd))
+    return false
   }
 
   // Отправка с номером (ITGAME-45): каждая команда уходит с id — его видят
