@@ -6,7 +6,7 @@ import { fmtMoney } from '../format'
 import { nav } from '../rooms'
 import { onPartyReset, partyChange } from '../party'
 import { debug, drawDebugFrames, setDebug } from '../debug'
-import { markActive, markDisabled, markTitle, rejectClick, tag } from '../debug/agentApi'
+import { markActive, markDim, markDisabled, markTitle, rejectClick, tag } from '../debug/agentApi'
 import { showModal, type ModalButton } from '../ui/modal'
 import { playSfx } from '../audio'
 import { emitUi } from '../uibus'
@@ -415,7 +415,7 @@ export class HUDScene extends Phaser.Scene {
     this.reconnectUI.forEach((o) => o.destroy())
     this.reconnectUI = []
     const taken = reason === 'session_taken'
-    markTitle(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.85).setOrigin(0).setDepth(100),
+    markDim(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.85).setOrigin(0).setDepth(100),
       taken ? 'Игра открыта в другой вкладке' : 'Соединение потеряно') // ITGAME-72
     this.add
       .text(CX, 300, taken ? 'Игра открыта в другой вкладке' : 'Соединение потеряно', {
@@ -475,7 +475,7 @@ export class HUDScene extends Phaser.Scene {
       ...(finalLine ? ['', finalLine] : []),
       ...(offlineAchs.length > 0 ? ['', `🏆 Достижение: ${offlineAchs.map((a) => `${a.icon} ${a.title}`).join(', ')}`] : []),
     ].join('\n')
-    const overlay = markTitle(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(55).setInteractive(), 'Пока вас не было')
+    const overlay = markDim(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(55).setInteractive(), 'Пока вас не было')
     const panel = this.add.rectangle(CX, 300, 460, 320, 0x14162b).setStrokeStyle(2, 0xffcd75).setDepth(56)
     const title = this.add
       .text(CX, 170, 'Пока вас не было', { fontFamily: FONT, fontSize: '22px', color: '#ffcd75' })
@@ -1132,7 +1132,7 @@ export class HUDScene extends Phaser.Scene {
     ].join('\n')
 
     // Подложка interactive: глушит клики по кнопкам HUD под модалкой (depth 50).
-    const overlay = markTitle(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(50).setInteractive(), `День ${r.day} завершён`)
+    const overlay = markDim(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(50).setInteractive(), `День ${r.day} завершён`)
     // Плашка модала (depth 51) создаётся ДО текстов и кнопок (depth 52..53),
     // чтобы display list и depth гарантированно держали фон ПОЗАДИ контента.
     const panel = this.add.rectangle(CX, 300, 440, 320, 0x14162b).setStrokeStyle(2, 0x41a6f6).setDepth(51)
@@ -1241,7 +1241,7 @@ export class HUDScene extends Phaser.Scene {
     const isDeadlock = o.reason === 'deadlock'
     const timeUp = o.reason === 'time_up' // дедлайн уровня (сложность 2.0)
     const titleText = isDeadlock ? 'ТУПИК' : timeUp ? 'ВРЕМЯ ВЫШЛО' : 'БАНКРОТСТВО'
-    const overlay = markTitle(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.9).setOrigin(0).setDepth(60).setInteractive(), titleText)
+    const overlay = markDim(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.9).setOrigin(0).setDepth(60).setInteractive(), titleText)
     const title = this.add
       .text(CX, 200, titleText, { fontFamily: FONT, fontSize: '32px', color: '#b13e53' })
       .setOrigin(0.5).setDepth(61)
@@ -1303,7 +1303,7 @@ export class HUDScene extends Phaser.Scene {
     const { newAchievements, isRecord } = recordVictory(v, client.latest ?? undefined)
     const { unlockedCount, totalCount } = getAchievementsSummary()
 
-    const overlay = markTitle(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.9).setOrigin(0).setDepth(60).setInteractive(), 'ПОБЕДА!')
+    const overlay = markDim(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.9).setOrigin(0).setDepth(60).setInteractive(), 'ПОБЕДА!')
     const title = this.add
       .text(CX, 200, 'ПОБЕДА!', { fontFamily: FONT, fontSize: '32px', color: '#38b764' })
       .setOrigin(0.5).setDepth(61)

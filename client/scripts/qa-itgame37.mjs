@@ -43,6 +43,14 @@
 //  13c гонка с наблюдателем: страница открывает /ws/agent на свой sid,
 //      агент шлёт hire, главный поток занят 150 мс (снапшот найма «в пути»),
 //      затем cmd с отказом → bad_speed; снапшот найма у вкладки без re
+//  14  (ITGAME-88) открытое окно + настоящий клик: itd.trace.start() → page.mouse.click
+//      по центру btn.pc (screen() x/y) ОТДЕЛЬНЫМ вызовом → itd.trace.stop(id): pointer
+//      down/up, onCanvas, x/y ≈ cx/cy, wins — btn.pc (хит-тест Phaser), got ['btn:pc'],
+//      sent buy_pc; клик по #build (#topbar) — onCanvas false, wins null, got []
+//  15  (ITGAME-88) окно: stop() без окна — no_trace; start({maxMs:300}) само закрылось —
+//      cut, windowMs ≈ 300; bad_max; два окна — stop() закрывает последнее, stop(id) первое;
+//      itd.click() внутри окна — sent есть, pointer пуст (мимо input-слоя);
+//      классическая форма trace(action, ms) тоже несёт pointer []
 //   + на странице нет pageerror
 //
 // Отклонения от буквального сценария в трекере (см. отчёт агента): нет —
@@ -495,6 +503,75 @@ async function run() {
       t13c.r?.ok === false && t13c.r.code === 'bad_speed' && t13c.agentReply?.cause === 'cmd' &&
         !!hireState13c && hireState13c.cause === 'cmd' && hireState13c.re === undefined && t13c.r.rev === t13c.agentReply.rev,
       JSON.stringify(t13c),
+    )
+
+    // ── 14 (ITGAME-88): открытое окно и настоящий клик мышью другим вызовом
+    await page.evaluate(async () => {
+      window.itd.pause()
+      await window.itd.set({ money: 50000 })
+    })
+    await page.waitForFunction(() => window.itd.state().speed === 0 && window.itd.state().balance === 50000, { timeout: 5000 })
+    const st14 = await page.evaluate(() => window.itd.trace.start())
+    const pt14 = await page.evaluate(() => {
+      const row = window.itd.screen().items.find((i) => i.startsWith('btn:pc|'))?.split('|')
+      const n = window.itd.nodes().find((x) => x.id === 'btn.pc')
+      const b = document.getElementById('build')?.getBoundingClientRect()
+      return { x: Number(row?.[2]), y: Number(row?.[3]), cx: n?.cx, cy: n?.cy, bx: b ? b.left + b.width / 2 : -1, by: b ? b.top + b.height / 2 : -1 }
+    })
+    await page.mouse.click(pt14.x, pt14.y)
+    await delay(400)
+    await page.mouse.click(pt14.bx, pt14.by)
+    const t14 = await page.evaluate((id) => window.itd.trace.stop(id), st14.id)
+    const down14 = t14.pointer?.find((p) => p.type === 'down' && p.onCanvas)
+    const up14 = t14.pointer?.find((p) => p.type === 'up' && p.onCanvas)
+    const bar14 = t14.pointer?.find((p) => p.type === 'down' && !p.onCanvas)
+    check(
+      '14: trace.start() → настоящий клик по btn.pc → trace.stop(id): pointer down/up на канвасе, x/y ≈ cx/cy, wins btn.pc, got [btn:pc], sent buy_pc',
+      st14.ok === true && typeof st14.id === 'number' && t14.id === st14.id && !!down14 && !!up14 &&
+        down14.button === 0 && Math.abs(down14.x - pt14.cx) <= 2 && Math.abs(down14.y - pt14.cy) <= 2 &&
+        down14.wins?.id === 'btn.pc' && down14.wins.safe === 'btn:pc' && down14.stack[0]?.startsWith('btn:pc ') &&
+        JSON.stringify(down14.got) === '["btn:pc"]' && up14.wins?.id === 'btn.pc' &&
+        t14.sent.some((e) => e.type === 'buy_pc') && t14.windowMs >= 400 && t14.actionMs === 0,
+      JSON.stringify({ st14, pt14, pointer: t14.pointer, sent: t14.sent, windowMs: t14.windowMs }),
+    )
+    check(
+      '14: клик по #build (мимо холста) — onCanvas false, wins null, got []',
+      !!bar14 && bar14.wins === null && bar14.got.length === 0,
+      JSON.stringify(bar14 ?? null),
+    )
+
+    // ── 15 (ITGAME-88): семантика открытого окна
+    const t15 = await page.evaluate(async () => {
+      const itd = window.itd
+      const none = itd.trace.stop()
+      const cut = itd.trace.start({ maxMs: 300 })
+      await new Promise((r) => setTimeout(r, 700))
+      const cutRes = itd.trace.stop(cut.id)
+      const bad = itd.trace.start({ maxMs: 0 })
+      const a = itd.trace.start()
+      const b = itd.trace.start()
+      const lastRes = itd.trace.stop()
+      itd.click('btn.pc')
+      await new Promise((r) => setTimeout(r, 300))
+      const firstRes = itd.trace.stop(a.id)
+      const again = itd.trace.stop(a.id)
+      const classic = await itd.trace(() => {}, 50)
+      return {
+        none, cut: { id: cut.id, res: { id: cutRes.id, cut: cutRes.cut, windowMs: cutRes.windowMs } }, bad,
+        a: a.id, b: b.id, open: b.open, lastId: lastRes.id, firstId: firstRes.id,
+        firstSent: firstRes.sent.map((e) => e.type), firstPointer: firstRes.pointer.length, again: again.code,
+        classicPointer: classic.pointer,
+      }
+    })
+    check(
+      '15: stop() без окна — no_trace; maxMs 300 — cut, windowMs ≈ 300; maxMs 0 — bad_max; stop() закрывает последнее, stop(id) — своё; itd.click — sent есть, pointer пуст; trace() несёт pointer []',
+      t15.none.ok === false && t15.none.code === 'no_trace' &&
+        t15.cut.res.id === t15.cut.id && t15.cut.res.cut === true && t15.cut.res.windowMs >= 290 && t15.cut.res.windowMs < 600 &&
+        t15.bad.ok === false && t15.bad.code === 'bad_max' &&
+        JSON.stringify(t15.open) === JSON.stringify([t15.a, t15.b]) && t15.lastId === t15.b && t15.firstId === t15.a &&
+        t15.firstSent.includes('buy_pc') && t15.firstPointer === 0 && t15.again === 'no_trace' &&
+        Array.isArray(t15.classicPointer) && t15.classicPointer.length === 0,
+      JSON.stringify(t15),
     )
 
     // ── нет ошибок на странице за весь прогон

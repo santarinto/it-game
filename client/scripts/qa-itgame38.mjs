@@ -55,6 +55,14 @@
 //   P2  itd.ledger(1)/(2)/(): сведены (balanced), покупки hire $300 / buy_pc $575, profit = delta + покупки,
 //       старт дня = конец прошлого; текущий день открыт, payroll 0; ledger(99) — «нет книги дня 99: есть [1 2 3]»
 //   P3  itd.set({money}) — правка видна в adjust, книга сведена
+//   K1  (ITGAME-87) broken_pc: наведение на office.slot.1 (до зон мест — office.worker.1) — текст тултипа visible true; pointerout
+//       прячет контейнер — тот же текст в itd.text() visible false (раньше true); hit/stack — «узел невидим»
+//   K2  (ITGAME-87) soft_lock → конец дня → «ТУПИК» (game_over): overlaps() без записей от затемнения;
+//       снятая метка dim вернула бы их (контроль: > 0), метка возвращена — снова 0; у отчёта дня (C2) — тоже 0
+//   K3  (ITGAME-88) nodes().fill: маркер меню (Triangle) и плашки — '#rrggbb' = fillColor объекта, у Text — null
+//   K4  (ITGAME-88) menuReady после itd.sandbox.restore(): сразу false (перезапуск меню в очереди),
+//       после wait — плашка menu.diff.normal не сдвигается 1,5 с
+//   V1/V2 + (ITGAME-88) stale().shown: false на свежей вкладке, true на подмене, снова false
 //   + на странице нет pageerror
 //
 // Отклонения от буквального сценария в трекере (см. отчёт агента):
@@ -184,7 +192,7 @@ async function run() {
     })
     check(
       'V1: свежая вкладка — stale false, dist = client = itd.version.sha, штамп sha в #topbar, метка скрыта, meta.stale false',
-      v1.st.stale === false && v1.st.client === v1.sha && v1.st.dist === v1.sha && v1.stamp === v1.sha &&
+      v1.st.stale === false && v1.st.shown === false && v1.st.client === v1.sha && v1.st.dist === v1.sha && v1.stamp === v1.sha &&
         (v1.st.server === null || typeof v1.st.server === 'string') && v1.warnHidden === true && v1.data === 'false' && v1.meta === false,
       JSON.stringify(v1),
     )
@@ -210,8 +218,8 @@ async function run() {
     const v2b = await page.evaluate(async () => ({ st: await window.itd.stale(), warnHidden: document.getElementById('stale')?.hidden ?? null }))
     check(
       'V2: стенд отдаёт другой sha — stale true, красная метка «устарело, обнови» видна, высота #topbar та же; стенд снова свой — метка скрыта',
-      v2.st.stale === true && v2.st.dist === '0000000' && v2.warnHidden === false && v2.visible && v2.text === 'устарело, обнови' &&
-        v2.data === 'true' && v2.h === v1.h && v2b.st.stale === false && v2b.warnHidden === true,
+      v2.st.stale === true && v2.st.shown === true && v2.st.dist === '0000000' && v2.warnHidden === false && v2.visible && v2.text === 'устарело, обнови' &&
+        v2.data === 'true' && v2.h === v1.h && v2b.st.stale === false && v2b.st.shown === false && v2b.warnHidden === true,
       JSON.stringify({ v2, v2b, h1: v1.h }),
     )
 
@@ -532,6 +540,8 @@ async function run() {
     const ovC2 = await page.evaluate(() => window.itd.overlaps())
     const interactiveC2 = ovC2.filter((e) => e.kind === 'interactive')
     check('C2: модалка отчёта — interactive-находок нет', interactiveC2.length === 0, JSON.stringify(interactiveC2))
+    const dimC2 = ovC2.filter((e) => e.b === 'Rectangle(1280x720)' || e.a === 'Rectangle(1280x720)')
+    check('C2/K2: отчёт дня — записей overlaps() от затемнения нет (ITGAME-87)', dimC2.length === 0, JSON.stringify(dimC2.slice(0, 3)))
     // ── S1/S2 (ITGAME-72): карта экрана на отчёте дня
     const s1 = await page.evaluate(() => {
       const sc = window.itd.screen()
@@ -925,6 +935,106 @@ async function run() {
     })
     check('P3: itd.set({money: 1000}) — adjust 647, книга сведена', p3.adjust === 1000 - 353 && p3.balanced && p3.balanceEnd === 1000, JSON.stringify(p3))
     await pp.close()
+
+    // ── K1–K4 (ITGAME-87/88): своя вкладка и песочница
+    const pk = await browser.newPage()
+    pk.on('pageerror', (e) => pageErrors.push(String(e)))
+    await pk.setViewport({ width: 1920, height: 1080 })
+    await pk.goto(`${BASE}/?scenario=broken_pc&seed=1&debug=1`, { waitUntil: 'domcontentloaded' })
+    await waitMenuReady(pk)
+    // K3 — заливки в меню (маркер фокуса — треугольник, плашки — прямоугольники)
+    const k3 = await pk.evaluate(() => {
+      const nodes = window.itd.nodes()
+      const tri = nodes.find((n) => n.scene === 'menu' && n.type === 'Triangle')
+      const plate = nodes.find((n) => n.id === 'menu.diff.normal')
+      const text = nodes.find((n) => n.scene === 'menu' && n.type === 'Text')
+      const menu = window.__itd.scene.getScene('menu')
+      const hex = (c) => '#' + c.toString(16).padStart(6, '0')
+      return { tri: tri?.fill, triReal: hex(menu.focusMarker.fillColor), plate: plate?.fill, text: text ? text.fill : 'нет текста', shapes: nodes.filter((n) => n.fill !== null).length }
+    })
+    check(
+      'K3: nodes().fill — маркер меню и плашка «#rrggbb» (= fillColor), у Text null',
+      /^#[0-9a-f]{6}$/.test(k3.tri ?? '') && k3.tri === k3.triReal && k3.plate === '#232640' && k3.text === null && k3.shapes > 3,
+      JSON.stringify(k3),
+    )
+    // K4 — menuReady не раньше перестройки меню: песочница и выход из неё перезапускают меню
+    await pk.evaluate(() => localStorage.setItem('itd.sid', 'qa88-ghost-' + Date.now()))
+    await pk.evaluate(() => window.itd.sandbox('qa88'))
+    await pk.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
+    const k4 = await pk.evaluate(async () => {
+      const r = window.itd.sandbox.restore()
+      const right = window.itd.state().menuReady
+      await window.itd.wait((s) => s.menuReady, 8000)
+      const cy = () => window.itd.nodes().find((n) => n.id === 'menu.diff.normal')?.cy
+      const a = cy()
+      await new Promise((res) => setTimeout(res, 1500))
+      return { restored: r.restored, right, a, b: cy() }
+    })
+    check(
+      'K4: сразу после sandbox.restore() menuReady false (перезапуск меню в очереди); после wait плашка не сдвигается 1,5 с',
+      k4.right === false && typeof k4.a === 'number' && k4.a === k4.b,
+      JSON.stringify(k4),
+    )
+    await pk.evaluate(() => localStorage.removeItem('itd.sid'))
+    await pk.evaluate(() => window.itd.sandbox('qa87'))
+    await pk.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
+    await pk.evaluate(() => window.itd.click('menu.diff.normal'))
+    await pk.waitForFunction(() => window.itd.state().scenario === 'broken_pc' && window.itd.state().phase === 'running', { timeout: 20000 })
+    await pk.evaluate(() => window.itd.pause())
+    await pk.waitForFunction(() => window.itd.ids().some((n) => n.id === 'office.worker.1' || n.id === 'office.slot.1'), { timeout: 10000 })
+    // K1 — текст тултипа офиса в скрытом контейнере
+    const k1 = await pk.evaluate(() => {
+      const itd = window.itd
+      const office = window.__itd.scene.getScene('office')
+      // с ITGAME-90 тултип и уход курсора — у зоны места office.slot.N, до неё — у спрайта сотрудника
+      const zone = itd.ids().some((n) => n.id === 'office.slot.1') ? 'office.slot.1' : 'office.worker.1'
+      itd.hover(zone)
+      const label = office.tooltipText.text
+      const find = () => itd.text().find((n) => n.scene === 'office' && n.text === label)
+      const shown = find()
+      // настоящий уход курсора — обработчик pointerout сотрудника
+      const walk = (list) => { for (const o of list) { if (o.getData?.('id') === zone) return o; if (o.list) { const f = walk(o.list); if (f) return f } } return null }
+      walk(office.children.list).emit('pointerout')
+      const hidden = find()
+      return {
+        label: label.split('\n')[0], shown: shown?.visible, hidden: hidden?.visible, kept: !!hidden,
+        container: office.tooltip.visible, child: office.tooltipText.visible,
+      }
+    })
+    check(
+      'K1: тултип показан — visible true; контейнер скрыт (pointerout) — тот же текст visible false, хотя у самого Text visible true',
+      k1.shown === true && k1.hidden === false && k1.kept && k1.container === false && k1.child === true,
+      JSON.stringify(k1),
+    )
+    // K2 — «ТУПИК»: затемнение финала не находка overlaps()
+    await pk.evaluate(async () => {
+      await window.itd.scenario('soft_lock')
+      await window.itd.set({ tickInDay: 53 })
+      window.itd.speed(3)
+    })
+    await pk.waitForFunction(() => window.itd.state().phase === 'game_over', { timeout: 30000 })
+    await delay(500)
+    const k2 = await pk.evaluate(() => {
+      const dimOf = (e) => e.b === 'Rectangle(1280x720)' || e.a === 'Rectangle(1280x720)'
+      const now = window.itd.overlaps()
+      const hud = window.__itd.scene.getScene('hud')
+      const dims = hud.children.list.filter((o) => o.getData?.('dim') === true)
+      dims.forEach((o) => o.setData('dim', false))
+      const unmarked = window.itd.overlaps()
+      dims.forEach((o) => o.setData('dim', true))
+      const back = window.itd.overlaps()
+      return {
+        title: window.itd.screen().meta.title, dims: dims.length,
+        dim: now.filter(dimOf).length, all: now.length, unmarked: unmarked.filter(dimOf).length, back: back.filter(dimOf).length,
+      }
+    })
+    check(
+      'K2: «ТУПИК» — overlaps() без записей от затемнения (метка dim); без метки их было бы > 0, вернули — 0',
+      k2.title === 'ТУПИК' && k2.dims === 1 && k2.dim === 0 && k2.unmarked > 0 && k2.back === 0,
+      JSON.stringify(k2),
+    )
+    await pk.evaluate(() => window.itd.sandbox.restore?.())
+    await pk.close()
 
     // ── Z1/Z2 (ITGAME-61): сохранённый 2× из старой версии — отдельная вкладка, окно как у владельца
     const pz = await browser.newPage()

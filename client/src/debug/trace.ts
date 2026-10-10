@@ -10,6 +10,37 @@ import { onUi } from '../uibus'
 // вызовами. Реальный путь игрока без поллинга: клавиши (DOM и itd.key()),
 // команды на сервер и не-state ответы, переходы фазы/скорости/дня/сцен,
 // тосты и звуки — всё с меткой t (мс от старта, performance.now()).
+//
+// ITGAME-88: указатель (mousedown/mouseup — то, что слушает Phaser) с мировыми
+// координатами и целью по настоящему хит-тесту Phaser (тот же, что itd.stack/hit),
+// плюс got — кому Phaser реально раздал gameobjectdown/up. И открытое окно:
+// itd.trace.start() → … настоящий клик другим вызовом инструмента … →
+// itd.trace.stop(): фиксированное окно гонялось с кликом, пришедшим позже.
+
+// Кто под указателем по хит-тесту Phaser (agentApi: stackAt) — без импорта
+// agentApi (он импортирует этот модуль): функцию передаёт фасад.
+export interface TraceTarget {
+  scene: string
+  type: string
+  id: string | null
+  safe: string | null
+  depth: number
+  title: string | null
+}
+
+export type PointerProbe = (ev: MouseEvent) => { x: number; y: number; wins: TraceTarget | null; stack: string[] }
+
+export interface TracePointer {
+  t: number
+  type: 'down' | 'up' // mousedown / mouseup (Phaser слушает именно их)
+  button: number // 0 — левая, 2 — правая (увольнение в офисе)
+  x: number // мировые 1280×720 — как nodes().cx/cy и itd.stack(gx, gy)
+  y: number
+  onCanvas: boolean // событие пришло в канвас; false — мимо холста (#topbar, поля страницы)
+  wins: TraceTarget | null // кто получит событие по хит-тесту Phaser в момент события (как itd.stack().wins); null — ни одна hitArea не накрывает точку
+  stack: string[] // все interactive под точкой сверху вниз, как itd.stack().stack
+  got: string[] // кому Phaser реально раздал gameobjectdown/up в этом событии: safe id или тип без id; [] — до объектов не дошло
+}
 
 export interface TraceResult {
   ok: boolean
@@ -32,6 +63,31 @@ export interface TraceResult {
   transitions: { t: number; kind: 'phase' | 'speed' | 'day' | 'scenes'; from: string | number | null; to: string | number | null }[]
   toasts: { t: number; text: string; where: 'top' | 'bottom'; ms: number; scene: string }[]
   sounds: { t: number; name: string; key: string; volume: number; ok: boolean; scene: string }[]
+  /**
+   * ITGAME-88: настоящие нажатия указателя в окне (mousedown/mouseup): мировые x/y,
+   * wins/stack — хит-тест Phaser в момент события, got — кому Phaser раздал
+   * gameobjectdown/up. itd.click() сюда не попадает: он мимо input-слоя.
+   * Пусто при «команда не ушла» — клик до страницы не дошёл; есть запись с
+   * got [] — дошёл до хит-теста, цели нет; got с целью — обработчик сам решил не слать.
+   */
+  pointer: TracePointer[]
+  id?: number // ITGAME-88: открытое окно itd.trace.start() — его id
+  cut?: boolean // ITGAME-88: открытое окно закрылось само по maxMs раньше stop()
+}
+
+// itd.trace.start() (ITGAME-88): открытое окно.
+export interface TraceStartOptions {
+  maxMs?: number // окно закроется само через столько мс, если stop() не позвали: 1..600000, по умолчанию 120000
+}
+
+export interface TraceStart {
+  ok: boolean
+  id?: number // ключ для itd.trace.stop(id)
+  t0?: number // epoch ms постановки подписок
+  maxMs?: number
+  open?: number[] // id открытых сейчас окон (с этим)
+  code?: 'bad_max' | 'too_many'
+  error?: string
 }
 
 // Раскладка клавиш → имя (как в событиях Phaser `keydown-<NAME>`): последний
@@ -87,11 +143,14 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-export async function runTrace(game: Phaser.Game, action: () => unknown, windowMs: number): Promise<TraceResult> {
-  if (!Number.isFinite(windowMs) || windowMs < 0 || windowMs > 10000) {
-    throw new Error('itd.trace: windowMs — конечное число 0..10000')
-  }
+interface OpenTrace {
+  r: TraceResult
+  rel: () => number
+  close: () => void
+}
 
+// Подписки окна: ставятся сразу, снимаются close() (один раз).
+function openTrace(game: Phaser.Game, probe: PointerProbe, windowMs: number): OpenTrace {
   const t0 = Date.now()
   const startPerf = performance.now()
   const rel = () => performance.now() - startPerf
@@ -109,6 +168,7 @@ export async function runTrace(game: Phaser.Game, action: () => unknown, windowM
     transitions: [],
     toasts: [],
     sounds: [],
+    pointer: [],
   }
 
   const offs: (() => void)[] = []
@@ -192,6 +252,70 @@ export async function runTrace(game: Phaser.Game, action: () => unknown, windowM
   })
   offs.push(untapUi)
 
+  // ── pointer (ITGAME-88): mousedown/mouseup в capture окна — раньше Phaser ──
+  // (его слушатель на канвасе, обработка синхронная): хит-тест в тот же момент,
+  // что у Phaser. got — gameobjectdown/up input-плагинов сцен в этом же событии.
+  const onMouse = (ev: MouseEvent) => {
+    let hit: ReturnType<PointerProbe> = { x: 0, y: 0, wins: null, stack: [] }
+    try {
+      hit = probe(ev)
+    } catch (e) {
+      console.error('[trace] pointer probe упал:', e)
+    }
+    r.pointer.push({
+      t: rel(), type: ev.type === 'mousedown' ? 'down' : 'up', button: ev.button,
+      x: Math.round(hit.x * 10) / 10, y: Math.round(hit.y * 10) / 10,
+      onCanvas: ev.target === game.canvas, wins: hit.wins, stack: hit.stack, got: [],
+    })
+  }
+  window.addEventListener('mousedown', onMouse, true)
+  window.addEventListener('mouseup', onMouse, true)
+  offs.push(() => {
+    window.removeEventListener('mousedown', onMouse, true)
+    window.removeEventListener('mouseup', onMouse, true)
+  })
+  const gotFor = (type: 'down' | 'up') => (_p: unknown, obj: Phaser.GameObjects.GameObject) => {
+    const last = r.pointer[r.pointer.length - 1]
+    if (!last || last.type !== type) return
+    const id = obj.getData?.('id')
+    last.got.push(typeof id === 'string' ? id.replace(/\./g, ':') : obj.type)
+  }
+  const onDown = gotFor('down')
+  const onUp = gotFor('up')
+  for (const scene of game.scene.scenes) {
+    const input = (scene as Phaser.Scene & { input?: Phaser.Input.InputPlugin }).input
+    if (!input) continue
+    input.on(Phaser.Input.Events.GAMEOBJECT_DOWN, onDown)
+    input.on(Phaser.Input.Events.GAMEOBJECT_UP, onUp)
+    offs.push(() => {
+      input.off(Phaser.Input.Events.GAMEOBJECT_DOWN, onDown)
+      input.off(Phaser.Input.Events.GAMEOBJECT_UP, onUp)
+    })
+  }
+
+  let closed = false
+  return {
+    r,
+    rel,
+    close: () => {
+      if (closed) return
+      closed = true
+      try {
+        stepOnce(game) // диф сцен на самой границе окна
+      } finally {
+        offs.forEach((f) => f())
+        r.t1 = Date.now()
+      }
+    },
+  }
+}
+
+export async function runTrace(game: Phaser.Game, probe: PointerProbe, action: () => unknown, windowMs: number): Promise<TraceResult> {
+  if (!Number.isFinite(windowMs) || windowMs < 0 || windowMs > 10000) {
+    throw new Error('itd.trace: windowMs — конечное число 0..10000')
+  }
+  const tr = openTrace(game, probe, windowMs)
+  const r = tr.r
   try {
     try {
       r.result = await action()
@@ -201,12 +325,58 @@ export async function runTrace(game: Phaser.Game, action: () => unknown, windowM
       r.ok = false
       r.error = e instanceof Error ? e.message : String(e)
     }
-    r.actionMs = rel()
+    r.actionMs = tr.rel()
     await sleep(windowMs)
-    stepOnce(game) // диф сцен на самой границе окна
   } finally {
-    offs.forEach((f) => f())
+    tr.close()
   }
-  r.t1 = Date.now()
   return r
+}
+
+// ── Открытое окно (ITGAME-88) ─────────────────────────────────────────────
+// start() ставит подписки и отдаёт id; stop(id?) закрывает и отдаёт TraceResult.
+// Окно, забытое без stop(), закрывается само по maxMs (cut: true) и ждёт
+// stop() с готовым результатом. Окон одновременно — не больше TRACE_MAX_OPEN.
+
+const TRACE_MAX_OPEN = 8
+const TRACE_DEFAULT_MAX_MS = 120_000
+let traceSeq = 0
+const openTraces = new Map<number, { tr: OpenTrace; timer: ReturnType<typeof setTimeout> | null }>()
+
+export function startTrace(game: Phaser.Game, probe: PointerProbe, opts: TraceStartOptions = {}): TraceStart {
+  const maxMs = opts?.maxMs ?? TRACE_DEFAULT_MAX_MS
+  if (!Number.isInteger(maxMs) || maxMs < 1 || maxMs > 600_000) {
+    return { ok: false, code: 'bad_max', error: 'itd.trace.start: maxMs — целое 1..600000 мс' }
+  }
+  if (openTraces.size >= TRACE_MAX_OPEN) {
+    return { ok: false, code: 'too_many', error: `itd.trace.start: открыто уже ${openTraces.size} окон — закройте itd.trace.stop()`, open: [...openTraces.keys()] }
+  }
+  const id = ++traceSeq
+  const tr = openTrace(game, probe, 0)
+  tr.r.id = id
+  const entry: { tr: OpenTrace; timer: ReturnType<typeof setTimeout> | null } = { tr, timer: null }
+  entry.timer = setTimeout(() => {
+    entry.timer = null
+    tr.r.cut = true
+    finishOpen(tr)
+  }, maxMs)
+  openTraces.set(id, entry)
+  return { ok: true, id, t0: tr.r.t0, maxMs, open: [...openTraces.keys()] }
+}
+
+function finishOpen(tr: OpenTrace): void {
+  tr.close()
+  tr.r.windowMs = tr.r.t1 - tr.r.t0
+}
+
+export function stopTrace(id?: number): TraceResult | { ok: false; code: 'no_trace'; error: string } {
+  const key = id ?? [...openTraces.keys()].pop()
+  const entry = key === undefined ? undefined : openTraces.get(key)
+  if (key === undefined || !entry) {
+    return { ok: false, code: 'no_trace', error: id === undefined ? 'нет открытого окна — сначала itd.trace.start()' : `нет окна ${id}: открыты [${[...openTraces.keys()].join(' ')}]` }
+  }
+  openTraces.delete(key)
+  if (entry.timer) clearTimeout(entry.timer)
+  finishOpen(entry.tr)
+  return entry.tr.r
 }

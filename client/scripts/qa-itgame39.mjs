@@ -12,6 +12,11 @@
 //   A8  hash стабилен между двумя вызовами contract() в одной сессии
 //   A9  types.SocketStatus — enum [closed, open, reconnecting]; itd.server().socket ∈ values
 //   A10 types.TransportErrorCode.values === [disconnected, not_connected, receipt_timeout]
+//   A11 (ITGAME-87/88/91) новые поля в контракте: TraceApi — call (action, windowMs) + start/stop,
+//       methods.trace — prop с примерами; TraceResult.pointer, TracePointer; AgentNode.fill;
+//       StaleInfo.shown; AgentOffline.seq/awayId; AwayResult.awayId; JournalRecord.conn/src;
+//       JournalView.lines расшифровывает end (evicted/read_timeout/debug_drop/disconnect);
+//       SandboxApi тоже с call; itd.trace.start/stop — функции
 //   + на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
@@ -87,9 +92,10 @@ async function run() {
         itdKeys: Object.keys(window.itd),
         itdVersion: window.itd.version,
         socketNow: window.itd.server().socket,
+        itdTraceFns: [typeof window.itd.trace, typeof window.itd.trace.start, typeof window.itd.trace.stop].join(),
       }
     })
-    const { c1: contract, c2Hash, c3StateDoc, itdKeys, itdVersion, socketNow } = data
+    const { c1: contract, c2Hash, c3StateDoc, itdKeys, itdVersion, socketNow, itdTraceFns } = data
 
     // ── A1: schema
     check('A1: schema === 1', contract.schema === 1, `schema=${contract.schema}`)
@@ -163,6 +169,33 @@ async function run() {
       'A10: types.TransportErrorCode.values === [disconnected, not_connected, receipt_timeout]',
       JSON.stringify(tec?.values) === JSON.stringify(['disconnected', 'not_connected', 'receipt_timeout']),
       JSON.stringify(tec),
+    )
+
+    // ── A11: поля волны 10.10-b
+    const T = contract.types
+    const has = (t, f) => !!T[t]?.fields?.[f]
+    const linesDoc = T.JournalView?.fields?.lines?.doc ?? ''
+    const a11 = {
+      traceCall: T.TraceApi?.call,
+      traceFields: Object.keys(T.TraceApi?.fields ?? {}),
+      traceMember: contract.methods.trace && { kind: contract.methods.trace.kind, type: contract.methods.trace.type, ex: contract.methods.trace.examples },
+      sandboxCall: T.SandboxApi?.call,
+      fields: {
+        pointer: has('TraceResult', 'pointer'), wins: has('TracePointer', 'wins'), got: has('TracePointer', 'got'),
+        fill: has('AgentNode', 'fill'), shown: has('StaleInfo', 'shown'), seq: has('AgentOffline', 'seq'),
+        offAway: has('AgentOffline', 'awayId'), awayId: has('AwayResult', 'awayId'), conn: has('JournalRecord', 'conn'), src: has('JournalRecord', 'src'),
+      },
+      endDoc: ['evicted', 'read_timeout', 'debug_drop', 'disconnect'].every((w) => linesDoc.includes(w)),
+      fns: itdTraceFns,
+    }
+    check(
+      'A11: контракт волны 10.10-b — TraceApi call+start/stop, pointer/fill/shown/seq/awayId/conn/src, end расшифрован',
+      JSON.stringify(a11.traceCall) === JSON.stringify(['(action: () => unknown, windowMs?: number) => Promise<TraceResult>']) &&
+        a11.traceFields.includes('start') && a11.traceFields.includes('stop') &&
+        a11.traceMember?.kind === 'prop' && a11.traceMember.type === 'TraceApi' && (a11.traceMember.ex ?? []).length >= 2 &&
+        Array.isArray(a11.sandboxCall) && a11.sandboxCall.length === 1 &&
+        Object.values(a11.fields).every(Boolean) && a11.endDoc && a11.fns === 'function,function,function',
+      JSON.stringify(a11),
     )
 
     // ── нет ошибок на странице за весь прогон

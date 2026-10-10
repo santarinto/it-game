@@ -122,6 +122,8 @@ for (const m of apiDecl.members) {
       type: str(checker.getTypeAtLocation(m), m),
       readonly: !!m.modifiers?.some((x) => x.kind === ts.SyntaxKind.ReadonlyKeyword),
       doc: d,
+      // ITGAME-88: у свойства-функции (trace, sandbox) примеры тоже есть
+      ...(examplesOf(sym).length ? { examples: examplesOf(sym) } : {}),
     }
   }
 }
@@ -154,10 +156,14 @@ while (queue.length) {
       }
     }
     const idx = checker.getIndexInfosOfType(t)
+    // ITGAME-88: сигнатуры вызова — функция с методами (itd.trace(…) + start/stop,
+    // itd.sandbox(…) + restore/fakeOwner): без них контракт терял сам вызов.
+    const calls = checker.getSignaturesOfType(t, ts.SignatureKind.Call)
     typesUnsorted[d.name.text] = {
       kind: 'object',
       fields,
       ...(idx.length ? { index: idx.map((i) => `[k: ${str(i.keyType)}]: ${str(i.type)}`) } : {}),
+      ...(calls.length ? { call: calls.map((sig) => stripImports(checker.signatureToString(sig, d, F))) } : {}),
     }
   } else {
     typesUnsorted[d.name.text] = { kind: 'alias', type: str(t, d, F_ALIAS) }

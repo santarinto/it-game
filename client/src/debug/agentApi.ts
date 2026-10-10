@@ -21,9 +21,9 @@ import { findLowContrast, findOffscreen, findOverlaps, findTiny } from './lint'
 import type { ContrastEntry, OffscreenEntry, OverlapEntry, OverlapOptions, TinyEntry } from './lint'
 import { startTelemetry } from './telemetry'
 import type { ErrorEntry, LogEntry } from './telemetry'
-import { notifyItdKey, runTrace } from './trace'
-import type { TraceResult } from './trace'
-export type { TraceResult }
+import { notifyItdKey, runTrace, startTrace, stopTrace } from './trace'
+import type { PointerProbe, TracePointer, TraceResult, TraceStart, TraceStartOptions, TraceTarget } from './trace'
+export type { TracePointer, TraceResult, TraceStart, TraceStartOptions, TraceTarget }
 import {
   ACHIEVEMENTS,
   getAchievementsSummary,
@@ -68,6 +68,16 @@ export function markDisabled<T extends Phaser.GameObjects.GameObject>(obj: T, on
 export function markTitle<T extends Phaser.GameObjects.GameObject>(obj: T, title: string): T {
   obj.setData('title', title)
   return obj
+}
+
+// ITGAME-87: затемнение модалки во весь холст (отчёт дня, финал, «Пока вас не
+// было», showModal, окна меню, обрыв связи) — markTitle + data-ключ 'dim'. Единое
+// правило линтера: затемнение — не перекрывающий в itd.overlaps() (раньше решала
+// альфа: 0.9 у финала проходила порог, 0.75 у отчёта — нет); что оно закрывает
+// от клика — забота itd.hit()/stack(). Новое затемнение — через markDim.
+export function markDim<T extends Phaser.GameObjects.GameObject>(obj: T, title: string): T {
+  obj.setData('dim', true)
+  return markTitle(obj, title)
 }
 
 // ITGAME-58: pointerdown-обработчик, чей guard проглотил клик (дребезг
@@ -453,7 +463,8 @@ export interface AgentState {
   connected: boolean
   // ITGAME-30: меню создано и активно — предикат готовности ДО старта
   // партии (state() там весь null). ITGAME-19: и сводка сейва устоялась. wait(s => s.menuReady) вместо слепого
-  // setTimeout; в скрытой вкладке wait() сам прогревает кадр.
+  // setTimeout; в скрытой вкладке wait() сам прогревает кадр. ITGAME-88: и перезапуск меню не в
+  // очереди — после true раскладка меню (cx/cy плашек) больше не сдвигается.
   menuReady: boolean
   balance: number | null
   day: number | null
@@ -524,7 +535,7 @@ export interface AgentNode {
   // id без точек (точка → «:»), обратимо: строка вида a.b.c режется инструментом
   // браузерного агента как JWT. click/hover/hit принимают и такой id.
   safe: string | null
-  visible: boolean
+  visible: boolean // видим в мире (ITGAME-87): сам и все его контейнеры visible; скрытый контейнер — false у всех детей
   alpha: number
   interactive: boolean
   depth: number
@@ -534,6 +545,7 @@ export interface AgentNode {
   // ITGAME-72: кнопка неактивна (markDisabled: нет денег/мест/ПК) — true/false у
   // кнопок покупки и найма HUD, null у прочих.
   disabled: boolean | null
+  fill: string | null // ITGAME-88: заливка фигуры '#rrggbb' (Rectangle, Triangle, Arc/Circle, Ellipse, Polygon — Shape с isFilled); null — не фигура или без заливки (Text, Image, Container; Graphics — цвет в буфере команд, не отдаём)
 }
 
 // hit()/blocker() (приёмка 10.10): кто примет настоящий клик. hit() — настоящий
@@ -626,6 +638,8 @@ export interface ZonesResult {
 export interface AgentOffline extends OfflineCatchUp {
   open: boolean // окно «Пока вас не было» открыто сейчас
   paused: boolean // скорость партии сейчас 0
+  seq: number // ITGAME-87: номер догона на этой странице (1, 2, … по приходу offline_report); сверять догоны — по нему, не по at
+  awayId: number | null // ITGAME-87: itd.away, во время которого догон пришёл (= его awayId); null — не в away (F5, реконнект, «Продолжить»)
 }
 
 // itd.away (ITGAME-76): режим и таймаут чтения для net.
@@ -636,7 +650,8 @@ export interface AwayOptions {
 
 // Итог itd.away: возврат в ту же партию + itd.offline() после него.
 export interface AwayResult extends AwayReturn {
-  offline: AgentOffline | null // itd.offline() после возврата; null — догона не было (сервер не заметил уход до возврата или партия на паузе)
+  awayId: number // ITGAME-87: номер этого ухода на странице (1, 2, …); догон этого ухода — offline.awayId === awayId
+  offline: AgentOffline | null // догон ЭТОГО ухода (offline.awayId === awayId) или null — догона не было (сервер не заметил уход до возврата или партия на паузе); itd.offline() тогда отдаёт прежний догон со своим awayId/seq
 }
 
 export interface AgentResult {
@@ -656,6 +671,17 @@ export interface CmdReceipt {
   error?: string
   id?: number // ITGAME-45: id команды на проводе (= sent[].id в itd.trace(), info.id в itd.net())
   rev?: number // ITGAME-45: rev снапшота-ответа; у серверного отказа — текущий rev (не меняется)
+}
+
+// itd.trace (ITGAME-37/88) — функция с двумя методами, как itd.sandbox:
+// itd.trace(action, windowMs) — окно вокруг действия; itd.trace.start() /
+// itd.trace.stop() — открытое окно на сколько угодно вызовов инструмента.
+export interface TraceApi {
+  (action: () => unknown, windowMs?: number): Promise<TraceResult>
+  /** Открыть окно: подписки сразу, до stop(id?) или maxMs (1..600000, по умолчанию 120000) → {ok, id, t0, maxMs, open}; коды bad_max, too_many (больше 8 окон). */
+  start: (opts?: TraceStartOptions) => TraceStart
+  /** Закрыть окно id (без id — последнее открытое) → TraceResult того же вида, что у itd.trace(), с id, windowMs = длина окна, cut — закрылось само по maxMs; нет окна — {ok:false, code:'no_trace'}. */
+  stop: (id?: number) => TraceResult | (AgentResult & { code: 'no_trace' })
 }
 
 // ── Контракт API (ITGAME-39): формат itd.contract() ─────────────────────────
@@ -682,12 +708,12 @@ export interface FieldSpec {
 // readonly-свойство (itd.version).
 export type MemberSpec =
   | { kind: 'method'; params: ParamSpec[]; returns: string; doc: string; examples: string[] }
-  | { kind: 'prop'; type: string; readonly: boolean; doc: string }
+  | { kind: 'prop'; type: string; readonly: boolean; doc: string; examples?: string[] }
 
 // Именованный тип из замыкания членов ItdApi: объект с полями, enum строковых
 // литералов (ServerErrorCode, CommandType, …) или произвольный алиас.
 export type TypeSpec =
-  | { kind: 'object'; fields: Record<string, FieldSpec>; index?: string[] }
+  | { kind: 'object'; fields: Record<string, FieldSpec>; index?: string[]; call?: string[] } // call — сигнатуры вызова (itd.trace(…), itd.sandbox(…)), ITGAME-88
   | { kind: 'enum'; values: string[] }
   | { kind: 'alias'; type: string }
 
@@ -709,8 +735,12 @@ export interface ItdApi {
   readonly version: { sha: string; builtAt: string }
   /**
    * Баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий
-   * (null до первого снапшота); menuReady — меню создано, активно и сводка сейва устоялась.
+   * (null до первого снапшота); menuReady — меню создано, активно, его перезапуск
+   * не в очереди (itd.sandbox()/restore() перезапускают меню) и сводка сейва
+   * устоялась: после true плашки меню больше не сдвигаются (ITGAME-88), cx/cy можно
+   * брать для настоящего клика. Анимации въезда у меню нет.
    * @example itd.state()
+   * @example await itd.wait(s => s.menuReady)
    */
   state(): AgentState
   /**
@@ -724,10 +754,13 @@ export interface ItdApi {
   server(): AgentServer
   /**
    * Все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy,
-   * visible, alpha, interactive, depth, active, disabled}. x/y — позиция по origin,
-   * cx/cy — центр bounds (точка для настоящего клика); disabled — кнопка
-   * покупки/найма неактивна (ITGAME-72), null у прочих.
+   * visible, alpha, interactive, depth, active, disabled, fill}. x/y — позиция по origin,
+   * cx/cy — центр bounds (точка для настоящего клика); visible — видим в мире:
+   * скрытый контейнер даёт false всем детям (ITGAME-87); disabled — кнопка
+   * покупки/найма неактивна (ITGAME-72), null у прочих; fill — заливка фигуры
+   * '#rrggbb' (Rectangle/Triangle/Arc/Ellipse/Polygon), null у прочих (ITGAME-88).
    * @example itd.nodes()
+   * @example itd.nodes().find(n => n.type === 'Triangle' && n.scene === 'menu').fill
    */
   nodes(): AgentNode[]
   /**
@@ -772,10 +805,18 @@ export interface ItdApi {
    * окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь
    * игрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().
    * ITGAME-45: sent — с id команды, states — снапшоты окна {rev, cause, re?}:
-   * ответ на команду — state с re = её id.
+   * ответ на команду — state с re = её id. ITGAME-88: pointer — настоящие
+   * mousedown/mouseup в окне: {type: down|up, button, x, y (мировые 1280×720),
+   * onCanvas, wins/stack — хит-тест Phaser в момент события (как itd.stack),
+   * got — кому Phaser раздал gameobjectdown/up}; itd.click() сюда не попадает
+   * (мимо input-слоя). Открытое окно для клика другим вызовом инструмента:
+   * itd.trace.start() → {id} … клик … itd.trace.stop(id?) → тот же TraceResult
+   * (windowMs — длина окна; само закроется через maxMs, по умолчанию 120 с, cut: true).
    * @example itd.trace(() => itd.click('btn.pc'), 1000)
+   * @example itd.trace.start()
+   * @example itd.trace.stop().pointer
    */
-  trace(action: () => unknown, windowMs?: number): Promise<TraceResult>
+  readonly trace: TraceApi
   /**
    * Прогреть кадр вручную (сколько шагов лупа сделали); в скрытой вкладке
    * itd делает это сам.
@@ -797,7 +838,10 @@ export interface ItdApi {
    * 0..1 заменяет пороги по умолчанию для всех kind (text и interactive — 0,
    * occlusion — 0.25 и >50% по каждой оси: заданный minAreaRatio снимает и
    * правило по осям, находок может стать больше, чем без него); 0 — строгий
-   * режим, вне 0..1 — RangeError.
+   * режим, вне 0..1 — RangeError. Затемнение модалки (отчёт дня, финал «ТУПИК»/
+   * «ПОБЕДА!», «Пока вас не было», showModal, окна меню, обрыв связи — markDim)
+   * — не перекрывающий при любой альфе (ITGAME-87; раньше финал 0.9 давал ~22
+   * occlusion, отчёт 0.75 — 0): что оно закрывает от клика — itd.hit()/stack().
    * @example itd.overlaps()
    * @example itd.overlaps({ minAreaRatio: 0 })
    */
@@ -847,8 +891,11 @@ export interface ItdApi {
    * отдаст при перезагрузке (meta build его index.html), server — sha бинаря
    * (GET /api/version). stale: client ≠ dist (без dist — ≠ server); null —
    * сверить не с чем (vite dev, сборка без git). Та же проверка красит метку
-   * «устарело, обнови» в #topbar.
+   * «устарело, обнови» в #topbar; shown — видна ли метка на экране после неё
+   * (ITGAME-88: скрытая метка остаётся в DOM — display:none, 0×0, — по DOM её
+   * не судить); false и там, где #topbar нет (без ?debug=1 / itd.admin).
    * @example await itd.stale()
+   * @example (await itd.stale()).shown
    */
   stale(): Promise<StaleInfo>
   /**
@@ -876,7 +923,7 @@ export interface ItdApi {
    * stack — все interactive под точкой сверху вниз ('safe scene dN Type WxH';
    * '!' — сцена ниже забравшей клик), wins — кто получит pointerdown.
    * hit() и флаг X в screen() — тот же хит-тест, только верх в центре объекта.
-   * @example itd.stack('office:repair:0')
+   * @example itd.stack('office:slot:0')
    * @example itd.stack(260, 190).wins
    */
   stack(safeOrX: string | number, gy?: number): StackResult
@@ -885,18 +932,23 @@ export interface ItdApi {
    * A и B тем же хит-тестом, что stack(); aUnderB — прямоугольники, где точка в
    * hitArea A, а клик забирает B (bUnderA — наоборот), area — площади в px².
    * Пустой aUnderB — A везде получает свой клик сам (от B).
-   * @example itd.zones('office:repair:0', 'office:worker:0')
+   * @example itd.zones('office:slot:0', 'office:master:0')
    */
   zones(safeA: string, safeB: string): ZonesResult
   /**
    * Последний офлайн-догон этой страницы: {ticks, days, shown, at, droppedAt,
-   * leftAt, liveTicks, open, paused} или null. droppedAt — последний сейв
+   * leftAt, liveTicks, open, paused, seq, awayId} или null. Это ПОСЛЕДНИЙ догон
+   * страницы, не «текущий»: после ухода без догона он остаётся прежним — сверять
+   * по ключу (ITGAME-87): seq — номер догона на странице (1, 2, …), awayId —
+   * itd.away, во время которого он пришёл (null — F5, реконнект, «Продолжить»).
+   * droppedAt — последний сейв
    * (сервер заметил обрыв), leftAt — уход со страницы этой вкладки, liveTicks —
    * сколько тиков партия шла вживую между ними. shown:false — догон внутри дня, окно «Пока вас не было» игроку не
    * показано; open — окно открыто сейчас; paused — скорость сейчас 0 (пока окно
    * открыто, партия стоит).
    * Догона нет и при ticks 0 (сейв на паузе или в отчёте дня) — тогда null.
    * @example itd.offline()
+   * @example const r = await itd.away(3); itd.offline()?.awayId === r.awayId // false — у этого ухода догона не было
    */
   offline(): AgentOffline | null
   /**
@@ -911,10 +963,11 @@ export interface ItdApi {
    * соединения, мс), а партия до этого идёт вживую — offline.liveTicks.
    * Всё время ухода вкладка глуха и нема: команды — not_connected, сокет —
    * reconnecting, сама не реконнектится. Ответ {ok, mode, sid, leftAt, back,
-   * resumed, rev, drop, offline}: back — первый снапшот нового сокета (cause
-   * resume), drop — ответ ручки {at, timeoutMs, noticeBy}, offline —
-   * itd.offline() после возврата (droppedAt — когда сервер заметил уход) или
-   * null. Коды: bad_sec, bad_mode, already_away, not_connected, finished,
+   * resumed, rev, drop, awayId, offline}: back — первый снапшот нового сокета (cause
+   * resume), drop — ответ ручки {at, timeoutMs, noticeBy}, awayId — номер этого
+   * ухода на странице (ITGAME-87), offline — догон ЭТОГО ухода (offline.awayId ===
+   * awayId; droppedAt — когда сервер заметил уход) или null; itd.offline() после
+   * ухода без догона отдаёт прежний догон с другим awayId. Коды: bad_sec, bad_mode, already_away, not_connected, finished,
    * drop_failed, interrupted (вкладка ушла в меню/новую партию), no_return,
    * not_resumed.
    * @example await itd.away(5)
@@ -1176,7 +1229,13 @@ function buildState(game: Phaser.Game): AgentState {
   // спросил бы подтверждение затирания сейва, которого на сервере нет.
   // До старта партии это единственный честный «я на экране» для агента.
   const menu = game.scene.getScene('menu') as MenuScene | null
-  const menuReady = game.scene.isActive('menu') && (menu?.saveSettled ?? true)
+  // ITGAME-88: перезапуск меню в очереди SceneManager (itd.sandbox()/restore(),
+  // scene.restart() — исполнится на следующем шаге лупа) — старое меню ещё
+  // активно и со старой сводкой, но через кадр перестроится: плашки съезжали на
+  // 42 px (карточка «Продолжить» появлялась на «загружаю сводку…» и пропадала)
+  // уже после menuReady. Пока в очереди есть операция над меню — не готово.
+  const queue = (game.scene as unknown as { _queue?: { keyA?: string }[] })._queue ?? []
+  const menuReady = game.scene.isActive('menu') && !queue.some((op) => op.keyA === 'menu') && (menu?.saveSettled ?? true)
   const s = client.latest
   if (!s) {
     return {
@@ -1250,8 +1309,10 @@ function buildServer(): AgentServer {
 }
 
 // Обход объектов сцены с рекурсией по контейнерам. Свойства достаём
-// защитно: не каждый GameObject имеет x/alpha/bounds.
-function walkObjects(sceneKey: string, objects: Phaser.GameObjects.GameObject[], out: AgentNode[]): void {
+// защитно: не каждый GameObject имеет x/alpha/bounds. ITGAME-87: visible — видимость
+// в мире: скрытый контейнер прячет детей, даже если у ребёнка visible === true
+// (текст тултипа офиса после ухода курсора отдавался visible: true).
+function walkObjects(sceneKey: string, objects: Phaser.GameObjects.GameObject[], out: AgentNode[], parentVisible = true): void {
   for (const obj of objects) {
     const o = obj as unknown as {
       type?: string
@@ -1267,6 +1328,8 @@ function walkObjects(sceneKey: string, objects: Phaser.GameObjects.GameObject[],
       width?: number
       height?: number
       list?: Phaser.GameObjects.GameObject[]
+      isFilled?: boolean
+      fillColor?: number
     }
     let w = 0
     let h = 0
@@ -1298,14 +1361,15 @@ function walkObjects(sceneKey: string, objects: Phaser.GameObjects.GameObject[],
       cx: Math.round(cx * 10) / 10,
       cy: Math.round(cy * 10) / 10,
       safe: safeId(typeof o.getData?.('id') === 'string' ? (o.getData('id') as string) : null),
-      visible: o.visible !== false,
+      visible: parentVisible && o.visible !== false,
       alpha: typeof o.alpha === 'number' ? o.alpha : 1,
       interactive: o.input?.enabled === true,
       depth: typeof o.depth === 'number' ? o.depth : 0,
       active: typeof act === 'boolean' ? act : null,
       disabled: typeof dis === 'boolean' ? dis : null,
+      fill: o.isFilled === true && typeof o.fillColor === 'number' ? '#' + o.fillColor.toString(16).padStart(6, '0') : null,
     })
-    if (o.list) walkObjects(sceneKey, o.list, out)
+    if (o.list) walkObjects(sceneKey, o.list, out, parentVisible && o.visible !== false)
   }
 }
 
@@ -1554,6 +1618,28 @@ function stackAt(game: Phaser.Game, gx: number, gy: number): { stack: string[]; 
   return { stack, wins: first && first.captured ? stackTarget(first) : null, hits }
 }
 
+// ITGAME-88: указатель трассировки → мировая точка и хит-тест. Тот же путь, что у
+// Phaser: ScaleManager.transformX/Y (координаты холста) → getWorldPoint главной
+// камеры верхней активной сцены (у всех сцен одна HIRES_CAMERA) → stackAt.
+function pointerProbe(game: Phaser.Game): PointerProbe {
+  return (ev) => {
+    const cam = game.scene.getScenes(false, true).find((sc) => sc.sys.isActive() && sc.cameras?.main)?.cameras.main
+    const px = game.scale.transformX(ev.pageX)
+    const py = game.scale.transformY(ev.pageY)
+    const w = cam ? cam.getWorldPoint(px, py) : { x: px, y: py }
+    const { stack, wins } = stackAt(game, w.x, w.y)
+    return { x: w.x, y: w.y, wins, stack }
+  }
+}
+
+function makeTrace(game: Phaser.Game): TraceApi {
+  const probe = pointerProbe(game)
+  const fn = ((action: () => unknown, windowMs = 1000) => runTrace(game, probe, action, windowMs)) as TraceApi
+  fn.start = (opts) => startTrace(game, probe, opts)
+  fn.stop = (id) => stopTrace(id)
+  return fn
+}
+
 function findObjBySafe(game: Phaser.Game, rawId: string): Phaser.GameObjects.GameObject | null {
   return findById(game, rawId)?.obj ?? null
 }
@@ -1700,10 +1786,10 @@ const KEYMAP: Record<string, { code: string; keyCode: number; key: string }> = {
 const COMMANDS = new Set<string>(COMMAND_TYPES)
 
 const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/39/73)
-  itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); menuReady — меню создано, активно и сводка сейва устоялась
+  itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); menuReady — меню создано, активно, перезапуск меню не в очереди и сводка сейва устоялась: после true плашки меню не сдвигаются
   itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rev/cause последнего снапшота (tick|cmd|debug|start|resume), rtt, reconnects, sid (куда уходят команды: liveSid ?? хранилище), liveSid (живая партия или null), sidSwitches; ждать версию — itd.wait((s, srv) => srv.rev >= N)
-  itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy, visible, alpha, interactive, depth, active, disabled}; x/y — по origin объекта, cx/cy — центр bounds (точка для клика); disabled — кнопка покупки/найма неактивна
-  itd.text()                        — nodes() с непустым текстом
+  itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy, visible, alpha, interactive, depth, active, disabled, fill}; x/y — по origin объекта, cx/cy — центр bounds (точка для клика); visible — видим в мире (скрытый контейнер → false у детей); disabled — кнопка покупки/найма неактивна; fill — заливка фигуры '#rrggbb' (Rectangle/Triangle/Arc/Ellipse/Polygon), иначе null
+  itd.text()                        — nodes() с непустым текстом (текст в скрытом контейнере — visible: false: сам текст тултипа хранится и после ухода курсора)
   itd.ids()                         — стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*, modal.*) + active; safe — id с «:» вместо точек (не режется как JWT), click/hover/hit принимают и его
                                        active — состояние переключателя (btn.speed.*, nav.*, btn.skip_reports, btn.debug, menu.zoom.*), null у прочих; НЕ GameObject.active
   itd.click('btn.hire')             — клик по id: дергает pointerdown-обработчик напрямую, мимо input-слоя
@@ -1711,18 +1797,20 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.hover('office.worker.0')      — наведение по id (тултипы)
   itd.key('1'|'enter'|'space'|'esc')— клавиша: 1-4 сложность в меню, up/down — фокус меню, enter — пункт в фокусе меню / отчёт дня, space/esc — отчёт дня
   itd.cmd('hire')                   — команда с квитанцией сервера ('abandon' — путём кнопки «Сдаться»: сейв удалён, вкладка в меню): Promise<{ok, code?, id, rev}> — ответ на ЭТУ команду по id (state|error с re = id; тики и чужие команды не в счёт), rev — версия снапшота-ответа; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
-  itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, id, …}] по порядку, recv[error/day_report…] (у error info.re/rev), states[{rev, cause, re?}] — снапшоты окна, transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой)
+  itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, id, …}] по порядку, recv[error/day_report…] (у error info.re/rev), states[{rev, cause, re?}] — снапшоты окна, transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}], pointer[{type: down|up, button, x, y — мировые, onCanvas, wins/stack — хит-тест Phaser в момент события (как itd.stack), got — кому Phaser раздал gameobjectdown/up; [] — до объектов не дошло}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой); itd.click() в pointer не попадает (мимо input-слоя)
+  itd.trace.start({maxMs?})          — открытое окно (ITGAME-88): подписки сразу → {ok, id, t0, maxMs, open}; настоящий клик/клавиша — другим вызовом инструмента; само закроется через maxMs (по умолчанию 120000, до 600000; cut: true); коды bad_max, too_many (больше 8 окон)
+  itd.trace.stop(id?)               — закрыть окно (без id — последнее) → тот же TraceResult, что у itd.trace() (+ id, windowMs = длина окна); нет окна — {ok:false, code:'no_trace'}. Пример: const {id} = itd.trace.start(); …клик…; const tr = itd.trace.stop(id); tr.pointer[0].wins, tr.sent
   itd.warm()                        — прогреть кадр вручную (шаги лупа); в скрытой вкладке itd делает это сам
   itd.wait(s => s.day === 2)        — промис: поллинг state()/server() до условия (таймаут 5с, второй аргумент — свой); готовность меню — wait(s => s.menuReady), до старта партии state() null, но menuReady уже честен
-  itd.overlaps({minAreaRatio}?)     — линтер вёрстки: kind: text — тексты одного depth; occlusion — текст под непрозрачной плашкой; interactive — интерактив частично перекрыт интерактивом или текстом (вложенность целиком — не находка); пара {scene, kind, a, b, overlap{w,h}, at{x,y}, ratio, threshold}: ratio — площадь пересечения / площадь меньшего из пары (occlusion — / площадь текста), threshold — порог сравнения; minAreaRatio 0..1 заменяет пороги по умолчанию (text/interactive 0, occlusion 0.25 + >50% по каждой оси; заданный minAreaRatio заменяет и правило по осям — для occlusion находок может стать больше): 0 — строгий режим, 0.3 — порог по площади для всех kind
+  itd.overlaps({minAreaRatio}?)     — линтер вёрстки: kind: text — тексты одного depth; occlusion — текст под непрозрачной плашкой; interactive — интерактив частично перекрыт интерактивом или текстом (вложенность целиком — не находка); пара {scene, kind, a, b, overlap{w,h}, at{x,y}, ratio, threshold}: ratio — площадь пересечения / площадь меньшего из пары (occlusion — / площадь текста), threshold — порог сравнения; minAreaRatio 0..1 заменяет пороги по умолчанию (text/interactive 0, occlusion 0.25 + >50% по каждой оси; заданный minAreaRatio заменяет и правило по осям — для occlusion находок может стать больше): 0 — строгий режим, 0.3 — порог по площади для всех kind; затемнение модалки (markDim: отчёт дня, финал, «Пока вас не было», окна, обрыв связи) — не перекрывающий при любой альфе: что оно закрывает от клика — itd.hit()/stack()
   itd.offscreen()                   — линтер: вылезание за канвас 1280×720; + {scene:'page', type:'canvas'} — канвас не влез в окно (CSS px)
   itd.hit('btn.menu')               — попадёт ли НАСТОЯЩИЙ клик в центр объекта в него (хит-тест Phaser, как stack): {ok, at{x,y}, top{scene,id,safe,type,depth,title}} — top перехватит (затемнение отчёта поверх HUD); itd.click этого не видит
   itd.blocker()                     — что перекрывает ввод во весь холст (затемнение отчёта, модалка) или null: {scene, type, id, safe, depth, title — заголовок окна}
   itd.screen({frame?, free?, scene?}) — карта экрана: {meta:{sha, tab, day, clock, t, bal, speed, phase, staff, pay, hudClock, hudBal, blocker, title, stale}, n, items:['safe|подпись|x|y|флаги']}; x/y — центр в CSS px окна (frame — в рамке снимка такой ширины); флаги A выбрана, X перекрыта, D неактивна; free — только без X
-  itd.stack('office:repair:0')      — стек под центром объекта (или itd.stack(gx, gy)) по НАСТОЯЩЕМУ хит-тесту Phaser (hitArea, renderList, topOnly): {ok, at{x,y}, stack['safe scene dN Type WxH'], wins{scene,id,safe,type,depth,title}} — wins получит pointerdown; '!' — сцена под забравшей клик
-  itd.zones('office:repair:0', 'office:worker:0') — где зона A перекрыта B и наоборот (сетка 1 px, тот же хит-тест): {aUnderB[{x,y,w,h}], bUnderA[…], area{a, aUnderB, b, bUnderA}}
-  itd.offline()                     — последний офлайн-догон страницы {ticks, days, shown, at, droppedAt, leftAt, liveTicks, open, paused} — liveTicks: шло вживую, пока сервер не заметил уход: shown:false — догон внутри дня, окна «Пока вас не было» не было; пока окно открыто, партия на паузе
-  await itd.away(5, {mode, timeout}) — уход на 5 с без ухода со страницы и возврат в ту же партию (тот же sid: песочницы или владельца): mode 'close' — как закрытая вкладка (close-фрейм, сервер знает сразу), 'net' — как обрыв сети (POST /api/debug/drop: сервер молчит и замечает уход своим таймаутом чтения — ITGAME_READ_TIMEOUT, 30 с; timeout — мс для этого соединения; до того партия идёт вживую) → {ok, mode, sid, leftAt, back, resumed, rev, drop{at, timeoutMs, noticeBy}, offline — itd.offline() после возврата или null}; пока в уходе — команды not_connected, сокет reconnecting
+  itd.stack('office:slot:0')      — стек под центром объекта (или itd.stack(gx, gy)) по НАСТОЯЩЕМУ хит-тесту Phaser (hitArea, renderList, topOnly): {ok, at{x,y}, stack['safe scene dN Type WxH'], wins{scene,id,safe,type,depth,title}} — wins получит pointerdown; '!' — сцена под забравшей клик
+  itd.zones('office:slot:0', 'office:master:0') — где зона A перекрыта B и наоборот (сетка 1 px, тот же хит-тест): {aUnderB[{x,y,w,h}], bUnderA[…], area{a, aUnderB, b, bUnderA}}
+  itd.offline()                     — последний офлайн-догон страницы {ticks, days, shown, at, droppedAt, leftAt, liveTicks, open, paused, seq, awayId} — liveTicks: шло вживую, пока сервер не заметил уход: shown:false — догон внутри дня, окна «Пока вас не было» не было; пока окно открыто, партия на паузе; ПОСЛЕДНИЙ, не «текущий»: seq — номер догона на странице, awayId — itd.away, во время которого пришёл (null — F5/реконнект); сверять по ключу, не по at
+  await itd.away(5, {mode, timeout}) — уход на 5 с без ухода со страницы и возврат в ту же партию (тот же sid: песочницы или владельца): mode 'close' — как закрытая вкладка (close-фрейм, сервер знает сразу), 'net' — как обрыв сети (POST /api/debug/drop: сервер молчит и замечает уход своим таймаутом чтения — ITGAME_READ_TIMEOUT, 30 с; timeout — мс для этого соединения; до того партия идёт вживую) → {ok, mode, sid, leftAt, back, resumed, rev, drop{at, timeoutMs, noticeBy}, awayId — номер ухода, offline — догон ЭТОГО ухода (offline.awayId === awayId) или null}; пока в уходе — команды not_connected, сокет reconnecting
   itd.injectError('x')              — бросить тестовую ошибку страницы «itd.injectError: x» (проверить журнал errors() и поле load; у записи injected: true)
   itd.contrast()                    — линтер: контраст текста к фону ниже 3:1
   itd.tiny()                        — линтер: шрифт мельче 12px
@@ -1734,7 +1822,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.sandbox('acc3')               — своя партия вкладки: sid a-acc3-<время> во вкладку, ключи владельца (localStorage itd.sid/itd.diff, sessionStorage вкладки) запомнены → {ok, sid, owner:{sid, diff}}; новая партия и «Сдаться» берут новый sid песочницы, общий ключ не трогают; из меню (в партии — in_party)
   itd.sandbox.fakeOwner()           — «чужой» общий ключ itd.sid/itd.diff вызовом игры (проверить гард «Сдаться») → {sid, diff}; restore() вернёт настоящий
   itd.sandbox.restore()             — выйти из песочницы (из меню): {sidSame, diffSame, fake, restored, kept, removed} — sidSame/diffSame: общий ключ тот, что при входе (или fake); наше/стёртое значение возвращено, чужое (kept) не перетёрто
-  await itd.stale()                 — вкладка на старом JS? {client, server, dist, stale, at}: client — sha вкладки, dist — sha сборки, которую стенд отдаст на F5, server — sha бинаря (/api/version); stale null — сверить не с чем (vite dev, сборка без git); красная метка «устарело, обнови» в #topbar — та же проверка
+  await itd.stale()                 — вкладка на старом JS? {client, server, dist, stale, at, shown}: shown — метка «устарело, обнови» видна на экране (скрытая живёт в DOM как display:none 0×0); client — sha вкладки, dist — sha сборки, которую стенд отдаст на F5, server — sha бинаря (/api/version); stale null — сверить не с чем (vite dev, сборка без git); красная метка «устарело, обнови» в #topbar — та же проверка
   itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне палитры манифеста ключа (hd32/sweetie16), дубли ключей
   itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк)
   itd.reset()                       — снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум, отчёты)
@@ -1830,13 +1918,35 @@ function makeApi(game: Phaser.Game): ItdApi {
     warmIfHidden()
     return activeNodes(game)
   }
+  // ITGAME-87: ключ догона. client.lastOffline — последний догон страницы, он не
+  // сбрасывается, и после away без догона itd.offline() отдавал прошлый, а сверка
+  // по at была только в away. Каждый offline_report получает seq (счётчик
+  // страницы) и awayId (уход, во время которого пришёл): эфир видим раньше, чем
+  // net.ts кладёт lastOffline, ключ к объекту привязываем при чтении.
+  let offlineSeq = 0
+  let awaySeq = 0
+  let awayNow: number | null = null
+  let tappedKey: { seq: number; awayId: number | null } | null = null
+  const offlineKeys = new WeakMap<OfflineCatchUp, { seq: number; awayId: number | null }>()
+  client.tapWire((e) => {
+    if (e.dir === 'in' && e.type === 'offline_report') tappedKey = { seq: ++offlineSeq, awayId: awayNow }
+  })
+  const offlineKey = (last: OfflineCatchUp): { seq: number; awayId: number | null } => {
+    let k = offlineKeys.get(last)
+    if (!k) {
+      k = tappedKey ?? { seq: ++offlineSeq, awayId: null }
+      tappedKey = null
+      offlineKeys.set(last, k)
+    }
+    return k
+  }
   // itd.offline(): последний догон + окно на экране и пауза сейчас.
   const offlineNow = (): AgentOffline | null => {
     const last = client.lastOffline
     if (!last) return null
     warmIfHidden()
     const open = activeNodes(game).some((n) => n.visible && (n.id === 'btn.offline.continue' || n.id === 'btn.offline.menu'))
-    return { ...last, open, paused: (client.latest?.speed ?? 0) === 0 }
+    return { ...last, open, paused: (client.latest?.speed ?? 0) === 0, ...offlineKey(last) }
   }
 
   const api: ItdApi = {
@@ -1916,7 +2026,7 @@ function makeApi(game: Phaser.Game): ItdApi {
         .sendWithReceipt(type, office, extra)
         .then((r) => (r.ok ? r : { ...r, error: r.code }))
     },
-    trace: (action, windowMs = 1000) => runTrace(game, action, windowMs),
+    trace: makeTrace(game),
     warm: () => warmTicks(game, 10),
     wait(cond, timeoutMs = 5000) {
       return new Promise<AgentState>((resolve, reject) => {
@@ -2003,10 +2113,17 @@ function makeApi(game: Phaser.Game): ItdApi {
       if (mode !== 'close' && mode !== 'net') {
         return { ok: false, code: 'bad_mode', error: "mode — 'close' или 'net'" }
       }
-      const r = await client.away(sec * 1000, mode, { timeoutMs: opts.timeout })
-      // догон этого ухода, а не прошлого: пришёл позже leftAt
-      const off = r.ok && r.leftAt !== null && (client.lastOffline?.at ?? 0) >= r.leftAt ? offlineNow() : null
-      return { ...r, offline: off }
+      const awayId = ++awaySeq
+      awayNow = awayId
+      let r: AwayReturn
+      try {
+        r = await client.away(sec * 1000, mode, { timeoutMs: opts.timeout })
+      } finally {
+        awayNow = null
+      }
+      // догон этого ухода, а не прошлого — по ключу (ITGAME-87), не по at
+      const off = offlineNow()
+      return { ...r, awayId, offline: r.ok && off?.awayId === awayId ? off : null }
     },
     injectError(message = 'проверка журнала') {
       setTimeout(() => { throw new Error(`itd.injectError: ${message}`) }, 0)

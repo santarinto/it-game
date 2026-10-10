@@ -77,6 +77,9 @@
 //   A4   возврат: drop.timeoutMs 1500, droppedAt − drop.at ≈ 1.5 с, liveTicks ≈ 3 (вживую на 2x),
 //        ticks ≈ 5 — догон от момента, когда сервер заметил уход
 //   A5   net короче таймаута: offline null (сервер не заметил), тики шли вживую весь уход
+//   A8   (ITGAME-87) ключ догона: у away свой awayId (1, 2, 3 по порядку), offline этого ухода
+//        несёт тот же awayId и растущий seq; после away без догона (A5) itd.offline() — прежний
+//        догон: awayId A4, не A5, seq тот же
 //   A6   после уходов sid вкладки и общий ключ localStorage те же
 //   A7   в песочнице (itd.sandbox) away возвращает в её партию, ключ владельца не тронут
 //   N1   itd.away net, два настоящих клика btn.pc — один тост «Нет связи…», звук error на каждый,
@@ -1210,6 +1213,14 @@ async function run() {
       'A5: away net 1.5 с при таймауте 5 с — ok, resumed, offline null (сервер не заметил), тики шли вживую (+≥2)',
       aw3.ok === true && aw3.resumed === true && aw3.sid === awSid && aw3.offline === null && aw3t1 - aw3t0 >= 2,
       JSON.stringify({ ...aw3, t0: aw3t0, t1: aw3t1 }),
+    )
+    const aw3after = await page.evaluate(() => window.itd.offline())
+    check(
+      'A8: ключ догона — awayId по порядку, offline ухода с его awayId и растущим seq; после ухода без догона itd.offline() — прежний (awayId A4, seq тот же)',
+      typeof aw1.awayId === 'number' && aw2.awayId === aw1.awayId + 1 && aw3.awayId === aw2.awayId + 1 &&
+        aw1Off?.awayId === aw1.awayId && aw2Off?.awayId === aw2.awayId && aw1Off.seq >= 1 && aw2Off.seq > aw1Off.seq &&
+        aw3after != null && aw3after.awayId === aw2.awayId && aw3after.awayId !== aw3.awayId && aw3after.seq === aw2Off.seq,
+      JSON.stringify({ a1: [aw1.awayId, aw1Off?.awayId, aw1Off?.seq], a2: [aw2.awayId, aw2Off?.awayId, aw2Off?.seq], a3: aw3.awayId, after: aw3after && [aw3after.awayId, aw3after.seq] }),
     )
     const awOwnerAfter = await page.evaluate(() => localStorage.getItem('itd.sid'))
     check('A6: после трёх уходов sid вкладки и общий ключ те же', awOwnerAfter === awOwner && (await page.evaluate(() => window.itd.server().sid)) === awSid,

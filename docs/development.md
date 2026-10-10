@@ -474,7 +474,10 @@ mismatch a red «устарело, обнови» button (`#stale`, click reload
 `#topbar[data-stale]`) appears. Checks run on load, after a socket reconnect
 (a stand restart drops WS), on returning to the tab and once a minute while it
 is visible. `await itd.stale()` runs a fresh check and answers `{client,
-server, dist, stale, at}`; `stale: null` means there is nothing to compare
+server, dist, stale, at, shown}`; `shown` (ITGAME-88) — whether the badge is
+actually on screen after this check (a hidden badge stays in the DOM as
+`display: none`, 0×0 — don't judge it by its presence; `false` also where there
+is no `#topbar`); `stale: null` means there is nothing to compare
 (vite dev serves no meta and hot-reloads anyway; a build without git reads
 `dev`, see [Deploy](#deploy) — on production nginx `/api/*` also falls
 through to the SPA). `itd.screen().meta.stale` carries the last result.
@@ -484,14 +487,29 @@ documenting separately:
 
 - **`itd.nodes()` / `itd.ids()`** — every object of the live scenes
   (`{scene, type, id, text, x, y, w, h, cx, cy, visible, alpha, interactive,
-  depth, active}`) / just the stable interactive ids (`btn.*`, `nav.*`, `office.*`,
+  depth, active, disabled, fill}`) / just the stable interactive ids (`btn.*`, `nav.*`, `office.*`,
   `room.*`, `menu.*`, `modal.*`). `active` (ITGAME-38) is a
   `setData('active', …)` flag scenes set on toggle-like objects (speed
   buttons, nav tabs, the debug toggle, checkboxes, zoom) — distinct from
   Phaser's own `GameObject.active` — `null` for anything that isn't a
   toggle. `x`/`y` is the object's position by its origin (top-left for HUD
   plates, centre for texts and some modal buttons), so for a real click use
-  `cx`/`cy` — the centre of the world bounds (acceptance 10.10).
+  `cx`/`cy` — the centre of the world bounds (acceptance 10.10). `visible` is
+  world visibility (ITGAME-87): a hidden container makes all its children
+  `false` — the office tooltip's text kept `visible: true` with its content after
+  the pointer left, because only the container is hidden; `hit()`/`stack()`
+  answer `узел невидим` for such a child, `screen()` skips it. `fill` (ITGAME-88)
+  is a filled shape's colour as `#rrggbb` (Rectangle, Triangle, Arc/circle,
+  Ellipse, Polygon — Phaser `Shape` with `isFilled`; the menu's focus marker is a
+  Triangle), `null` for everything else (Text, Image, Container; a Graphics keeps
+  its colour in the command buffer and is not read).
+- **`itd.state().menuReady`** — the menu is active, its `saveSettled` (ITGAME-19)
+  and, since ITGAME-88, no SceneManager operation on `menu` is queued:
+  `itd.sandbox()`/`sandbox.restore()` call `scene.restart()`, which runs on the
+  next loop step, so the old menu (with the old save summary) answered ready and
+  then rebuilt — a plate's `cy` moved 351 → 309 when the «Продолжить» card
+  («загружаю сводку…») appeared and went. There is no entrance tween: once
+  `menuReady` is true the plates don't move (`qa:facade` K4).
 - **`itd.hit(id)` / `itd.blocker()`** (acceptance 10.10) — `itd.click()`
   bypasses the hit test, so it can't tell a covered button from a live one.
   `hit(id)` runs the real Phaser hit test at the object's `cx`/`cy` — the
@@ -538,8 +556,15 @@ documenting separately:
   have no hit area — the old example `zones('office:repair:0',
   'office:worker:0')` answers zero areas.)
 - **`itd.offline()`** — the page's last offline catch-up `{ticks, days,
-  shown, at, droppedAt, leftAt, liveTicks, open, paused}` or `null` (`open` —
-  the window is on screen now, `paused` — session speed is 0 now).
+  shown, at, droppedAt, leftAt, liveTicks, open, paused, seq, awayId}` or `null` (`open` —
+  the window is on screen now, `paused` — session speed is 0 now). It is the
+  *last* catch-up of the page, not «the current one»: after an away without a
+  catch-up it still returns the previous one. Compare by key (ITGAME-87): `seq`
+  numbers the page's catch-ups (1, 2, … as `offline_report`s arrive), `awayId` is
+  the `itd.away` during which it arrived (`null` — F5, a reconnect,
+  «Продолжить»). The key is assigned in the facade from the wire tap (the
+  `offline_report` frame is seen just before `net.ts` stores `lastOffline`), so
+  `net.ts` is unchanged.
   `droppedAt` is `offline_report.savedAt`, the last save before the drop (the
   actor saves every tick, so it is when the server noticed); `leftAt` is the
   tab's own `pagehide` (`sessionStorage` `itd.leftAt` with the speed then);
@@ -573,9 +598,12 @@ documenting separately:
   `back` — the first snapshot of the new socket, `drop` — the drop answer
   `{at, timeoutMs, noticeBy}` (`noticeBy = at + timeoutMs`, the server notices
   not before it and at most a quarter of the timeout after), `offline` —
-  `itd.offline()` after the return (`droppedAt` = when the server noticed) or
-  `null` when there was no catch-up (the server had not noticed before the
-  return, or the party was paused). Codes: `bad_sec`, `bad_mode`,
+  the catch-up *of this away* (`offline.awayId === awayId`, ITGAME-87;
+  `droppedAt` = when the server noticed) or `null` when there was no catch-up
+  (the server had not noticed before the return, or the party was paused);
+  `awayId` numbers the page's aways (1, 2, …). Until ITGAME-87 the match was by
+  `at >= leftAt` inside `away` only, and `itd.offline()` after an away without a
+  catch-up silently showed the previous one. Codes: `bad_sec`, `bad_mode`,
   `already_away`, `not_connected`, `finished` (no save after a finale — the
   return would start a new party), `drop_failed` (no `ITGAME_DEBUG`, headless
   agent session: `409 no_tab`), `interrupted` (the tab went to the menu or a
@@ -622,7 +650,15 @@ documenting separately:
   (ITGAME-38): `text` (two same-depth texts), `occlusion` (text under an
   opaque plate), or `interactive` (an interactive container/sprite/checkbox
   partly covered by another interactive or by text — full containment
-  doesn't count). Every finding also carries `ratio` (intersection area over
+  doesn't count). A modal dim is never an occluder or an interactive party
+  (ITGAME-87): every full-canvas dim is created through `markDim(obj, title)`
+  (`agentApi.ts`; `markTitle` + data key `dim`) — the day report, «ТУПИК» /
+  «ВРЕМЯ ВЫШЛО» / «БАНКРОТСТВО», «ПОБЕДА!», «Пока вас не было», the disconnect
+  screen, `showModal` (`ui/modal.ts`) and the menu's modal frame. Before, the
+  alpha decided: the finale's 0.9 dim passed the `fillAlpha ≥ 0.9` occluder rule
+  and gave ~22 `occlusion` entries, the report's 0.75 gave 0. What a dim blocks
+  from clicks is `itd.hit()`/`itd.stack()`'s business. A new dim must use
+  `markDim`. Every finding also carries `ratio` (intersection area over
   the area of the smaller box of the pair; for `occlusion`, over the text's
   area) and `threshold` it was compared against.
   `itd.overlaps({ minAreaRatio })` (0..1) replaces the default thresholds
@@ -732,6 +768,33 @@ documenting separately:
   Since ITGAME-45 `sent` entries carry the command `id`, `states` lists the
   window's snapshots as `{t, rev, cause, re?}` (the answer to a command is
   the state whose `re` is its id), and an `error` in `recv` has `info.re`/`rev`.
+  Since ITGAME-88 `pointer` lists the real `mousedown`/`mouseup` events of the
+  window (what Phaser listens to; a capture listener on `window` runs before
+  Phaser's canvas handler): `{t, type: down|up, button, x, y, onCanvas, wins,
+  stack, got}` — `x`/`y` in world 1280×720 (the same `ScaleManager.transformX/Y`
+  → `camera.getWorldPoint` path as Phaser), `wins`/`stack` the real hit test at
+  that moment (the same `stackAt` as `itd.stack()`), `got` — the objects Phaser
+  actually dispatched `gameobjectdown`/`up` to (safe id or type). So «the
+  command didn't go out» splits into: no entry (the click never reached the
+  page), `got: []` (it reached the hit test, nothing there), `got` with the
+  target (the handler itself decided not to send). `itd.click()` emits on the
+  object directly and never shows up in `pointer`.
+  **Open window** (ITGAME-88): `itd.trace` is a function with two methods (like
+  `itd.sandbox`). `itd.trace.start({maxMs?})` → `{ok, id, t0, maxMs, open}` sets
+  the listeners at once; the real click comes from another tool call;
+  `itd.trace.stop(id?)` (no id — the last opened) → the same `TraceResult` plus
+  `id`, `windowMs` = the window's length, `actionMs` 0. A forgotten window closes
+  itself after `maxMs` (default 120000, 1..600000) with `cut: true` and waits for
+  `stop()`; at most 8 windows (`too_many`), `bad_max`, `no_trace`. The fixed
+  window of `trace(action, ms)` raced a click delivered by a separate tool call
+  (acceptance 10.10). Example:
+
+      const {id} = itd.trace.start()            // tool call 1
+      // tool call 2: a real click on btn.pc (screen() x/y)
+      const tr = itd.trace.stop(id)              // tool call 3
+      tr.pointer[0].wins.id                      // 'btn.pc'
+      tr.pointer[0].got                          // ['btn:pc']
+      tr.sent.map(e => e.type)                   // ['buy_pc']
 - **`itd.cmd()` receipts** (ITGAME-45) are matched by command id, not FIFO:
   `{ok, code?, id, rev}` — `rev` is the answering snapshot's version (for a
   server rejection, the current one). `itd.server()` adds `rev`/`cause` of the
@@ -746,7 +809,10 @@ documenting separately:
   chars) — quote this in acceptance reports instead of paraphrasing
   `itd.help()`. Generated by `client/scripts/gen-contract.mjs` from the
   `ItdApi` interface (`client/src/debug/agentApi.ts`) via the TypeScript
-  compiler API into the committed `client/src/debug/contract.gen.ts` —
+  compiler API into the committed `client/src/debug/contract.gen.ts` (since
+  ITGAME-88 an object type with a call signature carries `call` —
+  `TraceApi.call`, `SandboxApi.call` — and a function-valued property like
+  `trace`/`sandbox` keeps its `examples`) —
   `npm run gen:contract` to regenerate, `npm run check:contract` to verify
   without writing. `npm run build` runs the check first: it fails if
   `ItdApi` and `contract.gen.ts` disagree (a `satisfies` type over
@@ -802,11 +868,11 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:buttons` | HUD buy-button enabled/tooltip/alpha states (ITGAME-17) | :4180, self-serve |
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35) | :4179, self-serve + temp saves dir |
 | `npm run qa:hud` | HUD layout column, toast stack, no overlaps (ITGAME-16) | :4174, self-serve |
-| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78); `itd.sandbox()`: the owner's shared key survives «Сдаться» and a second party, `fakeOwner()`, `restore()` puts back / keeps (ITGAME-77); `itd.stack()` under the day report: the dimmer wins over `btn.menu`, same as `hit().top` (ITGAME-74); `hit()` and the `X` flag follow the real hit area — a 1×1 hitArea on `btn.next_day` makes it covered (owner 10.10); `itd.play()` on `fresh` (seed 7): hire → hire `FAIL no_free_pc` → day → buy_pc → hire `FAIL not_enough_money` → day with the balances 600>300>614>39>353, `itd.ledger()` books balanced, `adjust` after `itd.set` (ITGAME-73) | :4175, self-serve |
+| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78); `itd.sandbox()`: the owner's shared key survives «Сдаться» and a second party, `fakeOwner()`, `restore()` puts back / keeps (ITGAME-77); `itd.stack()` under the day report: the dimmer wins over `btn.menu`, same as `hit().top` (ITGAME-74); `hit()` and the `X` flag follow the real hit area — a 1×1 hitArea on `btn.next_day` makes it covered (owner 10.10); `itd.play()` on `fresh` (seed 7): hire → hire `FAIL no_free_pc` → day → buy_pc → hire `FAIL not_enough_money` → day with the balances 600>300>614>39>353, `itd.ledger()` books balanced, `adjust` after `itd.set` (ITGAME-73); K1 the office tooltip's text in its hidden container is `visible: false`, K2 «ТУПИК» and the day report give 0 overlaps entries from the dim (22 with the `dim` mark removed) (ITGAME-87); K3 `nodes().fill`, K4 `menuReady` false right after `sandbox.restore()` and the plate still for 1.5 s after it, `stale().shown` false/true/false (ITGAME-88) | :4175, self-serve |
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks; `broken_pc`: one zone `office.slot.0` covers the worker and the «✖ чинить k/N» label, real clicks repair 0/3 → 1/3 → 2/3 → repaired, then the same zone motivates; right click and tooltip shared (ITGAME-75/92/93); the tooltip hides when the router/fire window opens and stays hidden after a snapshot and `itd.hover` (ITGAME-89) | :4177, self-serve |
-| `npm run qa:trace` | `itd.trace()` live window (ITGAME-37); receipts by command id — `id`/`rev` in `cmd()`, `trace().sent`/`states`, `net()`, and no false receipt with a tick or an observer's (`/ws/agent`) snapshot in flight (ITGAME-45) | :4176, self-serve |
-| `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
-| `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63); explicit exit freezes the party: the exit dialog pauses, Отмена/Esc/✕ restore the speed, «Сохранить и выйти» → «Продолжить» keeps tick/day/money and the speed, also from an open day report (ITGAME-65); on the victory screen (storage sid cleared) `itd.server().sid`/`liveSid` stay the live party's sid (ITGAME-68); office/server-room windows (router, fire dialog via a real right click on `broken_pc`, core, rack) close on `itd.scenario()`/`itd.restore()`, a click where «Уволить» was sends nothing (ITGAME-69); A1–A7 `itd.away` (ITGAME-76): `close` — while away the socket is `reconnecting`, commands `not_connected`, the server session is gone at once, the return resumes the same sid with `droppedAt` ≈ `leftAt`; `net` with `timeout: 1500` — the server session lives (200) until its read timeout and is gone (404) after, `droppedAt − drop.at` ≈ 1.5 s, `liveTicks` ≈ 3 at 2x, catch-up from `droppedAt`; `net` shorter than the timeout — no catch-up, ticks ran live; the owner key untouched; inside `itd.sandbox` the return lands in the sandbox party; N1–N6 with the socket dropped (`itd.away` net) and real mouse clicks: «Купить ПК» twice — one «Нет связи» toast, `error` sound each, no `buy_pc` (ITGAME-90); «Сохранить и выйти» → «Нет связи — сохранение не дойдёт», no `exit`, Esc back; «Подождать» → «Ждём связь…» → after the return `exit {speed:2}` and the menu, «Продолжить» 3 s later on the same day/clock; «Подождать» → ✕ sends nothing; «Выйти без сохранения» → menu, the party ran on; open socket unchanged (ITGAME-85); D1–D3 «Сдаться» → «Удалить партию навсегда?»: Enter/«Отмена» keep the sid and the save, «Удалить» sends `abandon`, 404 (ITGAME-86) | :4181, self-serve + temp saves dir |
+| `npm run qa:trace` | `itd.trace()` live window (ITGAME-37); receipts by command id — `id`/`rev` in `cmd()`, `trace().sent`/`states`, `net()`, and no false receipt with a tick or an observer's (`/ws/agent`) snapshot in flight (ITGAME-45); `itd.trace.start()` → a real `page.mouse.click` on `btn.pc` → `stop(id)`: `pointer` down/up with world x/y = cx/cy, `wins` btn.pc, `got` [btn:pc], `sent` buy_pc; a click on `#build` — `onCanvas` false; `no_trace`, `cut` by `maxMs`, `bad_max`, two windows, `itd.click()` leaves `pointer` empty (ITGAME-88) | :4176, self-serve |
+| `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39); A11 the 10.10-b fields: `TraceApi.call` + `start`/`stop`, `pointer`, `fill`, `shown`, `seq`/`awayId`, journal `conn`/`src`, `end` spelled out (ITGAME-87/88/91) | :4178, self-serve |
+| `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63); explicit exit freezes the party: the exit dialog pauses, Отмена/Esc/✕ restore the speed, «Сохранить и выйти» → «Продолжить» keeps tick/day/money and the speed, also from an open day report (ITGAME-65); on the victory screen (storage sid cleared) `itd.server().sid`/`liveSid` stay the live party's sid (ITGAME-68); office/server-room windows (router, fire dialog via a real right click on `broken_pc`, core, rack) close on `itd.scenario()`/`itd.restore()`, a click where «Уволить» was sends nothing (ITGAME-69); A1–A7 `itd.away` (ITGAME-76): `close` — while away the socket is `reconnecting`, commands `not_connected`, the server session is gone at once, the return resumes the same sid with `droppedAt` ≈ `leftAt`; `net` with `timeout: 1500` — the server session lives (200) until its read timeout and is gone (404) after, `droppedAt − drop.at` ≈ 1.5 s, `liveTicks` ≈ 3 at 2x, catch-up from `droppedAt`; `net` shorter than the timeout — no catch-up, ticks ran live; the owner key untouched; inside `itd.sandbox` the return lands in the sandbox party; N1–N6 with the socket dropped (`itd.away` net) and real mouse clicks: «Купить ПК» twice — one «Нет связи» toast, `error` sound each, no `buy_pc` (ITGAME-90); «Сохранить и выйти» → «Нет связи — сохранение не дойдёт», no `exit`, Esc back; «Подождать» → «Ждём связь…» → after the return `exit {speed:2}` and the menu, «Продолжить» 3 s later on the same day/clock; «Подождать» → ✕ sends nothing; «Выйти без сохранения» → menu, the party ran on; open socket unchanged (ITGAME-85); D1–D3 «Сдаться» → «Удалить партию навсегда?»: Enter/«Отмена» keep the sid and the save, «Удалить» sends `abandon`, 404 (ITGAME-86); A8 the catch-up key: `awayId` 1, 2, 3, `offline.awayId === awayId`, `seq` grows, after an away without a catch-up `itd.offline()` is the previous one (its `awayId`, same `seq`) (ITGAME-87) | :4181, self-serve + temp saves dir |
 | `npm run qa:report-pause` | the day report pauses the party (speed 0, time and balance stand still); Enter/Space/`btn.next_day`/`itd.cmd('next_day')` restore the pre-report speed; F5 with the report open keeps `itd.speedBeforeReport`, «Продолжить» reopens it paused and closing restores 3×; an outside `itd.speed(0)` over the report survives; `itd.set({tickInDay})` refused in `day_report`; `skipReports` changes the day without a modal or a stuck 0 (ITGAME-18, self-serve since ITGAME-70) | :4182, self-serve + temp saves dir |
 | `npm run qa:journal` | the journal of a live browser party (HUD clicks, `itd.cmd`, a rejection, `itd.set`/`itd.step`, F5 → «Продолжить» with offline catch-up) from `/api/debug/journal` replays with `cmd/replay -json` without divergence or warnings, and the replayed save equals the live one; `itd.journal({tail, sid})` gives the same journal from the tab — tail lines, kinds/total, ids, saves stripped (ITGAME-46); a `/ws/agent` command with its own id 1 after the F5: `conn`/`src` on every command, `start c1`, `resume c2`, the bridge on its own conn, ids repeat but (conn, id) pairs don't, replay `conns`; lines `end disconnect`, `c3 bridge id1` (ITGAME-91) | :4186, self-serve + temp saves dir |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |

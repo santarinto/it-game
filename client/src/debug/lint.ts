@@ -86,6 +86,12 @@ function nameOf(o: Node0): string {
   return ''
 }
 
+// ITGAME-87: затемнение модалки (markDim) — data-ключ 'dim'. Явная метка, а не
+// альфа: финал (0.9) раньше давал ~22 occlusion, отчёт дня (0.75) — 0.
+function isDim(o: Node0): boolean {
+  return o.getData?.('dim') === true
+}
+
 // Пересечения видимых текстов одной сцены на одном depth, а также закрытие
 // текста непрозрачным узлом (Rectangle/Image), отрисованным выше по depth или display list.
 export function findOverlaps(game: Phaser.Game, rawOpts?: OverlapOptions | null): OverlapEntry[] {
@@ -129,6 +135,7 @@ export function findOverlaps(game: Phaser.Game, rawOpts?: OverlapOptions | null)
       for (let k = 0; k < list.length; k++) {
         const o = list[k] as unknown as Node0 & { fillAlpha?: number; isFilled?: boolean }
         if (o === (t as unknown) || !o.visible || (o.alpha ?? 1) < 0.9) continue
+        if (isDim(o)) continue // ITGAME-87: затемнение модалки — не находка, при любой альфе
         if (o.type !== 'Rectangle' && o.type !== 'Image') continue
         if (o.type === 'Rectangle' && (o.isFilled === false || (o.fillAlpha ?? 1) < 0.9)) continue
 
@@ -189,7 +196,7 @@ function collectAll(list: Phaser.GameObjects.GameObject[], out: Phaser.GameObjec
 
 // Видимость с учётом родителей: невидимый контейнер прячет всё содержимое,
 // даже если у самого объекта visible === true.
-function isWorldVisible(o: Phaser.GameObjects.GameObject): boolean {
+export function isWorldVisible(o: Phaser.GameObjects.GameObject): boolean {
   let p: (Phaser.GameObjects.GameObject & { visible?: boolean; parentContainer?: unknown }) | null =
     o as unknown as Phaser.GameObjects.GameObject & { visible?: boolean; parentContainer?: unknown }
   while (p) {
@@ -252,7 +259,7 @@ function findInteractiveOverlaps(scene: Phaser.Scene, opts: OverlapOptions): Ove
 
   const interactives = all.filter((o) => {
     const n = o as unknown as WalkNode
-    return n.input?.enabled === true && isWorldVisible(o) && (n.alpha ?? 1) > 0 && (n.depth ?? 0) < 90
+    return n.input?.enabled === true && isWorldVisible(o) && (n.alpha ?? 1) > 0 && (n.depth ?? 0) < 90 && !isDim(n)
   })
   // Не интерактивные тексты: интерактивный Text (чекбокс, modal.close) уже
   // виден циклу текст-текст выше (kind 'text') — не дублируем его здесь.

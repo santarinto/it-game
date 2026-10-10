@@ -2,21 +2,25 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "0b28942bb837",
+  "hash": "53009a937715",
   "methods": {
     "version": {
       "kind": "prop",
       "type": "{ sha: string; builtAt: string; }",
       "readonly": true,
-      "doc": "Штамп сборки: {sha, builtAt} + `<meta name=\"build\">` в html."
+      "doc": "Штамп сборки: {sha, builtAt} + `<meta name=\"build\">` в html.",
+      "examples": [
+        "itd.version"
+      ]
     },
     "state": {
       "kind": "method",
       "params": [],
       "returns": "AgentState",
-      "doc": "Баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий\n(null до первого снапшота); menuReady — меню создано, активно и сводка сейва устоялась.",
+      "doc": "Баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий\n(null до первого снапшота); menuReady — меню создано, активно, его перезапуск\nне в очереди (itd.sandbox()/restore() перезапускают меню) и сводка сейва\nустоялась: после true плашки меню больше не сдвигаются (ITGAME-88), cx/cy можно\nбрать для настоящего клика. Анимации въезда у меню нет.",
       "examples": [
-        "itd.state()"
+        "itd.state()",
+        "await itd.wait(s => s.menuReady)"
       ]
     },
     "server": {
@@ -33,9 +37,10 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "AgentNode[]",
-      "doc": "Все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy,\nvisible, alpha, interactive, depth, active, disabled}. x/y — позиция по origin,\ncx/cy — центр bounds (точка для настоящего клика); disabled — кнопка\nпокупки/найма неактивна (ITGAME-72), null у прочих.",
+      "doc": "Все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy,\nvisible, alpha, interactive, depth, active, disabled, fill}. x/y — позиция по origin,\ncx/cy — центр bounds (точка для настоящего клика); visible — видим в мире:\nскрытый контейнер даёт false всем детям (ITGAME-87); disabled — кнопка\nпокупки/найма неактивна (ITGAME-72), null у прочих; fill — заливка фигуры\n'#rrggbb' (Rectangle/Triangle/Arc/Ellipse/Polygon), null у прочих (ITGAME-88).",
       "examples": [
-        "itd.nodes()"
+        "itd.nodes()",
+        "itd.nodes().find(n => n.type === 'Triangle' && n.scene === 'menu').fill"
       ]
     },
     "text": {
@@ -127,23 +132,14 @@ export const CONTRACT = {
       ]
     },
     "trace": {
-      "kind": "method",
-      "params": [
-        {
-          "name": "action",
-          "type": "() => unknown",
-          "optional": false
-        },
-        {
-          "name": "windowMs",
-          "type": "number",
-          "optional": true
-        }
-      ],
-      "returns": "Promise<TraceResult>",
-      "doc": "Живая трассировка окна вокруг action (ITGAME-37): подписка ДО action,\nокно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь\nигрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().\nITGAME-45: sent — с id команды, states — снапшоты окна {rev, cause, re?}:\nответ на команду — state с re = её id.",
+      "kind": "prop",
+      "type": "TraceApi",
+      "readonly": true,
+      "doc": "Живая трассировка окна вокруг action (ITGAME-37): подписка ДО action,\nокно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь\nигрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().\nITGAME-45: sent — с id команды, states — снапшоты окна {rev, cause, re?}:\nответ на команду — state с re = её id. ITGAME-88: pointer — настоящие\nmousedown/mouseup в окне: {type: down|up, button, x, y (мировые 1280×720),\nonCanvas, wins/stack — хит-тест Phaser в момент события (как itd.stack),\ngot — кому Phaser раздал gameobjectdown/up}; itd.click() сюда не попадает\n(мимо input-слоя). Открытое окно для клика другим вызовом инструмента:\nitd.trace.start() → {id} … клик … itd.trace.stop(id?) → тот же TraceResult\n(windowMs — длина окна; само закроется через maxMs, по умолчанию 120 с, cut: true).",
       "examples": [
-        "itd.trace(() => itd.click('btn.pc'), 1000)"
+        "itd.trace(() => itd.click('btn.pc'), 1000)",
+        "itd.trace.start()",
+        "itd.trace.stop().pointer"
       ]
     },
     "warm": {
@@ -185,7 +181,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "OverlapEntry[]",
-      "doc": "Линтер вёрстки: kind text — тексты одного depth; occlusion — текст под\nнепрозрачной плашкой; interactive — интерактив частично перекрыт\nинтерактивом или текстом (вложенность целиком — не находка). Каждая\nпара: ratio — площадь пересечения / площадь меньшего из пары (occlusion —\n/ площадь текста), threshold — порог, с которым сравнили. minAreaRatio\n0..1 заменяет пороги по умолчанию для всех kind (text и interactive — 0,\nocclusion — 0.25 и >50% по каждой оси: заданный minAreaRatio снимает и\nправило по осям, находок может стать больше, чем без него); 0 — строгий\nрежим, вне 0..1 — RangeError.",
+      "doc": "Линтер вёрстки: kind text — тексты одного depth; occlusion — текст под\nнепрозрачной плашкой; interactive — интерактив частично перекрыт\nинтерактивом или текстом (вложенность целиком — не находка). Каждая\nпара: ratio — площадь пересечения / площадь меньшего из пары (occlusion —\n/ площадь текста), threshold — порог, с которым сравнили. minAreaRatio\n0..1 заменяет пороги по умолчанию для всех kind (text и interactive — 0,\nocclusion — 0.25 и >50% по каждой оси: заданный minAreaRatio снимает и\nправило по осям, находок может стать больше, чем без него); 0 — строгий\nрежим, вне 0..1 — RangeError. Затемнение модалки (отчёт дня, финал «ТУПИК»/\n«ПОБЕДА!», «Пока вас не было», showModal, окна меню, обрыв связи — markDim)\n— не перекрывающий при любой альфе (ITGAME-87; раньше финал 0.9 давал ~22\nocclusion, отчёт 0.75 — 0): что оно закрывает от клика — itd.hit()/stack().",
       "examples": [
         "itd.overlaps()",
         "itd.overlaps({ minAreaRatio: 0 })"
@@ -246,16 +242,22 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "Promise<StaleInfo>",
-      "doc": "Вкладка на старом JS? (ITGAME-78) Свежая проверка: {client, server, dist,\nstale, at}. client — sha этой вкладки, dist — sha сборки, которую стенд\nотдаст при перезагрузке (meta build его index.html), server — sha бинаря\n(GET /api/version). stale: client ≠ dist (без dist — ≠ server); null —\nсверить не с чем (vite dev, сборка без git). Та же проверка красит метку\n«устарело, обнови» в #topbar.",
+      "doc": "Вкладка на старом JS? (ITGAME-78) Свежая проверка: {client, server, dist,\nstale, at}. client — sha этой вкладки, dist — sha сборки, которую стенд\nотдаст при перезагрузке (meta build его index.html), server — sha бинаря\n(GET /api/version). stale: client ≠ dist (без dist — ≠ server); null —\nсверить не с чем (vite dev, сборка без git). Та же проверка красит метку\n«устарело, обнови» в #topbar; shown — видна ли метка на экране после неё\n(ITGAME-88: скрытая метка остаётся в DOM — display:none, 0×0, — по DOM её\nне судить); false и там, где #topbar нет (без ?debug=1 / itd.admin).",
       "examples": [
-        "await itd.stale()"
+        "await itd.stale()",
+        "(await itd.stale()).shown"
       ]
     },
     "sandbox": {
       "kind": "prop",
       "type": "SandboxApi",
       "readonly": true,
-      "doc": "Песочница агента (ITGAME-77): itd.sandbox('acc3') → {ok, sid, owner:{sid,\ndiff}} — ставит вкладке свой sid a-<метка>-<время> и запоминает общие ключи\nвладельца (localStorage itd.sid/itd.diff) и вкладки (sessionStorage); меню\nперечитывает сводку. Пока песочница есть, новая партия и финал («Сдаться»)\nберут новый sid песочницы, а не общий ключ. Ставится из меню (в партии —\ncode in_party). itd.sandbox.restore() → {sidSame, diffSame, fake, restored,\nkept, removed}: сверка (то и есть замер гарда), возврат ключей как при\nвходе — наше (fake) или стёртое значение возвращается, чужое (kept) не\nперетирается; тоже только из меню. itd.sandbox.fakeOwner() → {sid, diff} —\n«чужой» общий ключ вызовом игры (agent javascript_tool писать в\nlocalStorage не может); restore() вернёт настоящий."
+      "doc": "Песочница агента (ITGAME-77): itd.sandbox('acc3') → {ok, sid, owner:{sid,\ndiff}} — ставит вкладке свой sid a-<метка>-<время> и запоминает общие ключи\nвладельца (localStorage itd.sid/itd.diff) и вкладки (sessionStorage); меню\nперечитывает сводку. Пока песочница есть, новая партия и финал («Сдаться»)\nберут новый sid песочницы, а не общий ключ. Ставится из меню (в партии —\ncode in_party). itd.sandbox.restore() → {sidSame, diffSame, fake, restored,\nkept, removed}: сверка (то и есть замер гарда), возврат ключей как при\nвходе — наше (fake) или стёртое значение возвращается, чужое (kept) не\nперетирается; тоже только из меню. itd.sandbox.fakeOwner() → {sid, diff} —\n«чужой» общий ключ вызовом игры (agent javascript_tool писать в\nlocalStorage не может); restore() вернёт настоящий.",
+      "examples": [
+        "itd.sandbox('acc3')",
+        "itd.sandbox.fakeOwner()",
+        "itd.sandbox.restore()"
+      ]
     },
     "stack": {
       "kind": "method",
@@ -274,7 +276,7 @@ export const CONTRACT = {
       "returns": "StackResult",
       "doc": "Стек под точкой по НАСТОЯЩЕМУ хит-тесту Phaser (InputManager.hitTest:\nhitArea, камера, видимость контейнеров; порядок — sortGameObjects по\nrenderList камеры; сцены сверху вниз, globalTopOnly + topOnly). Точка —\nцентр (cx/cy) объекта по id/safe-id или мировые gx, gy (1280×720).\nstack — все interactive под точкой сверху вниз ('safe scene dN Type WxH';\n'!' — сцена ниже забравшей клик), wins — кто получит pointerdown.\nhit() и флаг X в screen() — тот же хит-тест, только верх в центре объекта.",
       "examples": [
-        "itd.stack('office:repair:0')",
+        "itd.stack('office:slot:0')",
         "itd.stack(260, 190).wins"
       ]
     },
@@ -295,16 +297,17 @@ export const CONTRACT = {
       "returns": "ZonesResult",
       "doc": "Где зона A перекрыта B и наоборот: обход сетки 1 px по объединению bounds\nA и B тем же хит-тестом, что stack(); aUnderB — прямоугольники, где точка в\nhitArea A, а клик забирает B (bUnderA — наоборот), area — площади в px².\nПустой aUnderB — A везде получает свой клик сам (от B).",
       "examples": [
-        "itd.zones('office:repair:0', 'office:worker:0')"
+        "itd.zones('office:slot:0', 'office:master:0')"
       ]
     },
     "offline": {
       "kind": "method",
       "params": [],
       "returns": "AgentOffline | null",
-      "doc": "Последний офлайн-догон этой страницы: {ticks, days, shown, at, droppedAt,\nleftAt, liveTicks, open, paused} или null. droppedAt — последний сейв\n(сервер заметил обрыв), leftAt — уход со страницы этой вкладки, liveTicks —\nсколько тиков партия шла вживую между ними. shown:false — догон внутри дня, окно «Пока вас не было» игроку не\nпоказано; open — окно открыто сейчас; paused — скорость сейчас 0 (пока окно\nоткрыто, партия стоит).\nДогона нет и при ticks 0 (сейв на паузе или в отчёте дня) — тогда null.",
+      "doc": "Последний офлайн-догон этой страницы: {ticks, days, shown, at, droppedAt,\nleftAt, liveTicks, open, paused, seq, awayId} или null. Это ПОСЛЕДНИЙ догон\nстраницы, не «текущий»: после ухода без догона он остаётся прежним — сверять\nпо ключу (ITGAME-87): seq — номер догона на странице (1, 2, …), awayId —\nitd.away, во время которого он пришёл (null — F5, реконнект, «Продолжить»).\ndroppedAt — последний сейв\n(сервер заметил обрыв), leftAt — уход со страницы этой вкладки, liveTicks —\nсколько тиков партия шла вживую между ними. shown:false — догон внутри дня, окно «Пока вас не было» игроку не\nпоказано; open — окно открыто сейчас; paused — скорость сейчас 0 (пока окно\nоткрыто, партия стоит).\nДогона нет и при ticks 0 (сейв на паузе или в отчёте дня) — тогда null.",
       "examples": [
-        "itd.offline()"
+        "itd.offline()",
+        "const r = await itd.away(3); itd.offline()?.awayId === r.awayId // false — у этого ухода догона не было"
       ]
     },
     "away": {
@@ -322,7 +325,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<AwayResult | (AgentResult & { code: 'bad_sec' | 'bad_mode'; })>",
-      "doc": "Уход без ухода со страницы (ITGAME-76): на sec секунд (0..600) вкладка\nпропадает для сервера и возвращается в ту же партию — тот же sid,\nпесочницы или владельца; без example.com, новой вкладки и пропавшего\nпервого клика. mode 'close' (по умолчанию) — как закрытая вкладка:\nclose-фрейм без exit, сервер узнаёт сразу. mode 'net' — как обрыв сети:\nPOST /api/debug/drop (ITGAME_DEBUG): сервер перестаёт читать и писать в\nсоединение без close-фрейма и замечает уход своим таймаутом чтения\n(ITGAME_READ_TIMEOUT, по умолчанию 30 с; timeout — свой для этого\nсоединения, мс), а партия до этого идёт вживую — offline.liveTicks.\nВсё время ухода вкладка глуха и нема: команды — not_connected, сокет —\nreconnecting, сама не реконнектится. Ответ {ok, mode, sid, leftAt, back,\nresumed, rev, drop, offline}: back — первый снапшот нового сокета (cause\nresume), drop — ответ ручки {at, timeoutMs, noticeBy}, offline —\nitd.offline() после возврата (droppedAt — когда сервер заметил уход) или\nnull. Коды: bad_sec, bad_mode, already_away, not_connected, finished,\ndrop_failed, interrupted (вкладка ушла в меню/новую партию), no_return,\nnot_resumed.",
+      "doc": "Уход без ухода со страницы (ITGAME-76): на sec секунд (0..600) вкладка\nпропадает для сервера и возвращается в ту же партию — тот же sid,\nпесочницы или владельца; без example.com, новой вкладки и пропавшего\nпервого клика. mode 'close' (по умолчанию) — как закрытая вкладка:\nclose-фрейм без exit, сервер узнаёт сразу. mode 'net' — как обрыв сети:\nPOST /api/debug/drop (ITGAME_DEBUG): сервер перестаёт читать и писать в\nсоединение без close-фрейма и замечает уход своим таймаутом чтения\n(ITGAME_READ_TIMEOUT, по умолчанию 30 с; timeout — свой для этого\nсоединения, мс), а партия до этого идёт вживую — offline.liveTicks.\nВсё время ухода вкладка глуха и нема: команды — not_connected, сокет —\nreconnecting, сама не реконнектится. Ответ {ok, mode, sid, leftAt, back,\nresumed, rev, drop, awayId, offline}: back — первый снапшот нового сокета (cause\nresume), drop — ответ ручки {at, timeoutMs, noticeBy}, awayId — номер этого\nухода на странице (ITGAME-87), offline — догон ЭТОГО ухода (offline.awayId ===\nawayId; droppedAt — когда сервер заметил уход) или null; itd.offline() после\nухода без догона отдаёт прежний догон с другим awayId. Коды: bad_sec, bad_mode, already_away, not_connected, finished,\ndrop_failed, interrupted (вкладка ушла в меню/новую партию), no_return,\nnot_resumed.",
       "examples": [
         "await itd.away(5)",
         "await itd.away(20, { mode: 'net', timeout: 3000 })"
@@ -765,7 +768,7 @@ export const CONTRACT = {
         "visible": {
           "type": "boolean",
           "optional": false,
-          "doc": ""
+          "doc": "видим в мире (ITGAME-87): сам и все его контейнеры visible; скрытый контейнер — false у всех детей"
         },
         "alpha": {
           "type": "number",
@@ -791,6 +794,11 @@ export const CONTRACT = {
           "type": "boolean | null",
           "optional": false,
           "doc": ""
+        },
+        "fill": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "ITGAME-88: заливка фигуры '#rrggbb' (Rectangle, Triangle, Arc/Circle, Ellipse, Polygon — Shape с isFilled); null — не фигура или без заливки (Text, Image, Container; Graphics — цвет в буфере команд, не отдаём)"
         }
       }
     },
@@ -806,6 +814,16 @@ export const CONTRACT = {
           "type": "boolean",
           "optional": false,
           "doc": "скорость партии сейчас 0"
+        },
+        "seq": {
+          "type": "number",
+          "optional": false,
+          "doc": "ITGAME-87: номер догона на этой странице (1, 2, … по приходу offline_report); сверять догоны — по нему, не по at"
+        },
+        "awayId": {
+          "type": "number | null",
+          "optional": false,
+          "doc": "ITGAME-87: itd.away, во время которого догон пришёл (= его awayId); null — не в away (F5, реконнект, «Продолжить»)"
         },
         "ticks": {
           "type": "number",
@@ -1189,10 +1207,15 @@ export const CONTRACT = {
     "AwayResult": {
       "kind": "object",
       "fields": {
+        "awayId": {
+          "type": "number",
+          "optional": false,
+          "doc": "ITGAME-87: номер этого ухода на странице (1, 2, …); догон этого ухода — offline.awayId === awayId"
+        },
         "offline": {
           "type": "AgentOffline | null",
           "optional": false,
-          "doc": "itd.offline() после возврата; null — догона не было (сервер не заметил уход до возврата или партия на паузе)"
+          "doc": "догон ЭТОГО ухода (offline.awayId === awayId) или null — догона не было (сервер не заметил уход до возврата или партия на паузе); itd.offline() тогда отдаёт прежний догон со своим awayId/seq"
         },
         "ok": {
           "type": "boolean",
@@ -2152,7 +2175,7 @@ export const CONTRACT = {
     },
     "MemberSpec": {
       "kind": "alias",
-      "type": "{ kind: 'method'; params: ParamSpec[]; returns: string; doc: string; examples: string[]; } | { kind: 'prop'; type: string; readonly: boolean; doc: string; }"
+      "type": "{ kind: 'method'; params: ParamSpec[]; returns: string; doc: string; examples: string[]; } | { kind: 'prop'; type: string; readonly: boolean; doc: string; examples?: string[]; }"
     },
     "MetaStats": {
       "kind": "object",
@@ -2444,7 +2467,10 @@ export const CONTRACT = {
           "optional": false,
           "doc": "Поставить «чужой» общий ключ (localStorage itd.sid/itd.diff) вызовом игры; restore() его уберёт."
         }
-      }
+      },
+      "call": [
+        "(label: string) => SandboxResult"
+      ]
     },
     "SandboxRestore": {
       "kind": "object",
@@ -2778,6 +2804,11 @@ export const CONTRACT = {
           "type": "number",
           "optional": false,
           "doc": "epoch ms проверки"
+        },
+        "shown": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "ITGAME-88: метка «устарело, обнови» видна на экране после этой проверки (в DOM она живёт всегда, скрытая — display:none, 0×0); false и без #topbar (нет ?debug=1/itd.admin)"
         }
       }
     },
@@ -3016,6 +3047,74 @@ export const CONTRACT = {
         }
       }
     },
+    "TraceApi": {
+      "kind": "object",
+      "fields": {
+        "start": {
+          "type": "(opts?: TraceStartOptions) => TraceStart",
+          "optional": false,
+          "doc": "Открыть окно: подписки сразу, до stop(id?) или maxMs (1..600000, по умолчанию 120000) → {ok, id, t0, maxMs, open}; коды bad_max, too_many (больше 8 окон)."
+        },
+        "stop": {
+          "type": "(id?: number) => TraceResult | (AgentResult & { code: 'no_trace'; })",
+          "optional": false,
+          "doc": "Закрыть окно id (без id — последнее открытое) → TraceResult того же вида, что у itd.trace(), с id, windowMs = длина окна, cut — закрылось само по maxMs; нет окна — {ok:false, code:'no_trace'}."
+        }
+      },
+      "call": [
+        "(action: () => unknown, windowMs?: number) => Promise<TraceResult>"
+      ]
+    },
+    "TracePointer": {
+      "kind": "object",
+      "fields": {
+        "t": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "type": {
+          "type": "'down' | 'up'",
+          "optional": false,
+          "doc": "mousedown / mouseup (Phaser слушает именно их)"
+        },
+        "button": {
+          "type": "number",
+          "optional": false,
+          "doc": "0 — левая, 2 — правая (увольнение в офисе)"
+        },
+        "x": {
+          "type": "number",
+          "optional": false,
+          "doc": "мировые 1280×720 — как nodes().cx/cy и itd.stack(gx, gy)"
+        },
+        "y": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "onCanvas": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "событие пришло в канвас; false — мимо холста (#topbar, поля страницы)"
+        },
+        "wins": {
+          "type": "TraceTarget | null",
+          "optional": false,
+          "doc": "кто получит событие по хит-тесту Phaser в момент события (как itd.stack().wins); null — ни одна hitArea не накрывает точку"
+        },
+        "stack": {
+          "type": "string[]",
+          "optional": false,
+          "doc": "все interactive под точкой сверху вниз, как itd.stack().stack"
+        },
+        "got": {
+          "type": "string[]",
+          "optional": false,
+          "doc": "кому Phaser реально раздал gameobjectdown/up в этом событии: safe id или тип без id; [] — до объектов не дошло"
+        }
+      }
+    },
     "TraceResult": {
       "kind": "object",
       "fields": {
@@ -3088,6 +3187,106 @@ export const CONTRACT = {
           "type": "{ t: number; name: string; key: string; volume: number; ok: boolean; scene: string; }[]",
           "optional": false,
           "doc": ""
+        },
+        "pointer": {
+          "type": "TracePointer[]",
+          "optional": false,
+          "doc": "ITGAME-88: настоящие нажатия указателя в окне (mousedown/mouseup): мировые x/y,\nwins/stack — хит-тест Phaser в момент события, got — кому Phaser раздал\ngameobjectdown/up. itd.click() сюда не попадает: он мимо input-слоя.\nПусто при «команда не ушла» — клик до страницы не дошёл; есть запись с\ngot [] — дошёл до хит-теста, цели нет; got с целью — обработчик сам решил не слать."
+        },
+        "id": {
+          "type": "number",
+          "optional": true,
+          "doc": "ITGAME-88: открытое окно itd.trace.start() — его id"
+        },
+        "cut": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "ITGAME-88: открытое окно закрылось само по maxMs раньше stop()"
+        }
+      }
+    },
+    "TraceStart": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "optional": false,
+          "doc": ""
+        },
+        "id": {
+          "type": "number",
+          "optional": true,
+          "doc": "ключ для itd.trace.stop(id)"
+        },
+        "t0": {
+          "type": "number",
+          "optional": true,
+          "doc": "epoch ms постановки подписок"
+        },
+        "maxMs": {
+          "type": "number",
+          "optional": true,
+          "doc": ""
+        },
+        "open": {
+          "type": "number[]",
+          "optional": true,
+          "doc": "id открытых сейчас окон (с этим)"
+        },
+        "code": {
+          "type": "'bad_max' | 'too_many'",
+          "optional": true,
+          "doc": ""
+        },
+        "error": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
+        }
+      }
+    },
+    "TraceStartOptions": {
+      "kind": "object",
+      "fields": {
+        "maxMs": {
+          "type": "number",
+          "optional": true,
+          "doc": "окно закроется само через столько мс, если stop() не позвали: 1..600000, по умолчанию 120000"
+        }
+      }
+    },
+    "TraceTarget": {
+      "kind": "object",
+      "fields": {
+        "scene": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "type": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "id": {
+          "type": "string | null",
+          "optional": false,
+          "doc": ""
+        },
+        "safe": {
+          "type": "string | null",
+          "optional": false,
+          "doc": ""
+        },
+        "depth": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "title": {
+          "type": "string | null",
+          "optional": false,
+          "doc": ""
         }
       }
     },
@@ -3101,7 +3300,7 @@ export const CONTRACT = {
     },
     "TypeSpec": {
       "kind": "alias",
-      "type": "{ kind: 'object'; fields: Record<string, FieldSpec>; index?: string[]; } | { kind: 'enum'; values: string[]; } | { kind: 'alias'; type: string; }"
+      "type": "{ kind: 'object'; fields: Record<string, FieldSpec>; index?: string[]; call?: string[]; } | { kind: 'enum'; values: string[]; } | { kind: 'alias'; type: string; }"
     },
     "ZoneRect": {
       "kind": "object",

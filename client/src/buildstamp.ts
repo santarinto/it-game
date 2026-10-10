@@ -19,6 +19,15 @@ export interface StaleInfo {
   dist: string | null // sha сборки, которую стенд отдаст при перезагрузке (<meta name="build"> его index.html)
   stale: boolean | null // вкладка на старом JS (client ≠ dist, без dist — ≠ server); null — сверить не с чем
   at: number // epoch ms проверки
+  shown: boolean // ITGAME-88: метка «устарело, обнови» видна на экране после этой проверки (в DOM она живёт всегда, скрытая — display:none, 0×0); false и без #topbar (нет ?debug=1/itd.admin)
+}
+
+// Метка #stale видна: есть в DOM и занимает место (hidden → display:none, 0×0).
+function badgeShown(): boolean {
+  const el = document.getElementById('stale')
+  if (!el) return false
+  const r = el.getBoundingClientRect()
+  return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'
 }
 
 let last: StaleInfo | null = null
@@ -59,9 +68,11 @@ export async function checkStale(): Promise<StaleInfo> {
   const [server, dist] = await Promise.all([serverSha(), distSha()])
   const ref = dist ?? (import.meta.env.DEV ? null : server)
   const mine = known(CLIENT_SHA)
-  last = { client: CLIENT_SHA, server, dist, stale: mine && ref ? !sameSha(mine, ref) : null, at: Date.now() }
-  for (const fn of listeners) fn(last)
-  return last
+  const info: StaleInfo = { client: CLIENT_SHA, server, dist, stale: mine && ref ? !sameSha(mine, ref) : null, at: Date.now(), shown: false }
+  last = info
+  for (const fn of listeners) fn(info)
+  info.shown = badgeShown() // слушатель метки (main.ts) уже переключил hidden
+  return info
 }
 
 // Фоновые проверки для метки: при загрузке, при возврате на вкладку, после
