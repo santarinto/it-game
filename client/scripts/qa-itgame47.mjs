@@ -62,6 +62,7 @@
 //        (clearSession) → scenario('fresh') ok (сессия на сервере жива до «В меню»)
 //   O5b  экран победы закрыт, день 1, phase running
 //   O5c  sid партии снова в хранилище вкладки и равен исходному
+//   O5d  на экране победы (хранилище пусто) server().sid и liveSid равны sid живой партии (ITGAME-68)
 //   Z    на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию :4181; порт не из
@@ -957,6 +958,8 @@ async function run() {
     })
     const o5Open = await waitTrue(() => window.itd.ids().some((n) => n.id === 'btn.victory.menu'), 10000)
     const o5PreSid = await page.evaluate(() => sessionStorage.getItem('itd.sid'))
+    // ITGAME-68: хранилище уже пустое, но server().sid — sid живой партии (как debugFetch), не свежий
+    const o5VictorySid = await page.evaluate(() => ({ sid: window.itd.server().sid, liveSid: window.itd.server().liveSid }))
     const o5tr = await page.evaluate(() => window.itd.trace(() => window.itd.scenario('fresh'), 800))
     await delay(300)
     const o5Ids = await idList()
@@ -981,6 +984,11 @@ async function run() {
       'O5c: sid партии снова в хранилище вкладки и совпадает с исходным (реконнект / «Продолжить» найдут её) (ITGAME-64)',
       o5Ready && o5After.stored === o5Sid && o5After.server === o5Sid,
       JSON.stringify({ before: o5Sid, ...o5After }),
+    )
+    check(
+      'O5d: на экране победы (хранилище пусто) server().sid и liveSid — sid живой партии, не свежий (ITGAME-68)',
+      o5Ready && o5VictorySid.sid === o5Sid && o5VictorySid.liveSid === o5Sid,
+      JSON.stringify({ before: o5Sid, ...o5VictorySid }),
     )
   } catch (e) {
     check('сценарий выполнен без исключений', false, e instanceof Error ? e.message : String(e))

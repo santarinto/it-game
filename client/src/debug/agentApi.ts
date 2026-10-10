@@ -263,7 +263,8 @@ export interface AgentServer {
   rtt: number | null // мс от последней команды до ближайшего ответа
   reconnects: number
   lastMessageAt: number | null // epoch ms
-  sid: string // ITGAME-30: sid текущего соединения (каким партиям уезжают команды)
+  sid: string // ITGAME-30/68: sid, в чью партию уходят команды и debug-вызовы: liveSid ?? sid хранилища (как debugFetch)
+  liveSid: string | null // ITGAME-68: sid живой партии вкладки (сокет); null — до первой партии, после «В меню»/«Сдаться»/перехвата
   sidSwitches: number // ITGAME-30: сколько раз sid сменился между соединениями (гарда вкладок)
   snapshot: StateMessage | null
 }
@@ -392,7 +393,8 @@ export interface ItdApi {
   state(): AgentState
   /**
    * Снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt,
-   * reconnects, sid, sidSwitches.
+   * reconnects, sid (куда уходят команды и debug-вызовы: liveSid ?? sid
+   * хранилища), liveSid (sid живой партии вкладки или null), sidSwitches.
    * @example itd.server()
    */
   server(): AgentServer
@@ -770,7 +772,10 @@ function buildServer(): AgentServer {
     rtt: client.stats.rtt,
     reconnects: client.stats.reconnects,
     lastMessageAt: client.stats.lastMessageAt || null,
-    sid: sessionId(),
+    // ITGAME-68: тот же sid, что у debugFetch. После финала net.ts стирает sid из хранилищ,
+    // и sessionId() выдал бы свежий, которого у живой партии никогда не было.
+    sid: client.liveSid() ?? sessionId(),
+    liveSid: client.liveSid(),
     sidSwitches: client.stats.sidSwitches,
     snapshot: client.latest,
   }
@@ -966,7 +971,7 @@ const COMMANDS = new Set<string>(COMMAND_TYPES)
 
 const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/39)
   itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); menuReady — меню создано, активно и сводка сейва устоялась
-  itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt, reconnects, sid, sidSwitches
+  itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt, reconnects, sid (куда уходят команды: liveSid ?? хранилище), liveSid (живая партия или null), sidSwitches
   itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy, visible, alpha, interactive, depth, active}; x/y — по origin объекта, cx/cy — центр bounds (точка для клика)
   itd.text()                        — nodes() с непустым текстом
   itd.ids()                         — стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*, modal.*) + active; safe — id с «:» вместо точек (не режется как JWT), click/hover/hit принимают и его

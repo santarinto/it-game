@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "eab20598579d",
+  "hash": "46b60049f5a0",
   "methods": {
     "version": {
       "kind": "prop",
@@ -23,7 +23,7 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "AgentServer",
-      "doc": "Снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt,\nreconnects, sid, sidSwitches.",
+      "doc": "Снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rtt,\nreconnects, sid (куда уходят команды и debug-вызовы: liveSid ?? sid\nхранилища), liveSid (sid живой партии вкладки или null), sidSwitches.",
       "examples": [
         "itd.server()"
       ]
@@ -749,7 +749,12 @@ export const CONTRACT = {
         "sid": {
           "type": "string",
           "optional": false,
-          "doc": "ITGAME-30: sid текущего соединения (каким партиям уезжают команды)"
+          "doc": "ITGAME-30/68: sid, в чью партию уходят команды и debug-вызовы: liveSid ?? sid хранилища (как debugFetch)"
+        },
+        "liveSid": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "ITGAME-68: sid живой партии вкладки (сокет); null — до первой партии, после «В меню»/«Сдаться»/перехвата"
         },
         "sidSwitches": {
           "type": "number",
