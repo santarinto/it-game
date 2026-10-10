@@ -141,6 +141,8 @@ func (g *Game) offlineTemplate() *Game {
 	}
 	for i := range tpl.Offices {
 		o := &tpl.Offices[i]
+		// Свой массив сотрудников: сбросы ниже не должны писать в живую игру.
+		o.Employees = append([]Employee(nil), o.Employees...)
 		for j := range o.Employees {
 			o.Employees[j].UnpaidToday = false
 			o.Employees[j].CoffeeUntil = 0

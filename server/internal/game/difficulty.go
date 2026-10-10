@@ -95,6 +95,9 @@ func ApplyDifficulty(c Config, d Difficulty) Config {
 	for i := range c.OfficePrices {
 		c.OfficePrices[i] = scale(c.OfficePrices[i], s.PriceK)
 	}
+	// Не скалируются, но клонируются: иначе cfg сессии делит их с общим конфигом.
+	c.EmployeeLevelXP = append([]int(nil), c.EmployeeLevelXP...)
+	c.EmployeeLevelBonus = append([]int(nil), c.EmployeeLevelBonus...)
 	c.SalaryPerDay = scale(c.SalaryPerDay, s.WageK)
 	c.BossSalaryPerDay = scale(c.BossSalaryPerDay, s.WageK)
 	c.GatewayOpexPerDay = scale(c.GatewayOpexPerDay, s.WageK)

@@ -179,3 +179,21 @@ func TestAdvanceOfflineKeepsPrevDayIncome(t *testing.T) {
 		t.Errorf("полный день: день %d, PrevDayIncome %d, хотим 3 и 480", g.Day, g.PrevDayIncome)
 	}
 }
+
+// ITGAME-66: шаблон офлайна сбрасывает дневные поля только у своей копии
+// сотрудников — живая игра их не теряет (раньше Employees был общим массивом).
+func TestOfflineTemplateDoesNotTouchLiveEmployees(t *testing.T) {
+	g := hiredGame(t)
+	live := &g.Offices[0].Employees[0]
+	live.UnpaidToday, live.CoffeeUntil, live.MotivatedUntil = true, 7, 8
+	live.PCBroken, live.OffendedUntil = true, 9
+	tpl := g.offlineTemplate()
+	if e := tpl.Offices[0].Employees[0]; e.UnpaidToday || e.CoffeeUntil != 0 ||
+		e.MotivatedUntil != 0 || e.PCBroken || e.OffendedUntil != 0 {
+		t.Fatalf("шаблон не сбросил дневные поля: %+v", e)
+	}
+	if !live.UnpaidToday || live.CoffeeUntil != 7 || live.MotivatedUntil != 8 ||
+		!live.PCBroken || live.OffendedUntil != 9 {
+		t.Fatalf("шаблон переписал живого сотрудника: %+v", *live)
+	}
+}

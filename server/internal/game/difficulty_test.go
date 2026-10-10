@@ -66,3 +66,20 @@ func TestApplyDifficultyCopiesSlices(t *testing.T) {
 		t.Errorf("ApplyDifficulty мутировал базовый конфиг: %d", base.RouterTiers[0].Price)
 	}
 }
+
+// ITGAME-66: ApplyDifficulty клонирует все срезы базового конфига — запись
+// на месте в конфиг одной сессии не утекает в общий Handler.Config и в другие.
+func TestApplyDifficultyClonesSlices(t *testing.T) {
+	base := DefaultConfig()
+	xp, bonus := base.EmployeeLevelXP[0], base.EmployeeLevelBonus[0]
+	a := ApplyDifficulty(base, DiffNormal)
+	a.EmployeeLevelXP[0], a.EmployeeLevelBonus[0] = 1, 99
+	if base.EmployeeLevelXP[0] != xp || base.EmployeeLevelBonus[0] != bonus {
+		t.Fatalf("запись в конфиг сессии утекла в базовый: XP %v, бонус %v",
+			base.EmployeeLevelXP, base.EmployeeLevelBonus)
+	}
+	if b := ApplyDifficulty(base, DiffHard); b.EmployeeLevelXP[0] != xp || b.EmployeeLevelBonus[0] != bonus {
+		t.Fatalf("запись в конфиг сессии утекла в другую: XP %v, бонус %v",
+			b.EmployeeLevelXP, b.EmployeeLevelBonus)
+	}
+}
