@@ -86,7 +86,7 @@ export class MenuScene extends Phaser.Scene {
   private peekToken = 0
   private focusItems: FocusItem[] = []
   private focusId = ''
-  private focusMarker?: Phaser.GameObjects.Text
+  private focusMarker?: Phaser.GameObjects.Triangle
   // Открыто подтверждение новой партии: отмена возвращает фокус на
   // «Продолжить» — повторный Enter продолжает, а не спрашивает снова.
   private confirmOpen = false
@@ -321,8 +321,9 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5))
 
-    this.focusMarker = this.add.text(CX - 272, 0, '▶', { fontFamily: FONT, fontSize: '18px', color: '#f4f4f4' })
-      .setOrigin(1, 0.5)
+    // Треугольник графикой, а не глифом ▶: в Departure Mono его нет, а у
+    // Unifont (ITD Symbols) он вдвое мельче прежнего системного (ITGAME-48).
+    this.focusMarker = this.add.triangle(CX - 279, 0, 0, 0, 14, 9, 0, 18, 0xf4f4f4)
     ui.push(this.focusMarker)
 
     // Фокус по умолчанию: «Продолжить», если есть, иначе НОРМА; пережил
@@ -363,7 +364,7 @@ export class MenuScene extends Phaser.Scene {
       f.bg.setStrokeStyle(on ? 3 : 2, on ? f.focus : f.stroke)
       markActive(f.bg, on)
     }
-    this.focusMarker?.setY(item.y).setColor('#' + item.focus.toString(16).padStart(6, '0'))
+    this.focusMarker?.setY(item.y).setFillStyle(item.focus)
   }
 
   private moveFocus(step: number) {
