@@ -351,11 +351,12 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
 | `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63); explicit exit freezes the party: the exit dialog pauses, Отмена/Esc/✕ restore the speed, «Сохранить и выйти» → «Продолжить» keeps tick/day/money and the speed, also from an open day report (ITGAME-65); on the victory screen (storage sid cleared) `itd.server().sid`/`liveSid` stay the live party's sid (ITGAME-68) | :4181, self-serve + temp saves dir |
+| `npm run qa:report-pause` | the day report pauses the party (speed 0, time and balance stand still); Enter/Space/`btn.next_day`/`itd.cmd('next_day')` restore the pre-report speed; F5 with the report open keeps `itd.speedBeforeReport`, «Продолжить» reopens it paused and closing restores 3×; an outside `itd.speed(0)` over the report survives; `itd.set({tickInDay})` refused in `day_report`; `skipReports` changes the day without a modal or a stuck 0 (ITGAME-18, self-serve since ITGAME-70) | :4182, self-serve + temp saves dir |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |
 | `npm run visreg` | screenshot diff + layout linter per fixture scenario | :4173, self-serve, `VISREG_PORT` overrides |
 
 `qa:buttons`/`qa:hud`/`qa:facade`/`qa:slots`/`qa:trace`/`qa:contract`/`qa:tabs`/
-`qa:party`/`visreg` share `client/scripts/lib/selfserve.mjs`: it rebuilds `bin/itdirector` on every
+`qa:party`/`qa:report-pause`/`visreg` share `client/scripts/lib/selfserve.mjs`: it rebuilds `bin/itdirector` on every
 run (`go build` into a temp file, then an atomic rename — a no-op relink takes
 under 1 s, so QA never runs against a binary older than `server/`) and runs it
 over `client/dist`, refuses WHATWG bad ports (e.g. 4190, 6000 — fetch and
@@ -365,9 +366,9 @@ with the local `client/dist` build (not someone else's) — a busy port fails
 loudly instead of running the suite against the wrong server. It also sets
 `ITGAME_DEBUG=1` on the spawned `bin/itdirector` (see [Agent bridge](
 #agent-bridge-wsagent)), since `itd.set()`/`itd.step()`/`itd.advanceDays()`/… — used by
-`qa:buttons`, `qa:hud`, `qa:trace`, `qa:facade`, `qa:slots`, `qa:party` — need `/api/debug/*`
-registered. `qa:tabs`/`qa:party` additionally self-serves with a temporary saves
-directory, since their session-takeover/«Continue» scenarios need a real saves store
+`qa:buttons`, `qa:hud`, `qa:trace`, `qa:facade`, `qa:slots`, `qa:party`, `qa:report-pause` — need `/api/debug/*`
+registered. `qa:tabs`/`qa:party`/`qa:report-pause` additionally self-serves with a temporary saves
+directory, since their session-takeover/«Continue»/F5 scenarios need a real saves store
 (`-saves off` won't do).
 `qa:meta`/`smoke-ui` instead self-serve a plain `vite preview` over `dist`
 on :4173, which proxies `/ws`/`/admin`/`/api` to `localhost:8080`

@@ -1,7 +1,24 @@
+// qa-itgame18 — пауза отчёта дня (ITGAME-18), `npm run qa:report-pause`:
+//   отчёт дня ставит партию на паузу (speed 0), время и баланс стоят; Enter / Space /
+//   btn.next_day / itd.cmd('next_day') закрывают его и возвращают скорость до отчёта;
+//   F5 при открытом отчёте: sessionStorage itd.speedBeforeReport переживает перезагрузку,
+//   «Продолжить» поднимает отчёт на паузе, закрытие возвращает 3×; внешняя пауза
+//   (itd.speed(0) поверх отчёта) не снимается; itd.set({tickInDay}) в day_report отклонён;
+//   skipReports — день меняется без модалки и без залипания скорости в 0; нет pageerror.
+//
+// Self-serve (ITGAME-70, по образцу qa-itgame47): без QA_BASE поднимает Go-сервер на QA_PORT
+// (по умолчанию :4182) с временным каталогом сейвов — F5 → «Продолжить» восстанавливает партию
+// из сейва, без стора (-saves off) нечего восстанавливать. Внешнему серверу (QA_BASE) тоже
+// нужны сейвы и ITGAME_DEBUG=1. Раньше порт :8089 был зашит, а сервер не поднимался — набор
+// не входил ни в один qa:*-скрипт.
+//
+// sid задаётся явно (sessionStorage, только вкладке): реконнект после F5 под тем же sid
+// поднимает сейв, а ?scenario=fresh действует только на первую партию.
 import { existsSync } from 'node:fs'
 import puppeteer from 'puppeteer-core'
+import { selfServe } from './lib/selfserve.mjs'
 
-const BASE = process.env.QA_BASE || 'http://localhost:8089'
+const SELF_PORT = Number(process.env.QA_PORT) || 4182
 
 function chromePath() {
   const cands = [
@@ -15,11 +32,16 @@ function chromePath() {
   return found
 }
 
-const browser = await puppeteer.launch({
-  executablePath: chromePath(),
-  headless: 'new',
-  args: ['--no-sandbox', '--disable-dev-shm-usage'],
-})
+let stopServer = null
+if (!process.env.QA_BASE) {
+  try {
+    ;({ stop: stopServer } = await selfServe({ port: SELF_PORT, saves: 'tmp', label: 'QA-ITGAME18' }))
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e))
+    process.exit(1)
+  }
+}
+const BASE = process.env.QA_BASE || `http://127.0.0.1:${SELF_PORT}`
 
 const results = []
 const check = (name, pass, fact) => {
@@ -27,11 +49,20 @@ const check = (name, pass, fact) => {
   console.log(`${pass ? 'PASS' : 'FAIL'}: ${name} — ${fact}`)
 }
 
+// launch внутри try: упавший Chromium не должен оставлять bin/itdirector на порту
+let browser = null
 try {
+  browser = await puppeteer.launch({
+    executablePath: chromePath(),
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  })
   const page = await browser.newPage()
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e)))
-  page.on('console', (msg) => console.log('PAGE:', msg.text()))
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') console.log('PAGE error:', msg.text())
+  })
 
   await page.evaluateOnNewDocument(() => {
     if (!sessionStorage.getItem('itd.sid')) {
@@ -59,7 +90,7 @@ try {
   })
   check('Скорость установлена на 2x', set2x === 2, `speed=${set2x}`)
 
-  // 3. Перемотаем к концу дня (тик 23 из 24)
+  // 3. Перемотаем к концу дня (тик 53 из 54)
   await page.evaluate(async () => {
     await window.itd.set({ tickInDay: 53 })
   })
@@ -261,16 +292,18 @@ try {
   check('skipReports: день перешел на 7 без модала', skipResult.day === 7 && !skipResult.hasModal, `day=${skipResult.day}, modal=${skipResult.hasModal}`)
   check('skipReports: скорость не залипла на 0 (осталась 2)', skipResult.speed === 2, `speed=${skipResult.speed}`)
 
-  check('Ошибок на странице нет', pageErrors.length === 0, `errors=${pageErrors.length}`)
+  check('Ошибок на странице нет', pageErrors.length === 0, `errors=${pageErrors.length} ${pageErrors.join(' | ')}`)
   await page.close()
+} catch (e) {
+  check('сценарий выполнен без исключений', false, e instanceof Error ? e.message : String(e))
 } finally {
-  await browser.close()
+  if (browser) await browser.close()
+  if (stopServer) await stopServer()
 }
 
 const failed = results.filter((r) => !r.pass)
+console.log(`\nИтог QA-ITGAME18: ${results.length - failed.length}/${results.length} проверок прошло`)
 if (failed.length > 0) {
-  console.error(`\nITGAME-18 QA FAILED: ${failed.length} checks failed!`)
+  console.error(`Провалено: ${failed.map((f) => f.name).join(', ')}`)
   process.exit(1)
-} else {
-  console.log(`\nITGAME-18 QA PASSED: All ${results.length} checks passed!`)
 }
