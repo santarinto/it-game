@@ -188,6 +188,21 @@ stripped immediately after reading, so a shared link with the flag doesn't
 linger in the URL). Cosmetic only: `/admin` is not exposed on the public
 domain regardless (see [Deploy](#deploy)).
 
+**Build stamp and «устарело, обнови»** (ITGAME-78): the same `#topbar` shows
+the tab's own build sha (`#build`, = `itd.version.sha`) left of «Админка».
+`client/src/buildstamp.ts` compares it with the build the stand would serve on
+reload — the sha in `<meta name="build">` of a fresh `GET /` — and, if that is
+missing, with the server binary's sha (`GET /api/version` → `{sha}`, public,
+`no-store`; `vcs.revision` of `go build`, `unknown` under `go run`). On a
+mismatch a red «устарело, обнови» button (`#stale`, click reloads,
+`#topbar[data-stale]`) appears. Checks run on load, after a socket reconnect
+(a stand restart drops WS), on returning to the tab and once a minute while it
+is visible. `await itd.stale()` runs a fresh check and answers `{client,
+server, dist, stale, at}`; `stale: null` means there is nothing to compare
+(vite dev serves no meta and hot-reloads anyway; a build without git reads
+`dev`, see [Deploy](#deploy) — on production nginx `/api/*` also falls
+through to the SPA). `itd.screen().meta.stale` carries the last result.
+
 `itd.help()` prints the full command reference in the console. Worth
 documenting separately:
 
@@ -375,7 +390,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:buttons` | HUD buy-button enabled/tooltip/alpha states (ITGAME-17) | :4180, self-serve |
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35) | :4179, self-serve + temp saves dir |
 | `npm run qa:hud` | HUD layout column, toast stack, no overlaps (ITGAME-16) | :4174, self-serve |
-| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72) | :4175, self-serve |
+| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78) | :4175, self-serve |
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |

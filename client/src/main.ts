@@ -9,6 +9,7 @@ import { ServerRoomScene } from './scenes/ServerRoomScene'
 import { installAgentApi } from './debug/agentApi'
 import { debug } from './debug'
 import { client } from './net'
+import { CLIENT_SHA, watchStale } from './buildstamp'
 
 // «Админка» (ITGAME-22): только владельцу — ?admin=1 запоминает флаг, ?admin=0 снимает; в debug видна всегда.
 function adminLinkWanted(): boolean {
@@ -24,7 +25,19 @@ function adminLinkWanted(): boolean {
 if (adminLinkWanted()) {
   const bar = document.createElement('div'); bar.id = 'topbar'
   const a = document.createElement('a'); a.href = '/admin'; a.target = '_blank'; a.textContent = 'Админка'
-  bar.append(a); document.body.prepend(bar)
+  // Штамп сборки (ITGAME-78): sha JS вкладки; красная метка — стенд отдаёт уже
+  // другую сборку, вкладка на старом JS. Клик по метке перезагружает вкладку.
+  const stamp = document.createElement('span'); stamp.id = 'build'; stamp.textContent = CLIENT_SHA
+  stamp.title = `сборка вкладки ${CLIENT_SHA} · ${__BUILD_AT__}`
+  const warn = document.createElement('button'); warn.id = 'stale'; warn.type = 'button'; warn.hidden = true
+  warn.textContent = 'устарело, обнови'
+  warn.addEventListener('click', () => location.reload())
+  bar.append(warn, stamp, a); document.body.prepend(bar)
+  watchStale((i) => {
+    warn.hidden = i.stale !== true
+    warn.title = `вкладка ${i.client}, стенд ${i.dist ?? i.server ?? '?'} — перезагрузить`
+    bar.dataset.stale = String(i.stale)
+  })
 }
 
 // Рендер 2× (render.ts): патч фабрики текстов должен стоять до создания

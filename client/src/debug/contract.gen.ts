@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "372e104b7f1f",
+  "hash": "9ef72b5fc187",
   "methods": {
     "version": {
       "kind": "prop",
@@ -235,10 +235,19 @@ export const CONTRACT = {
         }
       ],
       "returns": "ScreenMap",
-      "doc": "Карта экрана одним вызовом (ITGAME-72): {meta, n, items}. meta — sha, tab\n(sid), day, clock, t, bal, speed, phase, staff, pay, hudClock/hudBal (что\nнарисовано в HUD, рядом с серверными clock/bal), blocker, title (заголовок\nверхнего окна). items — строки 'safe|подпись|x|y|флаги' по видимым\nинтерактивам с id: x/y — центр в CSS px окна, с frame — в рамке снимка такой\nширины; флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), D —\nнеактивна (нет денег/мест). free — только без X, scene — одна сцена.",
+      "doc": "Карта экрана одним вызовом (ITGAME-72): {meta, n, items}. meta — sha, tab\n(sid), day, clock, t, bal, speed, phase, staff, pay, hudClock/hudBal (что\nнарисовано в HUD, рядом с серверными clock/bal), blocker, title (заголовок\nверхнего окна), stale (последний itd.stale()). items — строки 'safe|подпись|x|y|флаги' по видимым\nинтерактивам с id: x/y — центр в CSS px окна, с frame — в рамке снимка такой\nширины; флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), D —\nнеактивна (нет денег/мест). free — только без X, scene — одна сцена.",
       "examples": [
         "itd.screen()",
         "itd.screen({ free: true, frame: 1280 })"
+      ]
+    },
+    "stale": {
+      "kind": "method",
+      "params": [],
+      "returns": "Promise<StaleInfo>",
+      "doc": "Вкладка на старом JS? (ITGAME-78) Свежая проверка: {client, server, dist,\nstale, at}. client — sha этой вкладки, dist — sha сборки, которую стенд\nотдаст при перезагрузке (meta build его index.html), server — sha бинаря\n(GET /api/version). stale: client ≠ dist (без dist — ≠ server); null —\nсверить не с чем (vite dev, сборка без git). Та же проверка красит метку\n«устарело, обнови» в #topbar.",
+      "examples": [
+        "await itd.stale()"
       ]
     },
     "offline": {
@@ -1857,6 +1866,11 @@ export const CONTRACT = {
           "type": "string | null",
           "optional": false,
           "doc": "заголовок верхнего окна (markTitle) или null"
+        },
+        "stale": {
+          "type": "boolean | null",
+          "optional": false,
+          "doc": "вкладка на старом JS по последней проверке (itd.stale(), ITGAME-78); null — не проверяли или не с чем"
         }
       }
     },
@@ -1954,6 +1968,36 @@ export const CONTRACT = {
         "open",
         "reconnecting"
       ]
+    },
+    "StaleInfo": {
+      "kind": "object",
+      "fields": {
+        "client": {
+          "type": "string",
+          "optional": false,
+          "doc": "sha JS этой вкладки (= itd.version.sha)"
+        },
+        "server": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "sha бинаря сервера (GET /api/version); null — неизвестен"
+        },
+        "dist": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "sha сборки, которую стенд отдаст при перезагрузке (<meta name=\"build\"> его index.html)"
+        },
+        "stale": {
+          "type": "boolean | null",
+          "optional": false,
+          "doc": "вкладка на старом JS (client ≠ dist, без dist — ≠ server); null — сверить не с чем"
+        },
+        "at": {
+          "type": "number",
+          "optional": false,
+          "doc": "epoch ms проверки"
+        }
+      }
     },
     "StateMessage": {
       "kind": "object",

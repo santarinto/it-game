@@ -7,6 +7,9 @@ import type { OfflineCatchUp, SocketStatus, TransportErrorCode } from '../net'
 import { COMMAND_TYPES } from '../protocol'
 import type { CommandType, ServerErrorCode, StateMessage } from '../protocol'
 import { CONTRACT } from './contract.gen'
+import { checkStale, lastStale } from '../buildstamp'
+import type { StaleInfo } from '../buildstamp'
+export type { StaleInfo }
 import { AI_SPRITES } from '../scenes/BootScene'
 import type { MenuScene } from '../scenes/MenuScene'
 import { PALETTES, SPRITES } from '../assets/manifest'
@@ -349,6 +352,7 @@ export interface ScreenMeta {
   hudBal: string | null // что НАРИСОВАНО в hud.money
   blocker: string | null // «safe|сцена@depth» перекрытия во весь холст или null
   title: string | null // заголовок верхнего окна (markTitle) или null
+  stale: boolean | null // вкладка на старом JS по последней проверке (itd.stale(), ITGAME-78); null — не проверяли или не с чем
 }
 
 export interface ScreenMap {
@@ -559,7 +563,7 @@ export interface ItdApi {
    * Карта экрана одним вызовом (ITGAME-72): {meta, n, items}. meta — sha, tab
    * (sid), day, clock, t, bal, speed, phase, staff, pay, hudClock/hudBal (что
    * нарисовано в HUD, рядом с серверными clock/bal), blocker, title (заголовок
-   * верхнего окна). items — строки 'safe|подпись|x|y|флаги' по видимым
+   * верхнего окна), stale (последний itd.stale()). items — строки 'safe|подпись|x|y|флаги' по видимым
    * интерактивам с id: x/y — центр в CSS px окна, с frame — в рамке снимка такой
    * ширины; флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), D —
    * неактивна (нет денег/мест). free — только без X, scene — одна сцена.
@@ -567,6 +571,16 @@ export interface ItdApi {
    * @example itd.screen({ free: true, frame: 1280 })
    */
   screen(opts?: ScreenOptions): ScreenMap
+  /**
+   * Вкладка на старом JS? (ITGAME-78) Свежая проверка: {client, server, dist,
+   * stale, at}. client — sha этой вкладки, dist — sha сборки, которую стенд
+   * отдаст при перезагрузке (meta build его index.html), server — sha бинаря
+   * (GET /api/version). stale: client ≠ dist (без dist — ≠ server); null —
+   * сверить не с чем (vite dev, сборка без git). Та же проверка красит метку
+   * «устарело, обнови» в #topbar.
+   * @example await itd.stale()
+   */
+  stale(): Promise<StaleInfo>
   /**
    * Последний офлайн-догон этой страницы: {ticks, days, shown, at, droppedAt,
    * leftAt, liveTicks, open, paused} или null. droppedAt — последний сейв
@@ -1045,6 +1059,7 @@ function buildScreen(game: Phaser.Game, opts: ScreenOptions = {}): ScreenMap {
     hudBal: drawn('hud.money'),
     blocker: b ? `${b.safe ?? b.scene}@${b.depth}` : null,
     title: b?.title ?? topTitle(game),
+    stale: lastStale()?.stale ?? null,
   }
   const items: string[] = []
   for (const n of nodes) {
@@ -1147,7 +1162,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.offscreen()                   — линтер: вылезание за канвас 1280×720; + {scene:'page', type:'canvas'} — канвас не влез в окно (CSS px)
   itd.hit('btn.menu')               — попадёт ли НАСТОЯЩИЙ клик в центр объекта в него: {ok, at{x,y}, top{scene,id,type,depth}} — top перехватит (затемнение отчёта поверх HUD); itd.click этого не видит
   itd.blocker()                     — что перекрывает ввод во весь холст (затемнение отчёта, модалка) или null: {scene, type, id, safe, depth, title — заголовок окна}
-  itd.screen({frame?, free?, scene?}) — карта экрана: {meta:{sha, tab, day, clock, t, bal, speed, phase, staff, pay, hudClock, hudBal, blocker, title}, n, items:['safe|подпись|x|y|флаги']}; x/y — центр в CSS px окна (frame — в рамке снимка такой ширины); флаги A выбрана, X перекрыта, D неактивна; free — только без X
+  itd.screen({frame?, free?, scene?}) — карта экрана: {meta:{sha, tab, day, clock, t, bal, speed, phase, staff, pay, hudClock, hudBal, blocker, title, stale}, n, items:['safe|подпись|x|y|флаги']}; x/y — центр в CSS px окна (frame — в рамке снимка такой ширины); флаги A выбрана, X перекрыта, D неактивна; free — только без X
   itd.offline()                     — последний офлайн-догон страницы {ticks, days, shown, at, droppedAt, leftAt, liveTicks, open, paused} — liveTicks: шло вживую, пока сервер не заметил уход: shown:false — догон внутри дня, окна «Пока вас не было» не было; пока окно открыто, партия на паузе
   itd.injectError('x')              — бросить тестовую ошибку страницы «itd.injectError: x» (проверить журнал errors() и поле load; у записи injected: true)
   itd.contrast()                    — линтер: контраст текста к фону ниже 3:1
@@ -1157,6 +1172,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.errors()                      — ошибки страницы (window.onerror + unhandledrejection), переживают перезагрузку вкладки: load — номер загрузки
   itd.net(20)                       — последние сообщения WS в обе стороны + сокет/rtt/реконнекты
   itd.version                       — {sha, builtAt} сборки (+ <meta name="build"> в html)
+  await itd.stale()                 — вкладка на старом JS? {client, server, dist, stale, at}: client — sha вкладки, dist — sha сборки, которую стенд отдаст на F5, server — sha бинаря (/api/version); stale null — сверить не с чем (vite dev, сборка без git); красная метка «устарело, обнови» в #topbar — та же проверка
   itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне палитры манифеста ключа (hd32/sweetie16), дубли ключей
   itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк)
   itd.reset()                       — снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум, отчёты)
@@ -1329,6 +1345,7 @@ function makeApi(game: Phaser.Game): ItdApi {
       warmIfHidden()
       return buildScreen(game, opts)
     },
+    stale: () => checkStale(),
     offline() {
       const last = client.lastOffline
       if (!last) return null

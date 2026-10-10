@@ -14,6 +14,9 @@
 //       hudClock/hudBal — нарисованное; blocker() отдаёт safe и title
 //   S2  btn:next_day — без X, точка = центр в CSS px; btn:menu под затемнением — X; free и frame
 //   S3  $100 — у btn:pc флаг D в screen() и disabled true в nodes() (ITGAME-72)
+//   V1  itd.stale() на свежей вкладке: stale false, dist = client = version.sha, штамп sha в #topbar (ITGAME-78)
+//   V2  index.html стенда с другим sha (подмена ответа fetch('/')) → stale true, метка «устарело, обнови»
+//       видна, высота #topbar та же; ответ снова свой → метка скрыта
 //   C2  без skipReports: та же промотка дня → модалка отчёта без interactive-находок;
 //       btn.skip_reports active меняется false→true по клику, localStorage синхронизирован
 //   C3  сдвиг btn.next_day на строку отчёта → находка {kind:'interactive'} с ним
@@ -152,6 +155,48 @@ async function run() {
 
     await page.goto(`${BASE}/?scenario=fresh&seed=1&debug=1`, { waitUntil: 'domcontentloaded' })
     await waitMenuReady(page)
+
+    // ── V1/V2 (ITGAME-78): штамп сборки и «устарело, обнови» в #topbar (страница с debug=1)
+    const v1 = await page.evaluate(async () => {
+      const st = await window.itd.stale()
+      return {
+        st, sha: window.itd.version.sha, stamp: document.getElementById('build')?.textContent ?? null,
+        warnHidden: document.getElementById('stale')?.hidden ?? null, data: document.getElementById('topbar')?.dataset.stale ?? null,
+        h: document.getElementById('topbar')?.offsetHeight ?? 0, meta: window.itd.screen().meta.stale,
+      }
+    })
+    check(
+      'V1: свежая вкладка — stale false, dist = client = itd.version.sha, штамп sha в #topbar, метка скрыта, meta.stale false',
+      v1.st.stale === false && v1.st.client === v1.sha && v1.st.dist === v1.sha && v1.stamp === v1.sha &&
+        (v1.st.server === null || typeof v1.st.server === 'string') && v1.warnHidden === true && v1.data === 'false' && v1.meta === false,
+      JSON.stringify(v1),
+    )
+    // Стенд «пересобран»: index.html отдаёт другой sha — подменяем ответ на fetch('/').
+    await page.setRequestInterception(true)
+    const fakeIndex = (req) => {
+      const u = new URL(req.url())
+      if (req.resourceType() === 'fetch' && u.pathname === '/') {
+        req.respond({ status: 200, contentType: 'text/html', body: '<html><head><meta name="build" content="0000000 2026-10-10T00:00:00Z" /></head></html>' })
+      } else req.continue()
+    }
+    page.on('request', fakeIndex)
+    const v2 = await page.evaluate(async () => {
+      const st = await window.itd.stale()
+      const w = document.getElementById('stale')
+      return {
+        st, warnHidden: w?.hidden ?? null, text: w?.textContent ?? null, visible: !!w && w.offsetWidth > 0,
+        data: document.getElementById('topbar')?.dataset.stale ?? null, h: document.getElementById('topbar')?.offsetHeight ?? 0,
+      }
+    })
+    page.off('request', fakeIndex)
+    await page.setRequestInterception(false)
+    const v2b = await page.evaluate(async () => ({ st: await window.itd.stale(), warnHidden: document.getElementById('stale')?.hidden ?? null }))
+    check(
+      'V2: стенд отдаёт другой sha — stale true, красная метка «устарело, обнови» видна, высота #topbar та же; стенд снова свой — метка скрыта',
+      v2.st.stale === true && v2.st.dist === '0000000' && v2.warnHidden === false && v2.visible && v2.text === 'устарело, обнови' &&
+        v2.data === 'true' && v2.h === v1.h && v2b.st.stale === false && v2b.warnHidden === true,
+      JSON.stringify({ v2, v2b, h1: v1.h }),
+    )
 
     // ── A1: ровно один активный зум; сложности и статистика — не переключатели
     const idsA1 = await ids(page)

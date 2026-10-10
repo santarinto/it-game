@@ -184,6 +184,10 @@ func debugCall(ctx context.Context, sess *session, req debugRequest) <-chan debu
 	return out
 }
 
+// ServerVersion — то же для GET /api/version (ITGAME-78: штамп сборки в
+// клиенте сверяет вкладку со стендом).
+func ServerVersion() string { return serverVersion() }
+
 // serverVersion — sha сервера: go build вшивает vcs.revision (Go 1.18+).
 // В dev (go run) штампа нет — "unknown"; продовый бинарарь deploy-local.sh
 // собирает go build — там живой sha.

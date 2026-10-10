@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"log"
 	"net/http"
@@ -105,6 +106,13 @@ func newMux(cfg game.Config, database *db.DB, saves *store.Store, staticDir stri
 		mux.Handle("/api/debug/", http.HandlerFunc(wsHandler.ServeDebug))
 	}
 	mux.Handle("GET /admin", &admin.Handler{Config: cfg, DB: database})
+	// Штамп сборки (ITGAME-78): sha бинаря сервера для itd.stale() и метки
+	// «устарело» у владельца. Без гейта: sha открытого репо — не секрет.
+	mux.Handle("GET /api/version", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(map[string]string{"sha": ws.ServerVersion()})
+	}))
 	if staticDir != "" {
 		files := http.FileServer(http.Dir(staticDir))
 		// Sourcemaps (ITGAME-28): бандл собирается с sourcemap:'hidden' —

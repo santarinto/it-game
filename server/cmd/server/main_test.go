@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"itdirector/internal/game"
 	"net/http"
 	"net/http/httptest"
@@ -131,5 +132,31 @@ func TestDebugRoutesGate(t *testing.T) {
 		if resp.StatusCode == http.StatusNotFound {
 			t.Fatalf("с ITGAME_DEBUG=1 /api/debug/fixtures не должен быть 404")
 		}
+	}
+}
+
+// GET /api/version (ITGAME-78): sha сервера без гейта ITGAME_DEBUG, JSON, no-store.
+func TestVersionEndpoint(t *testing.T) {
+	srv := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, "", false))
+	t.Cleanup(srv.Close)
+	resp, err := http.Get(srv.URL + "/api/version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("/api/version: %d", resp.StatusCode)
+	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("Cache-Control: %q", cc)
+	}
+	var body struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.SHA == "" {
+		t.Fatal("sha пустой — ожидался sha бинаря или unknown")
 	}
 }

@@ -31,6 +31,14 @@
         padding: 4px 12px;
       }
       #topbar a:hover { background: #3b5dc9; color: #f4f4f4; }
+      /* Штамп сборки и «устарело, обнови» (ITGAME-78): та же высота строки, что у «Админки». */
+      #topbar #build { color: #5d7275; font-family: monospace; font-size: 13px; margin-right: 12px; }
+      #topbar #stale {
+        color: #f4f4f4; font-family: monospace; font-size: 15px; cursor: pointer;
+        background: #b13e53; border: 1px solid #b13e53; border-radius: 4px;
+        padding: 4px 12px; margin-right: 12px;
+      }
+      #topbar #stale[hidden] { display: none; }
     </style>
   </head>
   <body>
