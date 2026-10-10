@@ -631,9 +631,6 @@ export class OfficeScene extends Phaser.Scene {
 
   private hideTooltip() {
     this.tooltip.setVisible(false)
-    // Текст тоже гасим: itd.text()/itd.nodes() смотрят visible самого текста,
-    // не контейнера — скрытый тултип иначе «виден» агенту (ITGAME-89).
-    this.tooltipText.setText('')
   }
 
   // ITGAME-89: открыто окно сцены — над тултипом лежит интерактивная подложка
