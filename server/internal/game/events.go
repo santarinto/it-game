@@ -221,11 +221,11 @@ func (g *Game) tickEvents(income int) {
 			g.DeadlineOn = false
 			if g.DeadlineGot >= g.DeadlineGoal {
 				reward := int(deadlineRewardShare * float64(g.DeadlineGoal) / g.cfg.EventK)
-				g.eventMoney(reward)
+				g.eventMoney(reward, "дедлайн выполнен")
 				g.logEvent(fmt.Sprintf("дедлайн выполнен (+$%d)", reward))
 			} else {
 				fine := int(deadlineFineShare * float64(g.DeadlineGoal) * g.cfg.EventK)
-				g.eventMoney(-fine)
+				g.eventMoney(-fine, "дедлайн провален")
 				g.logEvent(fmt.Sprintf("дедлайн провален (−$%d)", fine))
 			}
 		}
@@ -239,11 +239,11 @@ func (g *Game) tickEvents(income int) {
 		if g.TickInDay >= g.cfg.auditTick() {
 			ev.Resolved = true
 			if g.auditPasses() {
-				g.eventMoney(g.cfg.AuditReward)
+				g.eventMoney(g.cfg.AuditReward, "аудит пройден")
 				g.logEvent(fmt.Sprintf("аудит пройден (+$%d)", g.cfg.AuditReward))
 			} else {
 				fine := g.auditFine()
-				g.eventMoney(-fine)
+				g.eventMoney(-fine, "аудит провален")
 				g.logEvent(fmt.Sprintf("аудит провален (−$%d)", fine))
 			}
 		}
@@ -332,7 +332,7 @@ func (g *Game) ChooseEvent(option int) error {
 			if g.Money < g.cfg.VirusPrice {
 				return ErrNotEnoughMoney
 			}
-			g.eventMoney(-g.cfg.VirusPrice)
+			g.eventMoney(-g.cfg.VirusPrice, "вирус: антивирус")
 			g.Offices[ev.Office].VirusUntil = 0
 			g.logEvent(fmt.Sprintf("вирус: куплен антивирус (−$%d)", g.cfg.VirusPrice))
 		} else if option == 1 {
@@ -349,7 +349,7 @@ func (g *Game) ChooseEvent(option int) error {
 			g.logEvent(fmt.Sprintf("дедлайн принят: цель $%d", g.DeadlineGoal))
 		case 1:
 			fine := int(deadlineRefuseShare * float64(g.deadlineGoalFor()) * g.cfg.EventK)
-			g.eventMoney(-fine)
+			g.eventMoney(-fine, "дедлайн отклонён")
 			g.logEvent(fmt.Sprintf("дедлайн отклонён (−$%d)", fine))
 		default:
 			return ErrBadOption
@@ -386,7 +386,7 @@ func (g *Game) ChooseEvent(option int) error {
 			if g.Money < price {
 				return ErrNotEnoughMoney
 			}
-			g.Money -= price
+			g.spend(CmdEventChoice, price)
 			o := &g.Offices[oi]
 			o.Employees = append(o.Employees, Employee{
 				Name:          rollName(g.rng) + " ★",
@@ -412,9 +412,14 @@ func (g *Game) ChooseEvent(option int) error {
 
 // eventMoney — деньги исхода события: в баланс и в «Прибыль» дня
 // (ITGAME-53). Найм звезды — покупка, идёт мимо, как обычный найм.
-func (g *Game) eventMoney(delta int) {
+// what — строка книги дня (ITGAME-73).
+func (g *Game) eventMoney(delta int, what string) {
 	g.Money += delta
 	g.DayEventMoney += delta
+	g.Ledger.EventMoney += delta
+	if len(g.Ledger.Events) < ledgerItemsCap {
+		g.Ledger.Events = append(g.Ledger.Events, LedgerEvent{What: what, Money: delta, Clock: g.Clock()})
+	}
 }
 
 func (g *Game) logEvent(s string) {

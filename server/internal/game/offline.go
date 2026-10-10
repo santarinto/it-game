@@ -43,6 +43,7 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 		inc := g.sumIncome(g.TickInDay, g.TickInDay+miss)
 		g.Money += inc
 		g.DayIncome += inc
+		g.Ledger.Income += inc
 		g.TickInDay += miss
 		s.Income, s.Balance = inc, g.Money
 		if g.checkOfflineWin(s) {
@@ -52,8 +53,11 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	}
 	inc := g.sumIncome(g.TickInDay, dayTicks)
 	expenses := g.PayrollPerDay()
-	g.Money += inc - expenses
+	g.Money += inc
 	g.DayIncome += inc
+	g.Ledger.Income += inc
+	g.Ledger.Offline = true
+	g.chargeDay(expenses, g.gatewayOpex())
 	g.PrevDayIncome = g.DayIncome
 	s.Income, s.Payroll = inc, expenses
 	s.Days++ // текущий день закрывается — для игрока это прошедший день
@@ -70,10 +74,18 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	tpl.MarketToday = 0
 	dayInc := tpl.sumIncome(0, dayTicks)
 	dayExp := tpl.PayrollPerDay()
+	dayOpex := tpl.gatewayOpex()
 	for miss >= dayTicks {
+		g.archiveLedger()
 		g.Day++
 		miss -= dayTicks
-		g.Money += dayInc - dayExp
+		g.TickInDay = 0
+		g.beginLedger()
+		g.TickInDay = dayTicks
+		g.Money += dayInc
+		g.Ledger.Income += dayInc
+		g.Ledger.Offline = true
+		g.chargeDay(dayExp, dayOpex)
 		s.Income += dayInc
 		g.PrevDayIncome = dayInc
 		s.Payroll += dayExp
@@ -84,12 +96,16 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	}
 
 	// 3. Частичный новый день: сброс дня без роллов (событий офлайн нет).
+	g.archiveLedger()
 	g.resetForNextDay()
 	g.Day++
+	g.TickInDay = 0
+	g.beginLedger()
 	g.TickInDay = miss
 	inc = g.sumIncome(0, miss)
 	g.Money += inc
 	g.DayIncome = inc
+	g.Ledger.Income += inc
 	s.Income += inc
 	s.Balance = g.Money
 	if g.checkOfflineWin(s) {

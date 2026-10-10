@@ -71,6 +71,7 @@ const (
 	kindScenario = "scenario" // пересоздать партию фикстурой
 	kindAdvance  = "advance"  // промотка днями/тиками (движок offline)
 	kindEvents   = "events"   // хвост журнала событий
+	kindLedger   = "ledger"   // книга дня (ITGAME-73)
 )
 
 // debugRequest — запрос HTTP-хендлера к актору. Reply буферизован: актор
@@ -83,6 +84,7 @@ type debugRequest struct {
 	days     int             // kind=advance
 	ticks    int             // kind=advance
 	n        int             // kind=events
+	day      int             // kind=ledger: 0 — текущий день
 	Reply    chan debugReply
 }
 
@@ -197,6 +199,12 @@ func (h *Handler) ServeDebug(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.serveDebugEvents(w, r)
+	case "/api/debug/ledger":
+		if r.Method != http.MethodGet {
+			writeDebugErr(w, http.StatusMethodNotAllowed, "метод не тот")
+			return
+		}
+		h.serveDebugLedger(w, r)
 	default:
 		writeDebugErr(w, http.StatusNotFound, "нет такого debug-маршрута")
 	}
@@ -293,6 +301,44 @@ func (h *Handler) serveDebugEvents(w http.ResponseWriter, r *http.Request) {
 	finishDebug(w, rep)
 }
 
+// serveDebugLedger — GET /api/debug/ledger?sid=&day=N: книга дня (ITGAME-73);
+// без day — текущий.
+func (h *Handler) serveDebugLedger(w http.ResponseWriter, r *http.Request) {
+	day := 0
+	if v := r.URL.Query().Get("day"); v != "" {
+		if _, err := fmt.Sscanf(v, "%d", &day); err != nil || day < 1 {
+			writeDebugErr(w, http.StatusBadRequest, "day — целое ≥ 1 (без day — текущий день)")
+			return
+		}
+	}
+	rep, _ := h.sendDebug(r.URL.Query().Get("sid"), debugRequest{kind: kindLedger, day: day})
+	finishDebug(w, rep)
+}
+
+// ledgerReply — книга дня и сверка: Sum слагаемых против BalanceEnd.
+// Поля книги — на верхнем уровне (встраивание), как их отдаёт itd.ledger().
+type ledgerReply struct {
+	game.DayLedger
+	PurchasesTotal int   `json:"purchasesTotal"`
+	Profit         int   `json:"profit"`   // = day_report.profit закрытого дня: доход + события − ФОТ − опекс
+	Delta          int   `json:"delta"`    // balanceEnd − balanceStart
+	Balanced       bool  `json:"balanced"` // слагаемые сходятся с delta ровно
+	History        []int `json:"history"`  // дни, по которым есть книга (itd.ledger(day))
+}
+
+func newLedgerReply(l game.DayLedger, days []int) ledgerReply {
+	if l.Events == nil {
+		l.Events = []game.LedgerEvent{}
+	}
+	if l.Purchases == nil {
+		l.Purchases = []game.LedgerPurchase{}
+	}
+	return ledgerReply{
+		DayLedger: l, PurchasesTotal: l.PurchasesTotal(), Profit: l.Profit(),
+		Delta: l.BalanceEnd - l.BalanceStart, Balanced: l.Sum() == l.BalanceEnd, History: days,
+	}
+}
+
 func writeDebugErr(w http.ResponseWriter, code int, msg string) {
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
@@ -377,6 +423,15 @@ func (h *Handler) applyDebug(
 
 	case kindEvents:
 		reply(debugReply{Code: http.StatusOK, Body: map[string]any{"sid": sid, "events": jr.last(req.n)}})
+
+	case kindLedger:
+		l, ok := g.LedgerOf(req.day)
+		if !ok {
+			reply(debugReply{Code: http.StatusNotFound,
+				Err: fmt.Sprintf("нет книги дня %d: есть %v", req.day, g.LedgerDayList())})
+			return false
+		}
+		reply(debugReply{Code: http.StatusOK, Body: newLedgerReply(l, g.LedgerDayList())})
 
 	case kindPatch:
 		if err := applyDebugPatch(g, req.patch); err != "" {
@@ -490,10 +545,11 @@ func applyDebugPatch(g *game.Game, p debugPatch) string {
 		}
 	}
 	if p.Money != nil {
-		g.Money = *p.Money
+		g.AdjustMoney(*p.Money) // разница — в Adjust книги дня (ITGAME-73)
 	}
 	if p.Day != nil {
 		g.Day = *p.Day
+		g.RelabelLedger()
 	}
 	if p.TickInDay != nil {
 		g.TickInDay = *p.TickInDay

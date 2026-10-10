@@ -79,5 +79,8 @@ func NewFixture(cfg Config, name, seedStr string) (*Game, error) {
 	if err != nil {
 		return nil, fmt.Errorf("фикстура %s: %w", name, err)
 	}
+	// Книга дня (ITGAME-73) — с момента фикстуры: её деньги — старт, не правка.
+	g.LedgerHistory = nil
+	g.beginLedger()
 	return g, nil
 }

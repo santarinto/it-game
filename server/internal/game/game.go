@@ -82,6 +82,11 @@ type Game struct {
 	// День 1 без рынка (онбординг), дальше качели ±MarketSwingPct.
 	MarketToday    int
 	MarketTomorrow int
+
+	// Бухгалтерия (ITGAME-73): книга текущего дня и LedgerDays закрытых
+	// (см. ledger.go). Пишется там же, где меняется Money.
+	Ledger        DayLedger
+	LedgerHistory []DayLedger
 }
 
 // Причины проигрыша — значения поля reason протокола.
@@ -130,6 +135,7 @@ func NewWithSeed(cfg Config, s1, s2 uint64) *Game {
 	g.Offices[0] = Office{Unlocked: true, PCs: cfg.StartPCs}
 	// Рынок: сегодня онбординг без качелей, завтрашний ролл уже виден.
 	g.MarketTomorrow = g.rollMarket()
+	g.beginLedger()
 	return g
 }
 
@@ -239,7 +245,9 @@ func (g *Game) settleDebt() bool {
 	if g.Money >= 0 {
 		return false
 	}
-	g.Money -= int(math.Ceil(float64(-g.Money) * g.cfg.CreditRate))
+	interest := int(math.Ceil(float64(-g.Money) * g.cfg.CreditRate))
+	g.Money -= interest
+	g.Ledger.Interest += interest
 	return -g.Money > g.cfg.CreditLimit
 }
 
@@ -470,6 +478,7 @@ func (g *Game) Tick() *DayReport {
 	}
 	g.Money += income
 	g.DayIncome += income
+	g.Ledger.Income += income
 	g.DayLostIncome += lost
 	g.tickEvents(income)
 	g.PeakIncomePerTick = max(g.PeakIncomePerTick, income)
@@ -488,7 +497,7 @@ func (g *Game) Tick() *DayReport {
 	expenses := g.PayrollPerDay()
 	opex := g.gatewayOpex()
 	payroll := expenses - opex
-	g.Money -= expenses
+	g.chargeDay(expenses, opex)
 	g.closeDay()
 	return &DayReport{Day: g.Day, Income: g.DayIncome, Payroll: payroll,
 		GatewayOpex: opex, EventMoney: g.DayEventMoney,

@@ -44,6 +44,10 @@ type Save struct {
 	DeadlineGoal      int        `json:"deadlineGoal"`
 	MarketToday       int        `json:"marketToday"`    // рынок дня, % (Сложность 2.0)
 	MarketTomorrow    int        `json:"marketTomorrow"` // завтрашний ролл, виден заранее
+	// Бухгалтерия (ITGAME-73): текущий день и не больше LedgerDays закрытых.
+	// Нет в сейве (старый сейв) — книга начинается с текущего тика.
+	Ledger        *DayLedger  `json:"ledger,omitempty"`
+	LedgerHistory []DayLedger `json:"ledgerHistory,omitempty"`
 }
 
 // Export — слепок текущего состояния для сейва.
@@ -63,6 +67,11 @@ func (g *Game) Export() Save {
 	// Указатель в план дня дал бы полю activeEvent затереть его элемент;
 	// связь восстанавливает Restore.
 	s.DayEvents = slices.Clone(g.DayEvents)
+	cur := g.Ledger.clone()
+	s.Ledger = &cur
+	for _, l := range g.LedgerHistory {
+		s.LedgerHistory = append(s.LedgerHistory, l.clone())
+	}
 	if g.ActiveEvent != nil {
 		ev := *g.ActiveEvent
 		s.ActiveEvent = &ev
@@ -164,6 +173,7 @@ func Restore(s Save) (*Game, error) {
 		MarketToday: s.MarketToday, MarketTomorrow: s.MarketTomorrow,
 	}
 	g.DayEvents, g.ActiveEvent = bindActiveEvent(s.DayEvents, s.ActiveEvent)
+	g.restoreLedger(s.Ledger, s.LedgerHistory)
 	// RNG ресивится по сиду из сейва (ITGAME-26): та же последовательность
 	// роллов, что с начала партии. Старые сейвы без сида — свежий
 	// случайный, как до ITGAME-26.

@@ -423,3 +423,67 @@ func TestRestoredActiveEventChosenOnce(t *testing.T) {
 		}
 	}
 }
+
+// GET /api/debug/ledger (ITGAME-73): книга дня с покупкой, правкой и
+// промоткой — сведена (balanced), история по дням, чужой день — 404.
+func TestDebugLedger(t *testing.T) {
+	cfg := game.DefaultConfig()
+	cfg.WinTarget = 1_000_000
+	base, _ := startDebugServer(t, cfg, time.Hour)
+	ctx := context.Background()
+
+	sid := "debug-sid-ledger"
+	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(base, "http")+"/ws?sid="+sid+"&seed=1", nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.CloseNow()
+	var first testMessage
+	if err := wsjson.Read(ctx, c, &first); err != nil {
+		t.Fatal(err)
+	}
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 0}); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" && m.Money == cfg.StartMoney-cfg.HirePrice })
+	code, out := httpDebug(t, base, "POST", "/api/debug/state", fmt.Sprintf(`{"sid":%q,"money":1000}`, sid))
+	if code != 200 {
+		t.Fatalf("patch: %d %v", code, out)
+	}
+
+	code, out = httpDebug(t, base, "GET", "/api/debug/ledger?sid="+sid, "")
+	if code != 200 {
+		t.Fatalf("ledger: %d %v", code, out)
+	}
+	if out["balanced"] != true || num(t, out["day"]) != 1 || num(t, out["balanceStart"]) != cfg.StartMoney ||
+		num(t, out["balanceEnd"]) != 1000 || num(t, out["adjust"]) != 1000-(cfg.StartMoney-cfg.HirePrice) ||
+		num(t, out["purchasesTotal"]) != cfg.HirePrice || out["closed"] != false {
+		t.Fatalf("книга дня 1: %v", out)
+	}
+	buys := out["purchases"].([]any)
+	if len(buys) != 1 || stateOf(t, buys[0])["type"] != "hire" {
+		t.Fatalf("покупки: %v", buys)
+	}
+
+	code, out = httpDebug(t, base, "POST", "/api/debug/advance", fmt.Sprintf(`{"sid":%q,"days":2}`, sid))
+	if code != 200 {
+		t.Fatalf("advance: %d %v", code, out)
+	}
+	for _, d := range []int{1, 2} {
+		code, out = httpDebug(t, base, "GET", fmt.Sprintf("/api/debug/ledger?sid=%s&day=%d", sid, d), "")
+		if code != 200 || out["balanced"] != true || out["closed"] != true || out["offline"] != true || num(t, out["payroll"]) == 0 {
+			t.Fatalf("книга дня %d: %d %v", d, code, out)
+		}
+		if h := out["history"].([]any); len(h) != 3 {
+			t.Fatalf("history: %v", h)
+		}
+	}
+	code, out = httpDebug(t, base, "GET", "/api/debug/ledger?sid="+sid+"&day=99", "")
+	if code != 404 || !strings.Contains(fmt.Sprint(out["error"]), "есть [1 2 3]") {
+		t.Fatalf("день 99: %d %v", code, out)
+	}
+	code, _ = httpDebug(t, base, "GET", "/api/debug/ledger?sid="+sid+"&day=x", "")
+	if code != 400 {
+		t.Fatalf("day=x: %d", code)
+	}
+}

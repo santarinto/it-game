@@ -64,7 +64,7 @@ func (g *Game) BuyPC(office int) error {
 	if g.Money < price {
 		return ErrNotEnoughMoney
 	}
-	g.Money -= price
+	g.spend(CmdBuyPC, price)
 	o.PCs++
 	return nil
 }
@@ -97,7 +97,7 @@ func (g *Game) Hire(office int) error {
 	if g.Money < g.cfg.HirePrice {
 		return ErrNotEnoughMoney
 	}
-	g.Money -= g.cfg.HirePrice
+	g.spend(CmdHire, g.cfg.HirePrice)
 	name := rollName(g.rng)
 	income := g.cfg.IncomeMin + g.rng.IntN(g.cfg.IncomeMax-g.cfg.IncomeMin+1)
 	star := g.rng.IntN(100) < g.cfg.StarChancePct
@@ -139,7 +139,7 @@ func (g *Game) Fire(office, slot int) error {
 	if g.Money < comp {
 		return ErrNotEnoughMoney
 	}
-	g.Money -= comp
+	g.spend(CmdFire, comp)
 	g.retargetRaiseEvents(office, slot)
 	o.Employees = append(o.Employees[:slot], o.Employees[slot+1:]...)
 	return nil
@@ -183,7 +183,7 @@ func (g *Game) BuyRouter(office int) error {
 	if g.Money < price {
 		return ErrNotEnoughMoney
 	}
-	g.Money -= price
+	g.spend(CmdBuyRouter, price)
 	o.RouterTier++
 	return nil
 }
@@ -200,7 +200,7 @@ func (g *Game) HireBoss(office int) error {
 	if g.Money < g.cfg.BossPrice {
 		return ErrNotEnoughMoney
 	}
-	g.Money -= g.cfg.BossPrice
+	g.spend(CmdHireBoss, g.cfg.BossPrice)
 	o.Boss = rollName(g.rng)
 	o.BossUnpaidToday = g.hiredAfterLunch()
 	return nil
@@ -225,7 +225,7 @@ func (g *Game) BuyOffice(office int) error {
 	if g.Money < price {
 		return ErrNotEnoughMoney
 	}
-	g.Money -= price
+	g.spend(CmdBuyOffice, price)
 	g.Offices[next].Unlocked = true
 	return nil
 }
@@ -238,7 +238,7 @@ func (g *Game) BuyGateway() error {
 	if g.Money < g.cfg.GatewayPrice {
 		return ErrNotEnoughMoney
 	}
-	g.Money -= g.cfg.GatewayPrice
+	g.spend(CmdBuyGateway, g.cfg.GatewayPrice)
 	g.Gateway = true
 	return nil
 }
@@ -256,7 +256,7 @@ func (g *Game) BuyServer(office int) error {
 	if g.Money < price {
 		return ErrNotEnoughMoney
 	}
-	g.Money -= price
+	g.spend(CmdBuyServer, price)
 	o.Servers = append(o.Servers, 1)
 	return nil
 }
@@ -277,7 +277,7 @@ func (g *Game) UpgradeServer(office, slot int) error {
 	if g.Money < price {
 		return ErrNotEnoughMoney
 	}
-	g.Money -= price
+	g.spend(CmdUpgradeServer, price)
 	o.Servers[slot]++
 	return nil
 }
@@ -291,13 +291,13 @@ func (g *Game) UpgradeCore() error {
 	if g.Money < price {
 		return ErrNotEnoughMoney
 	}
-	g.Money -= price
+	g.spend(CmdUpgradeCore, price)
 	g.CoreLevel++
 	return nil
 }
 
 // buyAmenity — общая покупка быт-устройства офиса.
-func (g *Game) buyAmenity(office, price int, flag func(*Office) *bool) error {
+func (g *Game) buyAmenity(kind Command, office, price int, flag func(*Office) *bool) error {
 	o, err := g.office(office)
 	if err != nil {
 		return err
@@ -309,24 +309,24 @@ func (g *Game) buyAmenity(office, price int, flag func(*Office) *bool) error {
 	if g.Money < price {
 		return ErrNotEnoughMoney
 	}
-	g.Money -= price
+	g.spend(kind, price)
 	*f = true
 	return nil
 }
 
 // BuyCooler ставит кулер с водой (снимает дебафф жажды).
 func (g *Game) BuyCooler(office int) error {
-	return g.buyAmenity(office, g.cfg.CoolerPrice, func(o *Office) *bool { return &o.Cooler })
+	return g.buyAmenity(CmdBuyCooler, office, g.cfg.CoolerPrice, func(o *Office) *bool { return &o.Cooler })
 }
 
 // BuyFridge ставит холодильник (снимает дебафф голода).
 func (g *Game) BuyFridge(office int) error {
-	return g.buyAmenity(office, g.cfg.FridgePrice, func(o *Office) *bool { return &o.Fridge })
+	return g.buyAmenity(CmdBuyFridge, office, g.cfg.FridgePrice, func(o *Office) *bool { return &o.Fridge })
 }
 
 // BuyCoffeeMachine ставит кофеварку (случайный бафф кофе).
 func (g *Game) BuyCoffeeMachine(office int) error {
-	return g.buyAmenity(office, g.cfg.CoffeeMachinePrice, func(o *Office) *bool { return &o.CoffeeMachine })
+	return g.buyAmenity(CmdBuyCoffee, office, g.cfg.CoffeeMachinePrice, func(o *Office) *bool { return &o.CoffeeMachine })
 }
 
 // Motivate — активный день: клик по сотруднику даёт бафф «мотивирован»
@@ -385,7 +385,7 @@ func (g *Game) CallMaster(office, slot int) error {
 	if g.Money < g.cfg.MasterCallPrice {
 		return ErrNotEnoughMoney
 	}
-	g.Money -= g.cfg.MasterCallPrice
+	g.spend(CmdCallMaster, g.cfg.MasterCallPrice)
 	e.PCBroken = false
 	e.RepairClicks = 0
 	return nil
@@ -421,6 +421,7 @@ func (g *Game) NextDay() error {
 			o.CoffeeEventTicks = nil
 		}
 	}
+	g.archiveLedger()
 	g.Day++
 	g.TickInDay = 0
 	g.DayIncome = 0
@@ -432,6 +433,7 @@ func (g *Game) NextDay() error {
 	g.MarketToday, g.MarketTomorrow = g.MarketTomorrow, g.rollMarket()
 	g.rollDayEvents()
 	g.Phase = PhaseRunning
+	g.beginLedger()
 	return nil
 }
 
