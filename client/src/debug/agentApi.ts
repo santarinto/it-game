@@ -3,7 +3,7 @@ import { client, sessionId } from '../net'
 import { partyChange, partyReplaced, resetForNewGame } from '../party'
 import { nav } from '../rooms'
 import { GAME_H, GAME_W } from '../layout'
-import type { OfflineCatchUp, SocketStatus, TransportErrorCode } from '../net'
+import type { AwayMode, AwayReturn, OfflineCatchUp, SocketStatus, TransportErrorCode } from '../net'
 import { COMMAND_TYPES } from '../protocol'
 import type { CommandType, ServerErrorCode, StateCause, StateMessage } from '../protocol'
 import { CONTRACT } from './contract.gen'
@@ -470,6 +470,17 @@ export interface AgentOffline extends OfflineCatchUp {
   paused: boolean // скорость партии сейчас 0
 }
 
+// itd.away (ITGAME-76): режим и таймаут чтения для net.
+export interface AwayOptions {
+  mode?: AwayMode // close (по умолчанию) — как закрытая вкладка; net — как обрыв сети (debug-ручка drop)
+  timeout?: number // net: таймаут чтения этого соединения на сервере, мс (50..600000); без него — серверный (ITGAME_READ_TIMEOUT, по умолчанию 30 с)
+}
+
+// Итог itd.away: возврат в ту же партию + itd.offline() после него.
+export interface AwayResult extends AwayReturn {
+  offline: AgentOffline | null // itd.offline() после возврата; null — догона не было (сервер не заметил уход до возврата или партия на паузе)
+}
+
 export interface AgentResult {
   ok: boolean
   error?: string
@@ -730,6 +741,28 @@ export interface ItdApi {
    * @example itd.offline()
    */
   offline(): AgentOffline | null
+  /**
+   * Уход без ухода со страницы (ITGAME-76): на sec секунд (0..600) вкладка
+   * пропадает для сервера и возвращается в ту же партию — тот же sid,
+   * песочницы или владельца; без example.com, новой вкладки и пропавшего
+   * первого клика. mode 'close' (по умолчанию) — как закрытая вкладка:
+   * close-фрейм без exit, сервер узнаёт сразу. mode 'net' — как обрыв сети:
+   * POST /api/debug/drop (ITGAME_DEBUG): сервер перестаёт читать и писать в
+   * соединение без close-фрейма и замечает уход своим таймаутом чтения
+   * (ITGAME_READ_TIMEOUT, по умолчанию 30 с; timeout — свой для этого
+   * соединения, мс), а партия до этого идёт вживую — offline.liveTicks.
+   * Всё время ухода вкладка глуха и нема: команды — not_connected, сокет —
+   * reconnecting, сама не реконнектится. Ответ {ok, mode, sid, leftAt, back,
+   * resumed, rev, drop, offline}: back — первый снапшот нового сокета (cause
+   * resume), drop — ответ ручки {at, timeoutMs, noticeBy}, offline —
+   * itd.offline() после возврата (droppedAt — когда сервер заметил уход) или
+   * null. Коды: bad_sec, bad_mode, already_away, not_connected, finished,
+   * drop_failed, interrupted (вкладка ушла в меню/новую партию), no_return,
+   * not_resumed.
+   * @example await itd.away(5)
+   * @example await itd.away(20, { mode: 'net', timeout: 3000 })
+   */
+  away(sec: number, opts?: AwayOptions): Promise<AwayResult | (AgentResult & { code: 'bad_sec' | 'bad_mode' })>
   /**
    * Бросить тестовую ошибку страницы (асинхронно, через setTimeout) — чтобы
    * проверить журнал itd.errors() и его поле load, когда настоящих ошибок 0.
@@ -1511,6 +1544,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.stack('office:repair:0')      — стек под центром объекта (или itd.stack(gx, gy)) по НАСТОЯЩЕМУ хит-тесту Phaser (hitArea, renderList, topOnly): {ok, at{x,y}, stack['safe scene dN Type WxH'], wins{scene,id,safe,type,depth,title}} — wins получит pointerdown; '!' — сцена под забравшей клик
   itd.zones('office:repair:0', 'office:worker:0') — где зона A перекрыта B и наоборот (сетка 1 px, тот же хит-тест): {aUnderB[{x,y,w,h}], bUnderA[…], area{a, aUnderB, b, bUnderA}}
   itd.offline()                     — последний офлайн-догон страницы {ticks, days, shown, at, droppedAt, leftAt, liveTicks, open, paused} — liveTicks: шло вживую, пока сервер не заметил уход: shown:false — догон внутри дня, окна «Пока вас не было» не было; пока окно открыто, партия на паузе
+  await itd.away(5, {mode, timeout}) — уход на 5 с без ухода со страницы и возврат в ту же партию (тот же sid: песочницы или владельца): mode 'close' — как закрытая вкладка (close-фрейм, сервер знает сразу), 'net' — как обрыв сети (POST /api/debug/drop: сервер молчит и замечает уход своим таймаутом чтения — ITGAME_READ_TIMEOUT, 30 с; timeout — мс для этого соединения; до того партия идёт вживую) → {ok, mode, sid, leftAt, back, resumed, rev, drop{at, timeoutMs, noticeBy}, offline — itd.offline() после возврата или null}; пока в уходе — команды not_connected, сокет reconnecting
   itd.injectError('x')              — бросить тестовую ошибку страницы «itd.injectError: x» (проверить журнал errors() и поле load; у записи injected: true)
   itd.contrast()                    — линтер: контраст текста к фону ниже 3:1
   itd.tiny()                        — линтер: шрифт мельче 12px
@@ -1616,6 +1650,14 @@ function makeApi(game: Phaser.Game): ItdApi {
   const warmedNodes = (): AgentNode[] => {
     warmIfHidden()
     return activeNodes(game)
+  }
+  // itd.offline(): последний догон + окно на экране и пауза сейчас.
+  const offlineNow = (): AgentOffline | null => {
+    const last = client.lastOffline
+    if (!last) return null
+    warmIfHidden()
+    const open = activeNodes(game).some((n) => n.visible && (n.id === 'btn.offline.continue' || n.id === 'btn.offline.menu'))
+    return { ...last, open, paused: (client.latest?.speed ?? 0) === 0 }
   }
 
   const api: ItdApi = {
@@ -1773,12 +1815,19 @@ function makeApi(game: Phaser.Game): ItdApi {
       warmIfHidden()
       return zonesOf(game, safeA, safeB)
     },
-    offline() {
-      const last = client.lastOffline
-      if (!last) return null
-      warmIfHidden()
-      const open = activeNodes(game).some((n) => n.visible && (n.id === 'btn.offline.continue' || n.id === 'btn.offline.menu'))
-      return { ...last, open, paused: (client.latest?.speed ?? 0) === 0 }
+    offline: offlineNow,
+    async away(sec, opts = {}) {
+      if (typeof sec !== 'number' || !Number.isFinite(sec) || sec < 0 || sec > 600) {
+        return { ok: false, code: 'bad_sec', error: 'sec — секунды ухода, 0..600' }
+      }
+      const mode = opts.mode ?? 'close'
+      if (mode !== 'close' && mode !== 'net') {
+        return { ok: false, code: 'bad_mode', error: "mode — 'close' или 'net'" }
+      }
+      const r = await client.away(sec * 1000, mode, { timeoutMs: opts.timeout })
+      // догон этого ухода, а не прошлого: пришёл позже leftAt
+      const off = r.ok && r.leftAt !== null && (client.lastOffline?.at ?? 0) >= r.leftAt ? offlineNow() : null
+      return { ...r, offline: off }
     },
     injectError(message = 'проверка журнала') {
       setTimeout(() => { throw new Error(`itd.injectError: ${message}`) }, 0)

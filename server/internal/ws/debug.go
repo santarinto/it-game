@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -193,6 +194,12 @@ func (h *Handler) ServeDebug(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.serveDebugAdvance(w, r)
+	case "/api/debug/drop":
+		if r.Method != http.MethodPost {
+			writeDebugErr(w, http.StatusMethodNotAllowed, "метод не тот")
+			return
+		}
+		h.serveDebugDrop(w, r)
 	case "/api/debug/events":
 		if r.Method != http.MethodGet {
 			writeDebugErr(w, http.StatusMethodNotAllowed, "метод не тот")
@@ -337,6 +344,59 @@ func newLedgerReply(l game.DayLedger, days []int) ledgerReply {
 		DayLedger: l, PurchasesTotal: l.PurchasesTotal(), Profit: l.Profit(),
 		Delta: l.BalanceEnd - l.BalanceStart, Balanced: l.Sum() == l.BalanceEnd, History: days,
 	}
+}
+
+// dropReply — ответ POST /api/debug/drop: когда сервер замолчал и когда заметит.
+type dropReply struct {
+	SID       string `json:"sid"`
+	At        int64  `json:"at"`        // epoch ms: сервер перестал читать и писать в соединение вкладки
+	TimeoutMs int64  `json:"timeoutMs"` // таймаут чтения этого соединения
+	NoticeBy  int64  `json:"noticeBy"`  // at + timeoutMs: не раньше — сервер заметит уход (плюс шаг сторожа ≤ timeout/4)
+}
+
+// serveDebugDrop — POST /api/debug/drop?sid=&timeout=мс (ITGAME-76, itd.away
+// mode 'net'): обрыв сети без close-фрейма. Соединение вкладки остаётся
+// открытым, но сервер больше в него не пишет (hub его забыл) и не читает
+// (readLoop выбрасывает входящее, ping не шлём) — уход он замечает своим
+// таймаутом чтения, тем же путём, что и настоящий обрыв, а партия до этого
+// идёт вживую. timeout (50..600000 мс) укорачивает таймаут этого соединения
+// для QA; без него — Handler.ReadTimeout. Мосты агента не трогает.
+func (h *Handler) serveDebugDrop(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	sid := q.Get("sid")
+	if !store.ValidSID(sid) {
+		writeDebugErr(w, http.StatusBadRequest, "bad_sid")
+		return
+	}
+	var timeout time.Duration
+	if v := q.Get("timeout"); v != "" {
+		var ms int64
+		if _, err := fmt.Sscanf(v, "%d", &ms); err != nil ||
+			time.Duration(ms)*time.Millisecond < minDropTimeout || time.Duration(ms)*time.Millisecond > maxDropTimeout {
+			writeDebugErr(w, http.StatusBadRequest, "timeout — мс, целое 50..600000")
+			return
+		}
+		timeout = time.Duration(ms) * time.Millisecond
+	}
+	sess := h.lookupSession(sid)
+	if sess == nil {
+		writeDebugErr(w, http.StatusNotFound, "session_not_live (откройте страницу игры с этим sid)")
+		return
+	}
+	if sess.tab == nil {
+		writeDebugErr(w, http.StatusConflict, "no_tab: headless-сессия агента, рвать нечего")
+		return
+	}
+	at, eff, ok := sess.tab.drop(timeout)
+	if !ok {
+		writeDebugErr(w, http.StatusConflict, "already_dropped")
+		return
+	}
+	sess.hub.remove(sess.tab.c) // ни снапшотов, ни ответов: сервер молчит
+	log.Printf("сессия %s: debug-обрыв, таймаут чтения %s", sid, eff)
+	writeDebugJSON(w, http.StatusOK, dropReply{
+		SID: sid, At: at.UnixMilli(), TimeoutMs: eff.Milliseconds(), NoticeBy: at.Add(eff).UnixMilli(),
+	})
 }
 
 func writeDebugErr(w http.ResponseWriter, code int, msg string) {

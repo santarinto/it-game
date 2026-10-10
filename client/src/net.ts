@@ -15,6 +15,34 @@ export const SOCKET_STATUSES = ['open', 'reconnecting', 'closed'] as const
 
 export type SocketStatus = (typeof SOCKET_STATUSES)[number]
 
+// Уход без ухода со страницы (ITGAME-76, itd.away): close — как закрытая
+// вкладка (close-фрейм, сервер знает сразу), net — как обрыв сети (debug-ручка
+// POST /api/debug/drop: сервер молчит и замечает уход своим таймаутом чтения).
+export const AWAY_MODES = ['close', 'net'] as const
+
+export type AwayMode = (typeof AWAY_MODES)[number]
+
+// Ответ ручки drop (mode net): когда сервер замолчал и когда заметит уход.
+export interface AwayDrop {
+  at: number // epoch ms: сервер перестал читать и писать в соединение вкладки
+  timeoutMs: number // таймаут чтения этого соединения
+  noticeBy: number // at + timeoutMs: раньше сервер уход не заметит
+}
+
+// Итог client.away: возврат в ту же партию (тот же sid, первый снапшот resumed).
+export interface AwayReturn {
+  ok: boolean
+  code?: 'already_away' | 'not_connected' | 'finished' | 'drop_failed' | 'interrupted' | 'no_return' | 'not_resumed'
+  error?: string
+  mode: AwayMode
+  sid: string | null // sid после возврата (= до ухода, если ok)
+  leftAt: number | null // epoch ms ухода: вкладка «пропала» для сервера
+  back: number | null // epoch ms возврата: первый снапшот нового сокета
+  resumed: boolean | null // первый снапшот возврата помечен resumed (та же партия)
+  rev: number | null // его rev (cause 'resume')
+  drop: AwayDrop | null // mode net: ответ ручки drop
+}
+
 // Квитанция команды (ITGAME-30/45): ok — сервер принял (state с re = id),
 // иначе code — серверный отказ или транспортный. id — номер команды на
 // проводе (её sent в itd.net()/itd.trace()), rev — версия состояния ответа
@@ -408,6 +436,16 @@ export class GameClient {
   private difficulty: DifficultyId = 'normal'
   lastOffline: OfflineCatchUp | null = null
   private broadcastChannel: BroadcastChannel | null = null
+  // Уход (ITGAME-76, itd.away): сокет, который вкладка «потеряла». Пока он
+  // есть, клиент сервера не видит: входящее этого сокета выбрасывается, команды
+  // не уходят, сам не реконнектится — вернётся away() по истечении срока.
+  private awayState: { mode: AwayMode; ws: WebSocket } | null = null
+  // Номер сокета (растёт в openSocket) и номер сокета последнего state: away
+  // ждёт первый снапшот нового сокета фактом (waitState), а не таймером.
+  private socketSeq = 0
+  private stateSocket = 0
+  // Ожидающие сообщения конкретного сокета (away: offline_report следом за resume).
+  private msgWaiters = new Set<(type: string, seq: number) => void>()
 
   constructor() {
     window.addEventListener('pagehide', () => {
@@ -468,6 +506,7 @@ export class GameClient {
 
   // Статус сокета одним словом — для itd.server() и баннеров.
   socketStatus(): SocketStatus {
+    if (this.awayState) return 'reconnecting' // ITGAME-76: в уходе, away вернёт сокет сам
     if (this.takenOver || this.intentionalClose) return 'closed'
     const rs = this.ws?.readyState
     if (rs === WebSocket.OPEN) return 'open'
@@ -529,6 +568,7 @@ export class GameClient {
   connect(difficulty: DifficultyId): void {
     this.latest = null
     this.pending = []
+    this.awayState = null // новая партия отменяет уход (away вернёт interrupted)
     this.intentionalClose = false
     this.takenOver = false
     this.sessionSid = null // смена sid здесь запланирована (новая партия)
@@ -575,9 +615,12 @@ export class GameClient {
     // не наши: запоздалый close старого сокета запустил бы реконнект и
     // войну session_taken с новым.
     const ws = this.ws
+    const seq = ++this.socketSeq
     this.firstOfSocket = true
     this.ws.onmessage = (ev) => {
       if (ws !== this.ws) return
+      // ITGAME-76: сокет в уходе — сервера «не видим», даже то, что уже летело
+      if (this.awayState?.ws === ws) return
       this.stats.messages++
       this.stats.lastMessageAt = Date.now()
       if (this.commandSentAt !== null) {
@@ -608,6 +651,7 @@ export class GameClient {
           if (!msg.resumed) resetForNewGame()
         }
         this.latest = msg
+        this.stateSocket = seq
         this.listeners.forEach((l) => l.onState(msg))
         this.checkStateWaiters(msg)
       } else if (msg.type === 'error') {
@@ -639,12 +683,16 @@ export class GameClient {
       } else {
         console.error('неизвестный тип сообщения от сервера', msg)
       }
+      for (const fn of [...this.msgWaiters]) fn(msg.type, seq)
     }
     // onerror и onclose могут прийти оба — реакция одна, ровно один раз.
     let handled = false
     const onGone = (ev: CloseEvent | null) => {
       if (ws !== this.ws || this.intentionalClose || handled) return
       handled = true
+      // ITGAME-76: сокет закрыл сам away (close) или сервер, заметив обрыв (net), —
+      // не реконнектимся до конца ухода, слушателям ничего не сообщаем
+      if (this.awayState?.ws === ws) return
       this.failReceipts('disconnected')
       const reason = ev?.reason ?? ''
       if (reason.includes('session_taken')) {
@@ -674,6 +722,7 @@ export class GameClient {
   // Намеренный разрыв: onDisconnect не дёргаем, реконнект не планируем.
   disconnect(): void {
     this.intentionalClose = true
+    this.awayState = null // выход в меню отменяет уход (away вернёт interrupted)
     this.pending = []
     this.sessionSid = null
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
@@ -693,6 +742,7 @@ export class GameClient {
 
   suspend(): void {
     if (!this.ws || this.intentionalClose || this.takenOver) return
+    this.awayState = null // bfcache сам ведёт сокет: уход прерван
     this.suspended = true
     this.intentionalClose = true
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
@@ -743,7 +793,7 @@ export class GameClient {
   // Сдаться: удалить сейв на сервере и забыть сессию локально.
   abandon(): void {
     this.sessionSid = null // смена sid здесь запланирована
-    if (this.ws.readyState === WebSocket.OPEN) {
+    if (this.ws.readyState === WebSocket.OPEN && !this.awayState) {
       this.ws.send(JSON.stringify({ type: 'abandon' }))
       this.logWire('out', 'abandon', { type: 'abandon' })
     }
@@ -765,7 +815,7 @@ export class GameClient {
   // Отправка с номером (ITGAME-45): каждая команда уходит с id — его видят
   // itd.net()/itd.trace() и сервер вернёт его как re. 0 — сокет не открыт.
   private sendCmd(cmd: CommandType, office: number, extra: Record<string, number>): number {
-    if (this.ws?.readyState !== WebSocket.OPEN) return 0
+    if (this.ws?.readyState !== WebSocket.OPEN || this.awayState) return 0
     this.commandSentAt = Date.now()
     if (cmd === 'set_speed') {
       this.speedSeq++
@@ -788,7 +838,7 @@ export class GameClient {
     extra: Record<string, number> = {},
     timeoutMs = 5000,
   ): Promise<Receipt> {
-    if (this.ws?.readyState !== WebSocket.OPEN) {
+    if (this.ws?.readyState !== WebSocket.OPEN || this.awayState) {
       return Promise.resolve({ ok: false, code: 'not_connected' })
     }
     return new Promise((resolve) => {
@@ -828,6 +878,108 @@ export class GameClient {
 
   waitRev(rev: number, timeoutMs = 5000): Promise<StateMessage | null> {
     return this.waitState((s) => s.rev >= rev, timeoutMs)
+  }
+
+  // Сообщение типа type от сокета seq; false — не пришло за timeoutMs. Без
+  // поллинга: проверка на каждом входящем. cancel — снять ожидание раньше.
+  private waitSocketMessage(seq: number, type: string, timeoutMs: number): { done: Promise<boolean>; cancel: () => void } {
+    let finish: (v: boolean) => void = () => {}
+    const done = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => finish(false), timeoutMs)
+      const check = (t: string, s: number) => {
+        if (t === type && s === seq) finish(true)
+      }
+      finish = (v) => {
+        clearTimeout(timer)
+        this.msgWaiters.delete(check)
+        resolve(v)
+      }
+      this.msgWaiters.add(check)
+    })
+    return { done, cancel: () => finish(false) }
+  }
+
+  // Уход без ухода со страницы (ITGAME-76, itd.away): на ms миллисекунд вкладка
+  // «пропадает» для сервера и возвращается в ту же партию (тот же sid —
+  // песочницы или владельца). close — close-фрейм без exit, как закрытая
+  // вкладка: сервер узнаёт сразу. net — POST /api/debug/drop (ITGAME_DEBUG):
+  // сервер перестаёт читать и писать в соединение без close-фрейма и замечает
+  // уход своим таймаутом чтения (timeoutMs укорачивает его для этого
+  // соединения), партия до этого идёт вживую. Всё время ухода клиент глух и нем:
+  // входящее выбрасывает, команды не шлёт (not_connected), сам не реконнектится.
+  // Возврат — первый снапшот нового сокета (waitState), а если он помечен
+  // offlineReport — ещё и offline_report следом: itd.offline() уже про этот уход.
+  async away(ms: number, mode: AwayMode, opts: { timeoutMs?: number } = {}): Promise<AwayReturn> {
+    const result = (r: Partial<AwayReturn> & { ok: boolean }): AwayReturn => ({
+      mode, sid: this.sessionSid, leftAt: null, back: null, resumed: null, rev: null, drop: null, ...r,
+    })
+    const forgetLeft = () => {
+      try { sessionStorage.removeItem(LEFT_KEY) } catch { /* без хранилища нечего убирать */ }
+    }
+    if (this.awayState) return result({ ok: false, code: 'already_away', error: 'уход уже идёт' })
+    const sid = this.sessionSid
+    const latest = this.latest
+    if (!latest || sid === null || this.socketStatus() !== 'open') {
+      return result({ ok: false, code: 'not_connected', error: 'сокет не открыт — уходить неоткуда' })
+    }
+    if (latest.phase === 'game_over' || latest.phase === 'won') {
+      return result({ ok: false, code: 'finished', error: 'партия окончена: сейва нет, возврат начал бы новую' })
+    }
+    const ws = this.ws
+    const mine = { mode, ws }
+    this.awayState = mine
+    this.failReceipts('disconnected')
+    const leftAt = Date.now()
+    // как pagehide: offline() разделит «шло вживую, пока сервер не заметил» и догон
+    try { sessionStorage.setItem(LEFT_KEY, JSON.stringify({ at: leftAt, speed: latest.speed })) } catch { /* liveTicks null */ }
+    let drop: AwayDrop | null = null
+    if (mode === 'close') {
+      ws.close(1000, 'away')
+    } else {
+      const q = new URLSearchParams({ sid })
+      if (opts.timeoutMs !== undefined) q.set('timeout', String(Math.round(opts.timeoutMs)))
+      let error = ''
+      try {
+        const r = await fetch(`/api/debug/drop?${q}`, { method: 'POST' })
+        const body = (await r.json().catch(() => ({}))) as Partial<AwayDrop> & { error?: string }
+        if (r.ok) drop = { at: body.at ?? leftAt, timeoutMs: body.timeoutMs ?? 0, noticeBy: body.noticeBy ?? 0 }
+        else error = `drop ${r.status}: ${body.error ?? 'нет ответа'}${r.status === 404 && !body.error ? ' (сервер без ITGAME_DEBUG=1?)' : ''}`
+      } catch (e) {
+        error = `drop: ${e instanceof Error ? e.message : String(e)}`
+      }
+      if (!drop) {
+        // сервер не оборвал — вкладка остаётся на живом сокете
+        if (this.awayState === mine) this.awayState = null
+        forgetLeft()
+        return result({ ok: false, code: 'drop_failed', error, leftAt })
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, leftAt + ms - Date.now())))
+    if (this.awayState !== mine) {
+      forgetLeft()
+      return result({ ok: false, code: 'interrupted', error: 'за время ухода вкладка ушла в меню или новую партию', leftAt, drop })
+    }
+    this.awayState = null
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = null
+    this.reconnectAttempt = 0
+    this.openSocket()
+    const seq = this.socketSeq
+    // offline_report идёт следом за первым снапшотом — ожидание ставим ДО него
+    const offline = this.waitSocketMessage(seq, 'offline_report', 15_000)
+    const first = await this.waitState(() => this.stateSocket === seq, 15_000)
+    const back = Date.now()
+    if (first?.offlineReport) await offline.done
+    else offline.cancel()
+    // net: старый сокет сервер закрыл сам, если заметил уход; иначе — его уже
+    // выселил новый (Begin) — закрываем свою сторону (события его не наши)
+    try { if (ws.readyState !== WebSocket.CLOSED) ws.close() } catch { /* уже закрыт */ }
+    forgetLeft() // не съеденная offline_report-ом метка не должна лечь на чужой уход
+    if (!first) return result({ ok: false, code: 'no_return', error: 'первого снапшота нового сокета нет за 15 с', leftAt, drop })
+    return result({
+      ok: first.resumed, ...(first.resumed ? {} : { code: 'not_resumed' as const, error: 'сервер начал новую партию: сейва под этим sid нет' }),
+      leftAt, back, resumed: first.resumed, rev: first.rev, drop,
+    })
   }
 
   // Повторно раздаёт последний снапшот — перерисовка сцен без сервера

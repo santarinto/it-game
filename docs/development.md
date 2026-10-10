@@ -90,7 +90,31 @@ written `<sid>.json`. On reconnect with the same `sid` within the TTL
   previous game in the tab left open, possibly a locked one (ITGAME-54). The
   rule applies to `/ws` only: `/ws/agent` observers (`observeAgent` in
   `server/internal/ws/agent.go`) get `resumed: false` in their first snapshot
-  even for a live game, so a client must not treat it as «new game» there.
+  even for a live game, so a client must not treat it as «new game» there;
+- **read timeout** (ITGAME-76, `server/internal/ws/liveness.go`): a `/ws` tab
+  connection keeps a «last heard» clock — any message or a pong to the
+  server's ping (sent when the client is silent for a third of the timeout;
+  the browser answers pings itself, also in a background tab, so a paused
+  idle tab never trips it). Silent longer than the read timeout — the server
+  treats the client as gone: closes the connection without a close frame, the
+  actor stops, and since it saves every tick, the last save is the moment the
+  server noticed; the offline catch-up on return counts from it. Before this a
+  network drop (no close frame) was noticed only when TCP gave up on a write —
+  minutes of the party running live without the player. A closed tab is
+  noticed at once (close frame). Default 30 s, `ITGAME_READ_TIMEOUT` (Go
+  duration: `5s`, `1500ms`) on the server; the debug drop below can shorten it
+  per connection. The first snapshot after a resume carries
+  `offlineReport: true` when an `offline_report` follows it, so a client can
+  wait for that report by fact rather than by a timer. Owner decision 10.10:
+  the 30 s default stays in production for every player — a real network drop
+  (a sleeping phone included) stops the party within ~30–40 s and the return
+  gets the offline catch-up;
+- **an early return takes the session over** (owner decision 10.10): when a
+  tab reconnects before the server noticed it gone (a network blip shorter
+  than the read timeout, `itd.away` `net` shorter than its `timeout`), the new
+  connection's `Begin()` evicts the old actor, and every `/ws/agent` observer
+  bridge of that party is closed with `session_taken` and reconnects as an
+  observer of the new actor — the same as for any reconnect or a second tab.
 
 The start menu reads the save's facts through `/ws?peek=1&sid=…`
 (ITGAME-19): the server sends one `save_summary` (`exists`, `alive`,
@@ -340,6 +364,40 @@ documenting separately:
   было» only for `days > 0` or a finale (`offlineShown()` in `net.ts`), so a
   short in-day gap stays silent for the player but is visible here. A save
   paused or sitting in a day report catches up nothing — no message, `null`.
+- **`await itd.away(sec, {mode, timeout})`** (ITGAME-76) — the tab «goes
+  away» for `sec` (0..600) seconds without leaving the page and comes back to
+  the same party (same sid — a sandbox's or the owner's; no example.com, no
+  new tab without the sessionStorage sid, no lost first click after
+  navigation). `mode: 'close'` (default) — like a closed tab: a close frame
+  without `exit`, the server knows at once. `mode: 'net'` — like a network
+  drop: `POST /api/debug/drop?sid=&timeout=` (`ITGAME_DEBUG`) makes the server
+  stop reading and writing that tab connection with no close frame (the hub
+  forgets it, `readLoop` throws incoming frames away, no pings); the server
+  notices by its own read timeout — the same path as a real drop — and until
+  then the party runs live: exactly what agent attempt F tripped on (2x from
+  tick 45 reached the day report live). `timeout` (ms, 50..600000) shortens
+  the read timeout of that connection only, for QA; without it the server's
+  (`ITGAME_READ_TIMEOUT`, 30 s). For the whole away the tab neither hears nor
+  speaks: incoming frames of that socket are dropped, commands answer
+  `not_connected`, `server().socket` is `reconnecting`, no reconnects of its
+  own. After `sec` it opens a new socket and waits for its first snapshot
+  (`cause: 'resume'`, via `client.waitState`) and, if it says
+  `offlineReport`, the report itself. Answer `{ok, mode, sid, leftAt, back,
+  resumed, rev, drop, offline}`: `leftAt` — when the tab went away (also
+  written as `itd.leftAt` like `pagehide`, so `offline().liveTicks` works),
+  `back` — the first snapshot of the new socket, `drop` — the drop answer
+  `{at, timeoutMs, noticeBy}` (`noticeBy = at + timeoutMs`, the server notices
+  not before it and at most a quarter of the timeout after), `offline` —
+  `itd.offline()` after the return (`droppedAt` = when the server noticed) or
+  `null` when there was no catch-up (the server had not noticed before the
+  return, or the party was paused). Codes: `bad_sec`, `bad_mode`,
+  `already_away`, `not_connected`, `finished` (no save after a finale — the
+  return would start a new party), `drop_failed` (no `ITGAME_DEBUG`, headless
+  agent session: `409 no_tab`), `interrupted` (the tab went to the menu or a
+  new party meanwhile), `no_return`, `not_resumed`. Example, 2x: `away(4,
+  {mode:'net', timeout:1500})` → `drop.at` +1.5 s `offline.droppedAt`,
+  `liveTicks` 3, `ticks` 5; `away(3)` → `droppedAt` ≈ `leftAt`, `liveTicks`
+  0, `ticks` 6.
 - **`itd.errors()`** — page errors, kept in the tab's `sessionStorage`
   (`itd.errors`, last 100) so they survive a reload/navigation; `load` is the
   page-load number in this tab (`itd.loads`). `itd.injectError(msg)` throws
@@ -538,7 +596,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks; `broken_pc`: the repair zone covers the worker and the «✖ чинить» label, real clicks repair (ITGAME-75) | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37); receipts by command id — `id`/`rev` in `cmd()`, `trace().sent`/`states`, `net()`, and no false receipt with a tick or an observer's (`/ws/agent`) snapshot in flight (ITGAME-45) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
-| `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63); explicit exit freezes the party: the exit dialog pauses, Отмена/Esc/✕ restore the speed, «Сохранить и выйти» → «Продолжить» keeps tick/day/money and the speed, also from an open day report (ITGAME-65); on the victory screen (storage sid cleared) `itd.server().sid`/`liveSid` stay the live party's sid (ITGAME-68); office/server-room windows (router, fire dialog via a real right click on `broken_pc`, core, rack) close on `itd.scenario()`/`itd.restore()`, a click where «Уволить» was sends nothing (ITGAME-69) | :4181, self-serve + temp saves dir |
+| `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63); explicit exit freezes the party: the exit dialog pauses, Отмена/Esc/✕ restore the speed, «Сохранить и выйти» → «Продолжить» keeps tick/day/money and the speed, also from an open day report (ITGAME-65); on the victory screen (storage sid cleared) `itd.server().sid`/`liveSid` stay the live party's sid (ITGAME-68); office/server-room windows (router, fire dialog via a real right click on `broken_pc`, core, rack) close on `itd.scenario()`/`itd.restore()`, a click where «Уволить» was sends nothing (ITGAME-69); A1–A7 `itd.away` (ITGAME-76): `close` — while away the socket is `reconnecting`, commands `not_connected`, the server session is gone at once, the return resumes the same sid with `droppedAt` ≈ `leftAt`; `net` with `timeout: 1500` — the server session lives (200) until its read timeout and is gone (404) after, `droppedAt − drop.at` ≈ 1.5 s, `liveTicks` ≈ 3 at 2x, catch-up from `droppedAt`; `net` shorter than the timeout — no catch-up, ticks ran live; the owner key untouched; inside `itd.sandbox` the return lands in the sandbox party | :4181, self-serve + temp saves dir |
 | `npm run qa:report-pause` | the day report pauses the party (speed 0, time and balance stand still); Enter/Space/`btn.next_day`/`itd.cmd('next_day')` restore the pre-report speed; F5 with the report open keeps `itd.speedBeforeReport`, «Продолжить» reopens it paused and closing restores 3×; an outside `itd.speed(0)` over the report survives; `itd.set({tickInDay})` refused in `day_report`; `skipReports` changes the day without a modal or a stuck 0 (ITGAME-18, self-serve since ITGAME-70) | :4182, self-serve + temp saves dir |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |
 | `npm run visreg` | screenshot diff + layout linter per fixture scenario | :4173, self-serve, `VISREG_PORT` overrides |

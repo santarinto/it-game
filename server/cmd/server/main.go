@@ -84,7 +84,19 @@ func main() {
 		log.Printf("сейвы отключены (-saves off): разрыв соединения = новая игра")
 	}
 
-	mux := newMux(cfg, database, saves, *static, debugRoutes)
+	// Таймаут чтения вкладки (ITGAME-76): клиент молчит дольше — сервер
+	// считает его ушедшим (обрыв сети без close-фрейма). Go duration: 5s, 1500ms.
+	readTimeout := ws.DefaultReadTimeout
+	if v := os.Getenv("ITGAME_READ_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			readTimeout = d
+		} else {
+			log.Printf("ITGAME_READ_TIMEOUT=%q не Go duration > 0 — беру %s", v, readTimeout)
+		}
+	}
+	log.Printf("таймаут чтения вкладки: %s", readTimeout)
+
+	mux := newMux(cfg, database, saves, *static, debugRoutes, readTimeout)
 	log.Printf("IT Director: слушаю %s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, mux))
 }
@@ -94,9 +106,9 @@ func main() {
 // debugRoutes — гейт отладочных маршрутов (ITGAME_DEBUG=1 в main): выключен
 // по умолчанию, флаг передаётся явно параметром (а не читается из env здесь),
 // чтобы тесты управляли им напрямую, без глобального состояния.
-func newMux(cfg game.Config, database *db.DB, saves *store.Store, staticDir string, debugRoutes bool) *http.ServeMux {
+func newMux(cfg game.Config, database *db.DB, saves *store.Store, staticDir string, debugRoutes bool, readTimeout time.Duration) *http.ServeMux {
 	mux := http.NewServeMux()
-	wsHandler := &ws.Handler{Config: cfg, TickInterval: time.Second, Saves: saves}
+	wsHandler := &ws.Handler{Config: cfg, TickInterval: time.Second, Saves: saves, ReadTimeout: readTimeout}
 	mux.Handle("GET /ws", wsHandler)
 	if debugRoutes {
 		// WS-мост агента (ITGAME-29) и HTTP debug-API (ITGAME-26): только

@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "c6d1517a4293",
+  "hash": "c20a6d468a71",
   "methods": {
     "version": {
       "kind": "prop",
@@ -305,6 +305,27 @@ export const CONTRACT = {
       "doc": "Последний офлайн-догон этой страницы: {ticks, days, shown, at, droppedAt,\nleftAt, liveTicks, open, paused} или null. droppedAt — последний сейв\n(сервер заметил обрыв), leftAt — уход со страницы этой вкладки, liveTicks —\nсколько тиков партия шла вживую между ними. shown:false — догон внутри дня, окно «Пока вас не было» игроку не\nпоказано; open — окно открыто сейчас; paused — скорость сейчас 0 (пока окно\nоткрыто, партия стоит).\nДогона нет и при ticks 0 (сейв на паузе или в отчёте дня) — тогда null.",
       "examples": [
         "itd.offline()"
+      ]
+    },
+    "away": {
+      "kind": "method",
+      "params": [
+        {
+          "name": "sec",
+          "type": "number",
+          "optional": false
+        },
+        {
+          "name": "opts",
+          "type": "AwayOptions",
+          "optional": true
+        }
+      ],
+      "returns": "Promise<AwayResult | (AgentResult & { code: 'bad_sec' | 'bad_mode'; })>",
+      "doc": "Уход без ухода со страницы (ITGAME-76): на sec секунд (0..600) вкладка\nпропадает для сервера и возвращается в ту же партию — тот же sid,\nпесочницы или владельца; без example.com, новой вкладки и пропавшего\nпервого клика. mode 'close' (по умолчанию) — как закрытая вкладка:\nclose-фрейм без exit, сервер узнаёт сразу. mode 'net' — как обрыв сети:\nPOST /api/debug/drop (ITGAME_DEBUG): сервер перестаёт читать и писать в\nсоединение без close-фрейма и замечает уход своим таймаутом чтения\n(ITGAME_READ_TIMEOUT, по умолчанию 30 с; timeout — свой для этого\nсоединения, мс), а партия до этого идёт вживую — offline.liveTicks.\nВсё время ухода вкладка глуха и нема: команды — not_connected, сокет —\nreconnecting, сама не реконнектится. Ответ {ok, mode, sid, leftAt, back,\nresumed, rev, drop, offline}: back — первый снапшот нового сокета (cause\nresume), drop — ответ ручки {at, timeoutMs, noticeBy}, offline —\nitd.offline() после возврата (droppedAt — когда сервер заметил уход) или\nnull. Коды: bad_sec, bad_mode, already_away, not_connected, finished,\ndrop_failed, interrupted (вкладка ушла в меню/новую партию), no_return,\nnot_resumed.",
+      "examples": [
+        "await itd.away(5)",
+        "await itd.away(20, { mode: 'net', timeout: 3000 })"
       ]
     },
     "injectError": {
@@ -1124,6 +1145,88 @@ export const CONTRACT = {
           "type": "'png' | 'pixelart'",
           "optional": false,
           "doc": "чем реально рисуют сцены"
+        }
+      }
+    },
+    "AwayMode": {
+      "kind": "enum",
+      "values": [
+        "close",
+        "net"
+      ]
+    },
+    "AwayOptions": {
+      "kind": "object",
+      "fields": {
+        "mode": {
+          "type": "'close' | 'net'",
+          "optional": true,
+          "doc": "close (по умолчанию) — как закрытая вкладка; net — как обрыв сети (debug-ручка drop)"
+        },
+        "timeout": {
+          "type": "number",
+          "optional": true,
+          "doc": "net: таймаут чтения этого соединения на сервере, мс (50..600000); без него — серверный (ITGAME_READ_TIMEOUT, по умолчанию 30 с)"
+        }
+      }
+    },
+    "AwayResult": {
+      "kind": "object",
+      "fields": {
+        "offline": {
+          "type": "AgentOffline | null",
+          "optional": false,
+          "doc": "itd.offline() после возврата; null — догона не было (сервер не заметил уход до возврата или партия на паузе)"
+        },
+        "ok": {
+          "type": "boolean",
+          "optional": false,
+          "doc": ""
+        },
+        "code": {
+          "type": "'not_connected' | 'already_away' | 'finished' | 'drop_failed' | 'interrupted' | 'no_return' | 'not_resumed'",
+          "optional": true,
+          "doc": ""
+        },
+        "error": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
+        },
+        "mode": {
+          "type": "'close' | 'net'",
+          "optional": false,
+          "doc": ""
+        },
+        "sid": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "sid после возврата (= до ухода, если ok)"
+        },
+        "leftAt": {
+          "type": "number | null",
+          "optional": false,
+          "doc": "epoch ms ухода: вкладка «пропала» для сервера"
+        },
+        "back": {
+          "type": "number | null",
+          "optional": false,
+          "doc": "epoch ms возврата: первый снапшот нового сокета"
+        },
+        "resumed": {
+          "type": "boolean | null",
+          "optional": false,
+          "doc": "первый снапшот возврата помечен resumed (та же партия)"
+        },
+        "rev": {
+          "type": "number | null",
+          "optional": false,
+          "doc": "его rev (cause 'resume')"
+        },
+        "drop": {
+          "type": "AwayDrop | null",
+          "optional": false,
+          "doc": "mode net: ответ ручки drop"
         }
       }
     },
@@ -2554,6 +2657,11 @@ export const CONTRACT = {
           "type": "boolean",
           "optional": false,
           "doc": "снапшот восстановленной сессии (ITGAME-8)"
+        },
+        "offlineReport": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "первый снапшот после resume: следом идёт offline_report (ITGAME-76)"
         },
         "seed": {
           "type": "string",

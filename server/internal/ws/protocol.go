@@ -94,6 +94,7 @@ type stateMessage struct {
 	CreditRatePct    int              `json:"creditRatePct"`  // процент за день на долг
 	ActiveEvent      *activeEventInfo `json:"activeEvent"`
 	Prices           prices           `json:"prices"`
+	OfflineReport    bool             `json:"offlineReport,omitempty"` // первый снапшот после resume: следом идёт offline_report (ITGAME-76)
 }
 
 // officeInfo — офис в снапшоте: всё для отрисовки комнаты и панели.

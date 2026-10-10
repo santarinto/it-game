@@ -25,6 +25,10 @@ type Handler struct {
 	Config       game.Config
 	TickInterval time.Duration
 	Saves        *store.Store // nil — stateless-режим без сейвов (старые тесты)
+	// ReadTimeout — таймаут чтения вкладки (ITGAME-76, liveness.go): клиент
+	// молчит дольше (ни сообщения, ни pong) — сервер считает его ушедшим.
+	// 0 — DefaultReadTimeout.
+	ReadTimeout time.Duration
 
 	// Реестр живых сессий (ITGAME-26/29): sid → актор с его каналами.
 	// Регистрирует сам актор, выписывается на выходе; агентские коннекты
@@ -40,6 +44,7 @@ type session struct {
 	debugC   chan debugRequest
 	commands chan clientCommand
 	hub      *connHub
+	tab      *tabConn // соединение вкладки (ITGAME-76: debug-обрыв); nil — headless-сессия агента
 }
 
 // connHub — широковещатель сессии: снапшоты и отчёты получают ВСЕ
@@ -214,11 +219,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	commands := make(chan clientCommand)
 	hub := newConnHub()
 	hub.add(c)
-	go readLoop(ctx, cancel, c, commands)
+	tab := newTabConn(c, h.readTimeout())
+	go readLoop(ctx, cancel, c, commands, tab)
 	sess := &session{
 		debugC:   make(chan debugRequest, 8),
 		commands: commands,
 		hub:      hub,
+		tab:      tab,
 	}
 
 	// Сложность применяется ТОЛЬКО при непустом query-параметре: иначе
@@ -229,6 +236,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		cfg = game.ApplyDifficulty(h.Config, game.ParseDifficulty(q))
 	}
 	sid := r.URL.Query().Get("sid")
+	// Сторож таймаута чтения (ITGAME-76): молчание дольше ReadTimeout — уход.
+	go tab.watch(ctx, cancel, sid)
 
 	// Отладочные параметры (ITGAME-26): ?seed= задаёт сид НОВОЙ партии
 	// (у сейва сид свой), ?scenario= стартует её в состоянии фикстуры.
@@ -247,14 +256,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // readLoop — единственный читатель соединения: превращает входящие
-// сообщения в команды для актора.
-func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn, commands chan<- clientCommand) {
+// сообщения в команды для актора. Он же читает pong-и сторожа (liveness.go):
+// Read обрабатывает управляющие кадры. После debug-обрыва (ITGAME-76)
+// входящее выбрасывается: сервер клиента «не слышит».
+func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn, commands chan<- clientCommand, tab *tabConn) {
 	defer cancel() // разрыв соединения останавливает актор
 	for {
 		var msg clientMessage
 		if err := wsjson.Read(ctx, c, &msg); err != nil {
 			return
 		}
+		if tab.isDropped() {
+			continue
+		}
+		tab.hear()
 		select {
 		case commands <- clientCommand{Cmd: game.Command(msg.Type), Office: msg.Office, Slot: msg.Slot, Speed: msg.Speed, From: c, ID: msg.ID}:
 		case <-ctx.Done():
@@ -397,12 +412,15 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 	defer h.unregisterSession(sid, sess)
 	debugC := sess.debugC
 
-	hub.write(ctx, rv.stamp(snapshot(g, speed, resumed, scenario)))
 	// Отчёт «пока вас не было»: всегда, когда догон что-то промотал. Окно
 	// клиент показывает только при смене дня или финале — короткий разрыв
 	// (деплой) остаётся тихим для игрока, но отладка видит, что догон был
 	// (приёмка ITGAME-65, 10.10: «часы ушли, окна нет» выводилось косвенно).
-	if resumed && offline != nil && (offline.Ticks > 0 || offline.GameOver || offline.Victory) {
+	sendOffline := resumed && offline != nil && (offline.Ticks > 0 || offline.GameOver || offline.Victory)
+	first := rv.stamp(snapshot(g, speed, resumed, scenario))
+	first.OfflineReport = sendOffline // ITGAME-76: клиент знает, ждать ли offline_report следом
+	hub.write(ctx, first)
+	if sendOffline {
 		hub.write(ctx, offlineReportMessage{
 			Type: "offline_report", Ticks: offline.Ticks, Days: offline.Days,
 			Income: offline.Income, Payroll: offline.Payroll, Balance: offline.Balance,

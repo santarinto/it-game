@@ -69,6 +69,16 @@
 //   W3   серверная, окно core (room.core) → itd.scenario('fresh'): нет modal.*
 //   W4   окно стойки (room.rack.0.0) → itd.restore(save): нет modal.*
 //   W5   контроль: окно core снова открывается и закрывается своим ✕
+//   A1   itd.away(3) close: пока в уходе — сокет reconnecting, команда not_connected, GET
+//        /api/debug/state 404 (сервер узнал об уходе сразу, close-фрейм) (ITGAME-76)
+//   A2   возврат: ok, тот же sid, resumed; offline.droppedAt ≈ leftAt, liveTicks ≤ 1, ticks ≈ 6
+//   A3   itd.away(4, {mode:'net', timeout:1500}): до таймаута чтения партия на сервере жива (200),
+//        после — 404 (сервер заметил сам); сокет reconnecting, команда not_connected (ITGAME-76)
+//   A4   возврат: drop.timeoutMs 1500, droppedAt − drop.at ≈ 1.5 с, liveTicks ≈ 3 (вживую на 2x),
+//        ticks ≈ 5 — догон от момента, когда сервер заметил уход
+//   A5   net короче таймаута: offline null (сервер не заметил), тики шли вживую весь уход
+//   A6   после уходов sid вкладки и общий ключ localStorage те же
+//   A7   в песочнице (itd.sandbox) away возвращает в её партию, ключ владельца не тронут
 //   Z    на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию :4181; порт не из
@@ -1115,6 +1125,111 @@ async function run() {
     })
     check('W5: после смены партии окно core снова открывается и закрывается ✕ (ITGAME-69)',
       w5.open && w5.pre && w5.close && !w5.after, JSON.stringify(w5))
+    // ── A: itd.away — уход без ухода со страницы (ITGAME-76) ─────────────────
+    // Свежий день на 2x перед каждым уходом: день (54 тика = 27 с на 2x) не кончится
+    // посреди ухода, отчёт дня не поставит тики на паузу.
+    const freshDay2x = () =>
+      page.evaluate(async () => {
+        await window.itd.set({ tickInDay: 0 })
+        await window.itd.speed(2)
+        return window.itd.wait((s, srv) => srv.snapshot?.speed === 2 && s.phase === 'running', 5000)
+      })
+    // Середина ухода: ответ сокета/команды и жива ли партия на сервере (GET debug/state).
+    const midAway = (sid) =>
+      page.evaluate(async (sid) => {
+        const r = await fetch(`/api/debug/state?sid=${encodeURIComponent(sid)}`)
+        return { socket: window.itd.server().socket, cmd: (await window.itd.cmd('hire')).code ?? 'ok', live: r.status }
+      }, sid)
+
+    await freshDay2x()
+    const awSid = await page.evaluate(() => window.itd.server().sid)
+    const awOwner = await page.evaluate(() => localStorage.getItem('itd.sid'))
+    // W1: close — сервер узнаёт сразу (close-фрейм), через 3 с — та же партия
+    await page.evaluate(() => {
+      window.__qa76 = window.itd.away(3)
+    })
+    await delay(700)
+    const aw1mid = await midAway(awSid)
+    const aw1 = await page.evaluate(() => window.__qa76)
+    const aw1Off = aw1.offline
+    check(
+      'A1: away close — пока в уходе: сокет reconnecting, команда not_connected, партии на сервере нет (сервер узнал сразу)',
+      aw1mid.socket === 'reconnecting' && aw1mid.cmd === 'not_connected' && aw1mid.live === 404,
+      JSON.stringify(aw1mid),
+    )
+    check(
+      'A2: away close — ok, тот же sid, resumed, back−leftAt ≥ 3 с; offline: droppedAt ≈ leftAt (≤1 тика), liveTicks ≤ 1, ticks ≈ 6 (3 с на 2x)',
+      aw1.ok === true && aw1.mode === 'close' && aw1.sid === awSid && aw1.resumed === true && aw1.back - aw1.leftAt >= 3000 &&
+        aw1Off != null && Math.abs(aw1Off.droppedAt - aw1.leftAt) <= 700 && aw1Off.liveTicks <= 1 && aw1Off.ticks >= 4 && aw1Off.ticks <= 8,
+      JSON.stringify({ ...aw1, awSid }),
+    )
+
+    // W2: net — сервер молчит, партия идёт вживую, пока его таймаут чтения (1.5 с) не заметит уход
+    await freshDay2x()
+    await page.evaluate(() => {
+      window.__qa76 = window.itd.away(4, { mode: 'net', timeout: 1500 })
+    })
+    await delay(700)
+    const aw2early = await midAway(awSid)
+    await delay(1800)
+    const aw2late = await midAway(awSid)
+    const aw2 = await page.evaluate(() => window.__qa76)
+    const aw2Off = aw2.offline
+    check(
+      'A3: away net — до таймаута партия на сервере жива (200), после — нет (404); всё время: сокет reconnecting, команда not_connected',
+      aw2early.live === 200 && aw2late.live === 404 &&
+        [aw2early, aw2late].every((m) => m.socket === 'reconnecting' && m.cmd === 'not_connected'),
+      JSON.stringify({ early: aw2early, late: aw2late }),
+    )
+    check(
+      'A4: away net — ok, тот же sid, resumed; drop.timeoutMs 1500; offline.droppedAt − drop.at ≈ 1.5 с; liveTicks ≈ 3 (1.5 с вживую на 2x); ticks ≈ 5 (догон от droppedAt)',
+      aw2.ok === true && aw2.mode === 'net' && aw2.sid === awSid && aw2.resumed === true && aw2.drop?.timeoutMs === 1500 &&
+        aw2Off != null && aw2Off.droppedAt - aw2.drop.at >= 1000 && aw2Off.droppedAt - aw2.drop.at <= 2300 &&
+        aw2Off.liveTicks >= 2 && aw2Off.liveTicks <= 5 && aw2Off.ticks >= 3 && aw2Off.ticks <= 7,
+      JSON.stringify(aw2),
+    )
+
+    // A5: net короче таймаута — сервер так и не заметил: догона нет, партия весь уход шла вживую
+    await freshDay2x()
+    const aw3t0 = await page.evaluate(() => window.itd.server().snapshot.tickInDay)
+    const aw3 = await page.evaluate(() => window.itd.away(1.5, { mode: 'net', timeout: 5000 }))
+    const aw3t1 = await page.evaluate(() => window.itd.server().snapshot.tickInDay)
+    check(
+      'A5: away net 1.5 с при таймауте 5 с — ok, resumed, offline null (сервер не заметил), тики шли вживую (+≥2)',
+      aw3.ok === true && aw3.resumed === true && aw3.sid === awSid && aw3.offline === null && aw3t1 - aw3t0 >= 2,
+      JSON.stringify({ ...aw3, t0: aw3t0, t1: aw3t1 }),
+    )
+    const awOwnerAfter = await page.evaluate(() => localStorage.getItem('itd.sid'))
+    check('A6: после трёх уходов sid вкладки и общий ключ те же', awOwnerAfter === awOwner && (await page.evaluate(() => window.itd.server().sid)) === awSid,
+      JSON.stringify({ awOwner, awOwnerAfter, awSid }))
+
+    // A7: песочница — away возвращается в партию песочницы, ключ владельца не трогает
+    await page.evaluate(async () => {
+      window.itd.click('btn.menu')
+      window.itd.click('modal.btn.0')
+    })
+    await waitMenu()
+    const aw5 = await page.evaluate(async () => {
+      const owner = localStorage.getItem('itd.sid')
+      const sb = window.itd.sandbox('qa76')
+      window.itd.click('menu.diff.normal')
+      window.itd.click('modal.btn.confirm')
+      await window.itd.wait((s) => s.connected === true && s.day === 1, 15000)
+      const sid = window.itd.server().sid
+      const r = await window.itd.away(1)
+      return { sb: sb.ok, sid, owner, ownerAfter: localStorage.getItem('itd.sid'), ok: r.ok, rsid: r.sid, resumed: r.resumed }
+    })
+    check(
+      'A7: в песочнице away возвращает в её партию (sid a-qa76-…), общий ключ владельца не тронут',
+      aw5.sb === true && /^a-qa76-/.test(aw5.sid) && aw5.ok === true && aw5.rsid === aw5.sid && aw5.resumed === true && aw5.ownerAfter === aw5.owner,
+      JSON.stringify(aw5),
+    )
+    await page.evaluate(() => {
+      window.itd.click('btn.menu')
+      window.itd.click('modal.btn.0')
+    })
+    await waitMenu()
+    await page.evaluate(() => window.itd.sandbox.restore())
   } catch (e) {
     check('сценарий выполнен без исключений', false, e instanceof Error ? e.message : String(e))
   } finally {
