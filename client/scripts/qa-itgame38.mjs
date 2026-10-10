@@ -19,6 +19,9 @@
 //       видна, высота #topbar та же; ответ снова свой → метка скрыта
 //   C2  без skipReports: та же промотка дня → модалка отчёта без interactive-находок;
 //       btn.skip_reports active меняется false→true по клику, localStorage синхронизирован
+//   H1  itd.stack() под открытым отчётом (ITGAME-74): stack('btn:menu').wins — затемнение hud,
+//       btn:menu ниже в stack, совпадает с hit().top; stack('btn.next_day').wins — сама кнопка;
+//       stack('nope.nope') → ok:false; stack(-5,-5) — пустой stack, wins null
 //   C3  сдвиг btn.next_day на строку отчёта → находка {kind:'interactive'} с ним
 //   C4  сдвиг menu.zoom.1 на соседа → находка {kind:'interactive'} с ним;
 //       C4a ratio/threshold в каждой записи (ratio ≈ 0.58, threshold 0),
@@ -565,6 +568,27 @@ async function run() {
       skipIdsAfter[0]?.active === true && skipLs === '1',
       JSON.stringify({ skipIdsAfter, skipLs }),
     )
+
+    // ── H1 (ITGAME-74): itd.stack() — настоящий хит-тест Phaser под открытым отчётом дня
+    const h1 = await page.evaluate(() => ({
+      menu: window.itd.stack('btn:menu'),
+      hit: window.itd.hit('btn.menu'),
+      next: window.itd.stack('btn.next_day'),
+      bad: window.itd.stack('nope.nope'),
+      pt: window.itd.stack(-5, -5),
+    }))
+    check(
+      'H1: stack(btn:menu) под отчётом — wins затемнение hud (не btn.menu), btn:menu ниже в stack, совпадает с hit().top',
+      h1.menu.ok && h1.menu.wins && h1.menu.wins.id !== 'btn.menu' && h1.menu.wins.scene === 'hud'
+        && h1.menu.stack.some((l) => l.startsWith('btn:menu '))
+        && h1.hit.top?.scene === h1.menu.wins.scene && h1.hit.top?.depth === h1.menu.wins.depth
+        && h1.hit.top?.type === h1.menu.wins.type,
+      JSON.stringify({ menu: h1.menu, top: h1.hit.top }),
+    )
+    check('H1: stack(btn.next_day) — wins сама кнопка', h1.next.wins?.id === 'btn.next_day', JSON.stringify(h1.next))
+    check('H1: stack(нет узла) → ok:false, why; stack(-5,-5) вне холста → stack пуст, wins null',
+      h1.bad.ok === false && h1.bad.why === 'нет узла' && h1.pt.ok === true && h1.pt.stack.length === 0 && h1.pt.wins === null,
+      JSON.stringify({ bad: h1.bad, pt: h1.pt }))
 
     // ── C3: сдвиг btn.next_day на кромку текста отчёта → находка interactive
     const moveC3 = await page.evaluate(() => {

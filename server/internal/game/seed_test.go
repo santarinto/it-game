@@ -87,7 +87,7 @@ func TestFixturesAllValid(t *testing.T) {
 	want := map[string]bool{
 		"fresh": false, "broke_day3": false, "mid_day10": false,
 		"full_office": false, "soft_lock": false, "pre_victory": false,
-		"spare_pcs": false,
+		"spare_pcs": false, "broken_pc": false,
 	}
 	if len(names) != len(want) {
 		t.Fatalf("фикстур %d, ожидалось %d: %v", len(names), len(want), names)
@@ -195,6 +195,46 @@ func TestFixtureScenarioStates(t *testing.T) {
 			t.Fatalf("spare_pcs: сотрудник %d не полностью в сети: coreLinked=%v serverSlot=%d",
 				i, net.CoreLinked[0][i], net.ServerSlot[0][i])
 		}
+	}
+}
+
+// broken_pc (ITGAME-74/75): ровно один сломанный ПК в офисе с соседями —
+// иначе «клик по значку поломки» на живом клиенте не проверить: поломка
+// роллится случайно. Починка доступна сразу: и клики, и мастер.
+func TestFixtureBrokenPC(t *testing.T) {
+	cfg := DefaultConfig()
+	g, err := NewFixture(cfg, "broken_pc", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := g.Offices[0]
+	if g.Phase != PhaseRunning || len(o.Employees) != 3 || o.PCs != 3 {
+		t.Fatalf("broken_pc: phase=%s staff=%d pcs=%d", g.Phase, len(o.Employees), o.PCs)
+	}
+	for i, e := range o.Employees {
+		if e.PCBroken != (i == 0) {
+			t.Fatalf("broken_pc: слот %d PCBroken=%v, сломан должен быть только слот 0", i, e.PCBroken)
+		}
+	}
+	if cfg.isLunchTick(g.TickInDay) || g.TickInDay+12 >= cfg.lunchStartTick() {
+		t.Fatalf("broken_pc: тик %d на обеде или впритык к нему (<2 ч) — сотрудника на месте нет", g.TickInDay)
+	}
+	net := g.Network()
+	for i := range o.Employees {
+		if !net.CoreLinked[0][i] || net.ServerSlot[0][i] == 0 {
+			t.Fatalf("broken_pc: сотрудник %d не в сети", i)
+		}
+	}
+	if g.Money < cfg.MasterCallPrice {
+		t.Fatalf("broken_pc: $%d не хватает на мастера ($%d)", g.Money, cfg.MasterCallPrice)
+	}
+	for k := 0; k < cfg.RepairClicksNeeded; k++ {
+		if err := g.RepairClick(0, 0); err != nil {
+			t.Fatalf("broken_pc: клик починки %d: %v", k, err)
+		}
+	}
+	if g.Offices[0].Employees[0].PCBroken {
+		t.Fatal("broken_pc: после RepairClicksNeeded кликов ПК всё ещё сломан")
 	}
 }
 

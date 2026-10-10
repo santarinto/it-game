@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "68de58252ef3",
+  "hash": "ebd26dcffa1f",
   "methods": {
     "version": {
       "kind": "prop",
@@ -257,6 +257,47 @@ export const CONTRACT = {
       "readonly": true,
       "doc": "Песочница агента (ITGAME-77): itd.sandbox('acc3') → {ok, sid, owner:{sid,\ndiff}} — ставит вкладке свой sid a-<метка>-<время> и запоминает общие ключи\nвладельца (localStorage itd.sid/itd.diff) и вкладки (sessionStorage); меню\nперечитывает сводку. Пока песочница есть, новая партия и финал («Сдаться»)\nберут новый sid песочницы, а не общий ключ. Ставится из меню (в партии —\ncode in_party). itd.sandbox.restore() → {sidSame, diffSame, fake, restored,\nkept, removed}: сверка (то и есть замер гарда), возврат ключей как при\nвходе — наше (fake) или стёртое значение возвращается, чужое (kept) не\nперетирается; тоже только из меню. itd.sandbox.fakeOwner() → {sid, diff} —\n«чужой» общий ключ вызовом игры (agent javascript_tool писать в\nlocalStorage не может); restore() вернёт настоящий."
     },
+    "stack": {
+      "kind": "method",
+      "params": [
+        {
+          "name": "safeOrX",
+          "type": "string | number",
+          "optional": false
+        },
+        {
+          "name": "gy",
+          "type": "number",
+          "optional": true
+        }
+      ],
+      "returns": "StackResult",
+      "doc": "Стек под точкой по НАСТОЯЩЕМУ хит-тесту Phaser (InputManager.hitTest:\nhitArea, камера, видимость контейнеров; порядок — sortGameObjects по\nrenderList камеры; сцены сверху вниз, globalTopOnly + topOnly). Точка —\nцентр (cx/cy) объекта по id/safe-id или мировые gx, gy (1280×720).\nstack — все interactive под точкой сверху вниз ('safe scene dN Type WxH';\n'!' — сцена ниже забравшей клик), wins — кто получит pointerdown.\nВ отличие от hit() — не по bounds и depth, а тем же кодом, что клик мышью.",
+      "examples": [
+        "itd.stack('office:repair:0')",
+        "itd.stack(260, 190).wins"
+      ]
+    },
+    "zones": {
+      "kind": "method",
+      "params": [
+        {
+          "name": "safeA",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "safeB",
+          "type": "string",
+          "optional": false
+        }
+      ],
+      "returns": "ZonesResult",
+      "doc": "Где зона A перекрыта B и наоборот: обход сетки 1 px по объединению bounds\nA и B тем же хит-тестом, что stack(); aUnderB — прямоугольники, где точка в\nhitArea A, а клик забирает B (bUnderA — наоборот), area — площади в px².\nПустой aUnderB — A везде получает свой клик сам (от B).",
+      "examples": [
+        "itd.zones('office:repair:0', 'office:worker:0')"
+      ]
+    },
     "offline": {
       "kind": "method",
       "params": [],
@@ -454,7 +495,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<DebugState>",
-      "doc": "Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|\nsoft_lock|pre_victory|spare_pcs. Сбрасывает клиентское состояние партии: активный\nофис → О1 (ITGAME-55), оверлеи HUD — отчёт дня, событие, «Пока вас не было», финал,\nокно выхода — и учёт паузы отчёта (ITGAME-64). Скорость сессии не трогает: вызванный\nиз открытого отчёта или окна выхода, оставляет новую партию на паузе — itd.resume(). Работает и после\nфинала (сессия жива до «В меню»). Ошибка (неизвестная фикстура) партию не трогает.",
+      "doc": "Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|\nsoft_lock|pre_victory|spare_pcs|broken_pc. Сбрасывает клиентское состояние партии: активный\nофис → О1 (ITGAME-55), оверлеи HUD — отчёт дня, событие, «Пока вас не было», финал,\nокно выхода — и учёт паузы отчёта (ITGAME-64). Скорость сессии не трогает: вызванный\nиз открытого отчёта или окна выхода, оставляет новую партию на паузе — itd.resume(). Работает и после\nфинала (сессия жива до «В меню»). Ошибка (неизвестная фикстура) партию не трогает.",
       "examples": [
         "itd.scenario('soft_lock')"
       ]
@@ -2121,6 +2162,36 @@ export const CONTRACT = {
         "reconnecting"
       ]
     },
+    "StackResult": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "false — нет узла / узел невидим (why)"
+        },
+        "at": {
+          "type": "{ x: number; y: number; } | null",
+          "optional": false,
+          "doc": "точка, мировые 1280×720"
+        },
+        "stack": {
+          "type": "string[]",
+          "optional": false,
+          "doc": ""
+        },
+        "wins": {
+          "type": "HitTarget | null",
+          "optional": false,
+          "doc": "кто получит pointerdown; null — никто"
+        },
+        "why": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
+        }
+      }
+    },
     "StaleInfo": {
       "kind": "object",
       "fields": {
@@ -2467,6 +2538,71 @@ export const CONTRACT = {
     "TypeSpec": {
       "kind": "alias",
       "type": "{ kind: 'object'; fields: Record<string, FieldSpec>; index?: string[]; } | { kind: 'enum'; values: string[]; } | { kind: 'alias'; type: string; }"
+    },
+    "ZoneRect": {
+      "kind": "object",
+      "fields": {
+        "x": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "y": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "w": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "h": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        }
+      }
+    },
+    "ZonesResult": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "optional": false,
+          "doc": ""
+        },
+        "a": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "b": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "aUnderB": {
+          "type": "ZoneRect[]",
+          "optional": false,
+          "doc": ""
+        },
+        "bUnderA": {
+          "type": "ZoneRect[]",
+          "optional": false,
+          "doc": ""
+        },
+        "area": {
+          "type": "{ a: number; aUnderB: number; b: number; bUnderA: number; }",
+          "optional": false,
+          "doc": ""
+        },
+        "why": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
+        }
+      }
     }
   }
 } satisfies { schema: 1; hash: string; methods: { [K in keyof ItdApi]-?: MemberSpec }; types: Record<string, TypeSpec> }

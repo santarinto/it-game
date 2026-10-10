@@ -377,6 +377,37 @@ export interface HitResult {
   why?: string // нет узла / узел невидим
 }
 
+// stack()/zones() (ITGAME-74): НАСТОЯЩИЙ хит-тест Phaser, а не эмуляция hit():
+// InputManager.hitTest по input-списку сцены (hitArea, камера, видимость
+// родителей), порядок — InputPlugin.sortGameObjects (renderList камеры), сцены
+// сверху вниз; первая сцена с попаданием забирает клик (globalTopOnly), в ней —
+// верхний объект (topOnly).
+export interface StackResult {
+  ok: boolean // false — нет узла / узел невидим (why)
+  at: { x: number; y: number } | null // точка, мировые 1280×720
+  // все interactive под точкой по хит-тесту Phaser, сверху вниз:
+  // 'safe scene dN Type WxH'; '!' в конце — сцена этого объекта клик не получит
+  // (выше её другая сцена уже забрала его)
+  stack: string[]
+  wins: HitTarget | null // кто получит pointerdown; null — никто
+  why?: string
+}
+
+export interface ZoneRect { x: number; y: number; w: number; h: number }
+
+export interface ZonesResult {
+  ok: boolean
+  a: string
+  b: string
+  // прямоугольники (мировые px, сетка 1 px), где точка в зоне хит-теста A,
+  // но клик забирает B — и наоборот
+  aUnderB: ZoneRect[]
+  bUnderA: ZoneRect[]
+  // площади, px²: зона A целиком / из неё отдано B; то же для B
+  area: { a: number; aUnderB: number; b: number; bUnderA: number }
+  why?: string
+}
+
 // itd.offline(): последний догон + что сейчас на экране.
 export interface AgentOffline extends OfflineCatchUp {
   open: boolean // окно «Пока вас не было» открыто сейчас
@@ -612,6 +643,26 @@ export interface ItdApi {
    */
   readonly sandbox: SandboxApi
   /**
+   * Стек под точкой по НАСТОЯЩЕМУ хит-тесту Phaser (InputManager.hitTest:
+   * hitArea, камера, видимость контейнеров; порядок — sortGameObjects по
+   * renderList камеры; сцены сверху вниз, globalTopOnly + topOnly). Точка —
+   * центр (cx/cy) объекта по id/safe-id или мировые gx, gy (1280×720).
+   * stack — все interactive под точкой сверху вниз ('safe scene dN Type WxH';
+   * '!' — сцена ниже забравшей клик), wins — кто получит pointerdown.
+   * В отличие от hit() — не по bounds и depth, а тем же кодом, что клик мышью.
+   * @example itd.stack('office:repair:0')
+   * @example itd.stack(260, 190).wins
+   */
+  stack(safeOrX: string | number, gy?: number): StackResult
+  /**
+   * Где зона A перекрыта B и наоборот: обход сетки 1 px по объединению bounds
+   * A и B тем же хит-тестом, что stack(); aUnderB — прямоугольники, где точка в
+   * hitArea A, а клик забирает B (bUnderA — наоборот), area — площади в px².
+   * Пустой aUnderB — A везде получает свой клик сам (от B).
+   * @example itd.zones('office:repair:0', 'office:worker:0')
+   */
+  zones(safeA: string, safeB: string): ZonesResult
+  /**
    * Последний офлайн-догон этой страницы: {ticks, days, shown, at, droppedAt,
    * leftAt, liveTicks, open, paused} или null. droppedAt — последний сейв
    * (сервер заметил обрыв), leftAt — уход со страницы этой вкладки, liveTicks —
@@ -743,7 +794,7 @@ export interface ItdApi {
   set(patch: { money?: number; day?: number; tickInDay?: number }): Promise<DebugState>
   /**
    * Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|
-   * soft_lock|pre_victory|spare_pcs. Сбрасывает клиентское состояние партии: активный
+   * soft_lock|pre_victory|spare_pcs|broken_pc. Сбрасывает клиентское состояние партии: активный
    * офис → О1 (ITGAME-55), оверлеи HUD — отчёт дня, событие, «Пока вас не было», финал,
    * окно выхода — и учёт паузы отчёта (ITGAME-64). Скорость сессии не трогает: вызванный
    * из открытого отчёта или окна выхода, оставляет новую партию на паузе — itd.resume(). Работает и после
@@ -1115,6 +1166,173 @@ function buildScreen(game: Phaser.Game, opts: ScreenOptions = {}): ScreenMap {
   return { meta, n: items.length, items }
 }
 
+// ── stack()/zones() (ITGAME-74): настоящий хит-тест Phaser ──────────────────
+// Повторяет InputManager.updateInputPlugins → InputPlugin.update →
+// hitTestPointer → sortGameObjects без раздачи событий: тот же manager.hitTest
+// (hitArea в локальных координатах объекта, inputCandidate — willRender камеры
+// и родителей), тот же порядок по camera.renderList прошлого кадра. Указатель —
+// заглушка: hitTest пишет в него worldX/worldY, sortGameObjects читает camera.
+interface PhaserHit { obj: Phaser.GameObjects.GameObject; scene: string; captured: boolean }
+
+interface InputInternals {
+  _list: Phaser.GameObjects.GameObject[]
+  topOnly: boolean
+  isActive(): boolean
+  manager: { hitTest(p: unknown, list: Phaser.GameObjects.GameObject[], cam: Phaser.Cameras.Scene2D.Camera, out: unknown[]): Phaser.GameObjects.GameObject[] }
+  cameras: { getCamerasBelowPointer(p: unknown): Phaser.Cameras.Scene2D.Camera[] }
+  sortGameObjects(list: Phaser.GameObjects.GameObject[], p: unknown): Phaser.GameObjects.GameObject[]
+}
+
+// Мировая точка → координаты указателя (пиксели канваса): обращаем аффинное
+// getWorldPoint главной камеры (у всех сцен игры одна HIRES_CAMERA).
+function screenOf(cam: Phaser.Cameras.Scene2D.Camera, gx: number, gy: number): { x: number; y: number } {
+  const o = cam.getWorldPoint(0, 0)
+  const ex = cam.getWorldPoint(1, 0)
+  const ey = cam.getWorldPoint(0, 1)
+  const a = ex.x - o.x
+  const b = ey.x - o.x
+  const c = ex.y - o.y
+  const d = ey.y - o.y
+  const det = a * d - b * c || 1
+  const dx = gx - o.x
+  const dy = gy - o.y
+  return { x: (d * dx - b * dy) / det, y: (a * dy - c * dx) / det }
+}
+
+function phaserHits(game: Phaser.Game, gx: number, gy: number): PhaserHit[] {
+  const scenes = game.scene.getScenes(false, true) // сверху вниз, как updateInputPlugins
+  const ref = scenes.find((sc) => sc.sys.isActive() && sc.cameras?.main)?.cameras.main
+  if (!ref) return []
+  const { x, y } = screenOf(ref, gx, gy)
+  const out: PhaserHit[] = []
+  let captured = false
+  for (const sc of scenes) {
+    const input = sc.input as unknown as InputInternals | undefined
+    if (!input || !input.isActive()) continue
+    const pointer = { x, y, worldX: 0, worldY: 0, camera: null as Phaser.Cameras.Scene2D.Camera | null }
+    let over: Phaser.GameObjects.GameObject[] = []
+    for (const cam of input.cameras.getCamerasBelowPointer(pointer)) {
+      over = input.manager.hitTest(pointer, input._list, cam, []).slice()
+      if (over.length) {
+        pointer.camera = cam
+        break
+      }
+    }
+    input.sortGameObjects(over, pointer)
+    for (const obj of over) out.push({ obj, scene: sc.scene.key, captured: !captured })
+    // попадание в сцене = её pointerdown-события = захват (globalTopOnly)
+    if (over.length && game.input.globalTopOnly) captured = true
+  }
+  return out
+}
+
+function stackTarget(h: PhaserHit): HitTarget {
+  const o = h.obj as unknown as { type?: string; depth?: number; getData?(k: string): unknown }
+  const id = typeof o.getData?.('id') === 'string' ? (o.getData('id') as string) : null
+  const title = o.getData?.('title')
+  return {
+    scene: h.scene, type: o.type ?? 'unknown', id, safe: safeId(id), depth: typeof o.depth === 'number' ? o.depth : 0,
+    title: typeof title === 'string' ? title : null,
+  }
+}
+
+function stackAt(game: Phaser.Game, gx: number, gy: number): { stack: string[]; wins: HitTarget | null; hits: PhaserHit[] } {
+  const hits = phaserHits(game, gx, gy)
+  const stack = hits.map((h) => {
+    const t = stackTarget(h)
+    let wh = '?x?'
+    try {
+      const b = (h.obj as unknown as { getBounds(): Phaser.Geom.Rectangle }).getBounds()
+      wh = `${Math.round(b.width)}x${Math.round(b.height)}`
+    } catch { /* без bounds */ }
+    return `${t.safe ?? 'unnamed'} ${t.scene} d${t.depth} ${t.type} ${wh}${h.captured ? '' : ' !'}`
+  })
+  const first = hits[0]
+  return { stack, wins: first && first.captured ? stackTarget(first) : null, hits }
+}
+
+function findObjBySafe(game: Phaser.Game, rawId: string): Phaser.GameObjects.GameObject | null {
+  return findById(game, rawId)?.obj ?? null
+}
+
+// Склейка точек сетки в прямоугольники: отрезки по строкам, одинаковые
+// отрезки соседних строк сливаются вниз.
+function rectsOf(rows: Map<number, [number, number][]>): ZoneRect[] {
+  const done: ZoneRect[] = []
+  let open: ZoneRect[] = []
+  const ys = [...rows.keys()].sort((p, q) => p - q)
+  let prevY = Number.NaN
+  for (const y of ys) {
+    const segs = rows.get(y) ?? []
+    const next: ZoneRect[] = []
+    for (const [x0, x1] of segs) {
+      const r = y === prevY + 1 ? open.find((o) => o.x === x0 && o.x + o.w === x1) : undefined
+      if (r) {
+        r.h++
+        next.push(r)
+        open = open.filter((o) => o !== r)
+      } else {
+        next.push({ x: x0, y, w: x1 - x0, h: 1 })
+      }
+    }
+    done.push(...open)
+    open = next
+    prevY = y
+  }
+  return done.concat(open).sort((p, q) => p.y - q.y || p.x - q.x)
+}
+
+function zonesOf(game: Phaser.Game, rawA: string, rawB: string): ZonesResult {
+  const a = realId(rawA)
+  const b = realId(rawB)
+  const empty = { ok: false, a, b, aUnderB: [], bUnderA: [], area: { a: 0, aUnderB: 0, b: 0, bUnderA: 0 } }
+  const oa = findObjBySafe(game, a)
+  const ob = findObjBySafe(game, b)
+  if (!oa || !ob) return { ...empty, why: `нет узла ${!oa ? a : b}` }
+  let ba: Phaser.Geom.Rectangle
+  let bb: Phaser.Geom.Rectangle
+  try {
+    ba = (oa as unknown as { getBounds(): Phaser.Geom.Rectangle }).getBounds()
+    bb = (ob as unknown as { getBounds(): Phaser.Geom.Rectangle }).getBounds()
+  } catch {
+    return { ...empty, why: 'нет bounds' }
+  }
+  const x0 = Math.floor(Math.min(ba.x, bb.x))
+  const y0 = Math.floor(Math.min(ba.y, bb.y))
+  const x1 = Math.ceil(Math.max(ba.right, bb.right))
+  const y1 = Math.ceil(Math.max(ba.bottom, bb.bottom))
+  const ab = new Map<number, [number, number][]>()
+  const baRows = new Map<number, [number, number][]>()
+  const area = { a: 0, aUnderB: 0, b: 0, bUnderA: 0 }
+  const push = (rows: Map<number, [number, number][]>, x: number, y: number) => {
+    const segs = rows.get(y) ?? []
+    const last = segs[segs.length - 1]
+    if (last && last[1] === x) last[1] = x + 1
+    else segs.push([x, x + 1])
+    rows.set(y, segs)
+  }
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      // центр пикселя мира; захватившая сцена — первая в hits, её верх — wins
+      const hits = phaserHits(game, x + 0.5, y + 0.5)
+      const win = hits[0]?.captured ? hits[0].obj : null
+      const inA = hits.some((h) => h.obj === oa)
+      const inB = hits.some((h) => h.obj === ob)
+      if (inA) area.a++
+      if (inB) area.b++
+      if (inA && win === ob) {
+        area.aUnderB++
+        push(ab, x, y)
+      }
+      if (inB && win === oa) {
+        area.bUnderA++
+        push(baRows, x, y)
+      }
+    }
+  }
+  return { ok: true, a, b, aUnderB: rectsOf(ab), bUnderA: rectsOf(baRows), area }
+}
+
 // safe-id (приёмка 10.10): «:» вместо точки; в id игры двоеточий нет, замена обратима.
 function safeId(id: string | null): string | null {
   return id === null ? null : id.replace(/\./g, ':')
@@ -1198,6 +1416,8 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.hit('btn.menu')               — попадёт ли НАСТОЯЩИЙ клик в центр объекта в него: {ok, at{x,y}, top{scene,id,type,depth}} — top перехватит (затемнение отчёта поверх HUD); itd.click этого не видит
   itd.blocker()                     — что перекрывает ввод во весь холст (затемнение отчёта, модалка) или null: {scene, type, id, safe, depth, title — заголовок окна}
   itd.screen({frame?, free?, scene?}) — карта экрана: {meta:{sha, tab, day, clock, t, bal, speed, phase, staff, pay, hudClock, hudBal, blocker, title, stale}, n, items:['safe|подпись|x|y|флаги']}; x/y — центр в CSS px окна (frame — в рамке снимка такой ширины); флаги A выбрана, X перекрыта, D неактивна; free — только без X
+  itd.stack('office:repair:0')      — стек под центром объекта (или itd.stack(gx, gy)) по НАСТОЯЩЕМУ хит-тесту Phaser (hitArea, renderList, topOnly): {ok, at{x,y}, stack['safe scene dN Type WxH'], wins{scene,id,safe,type,depth,title}} — wins получит pointerdown; '!' — сцена под забравшей клик
+  itd.zones('office:repair:0', 'office:worker:0') — где зона A перекрыта B и наоборот (сетка 1 px, тот же хит-тест): {aUnderB[{x,y,w,h}], bUnderA[…], area{a, aUnderB, b, bUnderA}}
   itd.offline()                     — последний офлайн-догон страницы {ticks, days, shown, at, droppedAt, leftAt, liveTicks, open, paused} — liveTicks: шло вживую, пока сервер не заметил уход: shown:false — догон внутри дня, окна «Пока вас не было» не было; пока окно открыто, партия на паузе
   itd.injectError('x')              — бросить тестовую ошибку страницы «itd.injectError: x» (проверить журнал errors() и поле load; у записи injected: true)
   itd.contrast()                    — линтер: контраст текста к фону ниже 3:1
@@ -1218,7 +1438,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.step(2000) / step({ticks:60}) — пауза + промотка офлайн-движком (без кофе/событий/поломок/XP, день закрывается без day_report): мс (1 тик = 1000 мс, до 10 тиков) или {ticks: 1..10000}; из фазы отчёта — сначала next_day; сводка — в .advance и «debug · advance» в itd.snapshot().events; вне running (game_over) — 200 с advance.ticks 0, ничего не промотано
   itd.advanceDays(3)                — промотка дней офлайн-движком: день N → N+3 (из фазы отчёта — сначала next_day, и HUD вернёт скорость до отчёта: партия побежит живьём, для паузы — itd.pause() ДО вызова), без day_report; сводка {days, income, payroll, balance} — в ответе .advance и строкой «debug · advance» в itd.snapshot().events, в itd.log() — только смена дня
   itd.set({money: 50000})           — читы живой сессии: {money, day, tickInDay}
-  itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs; сбрасывает клиентское состояние партии (офис → О1, оверлеи HUD, пауза отчёта); скорость не трогает — из отчёта или окна выхода партия остаётся на паузе: itd.resume(); работает и после финала
+  itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs|broken_pc; сбрасывает клиентское состояние партии (офис → О1, оверлеи HUD, пауза отчёта); скорость не трогает — из отчёта или окна выхода партия остаётся на паузе: itd.resume(); работает и после финала
   itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы
   itd.restore(save)                 — вернуть состояние из snapshot().save (дельта над текущим); закрытый в новом состоянии активный офис → О1
   itd.quiet()                       — стоп твитов/миганий для стабильных скриншотов
@@ -1385,6 +1605,31 @@ function makeApi(game: Phaser.Game): ItdApi {
     },
     stale: () => checkStale(),
     sandbox: makeSandbox(game),
+    stack(safeOrX, gy) {
+      warmIfHidden()
+      let x: number
+      let y: number
+      if (typeof safeOrX === 'string') {
+        const id = realId(safeOrX)
+        const n = activeNodes(game).find((m) => m.id === id)
+        if (!n) return { ok: false, at: null, stack: [], wins: null, why: 'нет узла' }
+        if (!n.visible) return { ok: false, at: { x: n.cx, y: n.cy }, stack: [], wins: null, why: 'узел невидим' }
+        x = n.cx
+        y = n.cy
+      } else {
+        if (typeof gy !== 'number' || !Number.isFinite(safeOrX) || !Number.isFinite(gy)) {
+          return { ok: false, at: null, stack: [], wins: null, why: 'нужны id или gx, gy' }
+        }
+        x = safeOrX
+        y = gy
+      }
+      const { stack, wins } = stackAt(game, x, y)
+      return { ok: true, at: { x, y }, stack, wins }
+    },
+    zones(safeA, safeB) {
+      warmIfHidden()
+      return zonesOf(game, safeA, safeB)
+    },
     offline() {
       const last = client.lastOffline
       if (!last) return null

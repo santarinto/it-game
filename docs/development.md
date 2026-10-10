@@ -236,6 +236,13 @@ finale screen and puts that sid back into the tab mirror.
 the active office is locked in the restored state, the tab moves to office 0
 (ITGAME-63).
 
+Fixtures (`server/internal/game/fixtures/*.json`, `?scenario=X` or
+`itd.scenario(X)`): `fresh`, `broke_day3`, `mid_day10`, `full_office`,
+`soft_lock`, `pre_victory`, `spare_pcs`, `broken_pc`. `broken_pc`
+(ITGAME-74): day 4, 11:00, three employees in office 1, all online, slot 0's
+PC broken (0/3 repair clicks) — the only way to get a broken PC on demand
+(breakdowns roll at random; at most one per office, so no second one appears).
+
 **«Админка» link** (ITGAME-22): shown over the canvas only to the owner —
 always under `?debug=1`, otherwise gated by `localStorage.itd.admin` (set
 once via `?admin=1`, cleared via `?admin=0`; the `admin` query param is
@@ -296,6 +303,21 @@ documenting separately:
   set by the HUD buy/hire buttons (`btn.pc`, `btn.hire`, `btn.boss`,
   `btn.gateway`) when money/seats/PCs are missing, also `nodes().disabled`.
   `free: true` keeps only items without `X`.
+- **`itd.stack(id | gx, gy)` / `itd.zones(a, b)`** (ITGAME-74) — the real
+  Phaser hit test, not `hit()`'s bounds-and-depth emulation: the same
+  `InputManager.hitTest` over each scene's input list (hit areas in the
+  object's local space, camera, container visibility), ordered by
+  `InputPlugin.sortGameObjects` (the camera's `renderList` of the last frame),
+  scenes top-down with `globalTopOnly`/`topOnly` — just without emitting events.
+  `stack()` takes an id/safe id (its `cx`/`cy`) or world `gx, gy` and answers
+  `{ok, at, stack, wins}`: `stack` lists every interactive under the point top
+  to bottom as `'safe scene dN Type WxH'` (a trailing `!` — its scene is below
+  the one that took the click), `wins` is who gets `pointerdown`.
+  `zones(a, b)` walks a 1 px grid over the union of both bounds and returns
+  `aUnderB`/`bUnderA` rectangles — where the point is in A's hit area but B
+  takes the click, and vice versa — plus `area` in px² (`a`, `aUnderB`, `b`,
+  `bUnderA`). Example: on `broken_pc`, `itd.zones('office:repair:0',
+  'office:worker:0').area.bUnderA === area.b` — the worker is covered whole.
 - **`itd.offline()`** — the page's last offline catch-up `{ticks, days,
   shown, at, droppedAt, leftAt, liveTicks, open, paused}` or `null` (`open` —
   the window is on screen now, `paused` — session speed is 0 now).
@@ -474,7 +496,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:buttons` | HUD buy-button enabled/tooltip/alpha states (ITGAME-17) | :4180, self-serve |
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35) | :4179, self-serve + temp saves dir |
 | `npm run qa:hud` | HUD layout column, toast stack, no overlaps (ITGAME-16) | :4174, self-serve |
-| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78); `itd.sandbox()`: the owner's shared key survives «Сдаться» and a second party, `fakeOwner()`, `restore()` puts back / keeps (ITGAME-77) | :4175, self-serve |
+| `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78); `itd.sandbox()`: the owner's shared key survives «Сдаться» and a second party, `fakeOwner()`, `restore()` puts back / keeps (ITGAME-77); `itd.stack()` under the day report: the dimmer wins over `btn.menu`, same as `hit().top` (ITGAME-74) | :4175, self-serve |
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37); receipts by command id — `id`/`rev` in `cmd()`, `trace().sent`/`states`, `net()`, and no false receipt with a tick or an observer's (`/ws/agent`) snapshot in flight (ITGAME-45) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
