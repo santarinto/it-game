@@ -224,6 +224,9 @@ type offlineReportMessage struct {
 	GameOver bool   `json:"gameOver"`
 	Victory  bool   `json:"victory"`
 	Reason   string `json:"reason"` // причина финала: bankrupt | time_up | deadlock
+	// Последний сейв перед уходом, epoch ms: сейв пишется каждый тик, так что
+	// это момент, когда сервер заметил обрыв (до него партия шла вживую).
+	SavedAt int64 `json:"savedAt"`
 }
 
 func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessage {

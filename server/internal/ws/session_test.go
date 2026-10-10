@@ -47,8 +47,9 @@ type testMessage struct {
 	LostIncome   int      `json:"lostIncome"`
 	Events       []string `json:"events"`
 	DaysSurvived int      `json:"daysSurvived"`
-	Days         int      `json:"days"` // offline_report: прошедшие дни
-	Ticks        int      `json:"ticks"` // offline_report: промотано тиков
+	Days         int      `json:"days"`    // offline_report: прошедшие дни
+	Ticks        int      `json:"ticks"`   // offline_report: промотано тиков
+	SavedAt      int64    `json:"savedAt"` // offline_report: последний сейв, epoch ms
 	Difficulty   string   `json:"difficulty"`
 	WinTarget    int      `json:"winTarget"`
 	ActiveEvent  *struct {

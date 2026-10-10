@@ -210,8 +210,13 @@ documenting separately:
   over `btn.menu`). `blocker()` is the topmost visible interactive covering
   the whole 1280×720 canvas (report dimmer, modal backdrop) or `null`.
 - **`itd.offline()`** — the page's last offline catch-up `{ticks, days,
-  shown, at, open, paused}` or `null` (`open` — the window is on screen now,
-  `paused` — session speed is 0 now). The server now sends `offline_report` whenever the
+  shown, at, droppedAt, leftAt, liveTicks, open, paused}` or `null` (`open` —
+  the window is on screen now, `paused` — session speed is 0 now).
+  `droppedAt` is `offline_report.savedAt`, the last save before the drop (the
+  actor saves every tick, so it is when the server noticed); `leftAt` is the
+  tab's own `pagehide` (`sessionStorage` `itd.leftAt` with the speed then);
+  `liveTicks` = ticks the party ran live between the two, 0 when the save
+  precedes the leave. The server now sends `offline_report` whenever the
   catch-up advanced any tick (or hit a finale); the HUD shows «Пока вас не
   было» only for `days > 0` or a finale (`offlineShown()` in `net.ts`), so a
   short in-day gap stays silent for the player but is visible here. A save
@@ -220,7 +225,11 @@ documenting separately:
   (`itd.errors`, last 100) so they survive a reload/navigation; `load` is the
   page-load number in this tab (`itd.loads`). `itd.injectError(msg)` throws
   an «itd.injectError: …» page error on purpose, to test the journal when
-  the game has none.
+  the game has none; such entries carry `injected: true`.
+- **`itd.cmd('abandon')`** goes the «Сдаться» button's way
+  (`HUDScene.abandonParty`: delete the save, back to the menu). A bare
+  `abandon` frame let the client reconnect, and the server started a new
+  party under the same sid (retro 10.10).
 - **`safe` ids** — `ids()`/`nodes()` also carry `safe`, the id with `:`
   instead of dots (game ids have no colons, so it is reversible):
   the browser agent's tool blocks `a.b.c` strings as JWTs. `click`, `hover`

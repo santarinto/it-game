@@ -1354,7 +1354,7 @@ export class HUDScene extends Phaser.Scene {
     }
     this.exitModalClose = showModal(this, 'Выйти в меню?', ['Прогресс сохранится — продолжите', 'с главного меню в любое время.'], [
       { label: 'Сохранить и выйти', onClick: () => this.saveAndExit() },
-      { label: 'Сдаться (удалить сейв)', onClick: () => { this.exitModalClose = null; client.abandon(); this.returnToMenu() } },
+      { label: 'Сдаться (удалить сейв)', onClick: () => { this.exitModalClose = null; this.abandonParty() } },
       { label: 'Отмена', onClick: () => { this.cancelExit() } },
     ], undefined, () => { this.cancelExit() })
   }
@@ -1370,6 +1370,16 @@ export class HUDScene extends Phaser.Scene {
     this.exitPauseFrom = 0
     if (prev > 0 && client.speedSeq === this.exitPauseSeq) client.send('set_speed', 0, { speed: prev })
     return true
+  }
+
+  // «Сдаться»: удалить сейв и уйти в меню. Тот же путь у itd.cmd('abandon') —
+  // голая команда мимо клиента переподключала сокет в новую партию (ретро 10.10).
+  abandonParty() {
+    this.exitModalClose?.() // закрывалка молчит: скорость не возвращает
+    this.exitModalClose = null
+    this.exitPauseFrom = 0
+    client.abandon()
+    this.returnToMenu()
   }
 
   // «Сохранить и выйти» (ITGAME-65): сервер сохраняет партию на паузе (догона нет) и

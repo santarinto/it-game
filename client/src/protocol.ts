@@ -207,6 +207,7 @@ export interface OfflineReportMessage {
   gameOver: boolean
   victory: boolean
   reason?: 'bankrupt' | 'time_up' | 'deadlock' // причина офлайн-финала
+  savedAt?: number // последний сейв перед уходом, epoch ms — когда сервер заметил обрыв
 }
 
 // Сводка сейва для стартового экрана (ITGAME-19): отдельный короткий

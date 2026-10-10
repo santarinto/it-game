@@ -498,8 +498,10 @@ export interface ItdApi {
    */
   blocker(): HitTarget | null
   /**
-   * Последний офлайн-догон этой страницы: {ticks, days, shown, at, open, paused}
-   * или null. shown:false — догон внутри дня, окно «Пока вас не было» игроку не
+   * Последний офлайн-догон этой страницы: {ticks, days, shown, at, droppedAt,
+   * leftAt, liveTicks, open, paused} или null. droppedAt — последний сейв
+   * (сервер заметил обрыв), leftAt — уход со страницы этой вкладки, liveTicks —
+   * сколько тиков партия шла вживую между ними. shown:false — догон внутри дня, окно «Пока вас не было» игроку не
    * показано; open — окно открыто сейчас; paused — скорость сейчас 0 (пока окно
    * открыто, партия стоит).
    * Догона нет и при ticks 0 (сейв на паузе или в отчёте дня) — тогда null.
@@ -973,7 +975,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
                                        ok:false + code 'debounced' — обработчик отбросил клик (дребезг switchRoom 250 мс игрового времени)
   itd.hover('office.worker.0')      — наведение по id (тултипы)
   itd.key('1'|'enter'|'space'|'esc')— клавиша: 1-4 сложность в меню, up/down — фокус меню, enter — пункт в фокусе меню / отчёт дня, space/esc — отчёт дня
-  itd.cmd('hire')                   — команда с квитанцией сервера: Promise<{ok, code?}> — первый state|error после отправки, по порядку команд; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
+  itd.cmd('hire')                   — команда с квитанцией сервера ('abandon' — путём кнопки «Сдаться»: сейв удалён, вкладка в меню): Promise<{ok, code?}> — первый state|error после отправки, по порядку команд; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
   itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, …}] по порядку, recv[error/day_report…], transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой)
   itd.warm()                        — прогреть кадр вручную (шаги лупа); в скрытой вкладке itd делает это сам
   itd.wait(s => s.day === 2)        — промис: поллинг state()/server() до условия (таймаут 5с, второй аргумент — свой); готовность меню — wait(s => s.menuReady), до старта партии state() null, но menuReady уже честен
@@ -981,8 +983,8 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.offscreen()                   — линтер: вылезание за канвас 1280×720; + {scene:'page', type:'canvas'} — канвас не влез в окно (CSS px)
   itd.hit('btn.menu')               — попадёт ли НАСТОЯЩИЙ клик в центр объекта в него: {ok, at{x,y}, top{scene,id,type,depth}} — top перехватит (затемнение отчёта поверх HUD); itd.click этого не видит
   itd.blocker()                     — что перекрывает ввод во весь холст (затемнение отчёта, модалка) или null
-  itd.offline()                     — последний офлайн-догон страницы {ticks, days, shown, at, open, paused}: shown:false — догон внутри дня, окна «Пока вас не было» не было; пока окно открыто, партия на паузе
-  itd.injectError('x')              — бросить тестовую ошибку страницы «itd.injectError: x» (проверить журнал errors() и поле load)
+  itd.offline()                     — последний офлайн-догон страницы {ticks, days, shown, at, droppedAt, leftAt, liveTicks, open, paused} — liveTicks: шло вживую, пока сервер не заметил уход: shown:false — догон внутри дня, окна «Пока вас не было» не было; пока окно открыто, партия на паузе
+  itd.injectError('x')              — бросить тестовую ошибку страницы «itd.injectError: x» (проверить журнал errors() и поле load; у записи injected: true)
   itd.contrast()                    — линтер: контраст текста к фону ниже 3:1
   itd.tiny()                        — линтер: шрифт мельче 12px
   itd.log(50)                       — журнал переходов (кольцевой на 200, переживает чистку консоли); + {type:'sound', key:'sfx:bong', name, volume, scene, ok}, {type:'toast', text, where, ms, bg, scene}
@@ -1096,6 +1098,16 @@ function makeApi(game: Phaser.Game): ItdApi {
           ok: false,
           error: `неизвестная команда '${type}' — есть: ${[...COMMANDS].join(', ')}`,
         })
+      }
+      // «Сдаться» — путём кнопки: голый abandon удалял сейв, а клиент
+      // переподключался и сервер заводил под тем же sid новую партию.
+      if (type === 'abandon') {
+        const hud = game.scene.getScene('hud') as unknown as { abandonParty?(): void } | null
+        if (!game.scene.isActive('hud') || !hud?.abandonParty || !client.latest) {
+          return Promise.resolve({ ok: false, code: 'not_connected', error: 'нет живой партии' })
+        }
+        hud.abandonParty()
+        return Promise.resolve({ ok: true })
       }
       return client
         .sendWithReceipt(type, office, extra)

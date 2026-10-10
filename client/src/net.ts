@@ -141,6 +141,24 @@ export interface OfflineCatchUp {
   days: number
   shown: boolean // показано ли игроку окно «Пока вас не было»
   at: number // epoch ms прихода
+  droppedAt: number | null // epoch ms последнего сейва: тогда сервер заметил обрыв
+  leftAt: number | null // epoch ms ухода со страницы (pagehide этой вкладки), null — не знаем
+  liveTicks: number | null // тиков прошло вживую между уходом и тем, как сервер заметил обрыв
+}
+
+// Уход со страницы (pagehide): когда и на какой скорости — чтобы offline()
+// разделил «шло вживую, пока сервер не заметил» и догон (ретро 10.10).
+const LEFT_KEY = 'itd.leftAt'
+
+function readLeft(): { at: number; speed: number } | null {
+  try {
+    const raw = sessionStorage.getItem(LEFT_KEY)
+    sessionStorage.removeItem(LEFT_KEY)
+    const v = raw ? (JSON.parse(raw) as { at?: unknown; speed?: unknown }) : null
+    return v && typeof v.at === 'number' && typeof v.speed === 'number' ? { at: v.at, speed: v.speed } : null
+  } catch {
+    return null
+  }
 }
 
 export function savedDifficulty(): DifficultyId {
@@ -318,6 +336,10 @@ export class GameClient {
   private broadcastChannel: BroadcastChannel | null = null
 
   constructor() {
+    window.addEventListener('pagehide', () => {
+      if (!this.latest) return
+      try { sessionStorage.setItem(LEFT_KEY, JSON.stringify({ at: Date.now(), speed: this.latest.speed })) } catch { /* без хранилища — liveTicks null */ }
+    })
     // Гарда общего ключа (ITGAME-30): чужой game_over в соседней вкладке
     // вытирает ОБЩИЙ localStorage-sid — под ним может жить НАША партия.
     // Пока партия жива (есть снапшот), возвращаем свой ключ на место;
@@ -512,7 +534,14 @@ export class GameClient {
         this.deliver(msg)
       } else if (msg.type === 'offline_report') {
         if (msg.gameOver || msg.victory) clearSession()
-        this.lastOffline = { ticks: msg.ticks, days: msg.days, shown: offlineShown(msg), at: Date.now() }
+        const left = readLeft()
+        const droppedAt = typeof msg.savedAt === 'number' && msg.savedAt > 0 ? msg.savedAt : null
+        this.lastOffline = {
+          ticks: msg.ticks, days: msg.days, shown: offlineShown(msg), at: Date.now(),
+          droppedAt, leftAt: left?.at ?? null,
+          // сейв раньше ухода — сервер заметил в пределах тика: вживую 0
+          liveTicks: left && droppedAt !== null ? Math.max(0, Math.round(((droppedAt - left.at) / 1000) * left.speed)) : null,
+        }
         this.deliver(msg)
       } else {
         console.error('неизвестный тип сообщения от сервера', msg)

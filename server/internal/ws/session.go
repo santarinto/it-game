@@ -275,12 +275,13 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		gen         uint64
 		kick        <-chan struct{}
 		journal     = newEventJournal(500)
-		scenario    string // применённая фиксура (только новой партии)
-		resumeSpeed int    // скорость возврата после exit; 0 — нет
+		scenario    string    // применённая фиксура (только новой партии)
+		resumeSpeed int       // скорость возврата после exit; 0 — нет
+		savedAt     time.Time // время последнего сейва — для offline_report.savedAt
 	)
 	withSaves := h.Saves != nil && store.ValidSID(sid)
 	if withSaves {
-		g, speed, lastReport, offline, resumed, scenario, journal = h.resume(sid)
+		g, speed, lastReport, offline, resumed, scenario, journal, savedAt = h.resume(sid)
 		// владение сессией (+пинок старому актору)
 		gen, kick = h.Saves.Begin(sid)
 		if resumed {
@@ -358,6 +359,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 			Type: "offline_report", Ticks: offline.Ticks, Days: offline.Days,
 			Income: offline.Income, Payroll: offline.Payroll, Balance: offline.Balance,
 			GameOver: offline.GameOver, Victory: offline.Victory, Reason: offline.Reason,
+			SavedAt: savedAt.UnixMilli(),
 		})
 	}
 	// Разрыв в фазе отчёта дня: игрок не увидел отчёт — дошлём из сейва.
@@ -479,21 +481,21 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 
 // resume — восстановить игру из сейва (если есть и валиден). Невалидный
 // или терминальный сейв удаляется — сессия начнётся заново.
-func (h *Handler) resume(sid string) (g *game.Game, speed int, last *game.DayReport, offline *game.OfflineSummary, ok bool, scenario string, journal *eventJournal) {
+func (h *Handler) resume(sid string) (g *game.Game, speed int, last *game.DayReport, offline *game.OfflineSummary, ok bool, scenario string, journal *eventJournal, savedAt time.Time) {
 	journal = newEventJournal(500) // даже без сейва журнал валиден
 	raw, found := h.Saves.Load(sid)
 	if !found {
-		return nil, 1, nil, nil, false, "", journal
+		return nil, 1, nil, nil, false, "", journal, time.Time{}
 	}
 	var ss sessionSave
 	if json.Unmarshal(raw, &ss) != nil || ss.SID != sid {
 		h.Saves.Delete(sid)
-		return nil, 1, nil, nil, false, "", journal
+		return nil, 1, nil, nil, false, "", journal, time.Time{}
 	}
 	g, err := game.Restore(ss.Game)
 	if err != nil {
 		h.Saves.Delete(sid)
-		return nil, 1, nil, nil, false, "", journal
+		return nil, 1, nil, nil, false, "", journal, time.Time{}
 	}
 	speed = min(max(ss.Speed, 0), 3)
 	offline = g.AdvanceOffline(offlineTicks(ss.SavedAt, speed, h.TickInterval))
@@ -509,7 +511,7 @@ func (h *Handler) resume(sid string) (g *game.Game, speed int, last *game.DayRep
 	for _, ev := range ss.Events {
 		journal.add(ev)
 	}
-	return g, speed, ss.LastReport, offline, true, ss.Scenario, journal
+	return g, speed, ss.LastReport, offline, true, ss.Scenario, journal, ss.SavedAt
 }
 
 // newGame — новая партия: ?seed= задаёт сид, иначе случайный. Битая строка

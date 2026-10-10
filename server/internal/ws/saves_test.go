@@ -209,6 +209,9 @@ func TestResumeOfflineInsideDaySendsReport(t *testing.T) {
 	if rep.Type != "offline_report" || rep.Days != 0 || rep.Ticks < 19 || rep.Ticks > 21 {
 		t.Fatalf("offline_report внутри дня: %+v, хотим days 0, ticks ≈20", rep)
 	}
+	if rep.SavedAt != old.UnixMilli() {
+		t.Fatalf("offline_report.savedAt %d, хотим время сейва %d", rep.SavedAt, old.UnixMilli())
+	}
 }
 
 func TestAbandonDeletesSave(t *testing.T) {

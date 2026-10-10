@@ -17,6 +17,7 @@ export interface ErrorEntry {
   kind: 'error' | 'unhandledrejection'
   message: string
   load: number // номер загрузки страницы в этой вкладке (1 — первая); ошибки прошлых загрузок переживают навигацию
+  injected: boolean // тестовая ошибка itd.injectError — не ошибка игры
 }
 
 const RING = 200
@@ -57,7 +58,7 @@ export function startTelemetry(game: Phaser.Game): Telemetry {
   const load = nextLoad()
   const errors: ErrorEntry[] = readStored()
   const pushError = (kind: ErrorEntry['kind'], message: string) => {
-    errors.push({ t: Date.now(), kind, message, load })
+    errors.push({ t: Date.now(), kind, message, load, injected: message.includes('itd.injectError:') })
     if (errors.length > ERR_RING) errors.splice(0, errors.length - ERR_RING)
     try { sessionStorage.setItem(ERR_KEY, JSON.stringify(errors)) } catch { /* квота — журнал в памяти остаётся */ }
   }

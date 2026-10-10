@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "ce524a63105d",
+  "hash": "eab20598579d",
   "methods": {
     "version": {
       "kind": "prop",
@@ -229,7 +229,7 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "AgentOffline | null",
-      "doc": "Последний офлайн-догон этой страницы: {ticks, days, shown, at, open, paused}\nили null. shown:false — догон внутри дня, окно «Пока вас не было» игроку не\nпоказано; open — окно открыто сейчас; paused — скорость сейчас 0 (пока окно\nоткрыто, партия стоит).\nДогона нет и при ticks 0 (сейв на паузе или в отчёте дня) — тогда null.",
+      "doc": "Последний офлайн-догон этой страницы: {ticks, days, shown, at, droppedAt,\nleftAt, liveTicks, open, paused} или null. droppedAt — последний сейв\n(сервер заметил обрыв), leftAt — уход со страницы этой вкладки, liveTicks —\nсколько тиков партия шла вживую между ними. shown:false — догон внутри дня, окно «Пока вас не было» игроку не\nпоказано; open — окно открыто сейчас; paused — скорость сейчас 0 (пока окно\nоткрыто, партия стоит).\nДогона нет и при ticks 0 (сейв на паузе или в отчёте дня) — тогда null.",
       "examples": [
         "itd.offline()"
       ]
@@ -680,6 +680,21 @@ export const CONTRACT = {
           "type": "number",
           "optional": false,
           "doc": "epoch ms прихода"
+        },
+        "droppedAt": {
+          "type": "number | null",
+          "optional": false,
+          "doc": "epoch ms последнего сейва: тогда сервер заметил обрыв"
+        },
+        "leftAt": {
+          "type": "number | null",
+          "optional": false,
+          "doc": "epoch ms ухода со страницы (pagehide этой вкладки), null — не знаем"
+        },
+        "liveTicks": {
+          "type": "number | null",
+          "optional": false,
+          "doc": "тиков прошло вживую между уходом и тем, как сервер заметил обрыв"
         }
       }
     },
@@ -1341,6 +1356,11 @@ export const CONTRACT = {
           "type": "number",
           "optional": false,
           "doc": "номер загрузки страницы в этой вкладке (1 — первая); ошибки прошлых загрузок переживают навигацию"
+        },
+        "injected": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "тестовая ошибка itd.injectError — не ошибка игры"
         }
       }
     },
