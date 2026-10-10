@@ -398,8 +398,45 @@ Fixtures (`server/internal/game/fixtures/*.json`, `?scenario=X` or
 `itd.scenario(X)`): `fresh`, `broke_day3`, `mid_day10`, `full_office`,
 `soft_lock`, `pre_victory`, `spare_pcs`, `broken_pc`. `broken_pc`
 (ITGAME-74): day 4, 11:00, three employees in office 1, all online, slot 0's
-PC broken (0/3 repair clicks) — the only way to get a broken PC on demand
-(breakdowns roll at random; at most one per office, so no second one appears).
+PC broken (0/3 repair clicks: the fixture pins `RepairNeeded: 3`) — the only
+way to get a broken PC on demand (breakdowns roll at random; at most one per
+office, so no second one appears).
+
+**Repair clicks k/N** (ITGAME-93): a breakdown rolls its own N — uniform
+`RepairClicksMin..RepairClicksMax` (3..15) from the server's seeded PCG, right
+after the breakdown roll, so the party journal and `make replay` reproduce it.
+N lives on the employee (`Employee.RepairNeeded` in the save,
+`repairNeeded` in the snapshot, 0 while the PC works) and the office label
+reads «✖ чинить k/N»; the N-th `repair_click` repairs, `call_master` and the
+next day clear it. Saves from before ITGAME-93 (a broken PC without
+`RepairNeeded`, a config with the old `RepairClicksNeeded`) restore as N = 3
+and the 3..15 range. `make sim` models clicks as free (greedy clicks until
+repaired), so N does not move its economics — what it changes is the player's
+choice between clicking 3..15 times (≈ 9 on average, was 3) and the $150
+master.
+
+**One click zone per workstation** (ITGAME-92): every occupied desk has a
+single interactive zone `office.slot.N` — the union of the worker frame and
+the desk (64×64), plus the «✖ чинить k/N» label while the PC is broken
+(88×81 for N ≤ 9, 102×81 for N 10..15: the width is measured on «N/N», so it
+does not jump between «9/12» and «10/12»). Left click picks the action by
+state: broken PC → `repair_click`, otherwise → `motivate`; right click («Уволить
+сотрудника?») and the tooltip are the same in both states. While broken the
+zone itself blinks red (it is the click target); a working desk's zone is
+transparent. The worker sprite (`office.worker.N`) and the label
+(`office.repair.N`, only while broken) are plain images without input: their
+ids stay for `itd.nodes()` (texture, position) and `itd.click`/`itd.hover`,
+which forward to the zone — the same as a real click at that point. So
+`itd.stack`/`itd.hit` at any of them answer `wins: office.slot.N`
+(`itd.hit('office.worker.0').ok` is `false` by design: the zone takes the
+click), and `itd.screen()` lists only `office.slot.N`.
+
+**Tooltip vs windows** (ITGAME-89): opening any office window (router, fire
+dialog) hides the worker tooltip and forgets the hovered slot; while a window
+is open (an interactive object above the tooltip's depth 40 — the modal
+backdrop, depth 70) the office shows no tooltip, neither from a new snapshot
+nor from `itd.hover`. A hidden tooltip also has an empty text, so `itd.text()`
+does not report it.
 
 **«Админка» link** (ITGAME-22): shown over the canvas only to the owner —
 always under `?debug=1`, otherwise gated by `localStorage.itd.admin` (set
@@ -476,8 +513,11 @@ documenting separately:
   `zones(a, b)` walks a 1 px grid over the union of both bounds and returns
   `aUnderB`/`bUnderA` rectangles — where the point is in A's hit area but B
   takes the click, and vice versa — plus `area` in px² (`a`, `aUnderB`, `b`,
-  `bUnderA`). Example: on `broken_pc`, `itd.zones('office:repair:0',
-  'office:worker:0').area.bUnderA === area.b` — the worker is covered whole.
+  `bUnderA`). Example: on `broken_pc`, `itd.zones('office:slot:0',
+  'office:master:0')` has empty `aUnderB`/`bUnderA` — the master button sits
+  outside the workstation zone. (Since ITGAME-92 `office.worker.N`/`office.repair.N`
+  have no hit area — the old example `zones('office:repair:0',
+  'office:worker:0')` answers zero areas.)
 - **`itd.offline()`** — the page's last offline catch-up `{ticks, days,
   shown, at, droppedAt, leftAt, liveTicks, open, paused}` or `null` (`open` —
   the window is on screen now, `paused` — session speed is 0 now).
@@ -737,7 +777,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35) | :4179, self-serve + temp saves dir |
 | `npm run qa:hud` | HUD layout column, toast stack, no overlaps (ITGAME-16) | :4174, self-serve |
 | `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78); `itd.sandbox()`: the owner's shared key survives «Сдаться» and a second party, `fakeOwner()`, `restore()` puts back / keeps (ITGAME-77); `itd.stack()` under the day report: the dimmer wins over `btn.menu`, same as `hit().top` (ITGAME-74); `hit()` and the `X` flag follow the real hit area — a 1×1 hitArea on `btn.next_day` makes it covered (owner 10.10); `itd.play()` on `fresh` (seed 7): hire → hire `FAIL no_free_pc` → day → buy_pc → hire `FAIL not_enough_money` → day with the balances 600>300>614>39>353, `itd.ledger()` books balanced, `adjust` after `itd.set` (ITGAME-73) | :4175, self-serve |
-| `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks; `broken_pc`: the repair zone covers the worker and the «✖ чинить» label, real clicks repair (ITGAME-75) | :4177, self-serve |
+| `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks; `broken_pc`: one zone `office.slot.0` covers the worker and the «✖ чинить k/N» label, real clicks repair 0/3 → 1/3 → 2/3 → repaired, then the same zone motivates; right click and tooltip shared (ITGAME-75/92/93); the tooltip hides when the router/fire window opens and stays hidden after a snapshot and `itd.hover` (ITGAME-89) | :4177, self-serve |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37); receipts by command id — `id`/`rev` in `cmd()`, `trace().sent`/`states`, `net()`, and no false receipt with a tick or an observer's (`/ws/agent`) snapshot in flight (ITGAME-45) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
 | `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63); explicit exit freezes the party: the exit dialog pauses, Отмена/Esc/✕ restore the speed, «Сохранить и выйти» → «Продолжить» keeps tick/day/money and the speed, also from an open day report (ITGAME-65); on the victory screen (storage sid cleared) `itd.server().sid`/`liveSid` stay the live party's sid (ITGAME-68); office/server-room windows (router, fire dialog via a real right click on `broken_pc`, core, rack) close on `itd.scenario()`/`itd.restore()`, a click where «Уволить» was sends nothing (ITGAME-69); A1–A7 `itd.away` (ITGAME-76): `close` — while away the socket is `reconnecting`, commands `not_connected`, the server session is gone at once, the return resumes the same sid with `droppedAt` ≈ `leftAt`; `net` with `timeout: 1500` — the server session lives (200) until its read timeout and is gone (404) after, `droppedAt − drop.at` ≈ 1.5 s, `liveTicks` ≈ 3 at 2x, catch-up from `droppedAt`; `net` shorter than the timeout — no catch-up, ticks ran live; the owner key untouched; inside `itd.sandbox` the return lands in the sandbox party; N1–N6 with the socket dropped (`itd.away` net) and real mouse clicks: «Купить ПК» twice — one «Нет связи» toast, `error` sound each, no `buy_pc` (ITGAME-90); «Сохранить и выйти» → «Нет связи — сохранение не дойдёт», no `exit`, Esc back; «Подождать» → «Ждём связь…» → after the return `exit {speed:2}` and the menu, «Продолжить» 3 s later on the same day/clock; «Подождать» → ✕ sends nothing; «Выйти без сохранения» → menu, the party ran on; open socket unchanged (ITGAME-85); D1–D3 «Сдаться» → «Удалить партию навсегда?»: Enter/«Отмена» keep the sid and the save, «Удалить» sends `abandon`, 404 (ITGAME-86) | :4181, self-serve + temp saves dir |
@@ -1118,13 +1158,18 @@ level) over exactly one `desk_pc`/`desk_pc_broken` at the same point, `boss`,
 textures land in their slots, lunch turns a slot into a single `desk_pc`
 with no employee plus the «обед» label and switches the boss slot to
 `boss_lunch`, on `broken_pc` a breakdown shows `desk_pc_broken` and the
-repair zone `office.repair.0` covers the whole visible breakdown — the worker
-frame and the «✖ чинить N/3» label above it, and the blinking highlight is
-that zone itself (ITGAME-75): `itd.stack` wins it
-at the label, the gap, the worker's top strip and corners, `itd.zones` says
-the worker is covered whole, real mouse clicks there send exactly one
-`repair_click` (not `motivate`, not nothing), right click opens the fire
-dialog, three clicks repair and the worker takes clicks again; the server
+workstation zone `office.slot.0` covers the whole visible breakdown — the
+worker frame and the «✖ чинить k/N» label above it, and the blinking
+highlight is that zone itself (ITGAME-75/92): `itd.stack` wins it (and no
+other office zone is under the point) at the label, the gap, the worker's
+top strip and corners, `itd.zones` keeps it clear of the master button, a real
+hover shows the employee tooltip with «0/3», real mouse clicks there send
+exactly one `repair_click` (not `motivate`, not nothing) and step the label
+1/3 → 2/3, right click opens the fire dialog, the third click repairs and the
+same zone (now 64×64) sends `motivate`; the tooltip-under-window case hovers
+worker 1 and opens the router window via `itd.click` (no `pointerout`) and the
+fire dialog via a real right click — no tooltip at once, after a snapshot or
+after `itd.hover` (ITGAME-89); the server
 room's occupied racks and core draw `rack_server` with no layout-linter
 findings (`itd.overlaps()`/`itd.offscreen()`), and — on `mid_day10`, whose
 one unlocked office has fewer servers than rack slots — empty racks draw

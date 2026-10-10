@@ -4,8 +4,10 @@
 // desk_pc/_broken + сотрудника поверх в ТОЙ ЖЕ точке (includesDesk=false,
 // HD 128px), на обеде слот превращается в desk_pc + подпись «обед» (стол
 // рисуется РОВНО один раз, не дважды), сломанный ПК (fixtures/broken_pc.json)
-// кликается мышью по всему значку поломки — сотрудник и метка «✖ чинить»
-// (ITGAME-75; проверка — itd.stack/itd.zones, настоящий хит-тест Phaser), слот шлюза серверной рисует gateway (не router), полка
+// кликается мышью по всему значку поломки — сотрудник и метка «✖ чинить k/N»
+// одной зоной места office.slot.i, после починки та же зона мотивирует
+// (ITGAME-75/92/93; проверка — itd.stack/itd.zones, настоящий хит-тест Phaser),
+// тултип не остаётся рядом с окном роутера/увольнения (ITGAME-89), слот шлюза серверной рисует gateway (не router), полка
 // быта (office.amenity.cooler/fridge/coffee_machine) и слот сети офиса
 // рисуют свои HD-текстуры, занятые/пустые серверные стойки — rack_server/
 // rack_empty (пустая — с подсветкой первой свободной, ITGAME-11), ПК куплен
@@ -295,13 +297,15 @@ async function caseLunch(browser) {
   }
 }
 
-// ── Кейс 3: сломанный ПК — реальный клик мышью по всему значку поломки ─────
-// Фикстура broken_pc (ITGAME-74): у слота 0 сломан ПК, слоты 1-2 работают.
-// ITGAME-75: зона ремонта office.repair.0 обязана накрывать ВЕСЬ видимый
-// значок поломки — сотрудника/стол целиком и метку «✖ чинить N/3» над ним;
-// раньше полоса 16 px над мигающим прямоугольником 58×48 и по 3 px по бокам
-// оставались за сотрудником (клик мотивировал), а метка не кликалась вовсе.
-// Проверяем настоящим хит-тестом Phaser (itd.stack/itd.zones) и мышью.
+// ── Кейс 3: сломанный ПК — одна зона места, реальные клики k/N ─────────────
+// Фикстура broken_pc (ITGAME-74): у слота 0 сломан ПК (N=3 зафиксирован в
+// фикстуре, ITGAME-93), слоты 1-2 работают.
+// ITGAME-92: у занятого места ОДНА зона клика office.slot.i. Пока ПК сломан,
+// она накрывает весь видимый значок поломки — сотрудника/стол и метку
+// «✖ чинить k/N» (ITGAME-75), мигает красным, ЛКМ шлёт repair_click; после
+// починки та же зона (уже без метки, 64×64) шлёт motivate. ПКМ и тултип общие.
+// office.worker.i/office.repair.i — картинки без ввода (itd.click/hover
+// переадресуют зоне). Проверяем настоящим хит-тестом Phaser (itd.stack/zones) и мышью.
 async function caseBrokenPc(browser) {
   const page = await browser.newPage()
   const pageErrors = []
@@ -310,14 +314,29 @@ async function caseBrokenPc(browser) {
   try {
     await loadScenario(page, 'broken_pc', 'broken')
 
-    const geo = await page.evaluate(() => {
+    const readGeo = () => page.evaluate(() => {
       const ns = window.itd.nodes()
       const by = (id) => ns.find((n) => n.id === id) ?? null
-      const label = ns.find((n) => n.scene === 'office' && /^✖ чинить/.test(n.text ?? '')) ?? null
-      return { repair: by('office.repair.0'), worker: by('office.worker.0'), label, others: [by('office.repair.1'), by('office.repair.2')] }
+      return {
+        slot: by('office.slot.0'), worker: by('office.worker.0'), label: by('office.repair.0'),
+        others: [by('office.repair.1'), by('office.repair.2')], slots: [by('office.slot.1'), by('office.slot.2')],
+      }
     })
-    if (!geo.repair || !geo.worker || !geo.label) throw new Error(`broken_pc: нет узлов ${JSON.stringify(geo)}`)
+    const geo = await readGeo()
+    if (!geo.slot || !geo.worker || !geo.label) throw new Error(`broken_pc: нет узлов ${JSON.stringify(geo)}`)
     check('broken_pc: сломан только слот 0 (office.repair.1/2 нет)', geo.others.every((n) => n === null), JSON.stringify(geo.others))
+    check('broken_pc: у целых мест 1/2 свои зоны office.slot.1/2', geo.slots.every((n) => n && n.interactive),
+      JSON.stringify(geo.slots.map((n) => n && [n.w, n.h])))
+    check('broken_pc: метка «✖ чинить 0/3» (N=3 из фикстуры)', geo.label.text === '✖ чинить 0/3', geo.label.text)
+    // ITGAME-92: картинка сотрудника и метка — без ввода, вводом владеет зона.
+    check('broken_pc: office.worker.0 и office.repair.0 без ввода (одна зона на место)',
+      geo.worker.interactive === false && geo.label.interactive === false && geo.slot.interactive === true,
+      JSON.stringify({ worker: geo.worker.interactive, label: geo.label.interactive, slot: geo.slot.interactive }))
+    const inside = (a, b) => a.cx - a.w / 2 >= b.cx - b.w / 2 - 0.5 && a.cx + a.w / 2 <= b.cx + b.w / 2 + 0.5
+      && a.cy - a.h / 2 >= b.cy - b.h / 2 - 0.5 && a.cy + a.h / 2 <= b.cy + b.h / 2 + 0.5
+    check('broken_pc: зона office.slot.0 накрывает сотрудника и метку целиком',
+      inside(geo.worker, geo.slot) && inside(geo.label, geo.slot),
+      JSON.stringify({ slot: [geo.slot.cx, geo.slot.cy, geo.slot.w, geo.slot.h], worker: [geo.worker.w, geo.worker.h], label: [geo.label.w, geo.label.h] }))
 
     if (!WORKER_INCLUDES_DESK) {
       // HD: стол слота — desk_pc_broken (экран красный), сотрудник поверх
@@ -333,15 +352,15 @@ async function caseBrokenPc(browser) {
         deskHere ? `key=${deskHere.key}` : 'стол не найден в точке слота')
     }
 
-    // Точки значка поломки: метка «✖ чинить» (✖ — её левый край), полоса над
-    // старым прямоугольником, углы и края кадра сотрудника, центр.
+    // Точки значка поломки: метка «✖ чинить» (✖ — её левый край), зазор над
+    // сотрудником, углы и края кадра сотрудника, центр.
     const w = geo.worker
     const l = geo.label
     const spots = [
       { label: '✖ метки', x: l.cx - l.w / 2 + 4, y: l.cy },
       { label: 'центр метки', x: l.cx, y: l.cy },
       { label: 'зазор метка/сотрудник', x: w.cx, y: (l.cy + l.h / 2 + w.cy - w.h / 2) / 2 },
-      { label: 'верх сотрудника (бывшая полоса)', x: w.cx, y: w.cy - w.h / 2 + 4 },
+      { label: 'верх сотрудника', x: w.cx, y: w.cy - w.h / 2 + 4 },
       { label: 'левый верхний угол сотрудника', x: w.cx - w.w / 2 + 1, y: w.cy - w.h / 2 + 1 },
       { label: 'правый край сотрудника', x: w.cx + w.w / 2 - 1, y: w.cy },
       { label: 'левый нижний угол сотрудника', x: w.cx - w.w / 2 + 1, y: w.cy + w.h / 2 - 1 },
@@ -349,69 +368,161 @@ async function caseBrokenPc(browser) {
     ]
     const stacks = await page.evaluate((pts) => pts.map((p) => window.itd.stack(p.x, p.y)), spots)
     spots.forEach((p, k) => {
-      check(`broken_pc: itd.stack «${p.label}» → wins office.repair.0`, stacks[k].wins?.id === 'office.repair.0',
-        JSON.stringify({ at: stacks[k].at, stack: stacks[k].stack, wins: stacks[k].wins?.id ?? null }))
+      const st = stacks[k]
+      const own = st.stack.filter((x) => / office d/.test(x))
+      check(`broken_pc: itd.stack «${p.label}» → wins office.slot.0, другой зоны офиса под точкой нет`,
+        st.wins?.id === 'office.slot.0' && own.length === 1,
+        JSON.stringify({ at: st.at, stack: st.stack, wins: st.wins?.id ?? null }))
     })
-    const zones = await page.evaluate(() => window.itd.zones('office:repair:0', 'office:worker:0'))
-    check('broken_pc: itd.zones — сотрудник перекрыт зоной ремонта целиком, у зоны ремонта нет отданных сотруднику точек',
-      zones.ok && zones.area.b > 0 && zones.area.bUnderA === zones.area.b && zones.aUnderB.length === 0,
-      JSON.stringify({ area: zones.area, aUnderB: zones.aUnderB, bUnderA: zones.bUnderA }))
-    // Подсветка поломки = кликабельная зона (владелец, 10.10): красная заливка
-    // только у office.repair.0, отдельного мигающего 58×48 больше нет.
+    // Кнопка мастера — снаружи зоны: ни одна точка не делится.
+    const zones = await page.evaluate(() => window.itd.zones('office:slot:0', 'office:master:0'))
+    check('broken_pc: itd.zones(slot.0, master.0) — зона места и кнопка мастера не пересекаются',
+      zones.ok && zones.area.a > 0 && zones.area.b > 0 && zones.aUnderB.length === 0 && zones.bUnderA.length === 0,
+      JSON.stringify({ area: zones.area }))
+    // Подсветка поломки = кликабельная зона (владелец, 10.10): видимая красная
+    // заливка только у office.slot.0 (у целых мест заливка прозрачная).
     const glow = await page.evaluate(() => window.__itd.scene.getScene('office').children.list
-      .filter((o) => o.type === 'Rectangle' && o.fillColor === 0xb13e53)
+      .filter((o) => o.type === 'Rectangle' && o.fillColor === 0xb13e53 && o.fillAlpha > 0)
       .map((o) => ({ id: o.getData('id') ?? null, w: Math.round(o.width), h: Math.round(o.height) })))
-    check('broken_pc: мигающая подсветка — сама зона office.repair.0 (одна красная заливка, размер зоны)',
-      glow.length === 1 && glow[0].id === 'office.repair.0' && glow[0].w === Math.round(geo.repair.w) && glow[0].h === Math.round(geo.repair.h),
-      JSON.stringify({ glow, zone: [geo.repair.w, geo.repair.h] }))
+    check('broken_pc: мигающая подсветка — сама зона office.slot.0 (одна красная заливка, размер зоны)',
+      glow.length === 1 && glow[0].id === 'office.slot.0' && glow[0].w === Math.round(geo.slot.w) && glow[0].h === Math.round(geo.slot.h),
+      JSON.stringify({ glow, zone: [geo.slot.w, geo.slot.h] }))
     const lint = await page.evaluate(() => ({ ov: window.itd.overlaps(), off: window.itd.offscreen() }))
     check('broken_pc: itd.overlaps()/offscreen() пусты', lint.ov.length === 0 && lint.off.length === 0,
       JSON.stringify({ ov: lint.ov.slice(0, 5), off: lint.off.slice(0, 5) }))
 
-    // ПКМ по зоне ремонта — увольнение, как ПКМ по сотруднику (зона его накрывает).
+    // Тултип общий: настоящее наведение на метку поломки показывает тултип сотрудника с k/N.
     const box = await canvasBox(page)
+    await page.mouse.move(box.x + spots[1].x * box.k, box.y + spots[1].y * box.k)
+    await delay(150)
+    const tip = await page.evaluate(() => {
+      const c = window.__itd.scene.getScene('office').children.list.find((o) => o.type === 'Container')
+      return { visible: c?.visible ?? null, text: c?.list?.find((o) => o.type === 'Text')?.text ?? '' }
+    })
+    const tipLines = tip.text.split('\n')
+    check('broken_pc: наведение мышью на метку — тултип сотрудника с «0/3»',
+      tip.visible === true && tip.text.startsWith('Артём Соколов') && tip.text.includes('кликайте по месту: 0/3'),
+      JSON.stringify({ visible: tip.visible, lines: [tipLines[0], ...tipLines.filter((x) => x.includes('СЛОМАН'))] }))
+
+    // ПКМ по зоне — увольнение (общий для обоих состояний места).
     const lastAt = (await lastOut(page, 50)).at(-1)?.at ?? 0
     await page.mouse.click(box.x + w.cx * box.k, box.y + w.cy * box.k, { button: 'right' })
     await delay(200)
     const fireOpen = await page.evaluate(() => window.itd.text().some((n) => n.text === 'Уволить сотрудника?'))
     const sentRight = (await lastOut(page, 50)).filter((m) => m.at > lastAt)
-    check('broken_pc: ПКМ по зоне ремонта открывает «Уволить сотрудника?», ничего не шлёт',
+    check('broken_pc: ПКМ по зоне места открывает «Уволить сотрудника?», ничего не шлёт',
       fireOpen && sentRight.length === 0,
       JSON.stringify({ fireOpen, sent: sentRight.map((m) => m.type) }))
     await page.evaluate(() => window.itd.click('modal.close'))
     await delay(150)
 
-    // Три настоящих клика по точкам, которые раньше уходили сотруднику или в никуда.
-    // Только сообщения после клика: «последнее исходящее» без отсечки по времени
-    // засчитало бы клик в пустоту (по метке до фикса) за предыдущий repair_click.
-    for (const p of [spots[0], spots[2], spots[3]]) {
+    // Три настоящих клика по точкам значка: каждый — ровно repair_click
+    // слота 0, метка идёт 1/3 → 2/3, третий чинит.
+    const clickSpots = [spots[0], spots[2], spots[3]]
+    for (let k = 0; k < clickSpots.length; k++) {
+      const p = clickSpots[k]
       const since = (await lastOut(page, 50)).at(-1)?.at ?? 0
       await worldClick(page, box, p.x, p.y)
-      await delay(200)
+      await delay(250)
       const sent = (await lastOut(page, 50)).filter((m) => m.at > since)
       check(`broken_pc: клик мышью «${p.label}» шлёт ровно repair_click слота 0, не motivate`,
         sent.length === 1 && sent[0].type === 'repair_click' && sent[0].info?.slot === 0,
         JSON.stringify(sent.map((m) => ({ type: m.type, info: m.info }))))
+      if (k < clickSpots.length - 1) {
+        const txt = await page.evaluate(() => window.itd.nodes().find((n) => n.id === 'office.repair.0')?.text ?? null)
+        check(`broken_pc: после клика ${k + 1} метка «✖ чинить ${k + 1}/3»`, txt === `✖ чинить ${k + 1}/3`, String(txt))
+      }
     }
-    // RepairClicksNeeded=3 (server/internal/game/commands.go) — три реальных
-    // клика подряд должны полностью починить ПК (RepairClicks сбрасывается
-    // в 0 вместе с PCBroken=false), а не просто накопить клики.
     const snap = await page.evaluate(() => window.itd.snapshot())
     const e = snap.save.offices[0].Employees[0]
-    check('broken_pc: 3 реальных клика полностью чинят ПК', e.PCBroken === false,
-      `RepairClicks=${e.RepairClicks} PCBroken=${e.PCBroken}`)
+    check('broken_pc: 3 реальных клика полностью чинят ПК (N=3 фикстуры)', e.PCBroken === false && !e.RepairNeeded,
+      `RepairClicks=${e.RepairClicks} RepairNeeded=${e.RepairNeeded} PCBroken=${e.PCBroken}`)
     await delay(300)
-    const after = await page.evaluate(() => ({
-      repair: window.itd.nodes().some((n) => n.id === 'office.repair.0'),
-      wins: window.itd.stack('office:worker:0').wins?.id ?? null,
-    }))
-    check('broken_pc: после починки зоны нет, клик по сотруднику снова его (мотивация)',
-      !after.repair && after.wins === 'office.worker.0', JSON.stringify(after))
+    const after = await readGeo()
+    const afterWins = await page.evaluate(() => window.itd.stack('office:worker:0').wins?.id ?? null)
+    check('broken_pc: после починки метки нет, та же зона office.slot.0 (64×64) берёт клик',
+      !after.label && afterWins === 'office.slot.0' && !!after.slot && Math.round(after.slot.w) === 64 && Math.round(after.slot.h) === 64,
+      JSON.stringify({ label: !!after.label, wins: afterWins, slot: after.slot && [after.slot.w, after.slot.h] }))
+    const since = (await lastOut(page, 50)).at(-1)?.at ?? 0
+    await worldClick(page, box, w.cx, w.cy)
+    await delay(250)
+    const sentAfter = (await lastOut(page, 50)).filter((m) => m.at > since)
+    check('broken_pc: после починки клик мышью по месту шлёт motivate слота 0',
+      sentAfter.length === 1 && sentAfter[0].type === 'motivate' && sentAfter[0].info?.slot === 0,
+      JSON.stringify(sentAfter.map((m) => ({ type: m.type, info: m.info }))))
 
     check('broken_pc: нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))
     await shot(page, 'broken_pc')
   } catch (e) {
     check('broken_pc: кейс выполнен без ошибок', false, e instanceof Error ? e.message : String(e))
+  } finally {
+    await page.close().catch(() => {})
+  }
+}
+
+// ── Кейс 3б: тултип не остаётся рядом с окном (ITGAME-89) ───────────────────
+// Наведение мышью на сотрудника, затем окно без увода курсора: окно роутера
+// через itd.click (pointerout не приходит — как у агента на приёмке), окно
+// увольнения настоящим ПКМ по тому же месту. Тултип прячется сразу, не
+// возвращается со следующим снапшотом, itd.hover под окном его не показывает;
+// после закрытия окна наведение снова работает.
+async function caseTooltipUnderModal(browser) {
+  const page = await browser.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e)))
+  await page.setViewport({ width: 1920, height: 1080 })
+  try {
+    await loadScenario(page, 'broken_pc', 'tipmodal')
+    const tipState = () => page.evaluate(() => {
+      const c = window.__itd.scene.getScene('office').children.list.find((o) => o.type === 'Container')
+      // строка тултипа, которой нет в окне увольнения (там тоже имя)
+      const name = window.itd.text().some((n) => n.visible && n.text.startsWith('Мария Кузнецова') && n.text.includes('Выработка:'))
+      return { visible: c?.visible ?? null, name }
+    })
+    const w1 = await page.evaluate(() => window.itd.nodes().find((n) => n.id === 'office.worker.1'))
+    const box = await canvasBox(page)
+    const overW1 = async () => {
+      await page.mouse.move(box.x + 10, box.y + 600 * box.k)
+      await delay(100)
+      await page.mouse.move(box.x + w1.cx * box.k, box.y + w1.cy * box.k)
+      await delay(150)
+    }
+    const windows = [
+      { label: 'окно роутера (itd.click office.router)', open: () => page.evaluate(() => window.itd.click('office.router')) },
+      { label: 'окно увольнения (настоящий ПКМ по месту 1)', open: () => page.mouse.click(box.x + w1.cx * box.k, box.y + w1.cy * box.k, { button: 'right' }) },
+    ]
+    for (const win of windows) {
+      await overW1()
+      const before = await tipState()
+      check(`tooltip/modal: перед «${win.label}» наведение мышью на сотрудника 1 — тултип виден`,
+        before.visible === true && before.name, JSON.stringify(before))
+      await win.open()
+      await delay(150)
+      const opened = await tipState()
+      // Внеочередной снапшот: раньше render() возвращал тултип (hoveredSlot
+      // оставался 1, курсор над местом).
+      await page.evaluate(() => window.itd.set({ money: 2345 }))
+      await delay(300)
+      const afterSnap = await tipState()
+      const hovered = await page.evaluate(() => {
+        window.itd.hover('office.worker.1')
+        const c = window.__itd.scene.getScene('office').children.list.find((o) => o.type === 'Container')
+        return c?.visible ?? null
+      })
+      const title = await page.evaluate(() => window.itd.blocker()?.title ?? null)
+      check(`tooltip/modal: ${win.label} — тултипа нет сразу, после снапшота и после itd.hover`,
+        title !== null && opened.visible === false && !opened.name && afterSnap.visible === false && !afterSnap.name && hovered === false,
+        JSON.stringify({ title, opened, afterSnap, hovered }))
+      await page.evaluate(() => window.itd.click('modal.close'))
+      await delay(150)
+    }
+    // Окна закрыты — наведение снова показывает тултип.
+    await overW1()
+    const back = await tipState()
+    check('tooltip/modal: после закрытия окна наведение снова показывает тултип', back.visible === true && back.name, JSON.stringify(back))
+    check('tooltip/modal: нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))
+  } catch (e) {
+    check('tooltip/modal: кейс выполнен без ошибок', false, e instanceof Error ? e.message : String(e))
   } finally {
     await page.close().catch(() => {})
   }
@@ -616,7 +727,7 @@ if (!process.env.QA_BASE) {
 
 try {
   for (const runCase of [
-    caseFullOffice, caseLunch, caseBrokenPc, caseServerRoomGateway, caseServerRoomEmptyRacks, caseSparePcs,
+    caseFullOffice, caseLunch, caseBrokenPc, caseTooltipUnderModal, caseServerRoomGateway, caseServerRoomEmptyRacks, caseSparePcs,
   ]) {
     const browser = await puppeteer.launch({
       executablePath: chromePath(),

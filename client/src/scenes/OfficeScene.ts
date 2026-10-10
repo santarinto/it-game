@@ -14,15 +14,22 @@ import { SPRITES } from '../assets/manifest'
 import { FONT, HIRES_CAMERA } from '../render'
 
 const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
-// Зона ремонта «сломанный ПК» (office.repair.i) обязана перехватывать клики
-// раньше спрайта сотрудника — иначе клик уходит в мотивацию вместо ремонта:
-// для Phaser-хиттеста при равных depth побеждает последний в списке рендера,
-// так что явный depth надёжнее порядка create(). ITGAME-75: зона —
-// объединение bounds сотрудника, стола и метки «✖ чинить N/3», и мигает
-// красным она же: раньше кликался мигающий прямоугольник 58×48 у низа слота,
-// полоса 16 px над ним и по 3 px по бокам оставались за сотрудником, а метка
-// не кликалась вовсе — клик «по значку поломки» мотивировал.
-const REPAIR_OVERLAY_DEPTH = 5
+// ITGAME-92: у занятого рабочего места ОДНА зона клика office.slot.i —
+// прямоугольник объединения bounds сотрудника и стола, а пока ПК сломан — ещё
+// и метки «✖ чинить k/N» над ними (ITGAME-75: клик «по значку поломки» —
+// это клик по месту). ЛКМ выбирает действие по состоянию: ПК сломан →
+// repair_click, иначе → motivate; ПКМ («Уволить сотрудника?») и тултип общие.
+// Пока ПК сломан, зона мигает красным (подсветка = кликабельная область,
+// владелец 10.10); у целого ПК заливка прозрачная (fillAlpha 0, alpha 1 —
+// иначе Phaser не считает объект целью ввода). Спрайт сотрудника и метка
+// поломки — картинки без ввода; их id office.worker.i и office.repair.i
+// оставлены для itd.click/itd.hover и узлов itd.nodes(): события с них
+// переадресуются зоне. Явный depth — над столом и сотрудником при любом
+// порядке create().
+const SLOT_ZONE_DEPTH = 5
+
+// Тултип — поверх сцены, но под окнами (подложка модалки — depth 70).
+const TOOLTIP_DEPTH = 40
 
 // Метки причин отсутствия сети над столом (итерация 11).
 const OFFLINE_LABELS: Record<string, string> = {
@@ -64,7 +71,8 @@ const LEVEL_BONUS: Record<number, number> = { 1: 1, 2: 2, 3: 2 }
 // Реальные ширины (Phaser Text.getBounds(), шрифт FONT — Departure Mono +
 // ITD Symbols, ITGAME-48; см. client/scripts/qa-office-slots.mjs-style замер):
 // OFFLINE_LABELS при 9px — «✗ роутер» 45px, «✗ core» 34px, «без стойки» 58px
-// (самая длинная); «✖ чинить N/3» при 11px — 88×14px.
+// (самая длинная); «✖ чинить k/N» при 11px — 88×14px при N ≤ 9 и до 102×14px
+// при N 10..15 (ITGAME-93: «0/15» 95px, «10/15» 102px).
 const SLOT_LAYOUT_HD = {
   // У правого верхнего угла стола, ниже и левее монитора. Кружок 8px —
   // не текст и не интерактив, линтер его не видит; важно лишь не вылезти
@@ -82,10 +90,10 @@ const SLOT_LAYOUT_HD = {
   motivationBadge: { x: -24, y: -6 },
   // Над бейджем мотивации — текст «★» (9×17px), целиком внутри бокса.
   star: { x: -24, y: -20 },
-  // Мигающей зоны ремонта в раскладке нет (ITGAME-75): она — объединение
-  // bounds сотрудника, стола и метки ниже, считается в render().
-  // ЦЕЛИКОМ СНАРУЖИ бокса сотрудника (сверху): «✖ чинить N/3» шириной
-  // 88px при 11px в бокс ±32 не поместится ни при каком центрировании —
+  // Зоны клика в раскладке нет (ITGAME-75/92): она — объединение bounds
+  // сотрудника, стола и (при поломке) метки ниже, считается в render().
+  // ЦЕЛИКОМ СНАРУЖИ бокса сотрудника (сверху): «✖ чинить k/N» шириной
+  // 88–102px при 11px в бокс ±32 не поместится ни при каком центрировании —
   // выносим целиком за верхний край. Высота строки 14px (±7): при
   // y=−42 нижний край −35, что выше верхнего края бокса (−32) на 3px
   // запаса — не частичное пересечение, а полное разделение.
@@ -128,7 +136,16 @@ export class OfficeScene extends Phaser.Scene {
     // сцены перезапускаются при переключении комнат — сбрасываем ссылки прошлого цикла
     this.objects = []
     this.hoveredSlot = -1
-    this.modal = partyModals(this)
+    // ITGAME-89: любое окно сцены (роутер, увольнение) прячет тултип и
+    // забывает слот под курсором — иначе следующий снапшот (render) снова
+    // показывал тултип рядом с окном: pointerout под подложкой окна не
+    // приходит, а itd.hover/itd.click его не шлют вовсе.
+    const openModal = partyModals(this)
+    this.modal = (...args) => {
+      this.hoveredSlot = -1
+      this.hideTooltip()
+      return openModal(...args)
+    }
     // Правый клик по сотруднику — увольнение: контекстное меню браузера мешает.
     this.input.mouse?.disableContextMenu()
     this.add.rectangle(NAV_W, HUD_H, GAME_W - NAV_W, GAME_H - HUD_H, 0x2b2f4a).setOrigin(0) // пол офиса
@@ -138,7 +155,7 @@ export class OfficeScene extends Phaser.Scene {
       fontFamily: FONT, fontSize: '13px', color: '#f4f4f4', lineSpacing: 6,
     })
     this.tooltipBg = this.add.rectangle(0, 0, 10, 10, 0x14162b, 0.95).setOrigin(0).setStrokeStyle(1, 0x41a6f6)
-    this.tooltip = this.add.container(0, 0, [this.tooltipBg, this.tooltipText]).setDepth(40).setVisible(false)
+    this.tooltip = this.add.container(0, 0, [this.tooltipBg, this.tooltipText]).setDepth(TOOLTIP_DEPTH).setVisible(false)
 
     const unsub = client.subscribe({
       onState: (s) => this.render(s),
@@ -307,9 +324,10 @@ export class OfficeScene extends Phaser.Scene {
         this.objects.push(deskImg)
       }
       // Сломанный ПК: доход места 0; клики по месту чинят, мастер чинит за деньги.
-      // Мигающая зона ремонта office.repair.i строится ниже, когда известны
-      // bounds сотрудника.
+      // Зона места office.slot.i (при поломке мигает и накрывает метку)
+      // строится ниже, когда известны bounds сотрудника.
       let repairLabel: Phaser.GameObjects.Text | null = null
+      let repairBounds: Phaser.Geom.Rectangle | null = null
       if (e?.pcBroken) {
         const masterBg = tag(
           this.add.rectangle(x, y + layout.masterButton.y, 108, 22, 0x3b5dc9)
@@ -323,13 +341,19 @@ export class OfficeScene extends Phaser.Scene {
           playSfx(this, 'select')
           client.send('call_master', nav.activeOffice, { slot: i })
         })
-        repairLabel = this.add.text(x, y + layout.repairText.y, `✖ чинить ${e.repairClicks}/3`, {
+        // ITGAME-93: N роллится при поломке (3..15); старый сервер без поля — 3.
+        const need = e.repairNeeded > 0 ? e.repairNeeded : 3
+        // Зона берёт bounds самой широкой метки этой поломки («N/N»): между
+        // «9/12» и «10/12» зона и подсветка не прыгают на знак.
+        repairLabel = this.add.text(x, y + layout.repairText.y, `✖ чинить ${need}/${need}`, {
           fontFamily: FONT, fontSize: '11px', color: '#b13e53',
         }).setOrigin(0.5)
+        repairBounds = repairLabel.getBounds()
+        repairLabel.setText(`✖ чинить ${e.repairClicks}/${need}`)
         this.objects.push(repairLabel, masterBg, masterTxt)
       }
       if (e) {
-        // Слот-картинка занятого места (id office.worker.i, тултип/клик):
+        // Слот-картинка занятого места (id office.worker.i, без ввода):
         // на обеде — тот же стол desk_pc, что уже нарисован выше (без
         // второго стола: сотрудник отошёл, LUNCH_SHIFT убран — стол никуда
         // не двигается); иначе — сотрудник, в позиции стола (includesDesk,
@@ -356,82 +380,64 @@ export class OfficeScene extends Phaser.Scene {
           const workerKey = e.level >= 1 && e.level <= 3 ? `worker_${e.level}` : 'worker'
           slotImg = addSprite(this, wx, wy, workerKey, 'person')
         }
-        // id office.worker.i и обработчики висят на картинке слота (worker
-        // или desk_pc на обеде) — itd.click('office.worker.i') и тултип
-        // продолжают работать и на обеде.
-        const worker = tag(slotImg.setInteractive({ useHandCursor: true }), `office.worker.${i}`)
-        // ЛКМ по сотруднику — мотивация: +25% на 3 часа с кулдауном.
-        // ПКМ (правый клик) — модалка увольнения (итерация 15).
-        worker.on('pointerdown', (p: Phaser.Input.Pointer) => {
-          if (p.rightButtonDown()) {
-            this.openFireModal(e, i)
-          } else {
-            playSfx(this, 'click')
-            client.send('motivate', nav.activeOffice, { slot: i })
-          }
-        })
-        worker.on('pointerover', () => {
-          this.hoveredSlot = i
-          this.showTooltip(e, s, wx, wy)
-        })
-        worker.on('pointerout', () => {
-          this.hoveredSlot = -1
-          this.hideTooltip()
-        })
+        // ITGAME-92: одна зона клика на рабочее место (см. SLOT_ZONE_DEPTH).
+        // Картинка слота (worker или desk_pc на обеде) — без ввода, но с id
+        // office.worker.i: itd.nodes() видит текстуру, а itd.click/itd.hover
+        // по нему уходят в зону — так же, как настоящий клик в этой точке.
+        tag(slotImg, `office.worker.${i}`)
         // На обеде slotImg === deskImg — тот стол уже в this.objects (пушился
         // при отрисовке стола выше); повторный push задвоил бы объект и
         // вызвал бы двойной destroy()/killTweensOf() на следующей перерисовке.
-        if (slotImg !== deskImg) this.objects.push(worker)
-        // ITGAME-75: пока ПК сломан, зона ремонта накрывает весь видимый
-        // значок поломки — сотрудника/стол целиком и метку «✖ чинить» над
-        // ними (прямоугольник объединения bounds, наружу до целых px). Внутри
-        // неё сотрудник ввода не получает (topOnly), поэтому зона сама ведёт
-        // его тултип и ПКМ-увольнение; ЛКМ — только ремонт, не мотивация.
-        // Мигает сама зона (владелец, 10.10: подсветка = кликабельная область);
-        // твин держит alpha ≥ 0.15 — при alpha 0 Phaser не считает объект
-        // целью ввода (willRender).
-        let hoverZone: Phaser.Geom.Rectangle | null = null
+        if (slotImg !== deskImg) this.objects.push(slotImg)
+        const r = Phaser.Geom.Rectangle.Union(slotImg.getBounds(), deskImg?.getBounds() ?? slotImg.getBounds())
+        if (repairBounds) Phaser.Geom.Rectangle.Union(r, repairBounds, r)
+        const zx = Math.floor(r.x)
+        const zy = Math.floor(r.y)
+        const zone = tag(
+          this.add.rectangle(zx, zy, Math.ceil(r.right) - zx, Math.ceil(r.bottom) - zy, 0xb13e53, e.pcBroken ? 0.3 : 0)
+            .setOrigin(0).setInteractive({ useHandCursor: true }).setDepth(SLOT_ZONE_DEPTH),
+          `office.slot.${i}`,
+        )
+        this.objects.push(zone)
         if (e.pcBroken) {
-          const r = Phaser.Geom.Rectangle.Union(slotImg.getBounds(), deskImg?.getBounds() ?? slotImg.getBounds())
-          if (repairLabel) Phaser.Geom.Rectangle.Union(r, repairLabel.getBounds(), r)
-          const zx = Math.floor(r.x)
-          const zy = Math.floor(r.y)
-          const zone = tag(
-            this.add.rectangle(zx, zy, Math.ceil(r.right) - zx, Math.ceil(r.bottom) - zy, 0xb13e53, 0.3)
-              .setOrigin(0).setInteractive({ useHandCursor: true }).setDepth(REPAIR_OVERLAY_DEPTH),
-            `office.repair.${i}`,
-          )
+          // Твин держит alpha ≥ 0.15 — при alpha 0 Phaser не считает объект
+          // целью ввода (willRender).
           this.tweens.add({
             targets: zone, alpha: { from: 0.65, to: 0.15 }, duration: 420, yoyo: true, repeat: -1,
           })
-          zone.on('pointerdown', (p: Phaser.Input.Pointer) => {
-            if (p.rightButtonDown()) {
-              this.openFireModal(e, i)
-              return
-            }
-            playSfx(this, 'click')
-            client.send('repair_click', nav.activeOffice, { slot: i })
-          })
-          zone.on('pointerover', () => {
-            this.hoveredSlot = i
-            this.showTooltip(e, s, wx, wy)
-          })
-          zone.on('pointerout', () => {
-            this.hoveredSlot = -1
-            this.hideTooltip()
-          })
-          this.objects.push(zone)
-          hoverZone = zone.getBounds()
         }
+        // ЛКМ: ПК сломан → клик починки, иначе мотивация (+25% на 3 часа с
+        // кулдауном). ПКМ — модалка увольнения (итерация 15).
+        zone.on('pointerdown', (p: Phaser.Input.Pointer) => {
+          if (p.rightButtonDown()) {
+            this.openFireModal(e, i)
+            return
+          }
+          playSfx(this, 'click')
+          client.send(e.pcBroken ? 'repair_click' : 'motivate', nav.activeOffice, { slot: i })
+        })
+        zone.on('pointerover', () => {
+          if (this.windowOpen()) return // ITGAME-89: под окном тултипа нет
+          this.hoveredSlot = i
+          this.showTooltip(e, s, wx, wy)
+        })
+        zone.on('pointerout', () => {
+          this.hoveredSlot = -1
+          this.hideTooltip()
+        })
+        const forward = (alias: Phaser.GameObjects.GameObject) => {
+          for (const ev of ['pointerdown', 'pointerover', 'pointerout']) {
+            alias.on(ev, (...a: unknown[]) => zone.emit(ev, ...a))
+          }
+        }
+        forward(slotImg)
+        if (repairLabel) forward(tag(repairLabel, `office.repair.${i}`))
         // Спрайт пересоздан — восстанавливаем тултип, но только если курсор
-        // реально над спрайтом: pointerout не срабатывает по уничтоженному
+        // реально над зоной: pointerout не срабатывает по уничтоженному
         // объекту, и без этой проверки hoveredSlot «залипает».
         if (this.hoveredSlot === i) {
           const p = this.input.activePointer
-          const over = hoverZone
-            ? hoverZone.contains(p.worldX, p.worldY)
-            : Math.abs(p.worldX - wx) <= 32 && Math.abs(p.worldY - wy) <= 32
-          if (over) {
+          if (zone.getBounds().contains(p.worldX, p.worldY) && !this.windowOpen()) {
             this.showTooltip(e, s, wx, wy)
           } else {
             this.hoveredSlot = -1
@@ -501,6 +507,7 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private showTooltip(e: EmployeeInfo, s: StateMessage, x: number, y: number) {
+    if (this.windowOpen()) return // ITGAME-89: тултип не просвечивает рядом с окном
     // Выработка — эффективная (с прибавкой уровня и дебаффами/баффами);
     // база в скобках, когда эффекты её меняют.
     const base = (e.incomePerTick + (e.level > 0 ? LEVEL_BONUS[e.level] : 0)) * s.ticksPerHour
@@ -528,7 +535,7 @@ export class OfficeScene extends Phaser.Scene {
       lines.push('· в core есть, но серверная стойка не обслуживает место')
     }
     if (e.pcBroken) {
-      lines.push('ПК СЛОМАН — доход 0; кликайте по столу')
+      lines.push(`ПК СЛОМАН — доход 0; кликайте по месту: ${e.repairClicks}/${e.repairNeeded > 0 ? e.repairNeeded : 3}`)
     }
     // ITGAME-75: пока ПК сломан, ЛКМ по месту — ремонт, мотивации кликом нет.
     lines.push(e.pcBroken
@@ -552,6 +559,7 @@ export class OfficeScene extends Phaser.Scene {
   // Универсальный текстовый тултип — для полки устройств и прочих
   // подсказок без структуры сотрудника/офиса.
   private showTextTooltip(text: string, x: number, y: number) {
+    if (this.windowOpen()) return
     this.tooltipText.setText(text)
     this.tooltipBg.setSize(this.tooltipText.width + 20, this.tooltipText.height + 16)
     const tx = Math.min(x, GAME_W - this.tooltipBg.width - 8)
@@ -611,6 +619,7 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private showBossTooltip(o: OfficeInfo, s: StateMessage, x: number, y: number) {
+    if (this.windowOpen()) return
     this.tooltipText.setText([
       o.boss,
       'Начальник — открывает места 10–12',
@@ -622,5 +631,18 @@ export class OfficeScene extends Phaser.Scene {
 
   private hideTooltip() {
     this.tooltip.setVisible(false)
+    // Текст тоже гасим: itd.text()/itd.nodes() смотрят visible самого текста,
+    // не контейнера — скрытый тултип иначе «виден» агенту (ITGAME-89).
+    this.tooltipText.setText('')
+  }
+
+  // ITGAME-89: открыто окно сцены — над тултипом лежит интерактивная подложка
+  // (модалка: depth 70). Без своего флага: окно закрывается и кнопкой, и
+  // подложкой, и сменой партии (partyModals) — смотрим на саму сцену.
+  private windowOpen(): boolean {
+    return this.children.list.some((o) => {
+      const g = o as Phaser.GameObjects.GameObject & { depth?: number }
+      return g !== this.tooltip && (g.depth ?? 0) > TOOLTIP_DEPTH && g.input?.enabled === true
+    })
   }
 }
