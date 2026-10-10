@@ -178,6 +178,8 @@ export interface JournalRecord {
   slot?: number
   arg?: number // cmd: speed у set_speed/exit (0 сервер опускает)
   err?: string // cmd: код отказа
+  conn?: number // cmd/start/resume (ITGAME-91): номер соединения в партии (1, 2, … по порядку появления); пара (conn, id) у cmd уникальна в партии
+  src?: 'tab' | 'bridge' // cmd/start/resume (ITGAME-91): источник — вкладка (/ws) или мост агента (/ws/agent)
   op?: string // debug: patch | scenario | restore | advance
   patch?: { money?: number; day?: number; tickInDay?: number }
   scenario?: string
@@ -187,8 +189,8 @@ export interface JournalRecord {
   offline?: number // resume: тики офлайн-догона
   saveSpeed?: number
   took?: boolean // resume: прежний актор не закрыл журнал — перехват
-  evicted?: boolean // end: сессию забрал другой актор
-  reason?: string // end: read_timeout | debug_drop — закрыл сторож чтения
+  evicted?: boolean // end: сессию забрал другой актор (в строке — «end evicted»)
+  reason?: string // end: read_timeout | debug_drop — закрыл сторож чтения (в строке — «end read_timeout»/«end debug_drop»); нет evicted и reason — «end disconnect»: соединение закрыл клиент (вкладка закрыта, F5, itd.away close, abandon)
   hasSave?: boolean // в записи был полный сейв (cp, resume)
   hasState?: boolean // debug restore: была дельта состояния
 }
@@ -204,7 +206,18 @@ export interface JournalView {
   dropped: number // срезано кольцом с головы
   overflow: boolean // журнал упёрся в потолок без чекпоинта
   kinds: Record<string, number> // сколько записей каждого вида во всём журнале
-  lines: string[] // хвост одной строкой на запись: «#seq k что | dN tN $M phase Nx rev R +tk»
+  /**
+   * Хвост одной строкой на запись: «#seq k что | dN tN $M phase Nx revR +tk». «что» по
+   * виду: cmd — «тип [oN] [sN] [=скорость] cN [bridge] idN ok|FAIL код» (cN — номер
+   * соединения в партии, bridge — команда моста агента, ITGAME-91); start/resume —
+   * «cN [bridge]», у resume ещё «offline Nt [took]»; debug — «op детали»; end —
+   * evicted (сессию забрал другой актор: вторая вкладка, реконнект раньше, чем
+   * сервер заметил обрыв) | read_timeout (сторож чтения: вкладка молчала дольше
+   * ITGAME_READ_TIMEOUT) | debug_drop (сторож после POST /api/debug/drop, itd.away
+   * net) | disconnect (соединение закрыл клиент: вкладка, F5, away close, abandon);
+   * +tk — тики с прошлой записи.
+   */
+  lines: string[]
   records: JournalRecord[] // тот же хвост объектами
   url: string // полный JSONL: GET этого адреса; реплей — make replay ARGS="-url <origin> -sid <sid>"
 }
@@ -385,6 +398,13 @@ async function fetchJournal(sid: string, tail: number): Promise<JournalView> {
   }
 }
 
+// ITGAME-91: « c2» / « c3 bridge» — соединение команды в партии; вкладку не
+// подписываем (её большинство), журнал до ITGAME-91 — пусто.
+function connOf(r: JournalRecord): string {
+  if (!r.conn) return ''
+  return ` c${r.conn}${r.src === 'bridge' ? ' bridge' : ''}`
+}
+
 // journalLine — запись журнала одной строкой для агента.
 function journalLine(r: JournalRecord): string {
   let what = ''
@@ -393,9 +413,12 @@ function journalLine(r: JournalRecord): string {
       const where = [r.office ? `o${r.office}` : '', r.slot ? `s${r.slot}` : '', r.type === 'set_speed' || r.type === 'exit' ? `=${r.arg ?? 0}` : '']
         .filter(Boolean)
         .join(' ')
-      what = `${r.type}${where ? ' ' + where : ''} id${r.id ?? 0} ${r.err ? 'FAIL ' + r.err : 'ok'}`
+      what = `${r.type}${where ? ' ' + where : ''}${connOf(r)} id${r.id ?? 0} ${r.err ? 'FAIL ' + r.err : 'ok'}`
       break
     }
+    case 'start':
+      what = connOf(r).trim()
+      break
     case 'debug': {
       const detail = r.patch
         ? JSON.stringify(r.patch)
@@ -412,7 +435,7 @@ function journalLine(r: JournalRecord): string {
       break
     }
     case 'resume':
-      what = `offline ${r.offline ?? 0}t${r.took ? ' took' : ''}`
+      what = `${connOf(r).trim()}${r.conn ? ' ' : ''}offline ${r.offline ?? 0}t${r.took ? ' took' : ''}`
       break
     case 'end':
       what = r.evicted ? 'evicted' : r.reason ? r.reason : 'disconnect'
@@ -1048,9 +1071,17 @@ export interface ItdApi {
    * tail — сколько последних записей (1..500, по умолчанию 20); sid — чужая
    * партия (по умолчанию — своя, как у debug-вызовов). Строка:
    * «#seq k что | dДЕНЬ tТИК $ДЕНЬГИ фаза Nx revR +tk», tk — тики с прошлой
-   * записи. Полный журнал для реплея — по url (make replay ARGS="-url …").
+   * записи. cmd — «тип cN idN ok|FAIL код»: cN — номер соединения в партии
+   * (ITGAME-91: id — счётчик страницы, после F5 снова с 1, у моста агента свой;
+   * уникальна пара (conn, id)), « bridge» — команда моста /ws/agent. start/resume
+   * — «cN»: соединение, с которого партия началась/продолжилась. end — evicted
+   * (сессию забрал другой актор) | read_timeout (сторож чтения: вкладка молчала
+   * дольше ITGAME_READ_TIMEOUT) | debug_drop (сторож после /api/debug/drop, itd.away
+   * net) | disconnect (соединение закрыл клиент: закрытие, F5, away close).
+   * Полный журнал для реплея — по url (make replay ARGS="-url …").
    * Нет журнала — ошибка journal_off / no_journal.
    * @example (await itd.journal({tail: 5})).lines
+   * @example (await itd.journal({tail: 500})).records.filter(r => r.k === 'cmd').map(r => `c${r.conn}:${r.id}`)
    */
   journal(opts?: { tail?: number; sid?: string }): Promise<JournalView>
   /**
@@ -1712,7 +1743,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.advanceDays(3)                — промотка дней офлайн-движком: день N → N+3 (из фазы отчёта — сначала next_day, и HUD вернёт скорость до отчёта: партия побежит живьём, для паузы — itd.pause() ДО вызова), без day_report; сводка {days, income, payroll, balance} — в ответе .advance и строкой «debug · advance» в itd.snapshot().events, в itd.log() — только смена дня
   await itd.play([{cmd:'set_speed', extra:{speed:0}}, {cmd:'hire'}, {days:1}]) — партия из консоли: шаг {cmd, office?, extra?} (квитанция как у itd.cmd) или {days: n} (как itd.advanceDays); строка на шаг «cmd | ok/FAIL code | dN tN | бал>бал | staff a>b | pay N | phase»; без таймеров — шаг ждёт квитанцию и снапшот rev ≥ её rev; FAIL партию не прерывает
   await itd.ledger(day?)            — бухгалтерия дня с сервера: {day, balanceStart, income, eventMoney, events[{what, money, clock}], purchases[{type, price, clock}], purchasesTotal, payroll, gatewayOpex, interest, adjust, balanceEnd, profit, delta, balanced, closed, offline, history}; слагаемые = balanceEnd − balanceStart ровно; profit = day_report.profit; без day — текущий (payroll 0 до вечера), иначе один из history (7 закрытых + текущий)
-  await itd.journal({tail?, sid?})  — журнал партии (ITGAME-46, сервер с ITGAME_DEBUG=1): хвост входов (tail 1..500, по умолчанию 20) строками «#seq k что | dN tN $M фаза Nx revR +tk» и объектами без сейвов; kinds по всему журналу, total, dropped; url — полный JSONL для make replay ARGS="-url …"; cmd несёт id, как itd.trace().sent
+  await itd.journal({tail?, sid?})  — журнал партии (ITGAME-46, сервер с ITGAME_DEBUG=1): хвост входов (tail 1..500, по умолчанию 20) строками «#seq k что | dN tN $M фаза Nx revR +tk» и объектами без сейвов; kinds по всему журналу, total, dropped; url — полный JSONL для make replay ARGS="-url …"; cmd несёт id, как itd.trace().sent, и conn/src (ITGAME-91): «buy_pc c2 id1 ok» — соединение 2 партии, «c3 bridge» — мост агента; уникальна пара (conn, id), не id; end — evicted | read_timeout | debug_drop | disconnect (закрыл клиент)
   itd.set({money: 50000})           — читы живой сессии: {money, day, tickInDay}
   itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs|broken_pc; сбрасывает клиентское состояние партии (офис → О1, оверлеи HUD, окна офиса/серверной, пауза отчёта); скорость не трогает — из отчёта или окна выхода партия остаётся на паузе: itd.resume(); работает и после финала
   itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы

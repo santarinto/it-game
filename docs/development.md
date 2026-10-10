@@ -163,7 +163,9 @@ command's receipt (ITGAME-45; invisible on localhost, real at 3× with
   produced — and only in the sender's copy: other connections get the same
   state (same `rev`) without `re`, so a tab's and an agent's ids may collide
   harmlessly. A command without `id` gets no `re` — old bundles keep their
-  FIFO receipts and work as before.
+  FIFO receipts and work as before. The id is unique per connection only: the
+  party journal pairs it with the connection's number in the party (`conn`,
+  `src: tab | bridge`, ITGAME-91, see [Party journal and replay](#party-journal-and-replay)).
 - **`rev`** — the session's state version: +1 on every broadcast snapshot,
   starting at 1. It is saved with the session (`sessionSave.rev`, bumped
   *before* the save, so the save holds the rev of the snapshot about to go
@@ -265,12 +267,14 @@ per record; every record carries `seq`, `tk`, `rev` (ITGAME-45), `day`,
 `tick`, `money`, `phase`, `speed` and `h` — the position and hash *after* the
 input:
 
-    {"k":"start","seq":1,"rev":1,"day":1,"tick":0,"money":600,"phase":"running","speed":1,"h":"81614dc3d1bbdadf"}
-    {"k":"cmd","seq":3,"tk":3,"rev":6,"day":1,"tick":3,"money":25,"phase":"running","speed":3,"h":"13751fcfb18e068b","id":2,"type":"buy_pc"}
-    {"k":"cmd","seq":5,"rev":6,"day":1,"tick":3,"money":25,"phase":"running","speed":3,"h":"13751fcfb18e068b","id":4,"type":"fire","slot":9,"err":"bad_slot"}
+    {"k":"start","seq":1,"rev":1,"day":1,"tick":0,"money":600,"phase":"running","speed":1,"h":"81614dc3d1bbdadf","conn":1,"src":"tab"}
+    {"k":"cmd","seq":3,"tk":3,"rev":6,"day":1,"tick":3,"money":25,"phase":"running","speed":3,"h":"13751fcfb18e068b","id":2,"type":"buy_pc","conn":1,"src":"tab"}
+    {"k":"cmd","seq":5,"rev":6,"day":1,"tick":3,"money":25,"phase":"running","speed":3,"h":"13751fcfb18e068b","id":4,"type":"fire","slot":9,"err":"bad_slot","conn":1,"src":"tab"}
     {"k":"debug","seq":6,"rev":7,"day":1,"tick":23,"money":25,"phase":"running","speed":3,"h":"00149c339a48dd8b","op":"advance","ticks":20}
     {"k":"end","seq":7,"tk":2,"rev":9,"day":1,"tick":25,"money":25,"phase":"running","speed":3,"h":"d124dc5eecb4b816"}
-    {"k":"resume","seq":8,"rev":10,"day":1,"tick":30,…,"h":"63f852f5e117e4eb","pre":"d124dc5eecb4b816","offline":5,"saveSpeed":3,"save":{…}}
+    {"k":"resume","seq":8,"rev":10,"day":1,"tick":30,…,"h":"63f852f5e117e4eb","conn":2,"src":"tab","pre":"d124dc5eecb4b816","offline":5,"saveSpeed":3,"save":{…}}
+    {"k":"cmd","seq":9,"rev":11,…,"id":1,"type":"hire","conn":2,"src":"tab"}
+    {"k":"cmd","seq":10,"rev":12,…,"id":1,"type":"buy_pc","conn":3,"src":"bridge"}
 
 (a real journal: `pre` of the `resume` equals `h` of the `end` before it —
 the save the server loaded is exactly the state the replay reached; 5
@@ -284,7 +288,20 @@ offline ticks then move it to tick 30.)
   matches a party played at 1–3×.
 - `cmd` — every client command as received (`id`, `type`, `office`, `slot`,
   `arg` = the command's speed for `set_speed`/`exit`), rejections included
-  with `err` — the replayer checks the rejection reproduces. `debug` — only
+  with `err` — the replayer checks the rejection reproduces.
+- `conn`/`src` (ITGAME-91) — who sent it. The command `id` is not unique in a
+  party: the tab's counter lives in the page (`nextCmdId`, `net.ts` — a socket
+  reconnect keeps counting, a page reload under the same sid starts at 1 again)
+  and the agent bridge sends its own ids, so `id1` used to appear twice. `conn`
+  is the connection's number in the party — 1, 2, … in order of appearance; the
+  actor's own connection (the tab, or the bridge that runs a headless session)
+  gets its number in `start`/`resume`, others (a bridge observer) on their first
+  command; the counter survives `resume` (same party, same journal) and starts
+  over with a new party. `src` is `tab` (`/ws`) or `bridge` (`/ws/agent`). The
+  pair (`conn`, `id`) is unique within a party. Neither enters the hash: the
+  replayer only lists the connections (`соединения: c1 tab, c2 tab, c3 bridge`,
+  `-json` → `conns`), names `cN src idN` in a command divergence and warns on a
+  repeated pair (`TestJournalCommandConnAndSource`, `TestReplayWarnsOnDuplicateConnID`). `debug` — only
   mutating `/api/debug/*` / bridge `debug_*` requests (`patch`, `scenario`,
   `restore` with the raw delta, `advance`); the replayer applies them through
   the same `debugMutate` as the actor.
@@ -299,7 +316,9 @@ offline ticks then move it to tick 30.)
   another actor took the session; `reason: read_timeout | debug_drop` when
   the read watchdog closed the tab, ITGAME-76 — the party ran live until
   then, its ticks are in `tk`, and the save the next `resume` loads is
-  exactly the state at this `end`).
+  exactly the state at this `end`; neither — the client closed the
+  connection: tab closed, F5, `itd.away` `close`, `abandon`; `itd.journal()`
+  prints these as `end evicted | read_timeout | debug_drop | disconnect`).
 - `h` = sha256 (first 8 bytes) over `Export()` JSON (the day ledger and its
   history, ITGAME-73, included — `itd.set({money})` lands in `adjust` through
   the same `debugMutate` in the replay), the protocol snapshot
@@ -658,11 +677,18 @@ documenting separately:
   the tab, for an agent without files: `{sid, seed, difficulty, scenario,
   version, total, dropped, overflow, kinds, lines, records, url}`. `tail`
   (1..500, default 20) last records as `lines` — `#seq k what | dN tN $M
-  phase Nx revR +tk`, e.g. `#14 cmd buy_pc id1 ok | d1 t39 $8708 running 3x
+  phase Nx revR +tk`, e.g. `#14 cmd buy_pc c2 id1 ok | d1 t39 $8708 running 3x
   rev23 +2` — and as `records` with `save`/`state`/`rng` stripped (`hasSave`,
   `hasState` flags); `kinds`/`total` count the whole journal. A `cmd` carries
   the command `id`, the same as in `itd.trace().sent` and the `itd.cmd()`
-  receipt. `sid` reads another party (default: the tab's, like the debug
+  receipt, plus `conn`/`src` (ITGAME-91): `c2` is the party's connection 2, `c3
+  bridge` a command of the agent bridge; compare commands by the pair (conn,
+  id), not by id. `start`/`resume` print their connection (`#13 resume c2
+  offline 8t`), `end` prints why the actor left: `evicted` (another actor took
+  the session), `read_timeout` (the read watchdog: the tab was silent longer
+  than `ITGAME_READ_TIMEOUT`), `debug_drop` (the watchdog after
+  `/api/debug/drop`, `itd.away` `net`) or `disconnect` (the client closed the
+  connection). `+tk` — ticks since the previous record. `sid` reads another party (default: the tab's, like the debug
   calls). `url` is the full JSONL for `make replay ARGS="-url <origin> -sid
   <sid>"`. Without `ITGAME_DEBUG` it rejects with `journal_off`.
 - **`itd.play(steps)` / `itd.ledger(day?)`** (ITGAME-73) — a party and its
@@ -782,7 +808,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39) | :4178, self-serve |
 | `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63); explicit exit freezes the party: the exit dialog pauses, Отмена/Esc/✕ restore the speed, «Сохранить и выйти» → «Продолжить» keeps tick/day/money and the speed, also from an open day report (ITGAME-65); on the victory screen (storage sid cleared) `itd.server().sid`/`liveSid` stay the live party's sid (ITGAME-68); office/server-room windows (router, fire dialog via a real right click on `broken_pc`, core, rack) close on `itd.scenario()`/`itd.restore()`, a click where «Уволить» was sends nothing (ITGAME-69); A1–A7 `itd.away` (ITGAME-76): `close` — while away the socket is `reconnecting`, commands `not_connected`, the server session is gone at once, the return resumes the same sid with `droppedAt` ≈ `leftAt`; `net` with `timeout: 1500` — the server session lives (200) until its read timeout and is gone (404) after, `droppedAt − drop.at` ≈ 1.5 s, `liveTicks` ≈ 3 at 2x, catch-up from `droppedAt`; `net` shorter than the timeout — no catch-up, ticks ran live; the owner key untouched; inside `itd.sandbox` the return lands in the sandbox party; N1–N6 with the socket dropped (`itd.away` net) and real mouse clicks: «Купить ПК» twice — one «Нет связи» toast, `error` sound each, no `buy_pc` (ITGAME-90); «Сохранить и выйти» → «Нет связи — сохранение не дойдёт», no `exit`, Esc back; «Подождать» → «Ждём связь…» → after the return `exit {speed:2}` and the menu, «Продолжить» 3 s later on the same day/clock; «Подождать» → ✕ sends nothing; «Выйти без сохранения» → menu, the party ran on; open socket unchanged (ITGAME-85); D1–D3 «Сдаться» → «Удалить партию навсегда?»: Enter/«Отмена» keep the sid and the save, «Удалить» sends `abandon`, 404 (ITGAME-86) | :4181, self-serve + temp saves dir |
 | `npm run qa:report-pause` | the day report pauses the party (speed 0, time and balance stand still); Enter/Space/`btn.next_day`/`itd.cmd('next_day')` restore the pre-report speed; F5 with the report open keeps `itd.speedBeforeReport`, «Продолжить» reopens it paused and closing restores 3×; an outside `itd.speed(0)` over the report survives; `itd.set({tickInDay})` refused in `day_report`; `skipReports` changes the day without a modal or a stuck 0 (ITGAME-18, self-serve since ITGAME-70) | :4182, self-serve + temp saves dir |
-| `npm run qa:journal` | the journal of a live browser party (HUD clicks, `itd.cmd`, a rejection, `itd.set`/`itd.step`, F5 → «Продолжить» with offline catch-up) from `/api/debug/journal` replays with `cmd/replay -json` without divergence or warnings, and the replayed save equals the live one; `itd.journal({tail, sid})` gives the same journal from the tab — tail lines, kinds/total, ids, saves stripped (ITGAME-46) | :4186, self-serve + temp saves dir |
+| `npm run qa:journal` | the journal of a live browser party (HUD clicks, `itd.cmd`, a rejection, `itd.set`/`itd.step`, F5 → «Продолжить» with offline catch-up) from `/api/debug/journal` replays with `cmd/replay -json` without divergence or warnings, and the replayed save equals the live one; `itd.journal({tail, sid})` gives the same journal from the tab — tail lines, kinds/total, ids, saves stripped (ITGAME-46); a `/ws/agent` command with its own id 1 after the F5: `conn`/`src` on every command, `start c1`, `resume c2`, the bridge on its own conn, ids repeat but (conn, id) pairs don't, replay `conns`; lines `end disconnect`, `c3 bridge id1` (ITGAME-91) | :4186, self-serve + temp saves dir |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |
 | `npm run visreg` | screenshot diff + layout linter per fixture scenario | :4173, self-serve, `VISREG_PORT` overrides |
 

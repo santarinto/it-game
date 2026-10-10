@@ -30,6 +30,9 @@ type ReplayResult struct {
 	// вытеснении, разошёлся с журналом старого актора (гонка Load/Begin) —
 	// реплей ресинхронизировался по сейву. Каждое — с diff.
 	Warnings []string
+	// Conns — соединения партии по журналу (ITGAME-91): номер conn → источник
+	// (tab | bridge); старый журнал без conn — пусто.
+	Conns map[int]string
 
 	// Состояние после реплея (до расхождения, если оно есть).
 	Game     *game.Game
@@ -76,6 +79,32 @@ type replayer struct {
 	open     bool // актор пишет: был start/resume, не было end
 	evicted  bool // последний end — вытеснение
 	warn     []string
+	conns    map[int]string      // ITGAME-91: conn → src
+	pairs    map[[2]int64]uint64 // (conn, id) команды → seq, где пара встретилась
+}
+
+// noteConn — соединение записи и уникальность пары (conn, id) команды
+// (ITGAME-91). Повтор состояние не ломает (conn и id в хэш не входят), но
+// журнал с ним снова неоднозначен — предупреждение, как у ресинка.
+func (rp *replayer) noteConn(rec journalRecord) {
+	if rec.Conn <= 0 {
+		return // журнал до ITGAME-91 или команда без соединения
+	}
+	if rp.conns == nil {
+		rp.conns, rp.pairs = map[int]string{}, map[[2]int64]uint64{}
+	}
+	if rec.Src != "" || rp.conns[rec.Conn] == "" {
+		rp.conns[rec.Conn] = rec.Src
+	}
+	if rec.K != "cmd" || rec.ID == 0 {
+		return
+	}
+	k := [2]int64{int64(rec.Conn), rec.ID}
+	if prev, dup := rp.pairs[k]; dup {
+		rp.warn = append(rp.warn, fmt.Sprintf("seq %d: пара (conn %d, id %d) повторилась — уже была в seq %d", rec.Seq, rec.Conn, rec.ID, prev))
+		return
+	}
+	rp.pairs[k] = rec.Seq
 }
 
 func posOf(day, tick, money int, phase string, speed int) string {
@@ -175,13 +204,14 @@ func Replay(r io.Reader) (*ReplayResult, error) {
 			res.Divergence = div
 			break
 		}
+		rp.noteConn(rec)
 		res.Records++
 		res.LastHash = rp.hash()
 	}
 	if rp.g == nil && res.Divergence == nil {
 		return nil, errors.New("в журнале нет ни одной записи")
 	}
-	res.Game, res.Speed, res.Scenario, res.Warnings = rp.g, rp.speed, rp.scenario, rp.warn
+	res.Game, res.Speed, res.Scenario, res.Warnings, res.Conns = rp.g, rp.speed, rp.scenario, rp.warn, rp.conns
 	return res, nil
 }
 
@@ -240,7 +270,7 @@ func (rp *replayer) apply(rec journalRecord) *Divergence {
 			}
 		}
 		if code != rec.Err {
-			return &Divergence{Reason: fmt.Sprintf("команда %s: в журнале отказ %q, в реплее %q", rec.Type, rec.Err, code)}
+			return &Divergence{Reason: fmt.Sprintf("команда %s (%s): в журнале отказ %q, в реплее %q", rec.Type, cmdWho(rec), rec.Err, code)}
 		}
 
 	case "debug":
@@ -271,6 +301,14 @@ func (rp *replayer) apply(rec journalRecord) *Divergence {
 		return &Divergence{Reason: "неизвестный вид записи " + rec.K}
 	}
 	return nil
+}
+
+// cmdWho — «c2 tab id3»: кто прислал команду (ITGAME-91); без conn — «id3».
+func cmdWho(rec journalRecord) string {
+	if rec.Conn <= 0 {
+		return fmt.Sprintf("id%d", rec.ID)
+	}
+	return fmt.Sprintf("c%d %s id%d", rec.Conn, rec.Src, rec.ID)
 }
 
 // resume — как persist → Load → game.Restore → AdvanceOffline: JSON-круг

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"itdirector/internal/game"
 	"itdirector/internal/store"
 )
@@ -24,7 +26,7 @@ import (
 //
 //	{"k":"header","v":1,"sid":…,"seed":"42","difficulty":"normal","scenario":"","cfgHash":…,"version":…,"config":{…}}
 //	{"k":"start","seq":1,"rev":1,"day":1,"tick":0,"money":200,"phase":"running","speed":1,"h":…}
-//	{"k":"cmd","seq":2,"tk":7,"rev":9,…,"id":3,"type":"hire","office":0,"h":…}
+//	{"k":"cmd","seq":2,"tk":7,"rev":9,…,"id":3,"type":"hire","office":0,"conn":1,"src":"tab","h":…}
 //	{"k":"day","seq":3,"tk":47,…,"phase":"day_report","h":…}
 //	{"k":"cp","seq":4,…,"save":{…},"rng":"…","h":…}
 //	{"k":"end","seq":5,"tk":3,…,"h":…}
@@ -42,6 +44,13 @@ import (
 // полное состояние (сейв + позиция PCG) в конце каждого дня и внеочередной
 // раз на каждые journalSegBytes: с него реплей стартует, когда кольцо
 // срезало голову.
+//
+// conn/src (ITGAME-91): id команды — счётчик страницы вкладки (перезагрузка
+// начинает с 1, реконнект сокета — нет) или свой у моста агента, так что в
+// партии он повторяется. conn — номер соединения в партии (1, 2, … в порядке
+// появления: соединение актора — в его start/resume, прочие — по первой
+// команде), src — tab | bridge. Пара (conn, id) в партии уникальна. На
+// состояние не влияет: реплей её только проверяет и печатает.
 
 // Лимиты журнала: на sid и число sid в памяти.
 const (
@@ -88,6 +97,10 @@ type journalRecord struct {
 	Slot   int    `json:"slot,omitempty"`
 	Arg    int    `json:"arg,omitempty"` // speed команды: set_speed, exit
 	Err    string `json:"err,omitempty"`
+	// cmd, start, resume (ITGAME-91): номер соединения в партии и источник
+	// (tab | bridge); у start/resume — соединение, ради которого запущен актор.
+	Conn int    `json:"conn,omitempty"`
+	Src  string `json:"src,omitempty"`
 
 	// debug: мутирующий запрос /api/debug/* или debug_* моста.
 	Op       string          `json:"op,omitempty"` // patch | scenario | restore | advance
@@ -169,6 +182,28 @@ type journal struct {
 	ticks   int // тиков с прошлой записи (поле tk следующей)
 	owner   *journalWriter
 	touched uint64
+	// ITGAME-91: номера соединений партии. nconn переживает resume (та же
+	// партия — тот же журнал), conns — только соединения текущего актора:
+	// прежние ушли вместе с ним, держать их сокеты незачем.
+	nconn int
+	conns map[*websocket.Conn]int
+}
+
+// connOf — номер соединения c в партии; новое получает следующий. nil (команда
+// без соединения) — 0, в записи поля нет.
+func (j *journal) connOf(c *websocket.Conn) int {
+	if c == nil {
+		return 0
+	}
+	if n, ok := j.conns[c]; ok {
+		return n
+	}
+	if j.conns == nil {
+		j.conns = map[*websocket.Conn]int{}
+	}
+	j.nconn++
+	j.conns[c] = j.nconn
+	return j.nconn
 }
 
 func (h *Handler) journalStore() *journalStore {
@@ -321,7 +356,7 @@ func (rt *resumeTrace) preHash() string {
 // openJournal — актор начал партию: новая — новый журнал (header + start),
 // восстановленная — запись resume в журнал sid; если журнала нет (рестарт
 // сервера, журнал вытеснен), он начинается с resume — в ней весь сейв.
-func (h *Handler) openJournal(sid string, g **game.Game, speed, resumeSpeed *int, scenario *string, rv *revClock, resumed bool, rt *resumeTrace) *journalWriter {
+func (h *Handler) openJournal(sid string, g **game.Game, speed, resumeSpeed *int, scenario *string, rv *revClock, resumed bool, rt *resumeTrace, owner *websocket.Conn, ownerSrc string) *journalWriter {
 	if !h.Journal || !store.ValidSID(sid) {
 		return nil
 	}
@@ -356,11 +391,13 @@ func (h *Handler) openJournal(sid string, g **game.Game, speed, resumeSpeed *int
 	took := j.owner != nil
 	j.owner = w
 	w.j = j
+	j.conns = nil
+	conn := j.connOf(owner)
 	if !resumed {
-		w.writeLocked(journalRecord{K: "start"})
+		w.writeLocked(journalRecord{K: "start", Conn: conn, Src: ownerSrc})
 		return w
 	}
-	rec := journalRecord{K: "resume", Took: took}
+	rec := journalRecord{K: "resume", Took: took, Conn: conn, Src: ownerSrc}
 	if rt != nil {
 		rec.Pre = rt.preHash()
 		s := rt.save
@@ -453,11 +490,17 @@ func (w *journalWriter) command(cmd clientCommand, rejected *errorMessage) {
 	if w == nil {
 		return
 	}
-	rec := journalRecord{K: "cmd", ID: cmd.ID, Type: string(cmd.Cmd), Office: cmd.Office, Slot: cmd.Slot, Arg: cmd.Speed}
+	rec := journalRecord{K: "cmd", ID: cmd.ID, Type: string(cmd.Cmd), Office: cmd.Office, Slot: cmd.Slot, Arg: cmd.Speed, Src: cmd.Src}
 	if rejected != nil {
 		rec.Err = rejected.Code
 	}
-	w.write(rec)
+	w.st.mu.Lock()
+	defer w.st.mu.Unlock()
+	if w.j.owner != w {
+		return
+	}
+	rec.Conn = w.j.connOf(cmd.From)
+	w.writeLocked(rec)
 }
 
 // debug — debug-запрос после applyDebug. Пишутся только мутирующие
@@ -494,6 +537,7 @@ func (w *journalWriter) end(evicted bool, reason string) {
 	}
 	w.writeLocked(journalRecord{K: "end", Evicted: evicted, Reason: reason})
 	w.j.owner = nil
+	w.j.conns = nil
 }
 
 // ── HTTP: GET /api/debug/journal?sid= ──────────────────────────────────────

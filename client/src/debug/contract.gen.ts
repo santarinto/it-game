@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "5880dc221493",
+  "hash": "0b28942bb837",
   "methods": {
     "version": {
       "kind": "prop",
@@ -532,9 +532,10 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<JournalView>",
-      "doc": "Журнал партии (ITGAME-46, GET /api/debug/journal; сервер с ITGAME_DEBUG=1):\nхвост входов своей партии — команды с id и отказами, debug-правки, вехи\nдней, resume с офлайн-догоном, end — строками и объектами (без сейвов).\ntail — сколько последних записей (1..500, по умолчанию 20); sid — чужая\nпартия (по умолчанию — своя, как у debug-вызовов). Строка:\n«#seq k что | dДЕНЬ tТИК $ДЕНЬГИ фаза Nx revR +tk», tk — тики с прошлой\nзаписи. Полный журнал для реплея — по url (make replay ARGS=\"-url …\").\nНет журнала — ошибка journal_off / no_journal.",
+      "doc": "Журнал партии (ITGAME-46, GET /api/debug/journal; сервер с ITGAME_DEBUG=1):\nхвост входов своей партии — команды с id и отказами, debug-правки, вехи\nдней, resume с офлайн-догоном, end — строками и объектами (без сейвов).\ntail — сколько последних записей (1..500, по умолчанию 20); sid — чужая\nпартия (по умолчанию — своя, как у debug-вызовов). Строка:\n«#seq k что | dДЕНЬ tТИК $ДЕНЬГИ фаза Nx revR +tk», tk — тики с прошлой\nзаписи. cmd — «тип cN idN ok|FAIL код»: cN — номер соединения в партии\n(ITGAME-91: id — счётчик страницы, после F5 снова с 1, у моста агента свой;\nуникальна пара (conn, id)), « bridge» — команда моста /ws/agent. start/resume\n— «cN»: соединение, с которого партия началась/продолжилась. end — evicted\n(сессию забрал другой актор) | read_timeout (сторож чтения: вкладка молчала\nдольше ITGAME_READ_TIMEOUT) | debug_drop (сторож после /api/debug/drop, itd.away\nnet) | disconnect (соединение закрыл клиент: закрытие, F5, away close).\nПолный журнал для реплея — по url (make replay ARGS=\"-url …\").\nНет журнала — ошибка journal_off / no_journal.",
       "examples": [
-        "(await itd.journal({tail: 5})).lines"
+        "(await itd.journal({tail: 5})).lines",
+        "(await itd.journal({tail: 500})).records.filter(r => r.k === 'cmd').map(r => `c${r.conn}:${r.id}`)"
       ]
     },
     "set": {
@@ -1944,6 +1945,16 @@ export const CONTRACT = {
           "optional": true,
           "doc": "cmd: код отказа"
         },
+        "conn": {
+          "type": "number",
+          "optional": true,
+          "doc": "cmd/start/resume (ITGAME-91): номер соединения в партии (1, 2, … по порядку появления); пара (conn, id) у cmd уникальна в партии"
+        },
+        "src": {
+          "type": "'tab' | 'bridge'",
+          "optional": true,
+          "doc": "cmd/start/resume (ITGAME-91): источник — вкладка (/ws) или мост агента (/ws/agent)"
+        },
         "op": {
           "type": "string",
           "optional": true,
@@ -1992,12 +2003,12 @@ export const CONTRACT = {
         "evicted": {
           "type": "boolean",
           "optional": true,
-          "doc": "end: сессию забрал другой актор"
+          "doc": "end: сессию забрал другой актор (в строке — «end evicted»)"
         },
         "reason": {
           "type": "string",
           "optional": true,
-          "doc": "end: read_timeout | debug_drop — закрыл сторож чтения"
+          "doc": "end: read_timeout | debug_drop — закрыл сторож чтения (в строке — «end read_timeout»/«end debug_drop»); нет evicted и reason — «end disconnect»: соединение закрыл клиент (вкладка закрыта, F5, itd.away close, abandon)"
         },
         "hasSave": {
           "type": "boolean",
@@ -2062,7 +2073,7 @@ export const CONTRACT = {
         "lines": {
           "type": "string[]",
           "optional": false,
-          "doc": "хвост одной строкой на запись: «#seq k что | dN tN $M phase Nx rev R +tk»"
+          "doc": "Хвост одной строкой на запись: «#seq k что | dN tN $M phase Nx revR +tk». «что» по\nвиду: cmd — «тип [oN] [sN] [=скорость] cN [bridge] idN ok|FAIL код» (cN — номер\nсоединения в партии, bridge — команда моста агента, ITGAME-91); start/resume —\n«cN [bridge]», у resume ещё «offline Nt [took]»; debug — «op детали»; end —\nevicted (сессию забрал другой актор: вторая вкладка, реконнект раньше, чем\nсервер заметил обрыв) | read_timeout (сторож чтения: вкладка молчала дольше\nITGAME_READ_TIMEOUT) | debug_drop (сторож после POST /api/debug/drop, itd.away\nnet) | disconnect (соединение закрыл клиент: вкладка, F5, away close, abandon);\n+tk — тики с прошлой записи."
         },
         "records": {
           "type": "JournalRecord[]",

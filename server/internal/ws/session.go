@@ -54,6 +54,11 @@ type session struct {
 	commands chan clientCommand
 	hub      *connHub
 	tab      *tabConn // соединение вкладки (ITGAME-76: debug-обрыв); nil — headless-сессия агента
+	// owner — соединение, ради которого запущен актор (вкладка или мост агента
+	// headless-сессии), ownerSrc — его источник: журнал партии (ITGAME-91)
+	// даёт ему номер соединения в записи start/resume.
+	owner    *websocket.Conn
+	ownerSrc string
 }
 
 // connHub — широковещатель сессии: снапшоты и отчёты получают ВСЕ
@@ -160,7 +165,15 @@ type clientCommand struct {
 	SID    string          // адресат abandon
 	From   *websocket.Conn // источник (ITGAME-29): для адресных ответов агенту
 	ID     int64           // id команды от клиента (ITGAME-45): re в ответе; 0 — без id
+	Src    string          // откуда пришла (ITGAME-91, журнал партии): srcTab | srcBridge
 }
+
+// Источник команды в журнале партии (ITGAME-91): id — счётчик страницы
+// вкладки или свой у моста агента, сам по себе в партии не уникален.
+const (
+	srcTab    = "tab"    // /ws — вкладка браузера
+	srcBridge = "bridge" // /ws/agent — мост агента (наблюдатель или headless)
+)
 
 // revClock — версия состояния сессии (ITGAME-45). bump — ДО сейва: в сейв
 // попадает rev снапшота, который за ним разошлётся, и resume продолжит
@@ -235,6 +248,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		commands: commands,
 		hub:      hub,
 		tab:      tab,
+		owner:    c,
+		ownerSrc: srcTab,
 	}
 
 	// Сложность применяется ТОЛЬКО при непустом query-параметре: иначе
@@ -280,7 +295,7 @@ func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn,
 		}
 		tab.hear()
 		select {
-		case commands <- clientCommand{Cmd: game.Command(msg.Type), Office: msg.Office, Slot: msg.Slot, Speed: msg.Speed, From: c, ID: msg.ID}:
+		case commands <- clientCommand{Cmd: game.Command(msg.Type), Office: msg.Office, Slot: msg.Slot, Speed: msg.Speed, From: c, ID: msg.ID, Src: srcTab}:
 		case <-ctx.Done():
 			return
 		}
@@ -398,7 +413,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		}
 	}
 
-	jn := h.openJournal(sid, &g, &speed, &resumeSpeed, &scenario, rv, resumed, rt)
+	jn := h.openJournal(sid, &g, &speed, &resumeSpeed, &scenario, rv, resumed, rt, sess.owner, sess.ownerSrc)
 	defer func() { jn.end(evicted, sess.tab.goneWhy()) }()
 
 	ticker := time.NewTicker(h.TickInterval)

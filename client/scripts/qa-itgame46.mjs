@@ -13,6 +13,10 @@
 //       JSON-круга, темп тоже
 //   J9  itd.journal({tail, sid}) — тот же журнал из вкладки: хвост строками и объектами,
 //       kinds/total как у эндпоинта, cmd с id, сейвы вырезаны (hasSave), tail вне 1..500 — отказ
+//   J10 (ITGAME-91) команда моста агента /ws/agent со своим id1 и F5 посередине: у cmd
+//       conn/src, start c1 tab, resume c2+ tab, мост — свой conn и src bridge; id
+//       повторяется между соединениями, пара (conn, id) — нет; реплей печатает conns
+//   J11 строки itd.journal(): «end disconnect» (F5), « bridge id1», cmd с cN
 //   Z   на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию :4186) с временным
@@ -133,7 +137,26 @@ try {
     const itd = window.itd
     await itd.cmd('buy_pc', 0)
     await itd.cmd('hire', 0)
-    await itd.cmd('set_speed', 0, { speed: 0 })
+  })
+  // J10 — мост агента наблюдателем шлёт свою команду с id 1 (ITGAME-91)
+  const bridge = await page.evaluate(async (sid) => {
+    const ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/ws/agent?sid=${encodeURIComponent(sid)}`)
+    const reply = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ timeout: true }), 5000)
+      ws.onopen = () => ws.send(JSON.stringify({ type: 'buy_pc', office: 0, id: 1 }))
+      ws.onmessage = (ev) => {
+        const m = JSON.parse(ev.data)
+        if (m.re === 1) {
+          clearTimeout(timer)
+          resolve({ type: m.type, code: m.code })
+        }
+      }
+    })
+    ws.close()
+    return reply
+  }, sid)
+  await page.evaluate(async () => {
+    await window.itd.cmd('set_speed', 0, { speed: 0 })
   })
   const resp = await fetch(`${BASE}/api/debug/journal?sid=${encodeURIComponent(sid)}`)
   const journal = await resp.text()
@@ -245,6 +268,7 @@ try {
       ids: other.records.filter((r) => r.k === 'cmd').map((r) => r.id),
       bad,
       url: mine.url,
+      allLines: other.lines,
     }
   }, sid)
   note(
@@ -252,7 +276,7 @@ try {
     j9.total === recs.length &&
       j9.n === 5 &&
       j9.lines.length === 5 &&
-      /^#\d+ cmd set_speed =0 id\d+ ok \| d\d+ t\d+ \$\d+ running 0x rev\d+/.test(j9.lines[4]) &&
+      /^#\d+ cmd set_speed =0 c\d+ id\d+ ok \| d\d+ t\d+ \$\d+ running 0x rev\d+/.test(j9.lines[4]) &&
       j9.last.k === 'cmd' &&
       j9.last.type === 'set_speed' &&
       JSON.stringify(j9.kinds) === JSON.stringify(kinds) &&
@@ -262,6 +286,36 @@ try {
       /tail/.test(j9.bad || '') &&
       j9.url.includes(encodeURIComponent(sid)),
     JSON.stringify({ total: j9.total, lines: j9.lines, hasSave: j9.hasSave, bad: j9.bad }),
+  )
+
+  // J10 — conn/src у команд, пара (conn, id) уникальна, хотя id повторяется
+  const cmds = recs.filter((r) => r.k === 'cmd')
+  const pairs = cmds.map((r) => `${r.conn}:${r.id}`)
+  const idRepeats = new Set(cmds.map((r) => r.id)).size < cmds.length
+  const start = recs.find((r) => r.k === 'start')
+  const bridgeCmd = cmds.find((r) => r.src === 'bridge')
+  const tabConns = new Set(cmds.filter((r) => r.src === 'tab').map((r) => r.conn))
+  note(
+    'J10 команды с conn/src: start c1 tab, resume c2+ tab, мост — свой conn; id повторяется, (conn, id) — нет; реплей печатает conns',
+    !bridge.timeout &&
+      cmds.every((r) => r.conn > 0 && (r.src === 'tab' || r.src === 'bridge')) &&
+      new Set(pairs).size === pairs.length &&
+      idRepeats &&
+      start && start.conn === 1 && start.src === 'tab' &&
+      resume && resume.conn > 1 && resume.src === 'tab' &&
+      bridgeCmd && bridgeCmd.id === 1 && !tabConns.has(bridgeCmd.conn) &&
+      res.conns && res.conns[String(bridgeCmd.conn)] === 'bridge' && res.conns['1'] === 'tab',
+    JSON.stringify({ bridge, pairs, start: start && [start.conn, start.src], resume: resume && [resume.conn, resume.src], conns: res.conns }),
+  )
+
+  // J11 — строки itd.journal(): end F5 расшифрован, мост и соединения видны
+  note(
+    'J11 строки журнала: «end disconnect», « bridge id1», cmd с cN',
+    j9.allLines.some((l) => /^#\d+ end disconnect \|/.test(l)) &&
+      j9.allLines.some((l) => / c\d+ bridge id1 /.test(l)) &&
+      j9.allLines.some((l) => /^#\d+ resume c\d+ offline \d+t/.test(l)) &&
+      j9.allLines.some((l) => /^#\d+ start c1 \|/.test(l)),
+    JSON.stringify(j9.allLines.filter((l) => / (start|resume|end) | bridge /.test(l))),
   )
 
   note('Z нет pageerror', pageErrors.length === 0, JSON.stringify(pageErrors.slice(0, 3)))

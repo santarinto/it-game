@@ -7,6 +7,10 @@
 //	curl -s 'localhost:8080/api/debug/journal?sid=<sid>' | go run ./cmd/replay -
 //	go run ./cmd/replay -json journal.jsonl   # итог одним JSON — для скриптов и агентов
 //
+// Команда в журнале — с номером соединения в партии и источником (conn, src:
+// tab | bridge, ITGAME-91); «соединения:» в итоге — их список, повтор пары
+// (conn, id) — предупреждение.
+//
 // Код выхода: 0 — сошлось, 1 — расхождение (отчёт: строка журнала, запись,
 // ожидаемый и полученный хэш и позиция, diff сейва на чекпоинте),
 // 2 — журнал не читается.
@@ -20,6 +24,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -60,6 +66,9 @@ func main() {
 	}
 	if h.Overflow {
 		fmt.Println("  ВНИМАНИЕ: журнал упёрся в потолок без чекпоинта — хвост партии не записан")
+	}
+	if len(res.Conns) > 0 {
+		fmt.Printf("  соединения: %s\n", connsLine(res.Conns))
 	}
 	if *dump && res.Game != nil {
 		b, _ := json.MarshalIndent(res.Game.Export(), "", "  ")
@@ -109,12 +118,36 @@ func open(base, sid, path string) (io.ReadCloser, string, error) {
 	return f, path, nil
 }
 
+// conns — соединения партии (ITGAME-91) для JSON: {"1":"tab","2":"bridge"}.
+func conns(m map[int]string) map[string]string {
+	out := make(map[string]string, len(m))
+	for n, src := range m {
+		out[strconv.Itoa(n)] = src
+	}
+	return out
+}
+
+// connsLine — «c1 tab, c2 tab, c3 bridge»: по номеру соединения.
+func connsLine(m map[int]string) string {
+	ns := make([]int, 0, len(m))
+	for n := range m {
+		ns = append(ns, n)
+	}
+	sort.Ints(ns)
+	parts := make([]string, len(ns))
+	for i, n := range ns {
+		parts[i] = fmt.Sprintf("c%d %s", n, m[n])
+	}
+	return strings.Join(parts, ", ")
+}
+
 // printJSON — итог для машин: тот же код выхода, что у текстового режима.
 func printJSON(res *ws.ReplayResult) int {
 	out := map[string]any{
 		"ok": res.Divergence == nil, "records": res.Records, "ticks": res.Ticks,
 		"fromSeq": res.FromSeq, "hash": res.LastHash, "warnings": res.Warnings,
 		"sid": res.Header.SID, "seed": res.Header.Seed, "dropped": res.Header.Dropped,
+		"conns": conns(res.Conns),
 	}
 	if res.Warnings == nil {
 		out["warnings"] = []string{}

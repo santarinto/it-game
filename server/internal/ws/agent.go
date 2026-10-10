@@ -92,6 +92,8 @@ func (h *Handler) ServeAgent(w http.ResponseWriter, r *http.Request) {
 		debugC:   make(chan debugRequest, 8),
 		commands: make(chan clientCommand),
 		hub:      newConnHub(),
+		owner:    c,
+		ownerSrc: srcBridge,
 	}
 	sess.hub.add(c)
 	go agentReadLoop(ctx, cancel, c, sess, sid, true)
@@ -171,7 +173,7 @@ func agentReadLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.
 		default:
 			// Команды игрока: тот же CommandType-протокол, что у вкладки.
 			select {
-			case sess.commands <- clientCommand{Cmd: game.Command(msg.Type), Office: msg.Office, Slot: msg.Slot, Speed: msg.Speed, From: c, ID: msg.ID}:
+			case sess.commands <- clientCommand{Cmd: game.Command(msg.Type), Office: msg.Office, Slot: msg.Slot, Speed: msg.Speed, From: c, ID: msg.ID, Src: srcBridge}:
 			case <-ctx.Done():
 				return
 			}
