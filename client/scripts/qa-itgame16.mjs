@@ -14,6 +14,8 @@
 //   (g) полоса цели (ITGAME-21): hud.goal.bar на всю правую колонку x 884..1264 под
 //       текстом, hud.goal.fill = деньги/цель, метки штата/core и засечка дедлайна —
 //       только там, где сложность их задаёт
+//   (h) полоса дня (ITGAME-21): hud.day.bar под часами, hud.day.fill = тик/(9 ч × ticksPerHour),
+//       обеденная плашка 14–15 и засечки 17:00/18:00; текст hud.day начинается на дорожке
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
 // :4174 — dist + собранный bin/itdirector, как visreg.mjs). Общий
@@ -264,6 +266,26 @@ async function runCase(browser, zoom, def) {
       }
       if (!g3) g3fact = JSON.stringify({ staff, core, dl, goalLeft: goal?.left })
       check(`${label}: G3 метки штата/core и засечка дедлайна`, g3, g3fact)
+    }
+
+    // (h) полоса дня (ITGAME-21)
+    if (!def.stress) {
+      const sh = await dumpShapes(page, ['hud.day.bar', 'hud.day.fill', 'hud.day.lunch', 'hud.day.mark17', 'hud.day.mark18'])
+      const st = await snap(page)
+      const day = panel.find((n) => n.id === 'hud.day')
+      const bar = sh['hud.day.bar']
+      const d1 = !!bar && bar.visible && near(bar.left, 884) && near(bar.right, 1264) && !!day &&
+        bar.top >= day.top - 1 && bar.bottom <= day.bottom + 1 && bar.top >= 0 && bar.bottom <= HUD_H && day.left >= 884
+      check(`${label}: D1 hud.day.bar x 884..1264 под часами`, d1, bar ? JSON.stringify({ bar, dayLeft: day?.left }) : 'нет объекта')
+      const fill = sh['hud.day.fill']
+      const wantW = Math.round(380 * Math.min(1, Math.max(0, st.tickInDay / (9 * st.ticksPerHour))))
+      const d2 = wantW > 0 ? !!fill?.visible && Math.abs(fill.right - fill.left - wantW) <= 1 : !!fill && !fill.visible
+      check(`${label}: D2 hud.day.fill = тик/день`, d2, `tick=${st.tickInDay} want=${wantW} ${fill ? JSON.stringify(fill) : 'нет объекта'}`)
+      const lunch = sh['hud.day.lunch'], m17 = sh['hud.day.mark17'], m18 = sh['hud.day.mark18']
+      const inY = (o) => !!o && o.visible && !!bar && near(o.top, bar.top, 1) && near(o.bottom, bar.bottom, 1)
+      const d3 = inY(lunch) && inY(m17) && inY(m18) && Math.abs(lunch.left - 1053) <= 1 && Math.abs(lunch.right - lunch.left - 42) <= 1 &&
+        Math.abs(m17.left - 1180) <= 1 && Math.abs(m18.left - 1222) <= 1
+      check(`${label}: D3 обед 14–15 и засечки 17:00/18:00`, d3, JSON.stringify({ lunch, m17, m18 }))
     }
 
     // (d) стек тостов — только у кейса-стресса (у остальных тостов обычно нет)

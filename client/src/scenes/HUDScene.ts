@@ -14,6 +14,7 @@ import { playSfx } from '../audio'
 import { emitUi } from '../uibus'
 import { activeZoom, applyZoom, ZOOM_OPTIONS, zoomLabel } from '../uiscale'
 import { FONT, HIRES_CAMERA } from '../render'
+import { WORKDAY, dayShare, hourShare } from '../workday'
 import {
   checkAchievements,
   getAchievementsSummary,
@@ -81,6 +82,12 @@ export class HUDScene extends Phaser.Scene {
   private goalCore!: Phaser.GameObjects.Rectangle
   private goalDeadline!: Phaser.GameObjects.Rectangle
   private deadlineX = BAR_X
+  // Полоса дня (ITGAME-21): 10:00→19:00, обеденная плашка и засечки 17:00/18:00.
+  private dayBar!: Phaser.GameObjects.Rectangle
+  private dayFill!: Phaser.GameObjects.Rectangle
+  private dayLunch!: Phaser.GameObjects.Rectangle
+  private dayMark17!: Phaser.GameObjects.Rectangle
+  private dayMark18!: Phaser.GameObjects.Rectangle
   private dayProfitText!: Phaser.GameObjects.Text
   private marketText!: Phaser.GameObjects.Text
   private debtText!: Phaser.GameObjects.Text
@@ -200,8 +207,8 @@ export class HUDScene extends Phaser.Scene {
     }), 'hud.payroll')
     this.dayText = tag(
       this.add
-        .text(GAME_W - 16, 70, '', { fontFamily: FONT, fontSize: '13px', color: '#5d7275' })
-        .setOrigin(1, 0),
+        .text(BAR_X + 4, 70, '', { fontFamily: FONT, fontSize: '13px', color: '#f4f4f4' })
+        .setOrigin(0, 0),
       'hud.day',
     )
     this.goalText = tag(
@@ -530,6 +537,17 @@ export class HUDScene extends Phaser.Scene {
     this.goalStaff.setVisible(false)
     this.goalCore.setVisible(false)
     this.goalDeadline.setVisible(false)
+    const dx = (hour: number) => BAR_X + Math.round(BAR_W * hourShare(hour))
+    this.dayBar = rect(BAR_X, 61, BAR_W, 16, 0x232640, 'hud.day.bar').setStrokeStyle(1, 0x3a3f5c)
+    this.dayFill = rect(BAR_X, 61, 1, 16, 0x3b5dc9, 'hud.day.fill')
+    // Альфа 0.35 держит плашку вне occlusion (< 0.9) и вне выбора фона для contrast (< 0.5).
+    this.dayLunch = tag(
+      this.add.rectangle(dx(WORKDAY.lunchStart), 61, Math.round(BAR_W / (WORKDAY.end - WORKDAY.start)), 16, 0xffcd75, 0.35).setOrigin(0),
+      'hud.day.lunch',
+    )
+    this.dayMark17 = rect(dx(WORKDAY.deadlineHour), 61, 2, 16, 0xffcd75, 'hud.day.mark17')
+    this.dayMark18 = rect(dx(WORKDAY.auditHour), 61, 2, 16, 0xb13e53, 'hud.day.mark18')
+    this.dayFill.setVisible(false)
   }
 
   // Полосы идут за фактической высотой и y текстов (после layoutColumn).
@@ -541,6 +559,8 @@ export class HUDScene extends Phaser.Scene {
     this.goalStaff.setY(markY)
     this.goalCore.setY(markY)
     this.goalDeadline.setPosition(this.deadlineX, gy).setSize(2, gh)
+    const dy = this.dayText.y, dh = this.dayText.height
+    for (const r of [this.dayBar, this.dayFill, this.dayLunch, this.dayMark17, this.dayMark18]) r.setY(dy).setSize(r.width, dh)
   }
 
   private refreshGoalBar(s: StateMessage, staffCount: number) {
@@ -695,6 +715,9 @@ export class HUDScene extends Phaser.Scene {
     this.dayText.setText(`День ${s.day} · ${s.clock}${s.isLunch ? ' · обед' : ''}`)
     this.goalText.setText(this.goalLabel(s))
     this.refreshGoalBar(s, employees.length)
+    const dayW = Math.round(BAR_W * dayShare(s.tickInDay, s.ticksPerHour))
+    this.dayFill.setVisible(dayW > 0)
+    if (dayW > 0) this.dayFill.setSize(dayW, this.dayText.height)
     // Рынок (сложность 2.0): качели выработки ±%, завтра виден заранее.
     if (s.marketToday !== 0 || s.marketTomorrow !== 0) {
       const pct = (v: number) => (v > 0 ? `+${v}` : `${v}`)
