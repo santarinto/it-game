@@ -29,8 +29,33 @@ Notes:
 - `npm run build` runs `check-sprites.mjs`, which decodes PNGs with pngjs —
   no Chromium needed for the box to build (Chromium is only for
   `smoke-ui`/`qa:*`/`visreg`, see [Tests](#tests)).
-- Releases are built from `git archive` (no `.git`), so the build stamp
-  (`<meta name="build">`, `itd.version`) reads `dev` instead of a SHA.
+- Releases are built from `git archive` (no `.git`, so neither `git rev-parse`
+  nor Go's `vcs.revision`), and the deploy recipe stamps the SHA itself
+  (ITGAME-81): `bin/deploy-local.sh` builds the client with
+  `BUILD_SHA=<short sha>` (`<meta name="build">`, `itd.version`) and the server
+  with `-ldflags "-X itdirector/internal/ws.buildSHA=<short sha>"` (`GET
+  /api/version`, the journal header, `agent_status`). Vite takes `BUILD_SHA`
+  only as lower-case hex of 7–40 characters — anything else is ignored with a
+  warning — then falls back to `git rev-parse`, then `dev`; the server falls
+  back to `vcs.revision`, then `unknown`. `make build` and the QA self-serve
+  build from a checkout and need neither. **The CI chain (`tools/deploy`, the
+  Forgejo push-to-main deploy) does not stamp yet**: its releases still read
+  `dev` / `unknown` until it passes the same two values. Check a release:
+  `curl -s https://<host>/ | grep -o '<meta name="build"[^>]*'`.
+- Production nginx answers `/api/*` with the SPA's `index.html`, so a tab
+  cannot read the server's SHA there until `/api/version` is proxied to Go.
+  The owner installs this block on the box (nginx config is not in this
+  repo); an exact-match location wins over any `/api/` prefix or SPA
+  fallback, and the Go handler already sends `Cache-Control: no-store`:
+
+  ```nginx
+  location = /api/version {
+      proxy_pass http://127.0.0.1:8080;   # the stage instance: 8081
+  }
+  ```
+
+  Until it is there, `itd.stale()` on production compares the tab with the
+  `<meta name="build">` of a fresh `/` only, and `server` stays `null`.
 - A deploy drops live WebSocket connections; saves live in `shared/saves`,
   and clients reconnect and resume.
 - nginx must not SPA-fallback `/assets/`, or a missing asset returns
@@ -147,8 +172,9 @@ The start menu reads the save's facts through `/ws?peek=1&sid=…`
 `day`, `money`, `difficulty`, `outcome` won/lost, `reason`) and closes
 the socket. It counts missed time offline the same way a reconnect does,
 but on a copy: nothing is written, no session is taken over. It rides on
-`/ws` because that is the only path production nginx proxies to Go —
-`/api/*` there falls through to the SPA's `index.html`. The menu shows
+`/ws` because that is the only path production nginx proxies to Go (plus
+`/api/version` once the owner installs its block, see [Deploy](#deploy)) —
+the rest of `/api/*` there falls through to the SPA's `index.html`. The menu shows
 «ПРОДОЛЖИТЬ — День 3 · $60 · НОРМА» for a live save, «ИТОГ: …» for a
 game that ended while the player was away, hides the card when the
 server has no save, and asks for confirmation before a new game
@@ -486,7 +512,9 @@ the tab's own build sha (`#build`, = `itd.version.sha`) left of «Админка
 `client/src/buildstamp.ts` compares it with the build the stand would serve on
 reload — the sha in `<meta name="build">` of a fresh `GET /` — and, if that is
 missing, with the server binary's sha (`GET /api/version` → `{sha}`, public,
-`no-store`; `vcs.revision` of `go build`, `unknown` under `go run`). On a
+`no-store`; the SHA the deploy recipe links into `ws.buildSHA` (ITGAME-81),
+else `vcs.revision` of `go build`, `unknown` under `go run` or an unstamped
+archive build). On a
 mismatch a red «устарело, обнови» button (`#stale`, click reloads,
 `#topbar[data-stale]`) appears. Checks run on load, after a socket reconnect
 (a stand restart drops WS), on returning to the tab and once a minute while it
@@ -495,9 +523,13 @@ server, dist, stale, at, shown}`; `shown` (ITGAME-88) — whether the badge is
 actually on screen after this check (a hidden badge stays in the DOM as
 `display: none`, 0×0 — don't judge it by its presence; `false` also where there
 is no `#topbar`); `stale: null` means there is nothing to compare
-(vite dev serves no meta and hot-reloads anyway; a build without git reads
-`dev`, see [Deploy](#deploy) — on production nginx `/api/*` also falls
-through to the SPA). `itd.screen().meta.stale` carries the last result.
+(vite dev serves no meta and hot-reloads anyway; a build with neither
+`BUILD_SHA` nor git reads `dev`). Releases built by `bin/deploy-local.sh` carry
+the SHA since ITGAME-81 (the `tools/deploy` CI chain does not yet, see
+[Deploy](#deploy)), so there the check runs against the served
+`<meta name="build">`; on production `server` stays `null` until the owner
+installs the `/api/version` nginx block. `itd.screen().meta.stale` carries the
+last result.
 
 `itd.help()` prints the full command reference in the console. Worth
 documenting separately:
