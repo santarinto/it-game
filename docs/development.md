@@ -17,7 +17,7 @@ A push to `main` deploys (since 08.10, MINIPC-206). The repo lives on
 Forgejo (`git.lan.santarinto.com`; `make push`), and every push to any
 branch runs `.forgejo/workflows/ci.yaml`: the `test-server` and
 `test-client` jobs (see [CI](#ci)), then — on `main` or a manual dispatch
-only, and only when both are green — the `deploy` job on the host runner
+only, and only when both are green (they test the branch head, the deploy ships the pushed sha, so a quick second push can make them differ) — the `deploy` job on the host runner
 `minipc-deploy`: `ssh deploy-itgame-stage <mode> <sha40>`, then
 `ssh deploy-itgame <mode> <sha40>` (`mode` is `deploy` on a push). Stage
 goes first; a failed stage stops the job before production. Each ssh target
@@ -56,7 +56,8 @@ keeps the last `KEEP=3` releases and never prunes `current`.
   `mode=rollback` and `ref=<sha40>` of a commit whose release is still on
   BOTH targets (each keeps its own last three); it goes stage, then
   production, and a stage failure stops the run before production — pick a
-  sha both hold or check each with `tools/deploy rollback <sha> --dry-run`.
+  sha both hold or check
+  on the box with `ls /opt/itgame/releases /opt/itgame-stage/releases | grep <sha7>`.
   Rollback never builds: it points `current` at the release whose
   directory name ends in that sha7 and restarts. The `deploy` job needs
   both test jobs even for a rollback, and the tests check the dispatched
@@ -102,7 +103,8 @@ Notes:
   `dev` / `unknown` until it passes the same two values. Check a release:
   `curl -s https://<host>/ | grep -o '<meta name="build"[^>]*'`.
 - Production nginx answers `/api/*` with the SPA's `index.html`, so a tab
-  cannot read the server's SHA there until `/api/version` is proxied to Go.
+  cannot read the server's SHA there until `/api/version` is proxied to Go
+  and the server is stamped (ITGAME-98).
   The owner installs this block on the box (nginx config is not in this
   repo); an exact-match location wins over any `/api/` prefix or SPA
   fallback, and the Go handler already sends `Cache-Control: no-store`:
@@ -114,7 +116,9 @@ Notes:
   ```
 
   Until it is there, `itd.stale()` on production compares the tab with the
-  `<meta name="build">` of a fresh `/` only, and `server` stays `null`.
+  `<meta name="build">` of a fresh `/` only, and `server` stays `null`; with
+  the block but an unstamped server it answers `unknown`, which also counts
+  as `null` until ITGAME-98 stamps the build.
 - A deploy drops live WebSocket connections; saves live in `shared/saves`,
   and clients reconnect and resume.
 - nginx must not SPA-fallback `/assets/`, or a missing asset returns
@@ -597,7 +601,8 @@ is no `#topbar`); `stale: null` means there is nothing to compare
 there `stale` stays `null` and the badge never shows. A stamped release (as
 the retired `bin/deploy-local.sh` built them, ITGAME-81) is checked against
 the served `<meta name="build">`; on production `server` stays `null` until
-the owner installs the `/api/version` nginx block.
+the owner installs the `/api/version` nginx block and ITGAME-98 stamps the
+server (unstamped, it answers `unknown`).
 `itd.screen().meta.stale` carries the
 last result.
 
@@ -1101,7 +1106,7 @@ Each job checks out with a plain `git clone --depth 1` and the job token
 that needs a browser or a running server — `smoke-ui` (menu and
 `OFFICE=1`), the `qa:*` suites, `live-check-*`, `visreg`. Run what your
 change touches locally (see [Tests](#tests)) before pushing to `main`: a
-green push there goes straight to stage and production. The retired
+green push there goes straight to stage and production (the pushed sha, which a quick second push can make differ from the one tested). The retired
 `.github/workflows/ci.yml` (jobs `server`, `client`, `visreg`, `deploy`)
 stays in the repo and runs nowhere.
 
