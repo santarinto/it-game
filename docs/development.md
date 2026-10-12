@@ -388,7 +388,8 @@ independent gates:
   interactive object (click-zone bounds), drawn right above its object — the
   object's (root container's) depth + 0.5, below the next integer layer — so a window opened over it (day report
   dim 50, finale 60, modal backdrop 70) dims the frames of covered objects together with the objects, while the
-  window's own buttons stay brightly framed; no redraw on open/close (ITGAME-84). Each frame carries
+  window's own buttons stay brightly framed (frames of another scene stay bright: the HUD scene renders above the
+  office one, so HUD frames stay bright over an office window); no redraw on open/close (ITGAME-84). Each frame carries
   `data.debugFrame` = the framed object (QA pairs them via `window.__itd`). The flag also installs `window.itd` in a
   prod build and shows the `#topbar` («Админка», build stamp — see below). While set, the HUD shows a
   `dbg on/off` toggle (`btn.debug`); turning it off strips `?debug=1` from
