@@ -4,16 +4,32 @@ import { execSync } from 'node:child_process'
 // Штамп сборки (ITGAME-28): sha коммита и время билда. Пробрасываются в
 // бандл (define) и в <meta name="build"> — «доехала ли правка до стенда»
 // проверяется без хэша в имени файла. Dev-сервер штампует на старте.
+//
+// Релиз собирается из git archive — .git там нет, и рецепт деплоя
+// (bin/deploy-local.sh) передаёт sha в BUILD_SHA (ITGAME-81).
+// Берём его только как hex-sha git (7..40, нижний регистр): в meta и define не
+// попадает произвольная строка. Иное значение — предупреждение и откат на git,
+// а не падение сборки: имя переменной общее, случайное значение в шелле не
+// должно ронять make build и QA, а рецепты передают sha из git.
+const SHA_RE = /^[0-9a-f]{7,40}$/
+
 function buildStamp() {
+  const builtAt = new Date().toISOString()
+  const fromEnv = process.env.BUILD_SHA ?? ''
+  if (SHA_RE.test(fromEnv)) return { sha: fromEnv, builtAt }
+  if (fromEnv !== '') {
+    console.warn(
+      `[itd-build-meta] BUILD_SHA=${JSON.stringify(fromEnv.slice(0, 64))} — не hex-sha (7..40, нижний регистр), беру git`,
+    )
+  }
   let sha = 'dev'
   try {
     sha = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
       .toString()
       .trim()
   } catch {
-    // не git-чекаут (например, сборка из архива) — честный 'dev'
+    // не git-чекаут и без BUILD_SHA (архив, собранный вручную) — честный 'dev'
   }
-  const builtAt = new Date().toISOString()
   return { sha, builtAt }
 }
 

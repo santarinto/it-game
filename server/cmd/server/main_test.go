@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"itdirector/internal/game"
+	"itdirector/internal/ws"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -168,5 +169,8 @@ func TestVersionEndpoint(t *testing.T) {
 	}
 	if body.SHA == "" {
 		t.Fatal("sha пустой — ожидался sha бинаря или unknown")
+	}
+	if want := ws.ServerVersion(); body.SHA != want {
+		t.Fatalf("/api/version sha %q, want ws.ServerVersion() %q", body.SHA, want)
 	}
 }

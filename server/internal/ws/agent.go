@@ -200,11 +200,29 @@ func debugCall(ctx context.Context, sess *session, req debugRequest) <-chan debu
 // клиенте сверяет вкладку со стендом).
 func ServerVersion() string { return serverVersion() }
 
-// serverVersion — sha сервера: go build вшивает vcs.revision (Go 1.18+).
-// В dev (go run) штампа нет — "unknown"; продовый бинарарь deploy-local.sh
-// собирает go build — там живой sha.
+// buildSHA — sha релиза, вшитый линкером (ITGAME-81). Релиз собирается из
+// git archive (без .git) — vcs.revision там нет, и рецепт деплоя
+// (bin/deploy-local.sh) передаёт короткий sha:
+//
+//	go build -ldflags "-X itdirector/internal/ws.buildSHA=<sha>"
+//
+// Пусто (make build, go run, go test) — работает vcs.revision.
+var buildSHA string
+
+// serverVersion — sha сервера: штамп линкера, иначе vcs.revision, который
+// go build вшивает из чекаута (Go 1.18+), иначе "unknown" (go run, архив без
+// штампа).
 func serverVersion() string {
-	if bi, ok := debug.ReadBuildInfo(); ok {
+	bi, _ := debug.ReadBuildInfo()
+	return pickVersion(buildSHA, bi)
+}
+
+// pickVersion — выбор версии без глобалов (тестируется напрямую).
+func pickVersion(stamp string, bi *debug.BuildInfo) string {
+	if isHexSHA(stamp) {
+		return stamp
+	}
+	if bi != nil {
 		for _, s := range bi.Settings {
 			if s.Key == "vcs.revision" && len(s.Value) >= 7 {
 				return s.Value[:7]
@@ -212,4 +230,19 @@ func serverVersion() string {
 		}
 	}
 	return "unknown"
+}
+
+// isHexSHA — sha git: 7..40 hex в нижнем регистре. То же правило, что у
+// BUILD_SHA в client/vite.config.ts: в /api/version не уходит произвольная строка.
+func isHexSHA(s string) bool {
+	if len(s) < 7 || len(s) > 40 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }

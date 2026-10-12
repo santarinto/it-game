@@ -8,8 +8,8 @@ import { client } from './net'
 // <meta name="build"> его index.html (vite.config.ts, ITGAME-28). Это ровно
 // вопрос «поможет ли F5». sha бинаря сервера (GET /api/version) — справочно и
 // запасная опора, когда meta нет; в vite dev (meta нет, JS и так горячий) не
-// сверяем вовсе. 'dev'/'unknown' — сборка без git (git archive, go run): сверить
-// не с чем, stale null.
+// сверяем вовсе. 'dev'/'unknown' — сборка без git и без штампа рецепта деплоя
+// (go run, архив без BUILD_SHA/-ldflags, ITGAME-81): сверить не с чем, stale null.
 
 export const CLIENT_SHA: string = __BUILD_SHA__
 

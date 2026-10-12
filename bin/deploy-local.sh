@@ -44,10 +44,14 @@ mkdir -p "${REL}"
 git archive HEAD | tar -x -C "${REL}"
 
 say "2/5 сборка клиента (node_modules сносим — нужен только на сборку)"
-( cd "${REL}/client" && npm ci --no-audit --no-fund && npm run build && rm -rf node_modules )
+# BUILD_SHA (ITGAME-81): в архиве нет .git — без него штамп сборки
+# (<meta name="build">, itd.version) читался бы 'dev'.
+( cd "${REL}/client" && npm ci --no-audit --no-fund && BUILD_SHA="${SHA}" npm run build && rm -rf node_modules )
 
 say "3/5 сборка сервера (Go)"
-( cd "${REL}/server" && "${GO}" build -trimpath -o "${REL}/bin/itdirector" ./cmd/server )
+# -X ws.buildSHA (ITGAME-81): vcs.revision в архиве нет — без него
+# /api/version, заголовок журнала и agent_status отвечали бы 'unknown'.
+( cd "${REL}/server" && "${GO}" build -trimpath -ldflags "-X itdirector/internal/ws.buildSHA=${SHA}" -o "${REL}/bin/itdirector" ./cmd/server )
 
 # ─── ТОЧКА НЕВОЗВРАТА ────────────────────────────────────────────────────────
 say "4/5 АТОМНЫЙ СВОП current -> ${ID} + рестарт сервиса"
