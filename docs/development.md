@@ -35,26 +35,35 @@ client in a throwaway `node:22` container with the whole release mounted
 (`npm ci && npm run build`; `gen-contract --check` needs the sibling
 `server/`), the server in `golang:1.26` (`go build -trimpath`), both with
 bind-mounted caches under `/opt/itgame/cache`. Then it swaps the `current`
-symlink atomically (`rename(2)`), restarts the unit and waits up to 30 s
-for HTTP 200 from the public vhost, `https://itgame.santarinto.ru` or
+symlink atomically (`rename(2)`), restarts the unit and waits for HTTP 200
+(30 tries, about 30 s when the vhost answers; each try has curl's 5 s
+timeout, so a hung vhost takes longer) from the public vhost,
+`https://itgame.santarinto.ru` or
 `https://stage.itgame.santarinto.ru` (the raw port proves nothing: Go
 answers 404 on `/` there — nginx owns the static — and 426 on `/ws`). It
 keeps the last `KEEP=3` releases and never prunes `current`.
 
 - **Failure before the swap** (archive, either build): `current` is not
   touched, the target keeps running its old release, the half-built one is
-  removed.
-- **Failure after the swap** (no 200 within 30 s): the target already runs
-  the NEW release and the job fails loudly — roll back, don't redeploy
-  blindly.
+  removed (not when the server build leaves no `bin/itdirector`: that exit
+  skips the cleanup and the release directory stays).
+- **Failure after the swap** (no 200 in the health check): the target
+  already runs the NEW release and the job fails loudly — roll back, don't
+  redeploy blindly. If stage was green and production failed (either way),
+  stage runs the new release and production the old or the broken new one
+  until the next deploy or rollback.
 - **Rollback:** «Run workflow» on `ci.yaml` in Forgejo Actions with
   `mode=rollback` and `ref=<sha40>` of a commit whose release is still on
-  the box (one of the last three); it goes stage, then production, like a
-  deploy. Rollback never builds: it points `current` at the release whose
-  directory name ends in that sha7 and restarts. «Run workflow» with
-  `mode=deploy` (the default; an empty `ref` is the branch head) deploys by
-  hand — from any branch, and that run's tests check the branch head, not
-  `ref`.
+  BOTH targets (each keeps its own last three); it goes stage, then
+  production, and a stage failure stops the run before production — pick a
+  sha both hold or check each with `tools/deploy rollback <sha> --dry-run`.
+  Rollback never builds: it points `current` at the release whose
+  directory name ends in that sha7 and restarts. The `deploy` job needs
+  both test jobs even for a rollback, and the tests check the dispatched
+  branch head, not `ref`: a red branch head blocks a rollback, so dispatch
+  from `main`. «Run workflow» with `mode=deploy` (the default; an empty
+  `ref` is the branch head) deploys by hand; dispatched from a non-main
+  branch it ships that branch's `ref` to stage and then production.
 - **`--dry-run`** checks the mechanism only (docker, the SHA in the
   checkout, a writable `releases/`, the unit, curl; for `rollback`, that the
   release exists) and changes no release.
