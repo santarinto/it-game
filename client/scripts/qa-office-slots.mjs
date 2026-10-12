@@ -7,7 +7,9 @@
 // кликается мышью по всему значку поломки — сотрудник и метка «✖ чинить k/N»
 // одной зоной места office.slot.i, после починки та же зона мотивирует
 // (ITGAME-75/92/93; проверка — itd.stack/itd.zones, настоящий хит-тест Phaser),
-// тултип не остаётся рядом с окном роутера/увольнения (ITGAME-89), слот шлюза серверной рисует gateway (не router), полка
+// тултип не остаётся рядом с окном роутера/увольнения (ITGAME-89),
+// рамки ?debug=1 объектов под окном (роутер, выход в меню, отчёт дня) лежат под его
+// подложкой, рамки кнопок окна — над ней (ITGAME-84), слот шлюза серверной рисует gateway (не router), полка
 // быта (office.amenity.cooler/fridge/coffee_machine) и слот сети офиса
 // рисуют свои HD-текстуры, занятые/пустые серверные стойки — rack_server/
 // rack_empty (пустая — с подсветкой первой свободной, ITGAME-11), ПК куплен
@@ -528,6 +530,119 @@ async function caseTooltipUnderModal(browser) {
   }
 }
 
+// ── Кейс 3в: рамки ?debug=1 не лежат поверх окон (ITGAME-84) ────────────────
+// drawDebugFrames (client/src/debug.ts) кладёт рамку сразу над её объектом —
+// depth корня объекта + 0.5 (все слои игры целые), а не на общий depth 90:
+// окно, открытое поверх, затемняет рамки накрытых объектов вместе с ними,
+// рамки кнопок самого окна — над его подложкой; рамки, перерисованные на
+// снапшоте под открытым окном, остаются под ним. Рамку узнаём по виду
+// (обводка 0xff0000 без заливки), data 'debugFrame' — её объект. Окна: роутер
+// офиса (showModal, подложка 70), диалог выхода HUD (тот же showModal в сцене
+// HUD, 70), отчёт дня (подложка 50).
+async function caseDebugFramesUnderWindows(browser) {
+  const page = await browser.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e)))
+  await page.setViewport({ width: 1920, height: 1080 })
+  try {
+    await loadScenario(page, 'broken_pc', 'frames')
+    // Рамки сцены относительно подложки окна на глубине dim.
+    const framesOf = (sceneKey, dim) => page.evaluate((key, dim) => {
+      const scene = window.__itd.scene.getScene(key)
+      const rootDepth = (o) => {
+        let r = o
+        while (r.parentContainer) r = r.parentContainer
+        return typeof r.depth === 'number' ? r.depth : 0
+      }
+      const rows = scene.children.list
+        .filter((o) => o.type === 'Rectangle' && o.isStroked && o.strokeColor === 0xff0000 && !o.isFilled)
+        .map((f) => {
+          const t = f.getData('debugFrame') ?? null
+          return {
+            of: t ? (t.getData?.('id') ?? t.type) : null,
+            depth: f.depth,
+            target: t ? rootDepth(t) : null,
+            input: f.input?.enabled === true,
+          }
+        })
+      const bound = rows.filter((r) => r.target !== null)
+      return {
+        n: rows.length,
+        unbound: rows.length - bound.length,
+        input: rows.filter((r) => r.input).length,
+        offset: bound.filter((r) => r.depth !== r.target + 0.5).map((r) => `${r.of}@${r.depth}/${r.target}`),
+        leaks: bound.filter((r) => r.target < dim && r.depth >= dim).map((r) => `${r.of}@${r.depth}`),
+        under: bound.filter((r) => r.target < dim).map((r) => r.of),
+        over: bound.filter((r) => r.target >= dim && r.depth > dim).map((r) => r.of),
+      }
+    }, sceneKey, dim)
+    const sane = (f) => f.n > 0 && f.unbound === 0 && f.input === 0 && f.offset.length === 0
+
+    // 0. Без окна: у каждой рамки офиса есть объект, рамка без ввода, depth объекта + 0.5.
+    const idle = await framesOf('office', 70)
+    check('debug frames: офис — у каждой рамки data.debugFrame, без ввода, depth = depth объекта + 0.5',
+      sane(idle), JSON.stringify({ n: idle.n, unbound: idle.unbound, input: idle.input, offset: idle.offset }))
+
+    // A. Окно роутера офиса (подложка 70) + снапшот под открытым окном.
+    const opened = await page.evaluate(() => window.itd.click('office.router'))
+    await delay(150)
+    const routerTitle = await page.evaluate(() => window.itd.blocker()?.title ?? null)
+    if (!opened.ok || routerTitle === null) throw new Error(`окно роутера не открылось: ${JSON.stringify({ opened, routerTitle })}`)
+    let f = await framesOf('office', 70)
+    check('debug frames: окно роутера — рамки объектов офиса под подложкой 70, ✕ окна в рамке над ней',
+      sane(f) && f.leaks.length === 0 && f.under.length >= 5 && f.under.includes('office.slot.0') &&
+        f.under.includes('btn.pc') && f.over.includes('modal.close'),
+      JSON.stringify({ leaks: f.leaks, under: f.under, over: f.over }))
+    await page.evaluate(() => window.itd.set({ money: 2345 })) // снапшот → render() офиса перерисовал рамки
+    await delay(300)
+    f = await framesOf('office', 70)
+    check('debug frames: снапшот под открытым окном роутера — новые рамки офиса остаются под подложкой',
+      sane(f) && f.leaks.length === 0 && f.under.includes('office.slot.0') && f.over.includes('modal.close'),
+      JSON.stringify({ leaks: f.leaks, under: f.under.length, over: f.over }))
+    await page.evaluate(() => window.itd.click('modal.close'))
+    await delay(150)
+
+    // B. Диалог выхода HUD (showModal в сцене HUD, подложка 70). Партия на паузе —
+    // диалог скорость не трогает; ✕ закрывает без команд.
+    await page.evaluate(() => window.itd.click('btn.menu'))
+    await delay(150)
+    const exitTitle = await page.evaluate(() => window.itd.blocker()?.title ?? null)
+    if (exitTitle === null) throw new Error('диалог выхода не открылся')
+    f = await framesOf('hud', 70)
+    check('debug frames: диалог выхода — рамки шапки HUD под подложкой 70, кнопки окна в рамке над ней',
+      sane(f) && f.leaks.length === 0 && f.under.includes('btn.menu') && f.under.includes('btn.speed.1') &&
+        f.over.includes('modal.close') && f.over.includes('modal.btn.0'),
+      JSON.stringify({ title: exitTitle, leaks: f.leaks, under: f.under, over: f.over }))
+    await page.evaluate(() => window.itd.click('modal.close'))
+    await delay(150)
+
+    // C. Отчёт дня (подложка 50): конец дня на ходу, затем ответ на его set_speed 0.
+    await page.evaluate(async () => {
+      await window.itd.set({ money: 50000, tickInDay: 53 }) // 53 — последний тик running (dayTicks 54)
+      window.itd.speed(2)
+      await window.itd.wait(() => window.itd.ids().some((x) => x.id === 'btn.next_day'), 15000)
+    })
+    f = await framesOf('hud', 50)
+    check('debug frames: отчёт дня — рамки шапки HUD под подложкой 50, «Следующий день» и чекбокс в рамке над ней',
+      sane(f) && f.leaks.length === 0 && f.under.includes('btn.menu') && f.under.includes('btn.speed.1') &&
+        f.over.includes('btn.next_day') && f.over.includes('btn.skip_reports'),
+      JSON.stringify({ leaks: f.leaks, under: f.under, over: f.over }))
+    await page.evaluate(() => window.itd.wait((s, srv) => srv.snapshot?.speed === 0, 5000))
+    await delay(300)
+    f = await framesOf('hud', 50)
+    check('debug frames: снапшот под отчётом — перерисованные рамки шапки остаются под подложкой',
+      sane(f) && f.leaks.length === 0 && f.under.includes('btn.speed.1') && f.over.includes('btn.next_day'),
+      JSON.stringify({ leaks: f.leaks, under: f.under.length, over: f.over }))
+
+    check('debug frames: нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))
+    await shot(page, 'debug_frames_report')
+  } catch (e) {
+    check('debug frames: кейс выполнен без ошибок', false, e instanceof Error ? e.message : String(e))
+  } finally {
+    await page.close().catch(() => {})
+  }
+}
+
 // ── Кейс 4: серверная — слот шлюза рисует gateway, не router ────────────────
 async function caseServerRoomGateway(browser) {
   const page = await browser.newPage()
@@ -727,7 +842,7 @@ if (!process.env.QA_BASE) {
 
 try {
   for (const runCase of [
-    caseFullOffice, caseLunch, caseBrokenPc, caseTooltipUnderModal, caseServerRoomGateway, caseServerRoomEmptyRacks, caseSparePcs,
+    caseFullOffice, caseLunch, caseBrokenPc, caseTooltipUnderModal, caseDebugFramesUnderWindows, caseServerRoomGateway, caseServerRoomEmptyRacks, caseSparePcs,
   ]) {
     const browser = await puppeteer.launch({
       executablePath: chromePath(),

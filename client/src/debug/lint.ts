@@ -140,7 +140,7 @@ export function findOverlaps(game: Phaser.Game, rawOpts?: OverlapOptions | null)
         if (o.type === 'Rectangle' && (o.isFilled === false || (o.fillAlpha ?? 1) < 0.9)) continue
 
         const oDepth = o.depth ?? 0
-        if (oDepth >= 90) continue // технические слои отладочных рамок
+        if (oDepth >= 90) continue // технические слои: баннер реконнекта (90), обрыв связи и тосты (100); рамки ?debug=1 тут больше не живут (ITGAME-84)
         const isAbove = oDepth > tDepth || (oDepth === tDepth && k > tIdx)
         if (!isAbove) continue
 
