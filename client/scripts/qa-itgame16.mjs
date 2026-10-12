@@ -16,6 +16,8 @@
 //       только там, где сложность их задаёт
 //   (h) полоса дня (ITGAME-21): hud.day.bar под часами, hud.day.fill = тик/(9 ч × ticksPerHour),
 //       обеденная плашка 14–15 и засечки 17:00/18:00; текст hud.day начинается на дорожке
+//   (i) журнал событий (ITGAME-21): hud.log.bg 540..1270 × 620..714, hud.log внутри; кейс log_flow —
+//       найм/ПК/роутер ложатся строками со штампом времени (E2); нижние тосты выше y 614 (E3)
 //   (l) замки закрытых офисов hud.lock.office1/2 в своей вкладке и подсветка вкладки, которую
 //       можно купить (ITGAME-21): L1 замки, L2 кейс tabs_affordable, L3 full_office
 //
@@ -138,6 +140,11 @@ const CASES = [
     flow: 'tabs',
   },
   {
+    name: 'log_flow',
+    setup: (p) => loadScenario(p, 'fresh', 'normal', 'logflow'),
+    flow: 'log',
+  },
+  {
     name: 'toast_stress',
     setup: async (p) => {
       await loadScenario(p, 'fresh', 'normal', 'toaststress')
@@ -203,6 +210,16 @@ function rectsOverlap(a, b) {
 
 function near(a, b, eps = 0.5) {
   return Math.abs(a - b) <= eps
+}
+
+async function logText(page) {
+  return page.evaluate(() => {
+    const scene = window.__itd.scene.getScene('hud')
+    const o = scene.children.list.find((x) => x.type === 'Text' && x.getData('id') === 'hud.log')
+    if (!o) return null
+    const b = o.getBounds()
+    return { text: o.text, left: b.left, right: b.right, top: b.top, bottom: b.bottom }
+  })
 }
 
 async function navFill(page, id) {
@@ -339,6 +356,32 @@ async function runCase(browser, zoom, def) {
       }
     }
 
+    // (i) журнал событий (ITGAME-21)
+    if (!def.stress) {
+      const bg = (await dumpShapes(page, ['hud.log.bg']))['hud.log.bg']
+      const lg = await logText(page)
+      const e1 = !!bg && near(bg.left, 540) && near(bg.right, 1270) && near(bg.top, 620) && near(bg.bottom, 714) &&
+        !!lg && (lg.text === '' || (lg.left >= 540 && lg.top >= 620 && lg.bottom <= 714 + 0.5))
+      check(`${label}: E1 hud.log в полосе 540..1270 × 620..714`, e1, JSON.stringify({ bg, lg }))
+    }
+    if (def.flow === 'log') {
+      const cmd = async (c, ...a) => { await page.evaluate((x, y) => window.itd.cmd(x, ...y), c, a); await delay(300) }
+      await cmd('hire')
+      let lg = await logText(page)
+      const hired = !!lg && /Нанят:/.test(lg.text) && /^\d\d:\d\d /m.test(lg.text)
+      await page.evaluate(() => window.itd.set({ money: 5000 }))
+      await delay(300)
+      await cmd('buy_pc')
+      lg = await logText(page)
+      const pc = !!lg && lg.text.includes('Куплен ПК (О1, всего 2)')
+      await cmd('buy_router')
+      lg = await logText(page)
+      const router = !!lg && lg.text.includes('Роутер т1 (О1), 4 порт.')
+      const n = lg ? lg.text.split('\n').length : 0
+      check(`${label}: E2 найм/ПК/роутер попадают в журнал`, hired && pc && router && n <= 5,
+        JSON.stringify({ hired, pc, router, n, text: lg?.text }))
+    }
+
     // (d) стек тостов — только у кейса-стресса (у остальных тостов обычно нет)
     if (def.stress) {
       const top = toasts.filter((t) => t.top < GAME_H / 2)
@@ -359,6 +402,8 @@ async function runCase(browser, zoom, def) {
       const outOfCanvas = toasts.filter((t) => t.left < -0.01 || t.right > GAME_W + 0.01)
       check(`${label}: тосты целиком внутри канваса`, outOfCanvas.length === 0,
         outOfCanvas.length ? JSON.stringify(outOfCanvas) : 'ok')
+      const belowStrip = bottom.filter((t) => t.bottom > 614 + 0.5)
+      check(`${label}: E3 нижние тосты выше журнала (y <= 614)`, belowStrip.length === 0, JSON.stringify(belowStrip))
       check(`${label}: тосты вообще появились`, toasts.length > 0, `n=${toasts.length}`)
     }
 

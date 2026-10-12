@@ -153,7 +153,8 @@ export class ServerRoomScene extends Phaser.Scene {
     // строка статуса
     const totalServers = s.offices.reduce((n, o) => n + o.servers.length, 0)
     this.objects.push(
-      this.add.text(GAME_W / 2, GAME_H - 40,
+      // y 604: между подписями стоек (≈ 580) и журналом событий HUD (с y 620, ITGAME-21)
+      this.add.text(GAME_W / 2, 604,
         `роутеры ${s.core.connected}/${s.core.capacity} · стоек ${totalServers}${s.gateway ? ' · интернет' : ''}`, {
           fontFamily: FONT, fontSize: '15px', color: '#41a6f6',
         }).setOrigin(0.5),

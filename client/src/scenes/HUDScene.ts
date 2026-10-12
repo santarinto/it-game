@@ -14,6 +14,7 @@ import { playSfx } from '../audio'
 import { emitUi } from '../uibus'
 import { activeZoom, applyZoom, ZOOM_OPTIONS, zoomLabel } from '../uiscale'
 import { FONT, HIRES_CAMERA } from '../render'
+import { LOG_LINES, diffEvents } from '../eventlog'
 import { WORKDAY, dayShare, hourShare } from '../workday'
 import {
   checkAchievements,
@@ -82,6 +83,10 @@ export class HUDScene extends Phaser.Scene {
   private goalCore!: Phaser.GameObjects.Rectangle
   private goalDeadline!: Phaser.GameObjects.Rectangle
   private deadlineX = BAR_X
+  // Журнал событий (ITGAME-21): нижняя полоса x 540..1270, y 620..714.
+  private logText!: Phaser.GameObjects.Text
+  private logLines!: string[]
+  private logPrev!: StateMessage | null
   // Полоса дня (ITGAME-21): 10:00→19:00, обеденная плашка и засечки 17:00/18:00.
   private dayBar!: Phaser.GameObjects.Rectangle
   private dayFill!: Phaser.GameObjects.Rectangle
@@ -310,6 +315,15 @@ export class HUDScene extends Phaser.Scene {
     }
 
     this.createNavPanel()
+
+    // Журнал событий (ITGAME-21): после навигации — поздно в списке отображения; тосты
+    // (depth 100) остаются над ним.
+    this.logLines = []
+    this.logPrev = null
+    tag(this.add.rectangle(540, 620, 730, 94, 0x14162b, 0.9).setOrigin(0).setStrokeStyle(1, 0x3a3f5c), 'hud.log.bg')
+    this.logText = tag(this.add.text(548, 624, '', {
+      fontFamily: FONT, fontSize: '12px', color: '#94b0c2', lineSpacing: 2,
+    }), 'hud.log')
 
     const unsub = client.subscribe({
       onState: (s) => {
@@ -669,6 +683,8 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private refresh(s: StateMessage) {
+    if (this.logPrev) for (const l of diffEvents(this.logPrev, s)) this.logLine(l)
+    this.logPrev = s
     if (s.phase === 'running') {
       try {
         updateOngoingStats(s)
@@ -855,11 +871,24 @@ export class HUDScene extends Phaser.Scene {
   // рождается у якоря, старые той же стороны отодвигаются от него
   // (layoutToasts), а гаснет тост только альфой — дрейф по y убран, иначе
   // своя и чужие анимации конфликтовали бы кадр в кадр.
+  // Строка в журнал событий: время игры + текст в одну строку, последние LOG_LINES.
+  private logLine(text: string) {
+    const clock = client.latest?.clock ?? '--:--'
+    // Эмодзи (🏆 👥 …) в журнал не берём: системный шрифт широкий и машинозависимый.
+    // 76 знаков по 12 px — не шире полосы (730 px), строка не вылезает за x 1270.
+    const one = text.replace(/[\u{1F000}-\u{1FFFF}\uFE0F]/gu, '').replace(/\s+/g, ' ').trim()
+    const body = one.length > 76 ? one.slice(0, 76) + '…' : one
+    this.logLines.push(`${clock} ${body}`)
+    if (this.logLines.length > LOG_LINES) this.logLines = this.logLines.slice(-LOG_LINES)
+    this.logText.setText(this.logLines.join('\n'))
+  }
+
   private toast(text: string, ms = 1500, opts?: { top?: boolean; bg?: string }) {
     const where: 'top' | 'bottom' = opts?.top ? 'top' : 'bottom'
     const bg = opts?.bg ?? '#b13e53'
     emitUi({ type: 'toast', text, where, ms, bg, scene: this.scene.key })
-    const startY = where === 'top' ? 175 : GAME_H - 40 // косметика до первой layoutToasts()
+    this.logLine(text)
+    const startY = where === 'top' ? 175 : 614 - 20 // косметика до первой layoutToasts()
     const t = tag(
       this.add
         .text(CX, startY, text, {
@@ -895,7 +924,8 @@ export class HUDScene extends Phaser.Scene {
   // на каждое добавление/удаление — дрейфа не накапливается.
   private layoutToasts(where: 'top' | 'bottom') {
     const stack = this.toasts[where]
-    let edge = where === 'top' ? 158 : 697
+    // Нижний якорь — над журналом событий (полоса с y 620, ITGAME-21).
+    let edge = where === 'top' ? 158 : 614
     for (let i = stack.length - 1; i >= 0; i--) {
       const h = stack[i].height
       if (where === 'top') {
@@ -986,6 +1016,9 @@ export class HUDScene extends Phaser.Scene {
       )
       return
     }
+    // Журнал событий: итог дня и строки событий (в ветке skipReports это делает тост).
+    this.logLine(`День ${r.day}: прибыль ${fmtMoney(r.profit)} · баланс ${fmtMoney(r.balance)}`)
+    for (const e of r.events) this.logLine(`· ${e}`)
     // Серверная пауза (ITGAME-18): запоминаем скорость в sessionStorage
     // (переживает перезагрузку F5 во время отчёта) и замораживаем темп.
     if (this.speedBeforeReport === null) {
@@ -1257,6 +1290,9 @@ export class HUDScene extends Phaser.Scene {
     this.speedBeforeReport = null
     this.reportPauseSeq = 0
     this.lastEventId = ''
+    this.logPrev = null
+    this.logLines = []
+    this.logText.setText('')
   }
 
   // Выход в меню с сейвами (ITGAME-8): выход сохраняет прогресс, сдаться —
