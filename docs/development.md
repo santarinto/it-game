@@ -73,10 +73,15 @@ Notes:
 
 ## Sessions and saves
 
-A session is keyed by the client's `sid` (localStorage, `/ws?sid=`). The
-server saves after every command and tick — in memory plus an atomically
-written `<sid>.json`. On reconnect with the same `sid` within the TTL
-(default 24 h, `-save-ttl`):
+A session is keyed by the client's `sid`, sent as `/ws?sid=`. The client
+reads the tab's `sessionStorage` `itd.sid` first (the tab mirror,
+ITGAME-30), then the shared `localStorage` `itd.sid` (never under
+`itd.sandbox`), both through `client/src/storage.ts` (ITGAME-80, see
+**Blocked storage** below). Starting a party (`connect`) writes the mirror
+always and the shared key only for a sid that came from it or was freshly
+generated. The server saves after every command and tick — in memory plus
+an atomically written `<sid>.json`. On reconnect with the same `sid` within
+the TTL (default 24 h, `-save-ttl`):
 
 - the game resumes; a short drop (e.g. a deploy) continues silently;
 - missed time is simulated offline with a summary formula (no coffee rolls,
@@ -500,8 +505,10 @@ click), and `itd.screen()` lists only `office.slot.N`.
 dialog) hides the worker tooltip and forgets the hovered slot; while a window
 is open (an interactive object above the tooltip's depth 40 — the modal
 backdrop, depth 70) the office shows no tooltip, neither from a new snapshot
-nor from `itd.hover`. A hidden tooltip also has an empty text, so `itd.text()`
-does not report it.
+nor from `itd.hover`. A hidden tooltip keeps its last text — only its
+container is hidden — so once shown it stays in `itd.text()`, with
+`visible: false` (world visibility, ITGAME-87; `qa:facade` K1); filter on
+`visible` to skip it.
 
 **«Админка» link** (ITGAME-22): shown over the canvas only to the owner —
 always under `?debug=1`, otherwise gated by `localStorage.itd.admin` (set
