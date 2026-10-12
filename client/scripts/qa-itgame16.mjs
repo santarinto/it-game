@@ -16,6 +16,8 @@
 //       только там, где сложность их задаёт
 //   (h) полоса дня (ITGAME-21): hud.day.bar под часами, hud.day.fill = тик/(9 ч × ticksPerHour),
 //       обеденная плашка 14–15 и засечки 17:00/18:00; текст hud.day начинается на дорожке
+//   (l) замки закрытых офисов hud.lock.office1/2 в своей вкладке и подсветка вкладки, которую
+//       можно купить (ITGAME-21): L1 замки, L2 кейс tabs_affordable, L3 full_office
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
 // :4174 — dist + собранный bin/itdirector, как visreg.mjs). Общий
@@ -130,6 +132,12 @@ const CASES = [
     },
   },
   {
+    // L2 (ITGAME-21): деньги меняются в самом кейсе — отдельный кейс, чтобы не трогать fresh_0emp
+    name: 'tabs_affordable',
+    setup: (p) => loadScenario(p, 'fresh', 'normal', 'tabsaff'),
+    flow: 'tabs',
+  },
+  {
     name: 'toast_stress',
     setup: async (p) => {
       await loadScenario(p, 'fresh', 'normal', 'toaststress')
@@ -195,6 +203,10 @@ function rectsOverlap(a, b) {
 
 function near(a, b, eps = 0.5) {
   return Math.abs(a - b) <= eps
+}
+
+async function navFill(page, id) {
+  return page.evaluate((i) => window.itd.nodes().find((n) => n.id === i)?.fill, id)
 }
 
 // ── Прогон одного кейса на одном зуме ───────────────────────────────────
@@ -286,6 +298,45 @@ async function runCase(browser, zoom, def) {
       const d3 = inY(lunch) && inY(m17) && inY(m18) && Math.abs(lunch.left - 1053) <= 1 && Math.abs(lunch.right - lunch.left - 42) <= 1 &&
         Math.abs(m17.left - 1180) <= 1 && Math.abs(m18.left - 1222) <= 1
       check(`${label}: D3 обед 14–15 и засечки 17:00/18:00`, d3, JSON.stringify({ lunch, m17, m18 }))
+    }
+
+    // (l) замки и подсветка вкладок (ITGAME-21)
+    if (!def.stress) {
+      const sh = await dumpShapes(page, ['hud.lock.office1', 'hud.lock.office2'])
+      const st = await snap(page)
+      const ids = await page.evaluate(() => window.itd.ids().map((n) => n.id))
+      let l1 = !ids.includes('hud.lock.office0')
+      const facts = []
+      for (const k of [1, 2]) {
+        const o = sh['hud.lock.office' + k]
+        const top = 96 + 24 + k * 76
+        const want = !st.offices[k].unlocked
+        const inTab = !!o && o.left >= 44 && o.right <= 54 && o.top >= top + 6 && o.bottom <= top + 14
+        if (!o || o.visible !== want || !inTab) l1 = false
+        facts.push(JSON.stringify(o))
+      }
+      check(`${label}: L1 замки закрытых офисов в своей вкладке`, l1, facts.join(' '))
+      if (def.flow === 'tabs') {
+        const f1 = await navFill(page, 'nav.office1')
+        await page.evaluate(() => window.itd.set({ money: 20000 }))
+        await page.waitForFunction(() => window.itd.state().balance === 20000, { timeout: 5000 })
+        await delay(300)
+        const f2 = await navFill(page, 'nav.office1')
+        const f3 = await navFill(page, 'nav.office2')
+        const lk = (await dumpShapes(page, ['hud.lock.office1']))['hud.lock.office1']
+        await page.evaluate(() => window.itd.set({ money: 600 }))
+        await page.waitForFunction(() => window.itd.state().balance === 600, { timeout: 5000 })
+        await delay(300)
+        const f4 = await navFill(page, 'nav.office1')
+        check(`${label}: L2 вкладка О2 зеленеет, когда хватает денег`,
+          f1 === '#232640' && f2 === '#2a6b3f' && f3 === '#232640' && lk?.fill === 0x38b764 && f4 === '#232640',
+          JSON.stringify({ f1, f2, f3, f4, lock: lk?.fill }))
+      }
+      if (def.name === 'full_office_12emp') {
+        const f1 = await navFill(page, 'nav.office1')
+        const f2 = await navFill(page, 'nav.office2')
+        check(`${label}: L3 О2 доступен за $50000, О3 — нет`, f1 === '#2a6b3f' && f2 === '#232640', JSON.stringify({ f1, f2 }))
+      }
     }
 
     // (d) стек тостов — только у кейса-стресса (у остальных тостов обычно нет)

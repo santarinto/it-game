@@ -91,7 +91,7 @@ export class HUDScene extends Phaser.Scene {
   private dayProfitText!: Phaser.GameObjects.Text
   private marketText!: Phaser.GameObjects.Text
   private debtText!: Phaser.GameObjects.Text
-  private navItems!: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; sub: Phaser.GameObjects.Text }[]
+  private navItems!: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; sub: Phaser.GameObjects.Text; lock?: { body: Phaser.GameObjects.Rectangle; shackle: Phaser.GameObjects.Arc } }[]
   private currentRoom!: 'office' | 'serverRoom'
   private reportUI!: Phaser.GameObjects.GameObject[]
   private eventUI!: Phaser.GameObjects.GameObject[]
@@ -603,8 +603,16 @@ export class HUDScene extends Phaser.Scene {
       const sub = this.add
         .text(NAV_W / 2, y + 36, '', { fontFamily: FONT, fontSize: '8px', color: '#5d7275' })
         .setOrigin(0.5)
+      // Замок закрытого офиса (ITGAME-21) — фигурами, без эмодзи (системный шрифт
+      // ломает пиксели): корпус + дужка-полукруг без заливки.
+      let lock: { body: Phaser.GameObjects.Rectangle; shackle: Phaser.GameObjects.Arc } | undefined
+      if (r.key === 'office' && r.office > 0) {
+        const body = tag(this.add.rectangle(44, y + 6, 10, 8, 0x5d7275).setOrigin(0), 'hud.lock.office' + r.office)
+        const shackle = this.add.arc(49, y + 6, 4, 180, 360, false).setStrokeStyle(2, 0x5d7275)
+        lock = { body, shackle }
+      }
       bg.on('pointerdown', () => this.switchRoom(r.key, r.office))
-      this.navItems.push({ bg, label, sub })
+      this.navItems.push({ bg, label, sub, lock })
       this.hudInteractive.push(bg)
     })
   }
@@ -752,6 +760,18 @@ export class HUDScene extends Phaser.Scene {
       if (idx === 3) return
       const o = s.offices[idx]
       item.sub.setText(o.unlocked ? `${o.employees.length}/${s.officeSlots}` : fmtMoney(o.price))
+      // Офис, который можно купить сейчас (по порядку — правило OfficeScene — и хватает
+      // денег), подсвечен зелёным; обводку не трогаем: ею владеет highlightNav() (активный).
+      const locked = !o.unlocked
+      const canBuy = idx === 0 || s.offices[idx - 1].unlocked
+      const affordable = locked && canBuy && s.money >= o.price
+      item.bg.setFillStyle(affordable ? 0x2a6b3f : 0x232640)
+      item.sub.setColor(affordable ? '#f4f4f4' : '#5d7275')
+      if (item.lock) {
+        const c = affordable ? 0x38b764 : 0x5d7275
+        item.lock.body.setVisible(locked).setFillStyle(c)
+        item.lock.shackle.setVisible(locked).setStrokeStyle(2, c)
+      }
     })
     this.highlightNav()
     this.speedBtns.forEach((b) => {
