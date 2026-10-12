@@ -55,7 +55,7 @@
 //   X2  партия песочницы под её sid, общий ключ цел; в партии sandbox()/restore() — in_party; fakeOwner()
 //   X3  «Сдаться» — fake в общем ключе цел (гард clearSession), вкладка на новом sid песочницы, «Продолжить» нет
 //   X4  вторая партия после «Сдаться» — новый sid песочницы, общий ключ не перезаписан
-//   X5  restore(): sidSame/diffSame, ключи владельца возвращены, служебные убраны; повтор — no_sandbox
+//   X5  restore(): sidSame/diffSame, ключи владельца (и itd.onboard, ITGAME-21) возвращены, служебные убраны; повтор — no_sandbox
 //   X6  владелец сам сменил общий ключ — restore() его не перетирает (kept)
 //   P1  itd.play (ITGAME-73) на fresh, сид 7, тик 0: set_speed 0 → hire → hire → days1 → buy_pc → hire → days1 —
 //       вердикты ok/ok/FAIL no_free_pc/ok/ok/FAIL not_enough_money/ok, цепочка балансов 600>300>614>39>353,
@@ -807,7 +807,11 @@ async function run() {
     await ps.goto(`${BASE}/?debug=1&seed=1`, { waitUntil: 'domcontentloaded' })
     await waitMenuReady(ps)
     // QA-скрипт пишет в localStorage сам: это «владелец» (агенту в браузере так нельзя — для этого fakeOwner)
-    await ps.evaluate(() => { localStorage.setItem('itd.sid', 'owner-qa38'); localStorage.setItem('itd.diff', 'normal') })
+    await ps.evaluate(() => {
+      localStorage.setItem('itd.sid', 'owner-qa38'); localStorage.setItem('itd.diff', 'normal')
+      // владелец ещё не прошёл онбординг HUD: браузер общий с прежними кейсами, они могли записать done (ITGAME-21)
+      localStorage.removeItem('itd.onboard')
+    })
     await ps.reload({ waitUntil: 'domcontentloaded' })
     await waitMenuReady(ps)
     const x1 = await ps.evaluate(() => ({
@@ -861,20 +865,28 @@ async function run() {
       /^a-qa38-/.test(x4sid) && x4sid !== x1.sb.sid && x4[0] === x2.fake.sid && x4[1] === 'hard',
       JSON.stringify({ x4sid, x4 }),
     )
+    // Партия песочницы прошла цепочку онбординга (HUD пишет done) — у владельца значения не было
+    await ps.evaluate(() => localStorage.setItem('itd.onboard', 'done'))
     const x5 = await ps.evaluate(() => {
       const r = window.itd.sandbox.restore()
       return {
         r, again: window.itd.sandbox.restore(), ls: [localStorage.getItem('itd.sid'), localStorage.getItem('itd.diff')],
         tab: sessionStorage.getItem('itd.sid'), rec: sessionStorage.getItem('itd.sandbox'), sid: window.itd.server().sid,
+        onboard: localStorage.getItem('itd.onboard'),
       }
     })
+    const x5c = {
+      ok: x5.r.ok, sidSame: x5.r.sidSame === true, diffSame: x5.r.diffSame === true, fake: x5.r.fake === true,
+      restoredKeys: x5.r.restored.includes('localStorage.itd.sid') && x5.r.restored.includes('localStorage.itd.diff'),
+      noKept: x5.r.kept.length === 0, sandboxRemoved: x5.r.removed.includes('sessionStorage.itd.sandbox'),
+      ls: x5.ls[0] === 'owner-qa38' && x5.ls[1] === 'normal', tabClean: x5.tab === null && x5.rec === null,
+      sid: x5.sid === 'owner-qa38', again: x5.again.code === 'no_sandbox',
+      onboardGone: x5.onboard === null, onboardListed: x5.r.restored.includes('localStorage.itd.onboard'),
+    }
     check(
-      'X5: restore() — sidSame/diffSame (fake цел), ключи владельца возвращены, служебные убраны, вкладка снова на sid владельца; повтор — no_sandbox',
-      x5.r.ok && x5.r.sidSame === true && x5.r.diffSame === true && x5.r.fake === true &&
-        x5.r.restored.includes('localStorage.itd.sid') && x5.r.restored.includes('localStorage.itd.diff') && x5.r.kept.length === 0 &&
-        x5.r.removed.includes('sessionStorage.itd.sandbox') && x5.ls[0] === 'owner-qa38' && x5.ls[1] === 'normal' &&
-        x5.tab === null && x5.rec === null && x5.sid === 'owner-qa38' && x5.again.code === 'no_sandbox',
-      JSON.stringify(x5),
+      'X5: restore() — sidSame/diffSame (fake цел), ключи владельца (и itd.onboard, ITGAME-21) возвращены, служебные убраны, вкладка снова на sid владельца; повтор — no_sandbox',
+      Object.values(x5c).every(Boolean),
+      JSON.stringify({ conditions: x5c, x5 }),
     )
     // Владелец сам сменил общий ключ в другой вкладке — restore() его не перетирает
     await ps.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })

@@ -13,6 +13,9 @@ import { localStore, sessionStore } from '../storage'
 const SID = 'itd.sid'
 const DIFF = 'itd.diff'
 const AUTO = 'itd.sid.auto'
+// Цепочка онбординга HUD (ITGAME-21): партия песочницы может её пройти и записать
+// done в настоящий localStorage владельца — он больше не увидел бы плашку.
+const ONBOARD = 'itd.onboard'
 const LABEL = /^[A-Za-z0-9_-]{1,24}$/
 
 export interface SandboxResult {
@@ -79,6 +82,7 @@ export function makeSandbox(game: Phaser.Game): SandboxApi {
           label,
           ownerSid: localStore.get(SID),
           ownerDiff: localStore.get(DIFF),
+          ownerOnboard: localStore.get(ONBOARD),
           tabSid: sessionStore.get(SID),
           tabAuto: sessionStore.get(AUTO),
           fake: null,
@@ -114,6 +118,13 @@ export function makeSandbox(game: Phaser.Game): SandboxApi {
     }
     const sidSame = check(SID, rec.ownerSid, rec.fake?.sid ?? null)
     const diffSame = check(DIFF, rec.ownerDiff, rec.fake?.diff ?? null)
+    // itd.onboard пишет только HUD («done»), fakeOwner его не трогает: любое отличие от
+    // значения при входе — след партии песочницы, возвращаем как при входе.
+    if (rec.ownerOnboard !== undefined && localStore.get(ONBOARD) !== rec.ownerOnboard) {
+      if (rec.ownerOnboard === null) localStore.remove(ONBOARD)
+      else localStore.set(ONBOARD, rec.ownerOnboard)
+      restored.push(`localStorage.${ONBOARD}`)
+    }
     for (const [key, val] of [[SID, rec.tabSid], [AUTO, rec.tabAuto]] as const) {
       if (sessionStore.get(key) === val) continue
       if (val === null) {

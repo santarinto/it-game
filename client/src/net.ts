@@ -108,6 +108,7 @@ export interface SandboxRecord {
   label: string
   ownerSid: string | null // localStorage itd.sid при входе
   ownerDiff: string | null // localStorage itd.diff при входе
+  ownerOnboard?: string | null // localStorage itd.onboard при входе (ITGAME-21); нет поля — запись старой вкладки
   tabSid: string | null // sessionStorage itd.sid вкладки при входе
   tabAuto: string | null // sessionStorage itd.sid.auto при входе
   fake: { sid: string; diff: string } | null // «чужой» общий ключ fakeOwner()

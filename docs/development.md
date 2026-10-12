@@ -669,7 +669,9 @@ documenting separately:
 - **`itd.sandbox(label)`** (ITGAME-77) — the agent's own party in this tab in
   one call, with the owner's keys guarded. From the menu (in a party:
   `code: 'in_party'`) it records the owner's shared `localStorage`
-  `itd.sid`/`itd.diff` and the tab's `sessionStorage` `itd.sid`/`itd.sid.auto`
+  `itd.sid`/`itd.diff`/`itd.onboard` (ITGAME-21: a sandbox party that finishes
+  the HUD onboarding chain must not hide the coach from the owner) and the
+  tab's `sessionStorage` `itd.sid`/`itd.sid.auto`
   in `sessionStorage` `itd.sandbox` (survives a reload), sets the explicit tab
   sid `a-<label>-<ms>` and restarts the menu → `{ok, sid, owner: {sid, diff}}`.
   While the record exists `net.ts` never falls back to the shared key: a new
