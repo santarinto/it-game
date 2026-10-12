@@ -14,6 +14,13 @@
 //
 // sid задаётся явно (sessionStorage, только вкладке): реконнект после F5 под тем же sid
 // поднимает сейв, а ?scenario=fresh действует только на первую партию.
+//
+// Скорость, которую проверяет пункт, читается только после itd.wait на ожидаемое значение
+// (ITGAME-82): ответ на set_speed приходит позже снапшота, который его вызвал (пауза отчёта,
+// возврат темпа из refresh() после itd.cmd('next_day')). Такой wait — с .catch: регресс виден
+// фактом speed=…, а не исключением, обрывающим набор. Чей возврат — по itd.net(): out set_speed
+// после out next_day (itd.cmd — есть 2; внешняя пауза — нет ни одного). Enter/Space/btn.next_day
+// читаются сразу: proceedNextDay шлёт set_speed ДО next_day, снапшот дня уже несёт скорость.
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
@@ -51,6 +58,19 @@ try {
   page.on('console', (msg) => {
     if (msg.type() === 'error') console.log('PAGE error:', msg.text())
   })
+
+  // ITGAME-82: скорости из out set_speed после последнего out next_day в itd.net() — кто вернул
+  // темп после закрытия отчёта. Снапшот раздаётся слушателям (HUD refresh) синхронно, до того
+  // как его увидит itd.wait, поэтому к концу wait ответный set_speed уже в журнале провода.
+  // null — next_day нет среди последних 100 сообщений.
+  const speedsSentAfterNextDay = () =>
+    page.evaluate(() => {
+      const last = window.itd.net(100).last
+      const i = last.findLastIndex((m) => m.dir === 'out' && m.type === 'next_day')
+      return i < 0
+        ? null
+        : last.slice(i + 1).filter((m) => m.dir === 'out' && m.type === 'set_speed').map((m) => m.info.speed)
+    })
 
   await page.evaluateOnNewDocument(() => {
     if (!sessionStorage.getItem('itd.sid')) {
@@ -139,7 +159,12 @@ try {
     await window.itd.set({ tickInDay: 53 })
     await window.itd.wait(() => window.itd.ids().some((x) => x.id === 'btn.next_day'), 8000)
   })
-  const day2ReportSpeed = await page.evaluate(() => window.itd.server().snapshot?.speed)
+  const day2ReportSpeed = await page.evaluate(async () => {
+    // ITGAME-82: set_speed 0 отчёта (onDayReport) уходит в момент появления btn.next_day —
+    // ждём его ответ; таймаут не бросает, регресс виден фактом speed=…
+    await window.itd.wait((s) => s.speed === 0, 5000).catch(() => null)
+    return window.itd.server().snapshot?.speed
+  })
   check('День 2: скорость на паузе (0)', day2ReportSpeed === 0, `speed=${day2ReportSpeed}`)
 
   // Нажимаем Space
@@ -162,6 +187,9 @@ try {
     await window.itd.wait((s, srv) => srv.snapshot?.speed === 3, 5000)
     await window.itd.set({ tickInDay: 53 })
     await window.itd.wait(() => window.itd.ids().some((x) => x.id === 'btn.next_day'), 8000)
+    // ITGAME-82: перезагрузка — только когда пауза отчёта дошла до сервера (и его сейва):
+    // иначе «скорость 0 после F5» зависела бы от того, успел ли set_speed 0 до F5
+    await window.itd.wait((s) => s.speed === 0, 5000).catch(() => null)
   })
   const beforeReloadStorage = await page.evaluate(() => sessionStorage.getItem('itd.speedBeforeReport'))
   check('sessionStorage хранит 3x до перезагрузки', beforeReloadStorage === '3', `val=${beforeReloadStorage}`)
@@ -213,13 +241,21 @@ try {
   const day5State = await page.evaluate(async () => {
     await window.itd.wait(() => !window.itd.ids().some((x) => x.id === 'btn.next_day'), 5000)
     await window.itd.wait((s) => s.day === 5 && s.phase === 'running', 5000)
+    // ITGAME-82: ответ на next_day приходит со speed 0, set_speed 2 HUD шлёт из refresh() по этому
+    // снапшоту — ждём ответ на него, а не читаем сразу; таймаут не бросает, регресс виден фактом
+    await window.itd.wait((s) => s.speed === 2, 5000).catch(() => null)
     return {
       day: window.itd.server().snapshot?.day,
       speed: window.itd.server().snapshot?.speed,
     }
   })
+  const day5Sent = await speedsSentAfterNextDay()
   check('itd.cmd(next_day): день 5 наступил', day5State.day === 5, `day=${day5State.day}`)
-  check('itd.cmd(next_day): скорость 2x восстановлена через refresh()', day5State.speed === 2, `speed=${day5State.speed}`)
+  check(
+    'itd.cmd(next_day): скорость 2x восстановлена через refresh()',
+    day5State.speed === 2 && day5Sent?.includes(2) === true,
+    `speed=${day5State.speed}, set_speed после next_day: ${JSON.stringify(day5Sent)}`,
+  )
 
   // 11. Сохранение внешней паузы при закрытии через ENTER (путь игрока)
   await page.evaluate(async () => {
@@ -253,8 +289,15 @@ try {
       speed: window.itd.server().snapshot?.speed,
     }
   })
+  const day6Sent = await speedsSentAfterNextDay()
   check('День 6 наступил', day6State.day === 6, `day=${day6State.day}`)
-  check('Внешняя пауза не снята (скорость осталась 0)', day6State.speed === 0, `speed=${day6State.speed}`)
+  // ITGAME-82: мгновенное чтение speed не видит ошибочный set_speed из refresh(), который ещё в пути;
+  // журнал провода видит — refresh шлёт синхронно на снапшот next_day, до того как wait увидел день 6
+  check(
+    'Внешняя пауза не снята (скорость осталась 0)',
+    day6State.speed === 0 && day6Sent !== null && day6Sent.length === 0,
+    `speed=${day6State.speed}, set_speed после next_day: ${JSON.stringify(day6Sent)}`,
+  )
 
   // 12. Проверяем режим skipReports
   await page.evaluate(async () => {
