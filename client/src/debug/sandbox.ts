@@ -1,6 +1,7 @@
 import type Phaser from 'phaser'
 import { SANDBOX_KEY, adoptTabSid, forgetTabSid, sandboxRecord, sandboxSid } from '../net'
 import type { SandboxRecord } from '../net'
+import { localStore, sessionStore } from '../storage'
 
 // itd.sandbox (ITGAME-77): своя партия вкладки одним вызовом, ключи владельца под
 // охраной. Ретро 10.10: агент в каждом заходе руками ставил sessionStorage-sid,
@@ -60,7 +61,7 @@ function restartMenu(game: Phaser.Game): void {
   if (game.scene.isActive('menu')) game.scene.getScene('menu').scene.restart()
 }
 
-const write = (rec: SandboxRecord): void => sessionStorage.setItem(SANDBOX_KEY, JSON.stringify(rec))
+const write = (rec: SandboxRecord): void => sessionStore.set(SANDBOX_KEY, JSON.stringify(rec))
 
 export function makeSandbox(game: Phaser.Game): SandboxApi {
   const enter = (label: string): SandboxResult => {
@@ -76,10 +77,10 @@ export function makeSandbox(game: Phaser.Game): SandboxApi {
       ? { ...prev, label }
       : {
           label,
-          ownerSid: localStorage.getItem(SID),
-          ownerDiff: localStorage.getItem(DIFF),
-          tabSid: sessionStorage.getItem(SID),
-          tabAuto: sessionStorage.getItem(AUTO),
+          ownerSid: localStore.get(SID),
+          ownerDiff: localStore.get(DIFF),
+          tabSid: sessionStore.get(SID),
+          tabAuto: sessionStore.get(AUTO),
           fake: null,
           at: Date.now(),
         }
@@ -101,12 +102,12 @@ export function makeSandbox(game: Phaser.Game): SandboxApi {
     const removed: string[] = []
     const check = (key: string, real: string | null, fake: string | null): boolean => {
       const expected = fake ?? real
-      const now = localStorage.getItem(key)
+      const now = localStore.get(key)
       // Наше значение (fake) или стёртое — возвращаем; чужое — владелец мог
       // записать его сам в другой вкладке, не перетираем.
       if (now !== real && (now === fake || now === null)) {
-        if (real === null) localStorage.removeItem(key)
-        else localStorage.setItem(key, real)
+        if (real === null) localStore.remove(key)
+        else localStore.set(key, real)
         restored.push(`localStorage.${key}`)
       } else if (now !== real) kept.push(`localStorage.${key}`)
       return now === expected
@@ -114,16 +115,16 @@ export function makeSandbox(game: Phaser.Game): SandboxApi {
     const sidSame = check(SID, rec.ownerSid, rec.fake?.sid ?? null)
     const diffSame = check(DIFF, rec.ownerDiff, rec.fake?.diff ?? null)
     for (const [key, val] of [[SID, rec.tabSid], [AUTO, rec.tabAuto]] as const) {
-      if (sessionStorage.getItem(key) === val) continue
+      if (sessionStore.get(key) === val) continue
       if (val === null) {
-        sessionStorage.removeItem(key)
+        sessionStore.remove(key)
         removed.push(`sessionStorage.${key}`)
       } else {
-        sessionStorage.setItem(key, val)
+        sessionStore.set(key, val)
         restored.push(`sessionStorage.${key}`)
       }
     }
-    sessionStorage.removeItem(SANDBOX_KEY)
+    sessionStore.remove(SANDBOX_KEY)
     removed.push(`sessionStorage.${SANDBOX_KEY}`)
     forgetTabSid()
     restartMenu(game)
@@ -134,8 +135,8 @@ export function makeSandbox(game: Phaser.Game): SandboxApi {
     const rec = sandboxRecord()
     if (!rec) return { ok: false, code: 'no_sandbox', error: 'сначала itd.sandbox(метка): restore() вернёт настоящий ключ владельца' }
     const fake = rec.fake ?? { sid: `fake-owner-${Date.now()}`, diff: rec.ownerDiff === 'hard' ? 'easy' : 'hard' }
-    localStorage.setItem(SID, fake.sid)
-    localStorage.setItem(DIFF, fake.diff)
+    localStore.set(SID, fake.sid)
+    localStore.set(DIFF, fake.diff)
     write({ ...rec, fake })
     return { ok: true, sid: fake.sid, diff: fake.diff }
   }

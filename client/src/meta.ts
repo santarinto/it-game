@@ -1,3 +1,4 @@
+import { localStore } from './storage'
 import type { DifficultyId, GameOverMessage, StateMessage, VictoryMessage } from './protocol'
 
 // Мета-прогресс и достижения (ITGAME-10).
@@ -142,7 +143,7 @@ export function defaultStats(): MetaStats {
 
 export function loadStats(): MetaStats {
   try {
-    const raw = localStorage.getItem(STATS_KEY)
+    const raw = localStore.get(STATS_KEY)
     if (!raw) return defaultStats()
     const parsed: unknown = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return defaultStats()
@@ -177,7 +178,7 @@ export function loadStats(): MetaStats {
 
 export function saveStats(stats: MetaStats): void {
   try {
-    localStorage.setItem(STATS_KEY, JSON.stringify(stats))
+    localStore.set(STATS_KEY, JSON.stringify(stats))
   } catch (e) {
     console.error('Ошибка сохранения статистики мета-прогресса:', e)
   }
@@ -185,7 +186,7 @@ export function saveStats(stats: MetaStats): void {
 
 export function loadAchievements(): Record<string, AchievementState> {
   try {
-    const raw = localStorage.getItem(ACHIEVEMENTS_KEY)
+    const raw = localStore.get(ACHIEVEMENTS_KEY)
     if (!raw) return {}
     const parsed: unknown = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
@@ -208,7 +209,7 @@ export function loadAchievements(): Record<string, AchievementState> {
 
 export function saveAchievements(unlocked: Record<string, AchievementState>): void {
   try {
-    localStorage.setItem(ACHIEVEMENTS_KEY, JSON.stringify(unlocked))
+    localStore.set(ACHIEVEMENTS_KEY, JSON.stringify(unlocked))
   } catch (e) {
     console.error('Ошибка сохранения достижений:', e)
   }
@@ -216,8 +217,8 @@ export function saveAchievements(unlocked: Record<string, AchievementState>): vo
 
 export function resetMeta(): void {
   try {
-    localStorage.removeItem(STATS_KEY)
-    localStorage.removeItem(ACHIEVEMENTS_KEY)
+    localStore.remove(STATS_KEY)
+    localStore.remove(ACHIEVEMENTS_KEY)
   } catch (e) {
     console.error('Ошибка сброса мета-прогресса:', e)
   }

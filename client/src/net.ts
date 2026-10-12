@@ -1,4 +1,5 @@
 import { resetForNewGame } from './party'
+import { localStore, sessionStore } from './storage'
 import type { CommandType, DayReportMessage, DifficultyId, GameOverMessage, OfflineReportMessage, SaveSummaryMessage, ServerErrorCode, ServerMessage, StateMessage, VictoryMessage } from './protocol'
 
 // Транспортные коды отказа (ITGAME-39): квитанция команды (sendWithReceipt)
@@ -115,7 +116,7 @@ export interface SandboxRecord {
 
 export function sandboxRecord(): SandboxRecord | null {
   try {
-    const raw = sessionStorage.getItem(SANDBOX_KEY)
+    const raw = sessionStore.get(SANDBOX_KEY)
     const r = raw ? (JSON.parse(raw) as SandboxRecord) : null
     return r && typeof r.label === 'string' ? r : null
   } catch {
@@ -129,8 +130,8 @@ export function sandboxSid(label: string): string {
 
 // Явный sid вкладки (без метки зеркала — prepareNewGame его чтит), память тоже.
 export function adoptTabSid(sid: string): void {
-  sessionStorage.setItem(SID_KEY, sid)
-  sessionStorage.removeItem(SID_AUTO_KEY)
+  sessionStore.set(SID_KEY, sid)
+  sessionStore.remove(SID_AUTO_KEY)
   memorySid = sid
   sidOrigin = 'session'
 }
@@ -157,7 +158,7 @@ function newSid(): string {
 // чужую партию. sessionStorage виден только своей вкладке — агрессивные
 // сценарии ставят sid туда и не воюют с соседями.
 export function sessionId(): string {
-  const fromSession = sessionStorage.getItem(SID_KEY)
+  const fromSession = sessionStore.get(SID_KEY)
   if (fromSession) {
     memorySid = fromSession
     sidOrigin = 'session'
@@ -171,7 +172,7 @@ export function sessionId(): string {
     sidOrigin = 'session'
     return memorySid
   }
-  const fromLocal = localStorage.getItem(SID_KEY)
+  const fromLocal = localStore.get(SID_KEY)
   if (fromLocal) {
     memorySid = fromLocal
     sidOrigin = 'local'
@@ -190,9 +191,9 @@ export function sessionId(): string {
 function persistSid(): void {
   const sid = sessionId()
   partyOrigin = sidOrigin
-  sessionStorage.setItem(SID_KEY, sid)
-  sessionStorage.setItem(SID_AUTO_KEY, sid)
-  if (sidOrigin !== 'session') localStorage.setItem(SID_KEY, sid)
+  sessionStore.set(SID_KEY, sid)
+  sessionStore.set(SID_AUTO_KEY, sid)
+  if (sidOrigin !== 'session') localStore.set(SID_KEY, sid)
 }
 
 // Новая партия по явному выбору игрока (кнопка сложности, клавиши 1-4):
@@ -203,13 +204,13 @@ function persistSid(): void {
 // а connect() новой партии запишет туда уже свежий sid. Явно выставленный
 // sid чтим — на нём держатся агентские прогоны (?seed/?scenario + sid).
 export function prepareNewGame(): void {
-  const explicit = sessionStorage.getItem(SID_KEY)
-  if (explicit !== null && explicit !== sessionStorage.getItem(SID_AUTO_KEY)) return
+  const explicit = sessionStore.get(SID_KEY)
+  if (explicit !== null && explicit !== sessionStore.get(SID_AUTO_KEY)) return
   const sandbox = sandboxRecord()
   if (sandbox) {
     // новая партия песочницы — новый sid песочницы, общий ключ не трогаем (ITGAME-77)
-    sessionStorage.removeItem(SID_KEY)
-    sessionStorage.removeItem(SID_AUTO_KEY)
+    sessionStore.remove(SID_KEY)
+    sessionStore.remove(SID_AUTO_KEY)
     memorySid = sandboxSid(sandbox.label)
     sidOrigin = 'session'
     return
@@ -217,21 +218,21 @@ export function prepareNewGame(): void {
   const sid = newSid()
   memorySid = sid
   sidOrigin = 'generated'
-  sessionStorage.removeItem(SID_KEY)
-  sessionStorage.removeItem(SID_AUTO_KEY)
+  sessionStore.remove(SID_KEY)
+  sessionStore.remove(SID_AUTO_KEY)
   // Общий ключ сразу ПЕРЕЗАПИСЫВАЕМ на новую партию (S→N), а не удаляем:
   // соседняя живая вкладка увидит запись, а не стирание — гарда общего
   // ключа не вступит в гонку за указатель. Удаление остаётся у финала
   // партии (game_over), где его и возвращает живой сосед.
-  localStorage.setItem(SID_KEY, sid)
+  localStore.set(SID_KEY, sid)
 }
 
 // Есть ли сейв для «Продолжить» в меню: ключ в хранилищах теперь появляется
 // только с настоящей партией — «ПРОДОЛЖИТЬ» больше не судит по ключу,
 // созданному голым чтением.
 export function hasSavedSession(): boolean {
-  if (sandboxRecord()) return sessionStorage.getItem(SID_KEY) !== null // общий ключ — владельца (ITGAME-77)
-  return sessionStorage.getItem(SID_KEY) !== null || localStorage.getItem(SID_KEY) !== null
+  if (sandboxRecord()) return sessionStore.get(SID_KEY) !== null // общий ключ — владельца (ITGAME-77)
+  return sessionStore.get(SID_KEY) !== null || localStore.get(SID_KEY) !== null
 }
 
 // Окно «Пока вас не было» — только при смене дня или финале; короткий догон
@@ -257,8 +258,8 @@ const LEFT_KEY = 'itd.leftAt'
 
 function readLeft(): { at: number; speed: number } | null {
   try {
-    const raw = sessionStorage.getItem(LEFT_KEY)
-    sessionStorage.removeItem(LEFT_KEY)
+    const raw = sessionStore.get(LEFT_KEY)
+    sessionStore.remove(LEFT_KEY)
     const v = raw ? (JSON.parse(raw) as { at?: unknown; speed?: unknown }) : null
     return v && typeof v.at === 'number' && typeof v.speed === 'number' ? { at: v.at, speed: v.speed } : null
   } catch {
@@ -267,7 +268,7 @@ function readLeft(): { at: number; speed: number } | null {
 }
 
 export function savedDifficulty(): DifficultyId {
-  return (localStorage.getItem(DIFF_KEY) as DifficultyId) ?? 'normal'
+  return (localStore.get(DIFF_KEY) as DifficultyId) ?? 'normal'
 }
 
 // clearSession — сейва больше нет (финал/сдаться): спрятать «Продолжить».
@@ -281,12 +282,12 @@ export function clearSession(): void {
   memorySid = null
   sidOrigin = null
   partyOrigin = null
-  sessionStorage.removeItem(SID_KEY)
-  sessionStorage.removeItem(SID_AUTO_KEY)
-  sessionStorage.removeItem('itd.speedBeforeReport')
-  if (mine !== null && localStorage.getItem(SID_KEY) === mine) {
-    localStorage.removeItem(SID_KEY)
-    localStorage.removeItem(DIFF_KEY)
+  sessionStore.remove(SID_KEY)
+  sessionStore.remove(SID_AUTO_KEY)
+  sessionStore.remove('itd.speedBeforeReport')
+  if (mine !== null && localStore.get(SID_KEY) === mine) {
+    localStore.remove(SID_KEY)
+    localStore.remove(DIFF_KEY)
   }
 }
 
@@ -453,7 +454,7 @@ export class GameClient {
   constructor() {
     window.addEventListener('pagehide', () => {
       if (!this.latest) return
-      try { sessionStorage.setItem(LEFT_KEY, JSON.stringify({ at: Date.now(), speed: this.latest.speed })) } catch { /* без хранилища — liveTicks null */ }
+      sessionStore.set(LEFT_KEY, JSON.stringify({ at: Date.now(), speed: this.latest.speed }))
     })
     // Гарда общего ключа (ITGAME-30): чужой game_over в соседней вкладке
     // вытирает ОБЩИЙ localStorage-sid — под ним может жить НАША партия.
@@ -463,7 +464,7 @@ export class GameClient {
       if (ev.key !== SID_KEY || ev.newValue !== null) return
       if (!this.latest || partyOrigin === 'session') return
       const sid = sessionId()
-      if (localStorage.getItem(SID_KEY) !== sid) localStorage.setItem(SID_KEY, sid)
+      if (localStore.get(SID_KEY) !== sid) localStore.set(SID_KEY, sid)
     })
 
     // Канал межвкладочной координации (ITGAME-35):
@@ -582,7 +583,7 @@ export class GameClient {
     persistSid()
     // Сложность общего ключа — пара к нему: вкладочная (агентская) партия её
     // не пишет, как и сам ключ.
-    if (partyOrigin !== 'session') localStorage.setItem(DIFF_KEY, difficulty)
+    if (partyOrigin !== 'session') localStore.set(DIFF_KEY, difficulty)
     this.openSocket()
   }
 
@@ -920,7 +921,7 @@ export class GameClient {
       mode, sid: this.sessionSid, leftAt: null, back: null, resumed: null, rev: null, drop: null, ...r,
     })
     const forgetLeft = () => {
-      try { sessionStorage.removeItem(LEFT_KEY) } catch { /* без хранилища нечего убирать */ }
+      sessionStore.remove(LEFT_KEY)
     }
     if (this.awayState) return result({ ok: false, code: 'already_away', error: 'уход уже идёт' })
     const sid = this.sessionSid
@@ -937,7 +938,7 @@ export class GameClient {
     this.failReceipts('disconnected')
     const leftAt = Date.now()
     // как pagehide: offline() разделит «шло вживую, пока сервер не заметил» и догон
-    try { sessionStorage.setItem(LEFT_KEY, JSON.stringify({ at: leftAt, speed: latest.speed })) } catch { /* liveTicks null */ }
+    sessionStore.set(LEFT_KEY, JSON.stringify({ at: leftAt, speed: latest.speed }))
     let drop: AwayDrop | null = null
     if (mode === 'close') {
       ws.close(1000, 'away')
@@ -1027,8 +1028,8 @@ export class GameClient {
   // и persistSid() заполнит только вкладочное зеркало, не общий ключ localStorage.
   readoptSid(): void {
     const sid = this.sessionSid
-    if (sid === null || sessionStorage.getItem(SID_KEY) !== null) return
-    sessionStorage.setItem(SID_KEY, sid)
+    if (sid === null || sessionStore.get(SID_KEY) !== null) return
+    sessionStore.set(SID_KEY, sid)
     persistSid()
   }
 

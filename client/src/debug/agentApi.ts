@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { client, sessionId } from '../net'
+import { localStore, sessionStore } from '../storage'
 import { partyChange, partyReplaced, resetForNewGame } from '../party'
 import { nav } from '../rooms'
 import { GAME_H, GAME_W } from '../layout'
@@ -2175,16 +2176,7 @@ function makeApi(game: Phaser.Game): ItdApi {
       // Единый namespace itd.* (ITGAME-28): снести всё разом — sid (обе
       // копии: sessionStorage вкладки + localStorage игрока, ITGAME-30),
       // сложность, хинты, зум, тумблеры. Страницу перезагружает агент.
-      const removed: string[] = []
-      for (const store of [localStorage, sessionStorage]) {
-        for (let i = store.length - 1; i >= 0; i--) {
-          const k = store.key(i)
-          if (k?.startsWith('itd.')) {
-            store.removeItem(k)
-            removed.push(k)
-          }
-        }
-      }
+      const removed = [...localStore.clearPrefix('itd.'), ...sessionStore.clearPrefix('itd.')]
       return { ok: true, removed }
     },
     log: (n = 50) => telemetry.log(n),
@@ -2353,7 +2345,7 @@ export function installAgentApi(game: Phaser.Game): void {
   const enabled =
     import.meta.env.DEV ||
     new URLSearchParams(location.search).get('debug') === '1' ||
-    localStorage.getItem('itd.debug') === '1'
+    localStore.get('itd.debug') === '1'
   if (!enabled) return
   game.events.once(Phaser.Core.Events.READY, () => {
     window.itd = makeApi(game)

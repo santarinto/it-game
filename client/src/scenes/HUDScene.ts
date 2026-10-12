@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { GAME_H, GAME_W, HUD_H, NAV_W, layoutColumn, layoutRow } from '../layout'
 import { client, offlineShown } from '../net'
+import { localStore, sessionStore } from '../storage'
 import type { DayReportMessage, GameOverMessage, OfflineReportMessage, ServerErrorCode, StateMessage, VictoryMessage } from '../protocol'
 import { fmtMoney } from '../format'
 import { nav } from '../rooms'
@@ -78,27 +79,27 @@ export class HUDScene extends Phaser.Scene {
   private victoryUI!: Phaser.GameObjects.GameObject[]
   private switching!: boolean
   private get skipReports(): boolean {
-    return localStorage.getItem('itd.skipReports') === '1'
+    return localStore.get('itd.skipReports') === '1'
   }
   private set skipReports(v: boolean) {
     if (v) {
-      localStorage.setItem('itd.skipReports', '1')
+      localStore.set('itd.skipReports', '1')
     } else {
-      localStorage.removeItem('itd.skipReports')
+      localStore.remove('itd.skipReports')
     }
   }
   private currentSpeed!: number
   private get speedBeforeReport(): number | null {
-    const v = sessionStorage.getItem(SPEED_BEFORE_REPORT_KEY)
+    const v = sessionStore.get(SPEED_BEFORE_REPORT_KEY)
     if (!v) return null
     const n = parseInt(v, 10)
     return n >= 1 && n <= 3 ? n : null
   }
   private set speedBeforeReport(n: number | null) {
     if (n === null) {
-      sessionStorage.removeItem(SPEED_BEFORE_REPORT_KEY)
+      sessionStore.remove(SPEED_BEFORE_REPORT_KEY)
     } else {
-      sessionStorage.setItem(SPEED_BEFORE_REPORT_KEY, String(n))
+      sessionStore.set(SPEED_BEFORE_REPORT_KEY, String(n))
     }
   }
   private reportPauseSeq!: number
@@ -861,9 +862,9 @@ export class HUDScene extends Phaser.Scene {
         text: 'Нанять не на что, а дохода нет — сдаться и начать заново: кнопка ⌂',
       },
     ]
-    const hint = hints.find((h) => h.when && !localStorage.getItem('itd.hint:' + h.id))
+    const hint = hints.find((h) => h.when && !localStore.get('itd.hint:' + h.id))
     if (hint) {
-      localStorage.setItem('itd.hint:' + hint.id, '1')
+      localStore.set('itd.hint:' + hint.id, '1')
       this.toast(hint.text, 2200)
     }
   }
