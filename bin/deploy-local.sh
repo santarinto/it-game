@@ -3,7 +3,7 @@
 # обёрткой /usr/local/bin/itgame-deploy (та держит flock и уже сделала
 # git reset в repo/ на протестированный SHA из payload вебхука).
 #
-#   bash /opt/itgame/repo/bin/deploy-local.sh [sha]
+#   bash /opt/itgame/repo/bin/deploy-local.sh
 #
 # Собирает НОВЫЙ каталог releases/<id> и свопает симлинк current только при
 # успехе — прод всё это время живёт на старом релизе. Любое падение до свопа

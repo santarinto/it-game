@@ -5,24 +5,74 @@ the README; game design — `docs/design/gdd.md`.
 
 ## Deploy
 
-Production runs on a single box: nginx (TLS, static files, `/ws`) → Go
-binary on `127.0.0.1:8080`, systemd unit `itgame`. `/admin` is not exposed
-on the public domain: the proxy in front (outside this repo) answers
-`404 {"detail":"not_exposed"}` with or without credentials (checked
-2026-10-09); the Go handler itself has no auth, and `deploy-local.sh`
-probes it on `127.0.0.1:8080`.
+Two instances run on one box (ci-cd-srv, the game-box), each behind nginx
+(TLS, static files, `/ws`) → Go binary: production on `127.0.0.1:8080`,
+systemd unit `itgame`, root `/opt/itgame`; stage on `127.0.0.1:8081`, unit
+`itgame-stage`, root `/opt/itgame-stage`. The box has docker but no Go or
+Node toolchain. `/admin` is not exposed on the public domain: the proxy in
+front (outside this repo) answers `404 {"detail":"not_exposed"}` with or
+without credentials (checked 2026-10-09); the Go handler itself has no auth.
 
-A deploy is triggered by an HMAC-signed webhook (`bin/trigger-deploy.sh`).
-The box builds an atomic release with `bin/deploy-local.sh`:
-`releases/<id>` → swap the `current` symlink → `systemctl restart itgame`.
-A failed build leaves the running release untouched.
+A push to `main` deploys (since 08.10, MINIPC-206). The repo lives on
+Forgejo (`git.lan.santarinto.com`; `make push`), and every push to any
+branch runs `.forgejo/workflows/ci.yaml`: the `test-server` and
+`test-client` jobs (see [CI](#ci)), then — on `main` or a manual dispatch
+only, and only when both are green — the `deploy` job on the host runner
+`minipc-deploy`: `ssh deploy-itgame-stage <mode> <sha40>`, then
+`ssh deploy-itgame <mode> <sha40>` (`mode` is `deploy` on a push). Stage
+goes first; a failed stage stops the job before production. Each ssh target
+is a forced command of the platform loader (`deploy-project itgame-stage`,
+`deploy-project itgame`) on the box, outside this repo: it fetches and
+checks out the SHA and runs `tools/deploy` from that SHA's own tree, so
+every commit ships its own recipe. `DEPLOY_ENABLED` in `ci.yaml` is the
+latch: `"1"` since e3ea574 (08.10); `"0"` makes the job report a skip and
+finish green with both targets untouched.
 
-- **GitHub Actions** — the `deploy` job runs on pushes to `main` after the
-  `server` and `client` jobs pass, deploys the tested SHA and smoke-tests
-  production. It is enabled by the `DEPLOY_HOOK_SECRET` repository secret;
-  without it the job skips with a warning. A SHA that `main` has already
-  moved past is not deployed. "Run workflow" on `main` deploys manually.
-- **Manually:** `DEPLOY_HOOK_SECRET=… bin/trigger-deploy.sh <sha>`.
+`tools/deploy <deploy|rollback> <sha40> [--dry-run]` (contract v1) picks the
+target by the checkout's basename (`itgame` or `itgame-stage`) and builds
+`$ROOT/releases/<YYYYMMDD-HHMMSS>-<sha7>` from `git archive <sha>`: the
+client in a throwaway `node:22` container with the whole release mounted
+(`npm ci && npm run build`; `gen-contract --check` needs the sibling
+`server/`), the server in `golang:1.26` (`go build -trimpath`), both with
+bind-mounted caches under `/opt/itgame/cache`. Then it swaps the `current`
+symlink atomically (`rename(2)`), restarts the unit and waits up to 30 s
+for HTTP 200 from the public vhost, `https://itgame.santarinto.ru` or
+`https://stage.itgame.santarinto.ru` (the raw port proves nothing: Go
+answers 404 on `/` there — nginx owns the static — and 426 on `/ws`). It
+keeps the last `KEEP=3` releases and never prunes `current`.
+
+- **Failure before the swap** (archive, either build): `current` is not
+  touched, the target keeps running its old release, the half-built one is
+  removed.
+- **Failure after the swap** (no 200 within 30 s): the target already runs
+  the NEW release and the job fails loudly — roll back, don't redeploy
+  blindly.
+- **Rollback:** «Run workflow» on `ci.yaml` in Forgejo Actions with
+  `mode=rollback` and `ref=<sha40>` of a commit whose release is still on
+  the box (one of the last three); it goes stage, then production, like a
+  deploy. Rollback never builds: it points `current` at the release whose
+  directory name ends in that sha7 and restarts. «Run workflow» with
+  `mode=deploy` (the default; an empty `ref` is the branch head) deploys by
+  hand — from any branch, and that run's tests check the branch head, not
+  `ref`.
+- **`--dry-run`** checks the mechanism only (docker, the SHA in the
+  checkout, a writable `releases/`, the unit, curl; for `rollback`, that the
+  release exists) and changes no release.
+- **Logs:** every run appends to `$ROOT/shared/deploy.log` on the box. The
+  CI jobs and `tools/deploy` report start/finish through
+  `tools/ci-notify.sh` (Vector `http://10.8.1.12:9880` → ClickHouse
+  `logs.entries`, project `itgame`); without `OBS_TOKEN` (a Forgejo secret;
+  a manual run on the box reads `$ROOT/shared/obs.env`) it is a silent no-op
+  and never fails a job.
+
+**Retired chain (since 08.10; the files stay in the repo — do not run
+them):** `bin/trigger-deploy.sh` (HMAC `X-Hub-Signature-256` POST to the
+on-box `/api/deploy` hook), the `deploy` job of `.github/workflows/ci.yml`
+(`DEPLOY_HOOK_SECRET`; the repo's only remote is Forgejo, so GitHub runs
+nothing) and, on the box, the wrapper `/usr/local/bin/itgame-deploy` +
+`bin/deploy-local.sh` (production only: reset of `/opt/itgame/repo`, Go on
+the host, an `/admin` probe on `127.0.0.1:8080`). `tools/deploy` is its
+port: same release layout, atomic swap and `KEEP=3`.
 
 Notes:
 
@@ -30,16 +80,16 @@ Notes:
   no Chromium needed for the box to build (Chromium is only for
   `smoke-ui`/`qa:*`/`visreg`, see [Tests](#tests)).
 - Releases are built from `git archive` (no `.git`, so neither `git rev-parse`
-  nor Go's `vcs.revision`), and the deploy recipe stamps the SHA itself
-  (ITGAME-81): `bin/deploy-local.sh` builds the client with
-  `BUILD_SHA=<short sha>` (`<meta name="build">`, `itd.version`) and the server
-  with `-ldflags "-X itdirector/internal/ws.buildSHA=<short sha>"` (`GET
-  /api/version`, the journal header, `agent_status`). Vite takes `BUILD_SHA`
-  only as lower-case hex of 7–40 characters — anything else is ignored with a
-  warning — then falls back to `git rev-parse`, then `dev`; the server falls
-  back to `vcs.revision`, then `unknown`. `make build` and the QA self-serve
-  build from a checkout and need neither. **The CI chain (`tools/deploy`, the
-  Forgejo push-to-main deploy) does not stamp yet**: its releases still read
+  nor Go's `vcs.revision`), so the recipe has to stamp the SHA itself
+  (ITGAME-81): the client built with `BUILD_SHA=<short sha>`
+  (`<meta name="build">`, `itd.version`), the server with `-ldflags "-X
+  itdirector/internal/ws.buildSHA=<short sha>"` (`GET /api/version`, the
+  journal header, `agent_status`). Vite takes `BUILD_SHA` only as lower-case
+  hex of 7–40 characters — anything else is ignored with a warning — then
+  falls back to `git rev-parse`, then `dev`; the server falls back to
+  `vcs.revision`, then `unknown`. `make build` and the QA self-serve build
+  from a checkout and need neither. **`tools/deploy` does not stamp yet**
+  (ITGAME-98; the retired `bin/deploy-local.sh` did): live releases read
   `dev` / `unknown` until it passes the same two values. Check a release:
   `curl -s https://<host>/ | grep -o '<meta name="build"[^>]*'`.
 - Production nginx answers `/api/*` with the SPA's `index.html`, so a tab
@@ -263,14 +313,13 @@ reads it once and passes it into `newMux` as an explicit parameter (not
 read from env inside `newMux`, so tests can control it directly). Without
 it, `ServeMux` itself has no route for either path, so requests get a
 plain 404 — the handlers never run and never get a chance to check
-anything. It's off by default and **not** set in production
-(`bin/deploy-local.sh`, systemd unit) or in the CI production smoke step;
-it's set only where local/CI tooling needs it: `make dev`/`dev-server`,
+anything. It's off by default and **not** set in production (the box's
+`itgame` unit; `tools/deploy` only restarts it and sets no env), and the
+Forgejo CI starts no server (see [CI](#ci)); it's set only where local
+tooling needs it: `make dev`/`dev-server` and
 `client/scripts/lib/selfserve.mjs` (all QA scripts and `visreg` that
-build and self-serve `bin/itdirector` — see the QA table below), and the CI `client`
-job's "Go-сервер над dist" step (`OFFICE=1 smoke-ui` doesn't itself call
-`/api/debug/*` or `/ws/agent`, but the flag is set anyway for consistency
-with the other self-served runs). If you start the server by hand for
+build and self-serve `bin/itdirector` — see the QA table below). If you
+start the server by hand for
 `qa:meta` (which proxies through `vite preview` to a Go server
 you run separately) or for `OFFICE=1 npm run smoke-ui` against a manual
 server, set it yourself: `ITGAME_DEBUG=1 go run ./cmd/server`.
@@ -522,7 +571,7 @@ the tab's own build sha (`#build`, = `itd.version.sha`) left of «Админка
 `client/src/buildstamp.ts` compares it with the build the stand would serve on
 reload — the sha in `<meta name="build">` of a fresh `GET /` — and, if that is
 missing, with the server binary's sha (`GET /api/version` → `{sha}`, public,
-`no-store`; the SHA the deploy recipe links into `ws.buildSHA` (ITGAME-81),
+`no-store`; the SHA a stamped build links into `ws.buildSHA` (ITGAME-81),
 else `vcs.revision` of `go build`, `unknown` under `go run` or an unstamped
 archive build). On a
 mismatch a red «устарело, обнови» button (`#stale`, click reloads,
@@ -534,11 +583,13 @@ actually on screen after this check (a hidden badge stays in the DOM as
 `display: none`, 0×0 — don't judge it by its presence; `false` also where there
 is no `#topbar`); `stale: null` means there is nothing to compare
 (vite dev serves no meta and hot-reloads anyway; a build with neither
-`BUILD_SHA` nor git reads `dev`). Releases built by `bin/deploy-local.sh` carry
-the SHA since ITGAME-81 (the `tools/deploy` CI chain does not yet, see
-[Deploy](#deploy)), so there the check runs against the served
-`<meta name="build">`; on production `server` stays `null` until the owner
-installs the `/api/version` nginx block. `itd.screen().meta.stale` carries the
+`BUILD_SHA` nor git reads `dev`). That is today's production and stage:
+`tools/deploy` does not stamp yet (ITGAME-98, see [Deploy](#deploy)), so
+there `stale` stays `null` and the badge never shows. A stamped release (as
+the retired `bin/deploy-local.sh` built them, ITGAME-81) is checked against
+the served `<meta name="build">`; on production `server` stays `null` until
+the owner installs the `/api/version` nginx block.
+`itd.screen().meta.stale` carries the
 last result.
 
 `itd.help()` prints the full command reference in the console. Worth
@@ -1018,25 +1069,32 @@ consecutive runs without `--update` gave 0 differing pixels on every scenario.
 The layout-linter counts in `baseline.json` did not change with the font.
 Another machine may still differ by GPU rasterizer or emoji font.
 Kill stray Chromium processes before a run — they starve software WebGL.
-In CI, visreg is a report, not a gate (see [CI](#ci)).
+The Forgejo CI does not run visreg (see [CI](#ci)); run it locally after a
+UI change.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on pull requests, pushes to `main` and
-manual dispatch:
+`.forgejo/workflows/ci.yaml` (Forgejo Actions) runs on every push to any
+branch and on «Run workflow» (inputs `mode`, `ref` — see [Deploy](#deploy)):
 
-- **server** — `go vet`, `go test` with a Postgres 16 service container,
-  sim report in the job summary (non-blocking);
-- **client** — `npm ci`, `npm run browser:install` (the pinned Chrome for
-  Testing, cached by `actions/cache` keyed on `client/scripts/lib/chrome.mjs`
-  — not the runner's own Chrome), typecheck, build, menu smoke test, then the Go
-  server over `dist` (with `ITGAME_DEBUG=1`, matching local self-serve —
-  see [Agent bridge](#agent-bridge-wsagent)): office smoke test,
-  `live-check-saves` and `live-check-difficulty2`;
-- **visreg** — on the same pinned Chrome; report only; on mismatch it uploads
-  screenshots taken on the runner (`visreg-ci-shots`) that can be adopted as baselines before
-  making the job blocking;
-- **deploy** — see [Deploy](#deploy).
+- **test-server** — runner `minipc-test`, container `golang:1.26` with a
+  `postgres:18` service and `TEST_DATABASE_URL` set, so the DB tests run
+  instead of skipping: `cd server && go test ./...`;
+- **test-client** — runner `minipc-test`, container `node:22`:
+  `cd client && npm ci && npm run build` (the build runs
+  `gen-contract --check`, `tsc --noEmit`, `vite build` and `check-sprites`);
+- **deploy** — after both, on `main` or a dispatch only, on the host runner
+  `minipc-deploy`: stage, then production (see [Deploy](#deploy)).
+
+Each job checks out with a plain `git clone --depth 1` and the job token
+(no `actions/checkout`) and reports start/finish through
+`tools/ci-notify.sh`. Not in CI: `go vet`, the sim report, and everything
+that needs a browser or a running server — `smoke-ui` (menu and
+`OFFICE=1`), the `qa:*` suites, `live-check-*`, `visreg`. Run what your
+change touches locally (see [Tests](#tests)) before pushing to `main`: a
+green push there goes straight to stage and production. The retired
+`.github/workflows/ci.yml` (jobs `server`, `client`, `visreg`, `deploy`)
+stays in the repo and runs nowhere.
 
 ## Claude Code cloud sessions
 
