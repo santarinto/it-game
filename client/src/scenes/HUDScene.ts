@@ -543,6 +543,8 @@ export class HUDScene extends Phaser.Scene {
       btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
       this.offlineUI.push(btnBg, btnText)
     }
+    // ITGAME-97: рамки ?debug=1 (подложка 55.5, кнопка 56.5) живут в offlineUI — уходят вместе с окном.
+    this.offlineUI.push(...drawDebugFrames(this, this.offlineUI))
   }
 
   private closeOfflineReport() {
@@ -915,6 +917,8 @@ export class HUDScene extends Phaser.Scene {
       bg.on('pointerout', () => bg.setFillStyle(0x3b5dc9))
       this.eventUI.push(bg, txt)
     })
+    // ITGAME-97: рамки ?debug=1 кнопок (41.5) живут в eventUI — closeEvent() сносит их вместе с карточкой.
+    this.eventUI.push(...drawDebugFrames(this, this.eventUI))
   }
 
   private closeEvent() {

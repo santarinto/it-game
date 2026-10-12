@@ -8,8 +8,8 @@
 // одной зоной места office.slot.i, после починки та же зона мотивирует
 // (ITGAME-75/92/93; проверка — itd.stack/itd.zones, настоящий хит-тест Phaser),
 // тултип не остаётся рядом с окном роутера/увольнения (ITGAME-89),
-// рамки ?debug=1 объектов под окном (роутер, выход в меню, отчёт дня) лежат под его
-// подложкой, рамки кнопок окна — над ней (ITGAME-84), слот шлюза серверной рисует gateway (не router), полка
+// рамки ?debug=1 объектов под окном (роутер, выход в меню, карточка события, «Пока вас не было», отчёт дня) лежат под его
+// подложкой, рамки кнопок окна — над ней (ITGAME-84/97), слот шлюза серверной рисует gateway (не router), полка
 // быта (office.amenity.cooler/fridge/coffee_machine) и слот сети офиса
 // рисуют свои HD-текстуры, занятые/пустые серверные стойки — rack_server/
 // rack_empty (пустая — с подсветкой первой свободной, ITGAME-11), ПК куплен
@@ -539,6 +539,8 @@ async function caseTooltipUnderModal(browser) {
 // (обводка 0xff0000 без заливки), data 'debugFrame' — её объект. Окна: роутер
 // офиса (showModal, подложка 70), диалог выхода HUD (тот же showModal в сцене
 // HUD, 70), отчёт дня (подложка 50).
+// Карточка события (панель 40 без ввода, кнопки 41) и «Пока вас не было» (подложка 55 с вводом, кнопка 56) держат
+// рамки в своих списках eventUI/offlineUI — рамки уходят вместе с окном (ITGAME-97).
 async function caseDebugFramesUnderWindows(browser) {
   const page = await browser.newPage()
   const pageErrors = []
@@ -574,9 +576,18 @@ async function caseDebugFramesUnderWindows(browser) {
         leaks: bound.filter((r) => r.target < dim && r.depth >= dim).map((r) => `${r.of}@${r.depth}`),
         under: bound.filter((r) => r.target < dim).map((r) => r.of),
         over: bound.filter((r) => r.target >= dim && r.depth > dim).map((r) => r.of),
+        at: bound.map((r) => `${r.of}@${r.depth}`), // по записи на рамку: дубль — две записи
       }
     }, sceneKey, dim)
     const sane = (f) => f.n > 0 && f.unbound === 0 && f.input === 0 && f.offset.length === 0
+    // Рамки объекта id ('id@depth'); once — ровно одна рамка на глубине depth.
+    const framed = (f, id) => f.at.filter((s) => s.startsWith(`${id}@`))
+    const once = (f, id, depth) => JSON.stringify(framed(f, id)) === JSON.stringify([`${id}@${depth}`])
+    const count = (f, entry) => f.at.filter((s) => s === entry).length
+    // Рамки в собственном списке окна HUD (eventUI/offlineUI) и длина списка.
+    const ownFrames = (list) => page.evaluate((l) =>
+      window.__itd.scene.getScene('hud')[l].filter((o) => o.getData?.('debugFrame') != null).length, list)
+    const uiLen = (list) => page.evaluate((l) => window.__itd.scene.getScene('hud')[l].length, list)
 
     // 0. Без окна: у каждой рамки офиса есть объект, рамка без ввода, depth объекта + 0.5.
     const idle = await framesOf('office', 70)
@@ -616,7 +627,106 @@ async function caseDebugFramesUnderWindows(browser) {
     await page.evaluate(() => window.itd.click('modal.close'))
     await delay(150)
 
-    // C. Отчёт дня (подложка 50): конец дня на ходу, затем ответ на его set_speed 0.
+    // C. Карточка события (панель 40 без ввода, кнопки btn.event.i 41): рамки кнопок на 41.5 в eventUI —
+    // render() пересобирает карточку на каждом снапшоте, рамки вместе с ней (ITGAME-97). Событие ставит
+    // itd.restore, как qa:party O2; снимает restore сейва до него: activeEvent null оставил бы дедлайн в плане
+    // дня нерешённым (тик блока E поднял бы его снова), клик по btn.event.* шлёт настоящий event_choice.
+    const before = await page.evaluate(async () => (await window.itd.snapshot()).save)
+    await page.evaluate(async (tick) => {
+      await window.itd.restore({ activeEvent: { ID: 'deadline', Tick: tick } })
+    }, before.tickInDay)
+    const evOpen = await page.evaluate(() =>
+      window.itd.wait(() => window.itd.ids().some((n) => n.id === 'btn.event.1'), 5000).then(() => true, () => false))
+    if (!evOpen) throw new Error('карточка события (deadline) не открылась')
+    await delay(150)
+    f = await framesOf('hud', 40)
+    let own = await ownFrames('eventUI')
+    check('debug frames: EV1 карточка события — btn.event.0/1 в рамке по одной на 41.5, рамки в eventUI, шапка HUD под панелью 40',
+      sane(f) && f.leaks.length === 0 && once(f, 'btn.event.0', 41.5) && once(f, 'btn.event.1', 41.5) && own === 2 &&
+        f.under.includes('btn.menu') && f.under.includes('btn.speed.1'),
+      JSON.stringify({ leaks: f.leaks, event: f.at.filter((s) => s.startsWith('btn.event.')), own, under: f.under }))
+    await shot(page, 'debug_frames_event')
+    // Метка на кнопке: после снапшота btn.event.0 должна быть уже новым объектом.
+    await page.evaluate(() => window.__itd.scene.getScene('hud').eventUI
+      .find((o) => o.getData?.('id') === 'btn.event.0')?.setData('qaOld', true))
+    await page.evaluate(() => window.itd.set({ money: 3456 })) // снапшот → render() пересобрал карточку
+    await delay(300)
+    const rebuilt = await page.evaluate(() => {
+      const b = window.__itd.scene.getScene('hud').eventUI.find((o) => o.getData?.('id') === 'btn.event.0')
+      return b != null && b.getData('qaOld') !== true
+    })
+    f = await framesOf('hud', 40)
+    own = await ownFrames('eventUI')
+    check('debug frames: EV2 снапшот под карточкой — карточка пересобрана, рамок кнопок ровно по одной, без дублей',
+      rebuilt && sane(f) && f.leaks.length === 0 && once(f, 'btn.event.0', 41.5) && once(f, 'btn.event.1', 41.5) &&
+        f.at.filter((s) => s.startsWith('btn.event.')).length === 2 && own === 2,
+      JSON.stringify({ rebuilt, event: f.at.filter((s) => s.startsWith('btn.event.')), own }))
+    // Диалог выхода HUD (70) поверх карточки: рамки её кнопок уходят под подложку вместе с шапкой.
+    await page.evaluate(() => window.itd.click('btn.menu'))
+    await delay(150)
+    f = await framesOf('hud', 70)
+    check('debug frames: EV3 диалог выхода поверх карточки — рамки btn.event.* и шапки под подложкой 70, ✕ окна над ней',
+      sane(f) && f.leaks.length === 0 && f.under.includes('btn.event.0') && f.under.includes('btn.event.1') &&
+        f.under.includes('btn.menu') && f.over.includes('modal.close'),
+      JSON.stringify({ leaks: f.leaks, under: f.under, over: f.over }))
+    await page.evaluate(() => window.itd.click('modal.close'))
+    await delay(150)
+    await page.evaluate(async (save) => { await window.itd.restore(save) }, before)
+    const evGone = await page.evaluate(() =>
+      window.itd.wait(() => !window.itd.ids().some((n) => n.id.startsWith('btn.event.')), 5000).then(() => true, () => false))
+    await delay(150)
+    f = await framesOf('hud', 40)
+    own = await ownFrames('eventUI')
+    const evLen = await uiLen('eventUI')
+    check('debug frames: EV4 событие снято — ни одной рамки btn.event.*, eventUI пуст, рамки шапки на месте',
+      evGone && sane(f) && f.at.every((s) => !s.startsWith('btn.event.')) && own === 0 && evLen === 0 &&
+        f.under.includes('btn.menu'),
+      JSON.stringify({ evGone, event: f.at.filter((s) => s.startsWith('btn.event.')), own, evLen }))
+
+    // D. «Пока вас не было» (подложка 55 с вводом, кнопка 56): рамка подложки 55.5, кнопки 56.5, всё в
+    // offlineUI (ITGAME-97). Окно открывает настоящий обработчик HUD, как qa:party O3: сначала финал
+    // (btn.offline.menu — не кликаем, он уводит в меню), затем обычный отчёт поверх — он сносит прежнее окно
+    // вместе с его рамками. Партия на паузе — окно скорость не трогает.
+    const offline = (gameOver) => page.evaluate((gameOver) => {
+      window.__itd.scene.getScene('hud').showOfflineReport({
+        type: 'offline_report', ticks: 54, days: 1, income: 0, payroll: 0, balance: 0, gameOver, victory: false,
+      })
+    }, gameOver)
+    await offline(true)
+    await delay(200)
+    f = await framesOf('hud', 55)
+    own = await ownFrames('offlineUI')
+    check('debug frames: OF1 «Пока вас не было» (финал) — btn.offline.menu в рамке на 56.5, подложка на 55.5, рамки в offlineUI, шапка HUD под подложкой 55',
+      sane(f) && f.leaks.length === 0 && once(f, 'btn.offline.menu', 56.5) && count(f, 'Rectangle@55.5') === 1 &&
+        own === 2 && f.under.includes('btn.menu') && f.under.includes('btn.speed.1'),
+      JSON.stringify({ leaks: f.leaks, over: f.at.filter((s) => s.startsWith('btn.offline.') || s === 'Rectangle@55.5'), own, under: f.under }))
+    await offline(false)
+    await delay(200)
+    f = await framesOf('hud', 55)
+    own = await ownFrames('offlineUI')
+    check('debug frames: OF2 обычный отчёт сменил финальный — рамки btn.offline.menu нет, btn.offline.continue в рамке одной на 56.5, рамка подложки одна',
+      sane(f) && f.leaks.length === 0 && framed(f, 'btn.offline.menu').length === 0 &&
+        once(f, 'btn.offline.continue', 56.5) && count(f, 'Rectangle@55.5') === 1 && own === 2,
+      JSON.stringify({ leaks: f.leaks, over: f.at.filter((s) => s.startsWith('btn.offline.') || s === 'Rectangle@55.5'), own }))
+    await shot(page, 'debug_frames_offline')
+    await page.evaluate(() => window.itd.set({ money: 4567 })) // снапшот → рамки шапки перерисованы под окном
+    await delay(300)
+    f = await framesOf('hud', 55)
+    check('debug frames: OF3 снапшот под «Пока вас не было» — перерисованные рамки шапки под подложкой 55, рамки окна по одной',
+      sane(f) && f.leaks.length === 0 && f.under.includes('btn.speed.1') && once(f, 'btn.offline.continue', 56.5) &&
+        count(f, 'Rectangle@55.5') === 1,
+      JSON.stringify({ leaks: f.leaks, under: f.under.length, over: f.at.filter((s) => s.startsWith('btn.offline.') || s === 'Rectangle@55.5') }))
+    const cont = await page.evaluate(() => window.itd.click('btn.offline.continue'))
+    await delay(150)
+    f = await framesOf('hud', 55)
+    const offIds = await page.evaluate(() => window.itd.ids().filter((n) => n.id.startsWith('btn.offline.')).map((n) => n.id))
+    const offLen = await uiLen('offlineUI')
+    check('debug frames: OF4 «Продолжить →» — окно ушло с рамками: ни рамки btn.offline.* и подложки 55.5, ни id btn.offline.*',
+      cont.ok === true && sane(f) && f.at.every((s) => !s.startsWith('btn.offline.') && s !== 'Rectangle@55.5') &&
+        offIds.length === 0 && offLen === 0,
+      JSON.stringify({ cont, left: f.at.filter((s) => s.startsWith('btn.offline.') || s === 'Rectangle@55.5'), offIds, offLen }))
+
+    // E. Отчёт дня (подложка 50): конец дня на ходу, затем ответ на его set_speed 0.
     await page.evaluate(async () => {
       await window.itd.set({ money: 50000, tickInDay: 53 }) // 53 — последний тик running (dayTicks 54)
       window.itd.speed(2)
