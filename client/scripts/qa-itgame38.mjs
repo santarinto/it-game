@@ -37,6 +37,14 @@
 //   Z4  btn.zoom в HUD: три клика обходят 1 → 1.4 → fit по кругу и возвращают исходный
 //   Z5  хранилище закрыто для itd.uiScale (getItem/setItem бросают): меню грузится, active 1.4,
 //       клик menu.zoom.1 переключает active и CSS-зум канваса в этой вкладке (ITGAME-67)
+//   L1  хранилище закрыто целиком (ITGAME-80): геттеры window.localStorage/sessionStorage и Storage.prototype
+//       бросают SecurityError, ?debug=1. L1a — блок настоящий (проба ловит SecurityError), клиент в него упирался;
+//       L1b — меню грузится без «Продолжить»
+//   L2  menu.diff.normal → партия, hudBal нарисован, квитанция hire ok; «Первые кадры» — ровно один тост за 3+ тика
+//   L3  пауза отчёта в памяти вкладки: на отчёте speedBeforeReport 3, btn.next_day → день 2 на 3×
+//   L4–L5 («Сохранить и выйти» → «Продолжить», перезагрузка) здесь невозможны — сервер без сейвов; они в qa-itgame35, T1–T2
+//   L6  без ?debug=1 (window.itd нет): меню без сейва, клавиша 2 стартует партию, HUD рисует деньги и день;
+//       на обеих вкладках нет pageerror
 //   A6  btn.debug active: true → false → true по кликам
 //   A7  рестарт партии без перезагрузки: speed/nav active живые, нет pageerror (D2)
 //   D1  mid_day10 на паузе, itd.step до 12:00/14:00/17:00 → hud.dayProfit одинаков (±$50), > 0
@@ -1092,7 +1100,7 @@ async function run() {
     await pz.close()
 
     // ── Z5 (ITGAME-67): хранилище бросает на ключе масштаба — загрузка не падает, выбор живёт во вкладке.
-    // Бросаем только на itd.uiScale: остальной клиент (sid, мета) от хранилища зависит и вне задачи.
+    // Бросаем только на itd.uiScale; полный запрет хранилища — L1–L6 ниже (ITGAME-80).
     const pb = await browser.newPage()
     pb.on('pageerror', (e) => pageErrors.push(`Z5: ${e}`))
     await pb.evaluateOnNewDocument(() => {
@@ -1123,6 +1131,135 @@ async function run() {
       JSON.stringify({ readyZ5, zoomZ5, afterZ5 }),
     )
     await pb.close()
+
+    // ── L1–L6 (ITGAME-80): хранилище закрыто целиком, как Chrome с запретом данных сайта — геттеры
+    // window.localStorage/sessionStorage и методы Storage.prototype бросают SecurityError (evaluateOnNewDocument
+    // переживает reload). Скрипт в этих вкладках к хранилищу не ходит — только проба L1a, которая ждёт исключения.
+    const blockStorage = () => {
+      let denied = 0
+      const deny = (what) => function () {
+        denied++
+        throw new DOMException(`${what}: storage blocked (qa ITGAME-80)`, 'SecurityError')
+      }
+      Object.defineProperty(window, '__qaDenied', { get: () => denied })
+      for (const name of ['localStorage', 'sessionStorage']) {
+        Object.defineProperty(window, name, { configurable: true, get: deny(name) })
+      }
+      for (const m of ['getItem', 'setItem', 'removeItem', 'key', 'clear']) Storage.prototype[m] = deny(`Storage.${m}`)
+    }
+    const errsL = []
+    const pl = await browser.newPage()
+    pl.on('pageerror', (e) => { errsL.push(`L: ${e}`); pageErrors.push(`L: ${e}`) })
+    await pl.setViewport({ width: 1920, height: 1080 })
+    await pl.evaluateOnNewDocument(blockStorage)
+    await pl.goto(`${BASE}/?scenario=fresh&seed=1&debug=1`, { waitUntil: 'domcontentloaded' })
+    const readyL = await waitMenuReady(pl).then(() => true, () => false)
+    const l1a = await pl.evaluate(() => {
+      const denied = window.__qaDenied
+      const probe = {}
+      for (const n of ['localStorage', 'sessionStorage']) {
+        try { void window[n]; probe[n] = 'open' } catch (e) { probe[n] = e.name }
+      }
+      return { denied, probe }
+    })
+    check(
+      'L1a: хранилище закрыто — оба геттера бросают SecurityError, клиент в запрет упирался (denied > 0)',
+      l1a.probe.localStorage === 'SecurityError' && l1a.probe.sessionStorage === 'SecurityError' && l1a.denied > 0,
+      JSON.stringify(l1a),
+    )
+    const l1b = readyL
+      ? await pl.evaluate(async () => {
+          await window.itd.wait((s) => s.menuReady, 10000).catch(() => null)
+          return { menuReady: window.itd.state().menuReady, cont: window.itd.ids().some((n) => n.id === 'menu.continue') }
+        })
+      : null
+    check('L1b: закрытое хранилище — меню грузится, «Продолжить» нет', readyL && l1b?.menuReady === true && l1b.cont === false, JSON.stringify({ readyL, l1b }))
+
+    const lb2 = l1b?.menuReady
+      ? await pl.evaluate(async () => {
+          window.itd.click('menu.diff.normal')
+          const up = await window.itd.wait((s) => s.connected === true && s.day === 1, 15000).then(() => true, () => false)
+          if (!up) return { up }
+          const sid = window.itd.server().sid
+          const hudBal = window.itd.screen().meta.hudBal
+          const receipt = await window.itd.cmd('hire')
+          const staff = await window.itd.wait((s) => s.staff === 1, 5000).then((s) => s.staff, () => null)
+          const t0 = window.itd.state().tickInDay
+          await window.itd.wait((s) => s.tickInDay >= t0 + 3, 10000).catch(() => null)
+          const trophies = window.itd.log(200).filter((e) => e.type === 'toast' && String(e.text).startsWith('🏆')).map((e) => e.text)
+          return { up, sid, hudBal, receipt, staff, ticks: window.itd.state().tickInDay - t0, trophies }
+        })
+      : null
+    check(
+      'L2: партия стартует, hudBal нарисован, hire ok; «Первые кадры» — один тост за 3+ тика, тосты достижений не повторяются',
+      lb2?.up === true && typeof lb2?.sid === 'string' && /^\$[\d,]+$/.test(lb2.hudBal ?? '') && lb2.receipt?.ok === true &&
+        lb2.staff === 1 && lb2.ticks >= 3 && lb2.trophies.filter((t) => t.includes('Первые кадры')).length === 1 &&
+        new Set(lb2.trophies).size === lb2.trophies.length,
+      JSON.stringify(lb2),
+    )
+
+    // Пауза отчёта (ITGAME-18) — sessionStorage-ключ itd.speedBeforeReport: при закрытом хранилище он живёт в памяти
+    // вкладки. Пауза до tickInDay 53 — чтобы день не кончился на старой скорости раньше speed(3).
+    const l3 = lb2?.staff === 1
+      ? await pl.evaluate(async () => {
+          const hud = window.__itd.scene.getScene('hud')
+          window.itd.pause()
+          await window.itd.wait((s) => s.speed === 0, 5000).catch(() => null)
+          await window.itd.set({ money: 5000 })
+          await window.itd.set({ tickInDay: 53 })
+          window.itd.speed(3)
+          const report = await window.itd.wait((s) => s.phase === 'day_report' && s.speed === 0, 15000).then(() => true, () => false)
+          const onReport = { sbr: hud.speedBeforeReport, next: window.itd.ids().some((n) => n.id === 'btn.next_day') }
+          const click = report ? window.itd.click('btn.next_day') : null
+          const back = report
+            ? await window.itd.wait((s) => s.day === 2 && s.phase === 'running' && s.speed === 3, 10000).then(() => true, () => false)
+            : false
+          return { report, onReport, click: click?.ok ?? null, back, after: hud.speedBeforeReport, day: window.itd.state().day, speed: window.itd.state().speed }
+        })
+      : null
+    check(
+      'L3: пауза отчёта в памяти вкладки — на отчёте speedBeforeReport 3, btn.next_day → день 2 на 3×, ключ снят',
+      l3?.report === true && l3.onReport.sbr === 3 && l3.onReport.next === true && l3.click === true && l3.back === true && l3.after === null,
+      JSON.stringify(l3),
+    )
+
+    await pl.close()
+
+    // L6: прод без ?debug=1 — window.itd нет (installAgentApi читал itd.debug из хранилища и падал на старте),
+    // наблюдение через window.__itd, партия — настоящей клавишей 2 (MenuScene: 1-4 = сложность).
+    const pn = await browser.newPage()
+    pn.on('pageerror', (e) => { errsL.push(`L6: ${e}`); pageErrors.push(`L6: ${e}`) })
+    await pn.setViewport({ width: 1920, height: 1080 })
+    await pn.evaluateOnNewDocument(blockStorage)
+    await pn.goto(`${BASE}/?scenario=fresh&seed=1`, { waitUntil: 'domcontentloaded' })
+    const menuN = await pn.waitForFunction(() => window.__itd?.scene.isActive('menu') === true, { timeout: 20000 }).then(() => true, () => false)
+    const n0 = menuN
+      ? await pn.evaluate(() => ({ itd: typeof window.itd, hadSave: window.__itd.scene.getScene('menu').hadSave }))
+      : null
+    if (menuN) {
+      await pn.bringToFront()
+      await pn.keyboard.press('2')
+    }
+    const upN = menuN
+      ? await pn
+          .waitForFunction(
+            () => window.__itd.scene.isActive('office') && window.__itd.scene.isActive('hud') &&
+              /^-?\$[\d,]+$/.test(window.__itd.scene.getScene('hud').moneyText?.text ?? ''),
+            { timeout: 20000 },
+          )
+          .then(() => true, () => false)
+      : false
+    await delay(1500)
+    const n1 = upN
+      ? await pn.evaluate(() => { const hud = window.__itd.scene.getScene('hud'); return { money: hud.moneyText.text, day: hud.dayText.text } })
+      : null
+    check(
+      'L6: без ?debug=1 — window.itd нет, меню без сейва, клавиша 2 → office+hud, HUD рисует деньги и «День 1 · ЧЧ:ММ»',
+      menuN && n0?.itd === 'undefined' && n0.hadSave === false && upN && /^День 1 · \d\d:\d\d/.test(n1?.day ?? ''),
+      JSON.stringify({ menuN, n0, upN, n1 }),
+    )
+    await pn.close()
+    check('L: закрытое хранилище — нет pageerror (обе вкладки)', errsL.length === 0, errsL.join(' | '))
 
     // ── нет ошибок на странице за весь прогон
     check('на странице нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))

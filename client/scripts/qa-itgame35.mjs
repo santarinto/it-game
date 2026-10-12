@@ -10,6 +10,9 @@
 // серверный стор сейвов (server/internal/ws/session.go, ~строка 268,
 // store.Begin/kick) — внешнему серверу, заданному через QA_BASE, НУЖНЫ
 // сейвы (не запускайте его с -saves off, иначе шаги 5-7 не пройдут).
+// Хранилище закрыто целиком (ITGAME-80), нужны сейвы на диске:
+//   T1  «Сохранить и выйти» → «Продолжить» есть (sid в памяти вкладки) и ведёт в ту же партию (тот же sid, день 1)
+//   T2  перезагрузка вкладки — «Продолжить» нет, sid новый; нет pageerror
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
@@ -167,6 +170,65 @@ try {
 
   await tab1.close()
   await tab2.close()
+
+  // 8. Хранилище закрыто целиком (ITGAME-80): геттеры window.localStorage/sessionStorage и методы
+  // Storage.prototype бросают SecurityError (evaluateOnNewDocument переживает reload). Сейвы на диске
+  // нужны — без них сводка честно говорит exists:false и карточки «Продолжить» нет.
+  const blockStorage = () => {
+    const deny = (what) => function () {
+      throw new DOMException(`${what}: storage blocked (qa ITGAME-80)`, 'SecurityError')
+    }
+    for (const name of ['localStorage', 'sessionStorage']) {
+      Object.defineProperty(window, name, { configurable: true, get: deny(name) })
+    }
+    for (const m of ['getItem', 'setItem', 'removeItem', 'key', 'clear']) Storage.prototype[m] = deny(`Storage.${m}`)
+  }
+  const errsB = []
+  const pb = await browser.newPage()
+  pb.on('pageerror', (e) => errsB.push(String(e)))
+  await pb.evaluateOnNewDocument(blockStorage)
+  await pb.goto(`${BASE}/?scenario=fresh&seed=1&debug=1`, { waitUntil: 'domcontentloaded' })
+  const t1 = await pb
+    .evaluate(async () => {
+      await window.itd.wait((s) => s.menuReady === true, 15000)
+      window.itd.click('menu.diff.normal')
+      const up = await window.itd.wait((s) => s.connected === true && s.day === 1, 15000).then(() => true, () => false)
+      if (!up) return { up }
+      const sid = window.itd.server().sid
+      const a = window.itd.click('btn.menu')
+      const b = window.itd.click('modal.btn.0') // «Сохранить и выйти»
+      const menu = await window.itd.wait((s) => s.menuReady === true, 15000).then(() => true, () => false)
+      const cont = await window.itd.wait(() => window.itd.ids().some((n) => n.id === 'menu.continue'), 8000).then(() => true, () => false)
+      const m = window.__itd.scene.getScene('menu')
+      const diag = { hadSave: m.hadSave, summary: m.summary === undefined ? 'undef' : m.summary === null ? 'null' : JSON.stringify(m.summary).slice(0, 120) }
+      const c = cont ? window.itd.click('menu.continue') : null
+      const back = cont ? await window.itd.wait((s) => s.connected === true && s.day === 1, 15000).then(() => true, () => false) : false
+      const now = window.itd.server().sid
+      return { up, sid, a: a.ok, b: b.ok, menu, cont, c: c?.ok ?? null, back, now, same: now === sid, diag }
+    })
+    .catch((e) => ({ error: String(e) }))
+  note(
+    'T1: хранилище закрыто — «Сохранить и выйти» → «Продолжить» есть и возвращает ту же партию (тот же sid, день 1)',
+    t1.up === true && t1.a === true && t1.b === true && t1.menu === true && t1.cont === true && t1.c === true && t1.back === true && t1.same === true,
+    JSON.stringify(t1),
+  )
+  let t2 = null
+  if (t1.back) {
+    await pb.reload({ waitUntil: 'domcontentloaded' })
+    t2 = await pb
+      .evaluate(async () => {
+        await window.itd.wait((s) => s.menuReady === true, 15000)
+        const m = window.__itd.scene.getScene('menu')
+        return { cont: window.itd.ids().some((n) => n.id === 'menu.continue'), sid: window.itd.server().sid, hadSave: m.hadSave }
+      })
+      .catch((e) => ({ error: String(e) }))
+  }
+  note(
+    'T2: перезагрузка при закрытом хранилище — «Продолжить» нет, sid новый, нет pageerror',
+    t2 !== null && t2.cont === false && typeof t2.sid === 'string' && t2.sid !== t1.sid && errsB.length === 0,
+    JSON.stringify({ t2, was: t1.sid, errs: errsB }),
+  )
+  await pb.close()
 } finally {
   if (browser) await browser.close()
   if (stopServer) await stopServer()
