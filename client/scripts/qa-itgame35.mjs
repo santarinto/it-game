@@ -11,6 +11,7 @@
 // store.Begin/kick) — внешнему серверу, заданному через QA_BASE, НУЖНЫ
 // сейвы (не запускайте его с -saves off, иначе шаги 5-7 не пройдут).
 // Хранилище закрыто целиком (ITGAME-80), нужны сейвы на диске:
+//   T0  блок настоящий: геттеры и методы Storage.prototype бросают SecurityError
 //   T1  «Сохранить и выйти» → «Продолжить» есть (sid в памяти вкладки) и ведёт в ту же партию (тот же sid, день 1)
 //   T2  перезагрузка вкладки — «Продолжить» нет, sid новый; нет pageerror
 import puppeteer from 'puppeteer-core'
@@ -188,6 +189,22 @@ try {
   pb.on('pageerror', (e) => errsB.push(String(e)))
   await pb.evaluateOnNewDocument(blockStorage)
   await pb.goto(`${BASE}/?scenario=fresh&seed=1&debug=1`, { waitUntil: 'domcontentloaded' })
+  const t0 = await pb.evaluate(() => {
+    const probe = {}
+    for (const n of ['localStorage', 'sessionStorage']) {
+      try { void window[n]; probe[n] = 'open' } catch (e) { probe[n] = e.name }
+    }
+    const methods = {}
+    for (const m of ['getItem', 'setItem', 'removeItem', 'key', 'clear']) {
+      try { Storage.prototype[m].call({}, 'x', 'y'); methods[m] = 'open' } catch (e) { methods[m] = e.name }
+    }
+    return { probe, methods }
+  })
+  note(
+    'T0: блок настоящий — оба геттера и методы Storage.prototype бросают SecurityError',
+    Object.values(t0.probe).every((v) => v === 'SecurityError') && Object.values(t0.methods).every((v) => v === 'SecurityError'),
+    JSON.stringify(t0),
+  )
   const t1 = await pb
     .evaluate(async () => {
       await window.itd.wait((s) => s.menuReady === true, 15000)

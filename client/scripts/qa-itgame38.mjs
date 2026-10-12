@@ -1160,11 +1160,17 @@ async function run() {
       for (const n of ['localStorage', 'sessionStorage']) {
         try { void window[n]; probe[n] = 'open' } catch (e) { probe[n] = e.name }
       }
-      return { denied, probe }
+      // методы тоже закрыты: вызов с чужим this — запрет бросает раньше, чем смотрит на хранилище
+      const methods = {}
+      for (const m of ['getItem', 'setItem', 'removeItem', 'key', 'clear']) {
+        try { Storage.prototype[m].call({}, 'x', 'y'); methods[m] = 'open' } catch (e) { methods[m] = e.name }
+      }
+      return { denied, probe, methods }
     })
     check(
-      'L1a: хранилище закрыто — оба геттера бросают SecurityError, клиент в запрет упирался (denied > 0)',
-      l1a.probe.localStorage === 'SecurityError' && l1a.probe.sessionStorage === 'SecurityError' && l1a.denied > 0,
+      'L1a: хранилище закрыто — оба геттера и методы Storage.prototype бросают SecurityError, клиент в запрет упирался (denied > 0)',
+      l1a.probe.localStorage === 'SecurityError' && l1a.probe.sessionStorage === 'SecurityError' &&
+        Object.values(l1a.methods).every((v) => v === 'SecurityError') && l1a.denied > 0,
       JSON.stringify(l1a),
     )
     const l1b = readyL

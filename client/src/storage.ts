@@ -65,14 +65,19 @@ function makeStore(name: 'localStorage' | 'sessionStorage'): SafeStore {
     },
     clearPrefix(prefix) {
       const removed: string[] = []
+      const stuck: string[] = [] // отказ removeItem — ключ остаётся в настоящем store, нужна метка «удалено»
       try {
         const s = real()
         for (let i = s.length - 1; i >= 0; i--) {
           const k = s.key(i)
-          if (k?.startsWith(prefix)) {
+          if (!k?.startsWith(prefix)) continue
+          try {
             s.removeItem(k)
-            removed.push(k)
+          } catch (e) {
+            refused('removeItem', e)
+            stuck.push(k)
           }
+          removed.push(k)
         }
       } catch (e) {
         refused('clear', e)
@@ -82,6 +87,7 @@ function makeStore(name: 'localStorage' | 'sessionStorage'): SafeStore {
         memory.delete(k)
         if (v !== null && !removed.includes(k)) removed.push(k)
       }
+      for (const k of stuck) memory.set(k, null)
       return removed
     },
   }
