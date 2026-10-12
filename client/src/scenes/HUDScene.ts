@@ -61,6 +61,11 @@ const ERROR_TEXTS: Record<ServerErrorCode, string> = {
 // длинные строки («Сотрудники: 15 · в сети 15/15  Расходы …») больше не жмутся.
 const PANEL_LEFT_MAX = 832
 
+// Полосы правой колонки шапки (ITGAME-21): дорожка на всю колонку, x 884..1264
+// (правее карточки события x ≤ 880).
+const BAR_X = 884
+const BAR_W = 380
+
 export class HUDScene extends Phaser.Scene {
   private moneyText!: Phaser.GameObjects.Text
   private incomeText!: Phaser.GameObjects.Text
@@ -68,6 +73,14 @@ export class HUDScene extends Phaser.Scene {
   private payrollText!: Phaser.GameObjects.Text
   private dayText!: Phaser.GameObjects.Text
   private goalText!: Phaser.GameObjects.Text
+  // Полоса цели (ITGAME-21): дорожка под hud.goal, заливка = деньги/цель, метки комбо
+  // и засечка дедлайна. Создаются ДО текстов шапки (текст лежит на полосе).
+  private goalBar!: Phaser.GameObjects.Rectangle
+  private goalFill!: Phaser.GameObjects.Rectangle
+  private goalStaff!: Phaser.GameObjects.Rectangle
+  private goalCore!: Phaser.GameObjects.Rectangle
+  private goalDeadline!: Phaser.GameObjects.Rectangle
+  private deadlineX = BAR_X
   private dayProfitText!: Phaser.GameObjects.Text
   private marketText!: Phaser.GameObjects.Text
   private debtText!: Phaser.GameObjects.Text
@@ -172,6 +185,7 @@ export class HUDScene extends Phaser.Scene {
     this.switching = false
     // Верхняя панель.
     this.add.rectangle(0, 0, GAME_W, HUD_H, 0x14162b).setOrigin(0)
+    this.createBars()
     this.moneyText = tag(this.add.text(16, 10, '$…', {
       fontFamily: FONT, fontSize: '26px', color: '#ffcd75',
     }), 'hud.money')
@@ -501,6 +515,52 @@ export class HUDScene extends Phaser.Scene {
     if (prev > 0 && client.speedSeq === this.offlinePauseSeq) client.send('set_speed', 0, { speed: prev })
   }
 
+  // Полосы шапки (ITGAME-21): все прямоугольники — до текстов, на одном depth, иначе
+  // lint.ts увидит occlusion (заливка выше текста). Размеры по высоте текста
+  // выставляет layoutBars().
+  private createBars() {
+    const rect = (x: number, y: number, w: number, h: number, color: number, id: string) =>
+      tag(this.add.rectangle(x, y, w, h, color).setOrigin(0), id)
+    this.goalBar = rect(BAR_X, 43, BAR_W, 16, 0x232640, 'hud.goal.bar').setStrokeStyle(1, 0x3a3f5c)
+    this.goalFill = rect(BAR_X, 43, 1, 16, 0x2a6b3f, 'hud.goal.fill')
+    this.goalStaff = rect(890, 47, 8, 8, 0x5d7275, 'hud.goal.staff')
+    this.goalCore = rect(902, 47, 8, 8, 0x5d7275, 'hud.goal.core')
+    this.goalDeadline = rect(BAR_X, 43, 2, 16, 0xb13e53, 'hud.goal.deadline')
+    this.goalFill.setVisible(false)
+    this.goalStaff.setVisible(false)
+    this.goalCore.setVisible(false)
+    this.goalDeadline.setVisible(false)
+  }
+
+  // Полосы идут за фактической высотой и y текстов (после layoutColumn).
+  private layoutBars() {
+    const gy = this.goalText.y, gh = this.goalText.height
+    this.goalBar.setPosition(BAR_X, gy).setSize(BAR_W, gh)
+    this.goalFill.setPosition(BAR_X, gy).setSize(this.goalFill.width, gh)
+    const markY = gy + Math.round((gh - 8) / 2)
+    this.goalStaff.setY(markY)
+    this.goalCore.setY(markY)
+    this.goalDeadline.setPosition(this.deadlineX, gy).setSize(2, gh)
+  }
+
+  private refreshGoalBar(s: StateMessage, staffCount: number) {
+    const share = s.winTarget > 0 ? Math.min(1, Math.max(0, s.money / s.winTarget)) : 0
+    const w = Math.round(BAR_W * share)
+    this.goalFill.setVisible(w > 0)
+    if (w > 0) this.goalFill.setSize(w, this.goalText.height)
+    // Метки комбо слева на дорожке; если подпись цели доползла до них (ни одна
+    // текущая сложность не доходит: самая длинная, hard, начинается у x ≈ 984),
+    // прячем обе, чтобы не лежали под текстом.
+    const room = this.goalText.getBounds().left >= 914
+    this.goalStaff.setVisible(room && s.winStaff > 0)
+    this.goalCore.setVisible(room && s.winCore > 0)
+    this.goalStaff.setFillStyle(staffCount >= s.winStaff ? 0x38b764 : 0x5d7275)
+    this.goalCore.setFillStyle(s.core.level >= s.winCore ? 0x38b764 : 0x5d7275)
+    this.goalDeadline.setVisible(s.winDayLimit > 0)
+    const dayShare = s.winDayLimit > 0 ? Math.min(1, (s.day - 1) / s.winDayLimit) : 0
+    this.deadlineX = BAR_X + Math.min(BAR_W - 2, Math.round(BAR_W * dayShare))
+  }
+
   // Панель навигации: значки офисов и серверной в колонке слева.
   private createNavPanel() {
     this.add.rectangle(0, HUD_H, NAV_W, GAME_H - HUD_H, 0x14162b).setOrigin(0)
@@ -567,7 +627,8 @@ export class HUDScene extends Phaser.Scene {
     layoutColumn(4, [[this.moneyText], [this.incomeText, this.payrollText], [this.netText], [this.dayProfitText, this.debtText]], 0, HUD_H)
     layoutRow(16, 16, [this.incomeText, this.payrollText], PANEL_LEFT_MAX)
     layoutRow(16, 12, [this.dayProfitText, this.debtText], PANEL_LEFT_MAX)
-    layoutColumn(44, [[this.goalText], [this.dayText], [this.marketText]], 2, HUD_H)
+    layoutColumn(43, [[this.goalText], [this.dayText], [this.marketText]], 2, HUD_H)
+    this.layoutBars()
   }
 
   // Цель уровня (сложность 2.0): деньги + комбо (штат/сеть) + дедлайн дней.
@@ -633,6 +694,7 @@ export class HUDScene extends Phaser.Scene {
     this.payrollText.setColor(s.forecastEndOfDay < 0 ? '#b13e53' : '#5d7275')
     this.dayText.setText(`День ${s.day} · ${s.clock}${s.isLunch ? ' · обед' : ''}`)
     this.goalText.setText(this.goalLabel(s))
+    this.refreshGoalBar(s, employees.length)
     // Рынок (сложность 2.0): качели выработки ±%, завтра виден заранее.
     if (s.marketToday !== 0 || s.marketTomorrow !== 0) {
       const pct = (v: number) => (v > 0 ? `+${v}` : `${v}`)

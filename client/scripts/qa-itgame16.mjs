@@ -11,6 +11,9 @@
 //   (e) bounds hud.* на зуме 1 и 1.4 совпадают (uiScale — CSS-зум канваса,
 //       игровые координаты не меняет)
 //   (f) на странице нет pageerror
+//   (g) полоса цели (ITGAME-21): hud.goal.bar на всю правую колонку x 884..1264 под
+//       текстом, hud.goal.fill = деньги/цель, метки штата/core и засечка дедлайна —
+//       только там, где сложность их задаёт
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
 // :4174 — dist + собранный bin/itdirector, как visreg.mjs). Общий
@@ -152,6 +155,24 @@ async function dumpPanel(page) {
   }, HUD_IDS)
 }
 
+// Прямоугольники/круги сцены 'hud' по id (hud.*.bar и т.п. — не Text, в HUD_IDS не входят).
+async function dumpShapes(page, ids) {
+  return page.evaluate((want) => {
+    const scene = window.__itd.scene.getScene('hud')
+    const out = {}
+    for (const o of scene.children.list) {
+      if (o.type !== 'Rectangle' && o.type !== 'Arc') continue
+      const id = o.getData('id')
+      if (!want.includes(id)) continue
+      const b = o.getBounds()
+      out[id] = { id, visible: o.visible, left: b.left, right: b.right, top: b.top, bottom: b.bottom, fill: o.fillColor }
+    }
+    return out
+  }, ids)
+}
+
+const snap = (page) => page.evaluate(() => window.itd.server().snapshot)
+
 async function dumpToasts(page) {
   return page.evaluate(() => {
     const scene = window.__itd.scene.getScene('hud')
@@ -215,6 +236,35 @@ async function runCase(browser, zoom, def) {
     // (c) линтер
     check(`${label}: itd.overlaps() пуст`, lint.overlaps.length === 0, `n=${lint.overlaps.length} ${JSON.stringify(lint.overlaps).slice(0, 200)}`)
     check(`${label}: itd.offscreen() пуст`, lint.offscreen.length === 0, `n=${lint.offscreen.length} ${JSON.stringify(lint.offscreen).slice(0, 200)}`)
+
+    // (g) полоса цели (ITGAME-21)
+    if (!def.stress) {
+      const sh = await dumpShapes(page, ['hud.goal.bar', 'hud.goal.fill', 'hud.goal.staff', 'hud.goal.core', 'hud.goal.deadline'])
+      const st = await snap(page)
+      const goal = panel.find((n) => n.id === 'hud.goal')
+      const bar = sh['hud.goal.bar']
+      const barOk = !!bar && bar.visible && near(bar.left, 884) && near(bar.right, 1264) && bar.top >= 42 && bar.bottom <= HUD_H &&
+        !!goal && bar.top >= goal.top - 1 && bar.bottom <= goal.bottom + 1
+      check(`${label}: G1 hud.goal.bar x 884..1264 под текстом цели`, barOk, bar ? JSON.stringify(bar) : 'нет объекта')
+      const fill = sh['hud.goal.fill']
+      const want = Math.round(380 * Math.min(1, Math.max(0, st.money / st.winTarget)))
+      const fillOk = want > 0
+        ? !!fill && fill.visible && Math.abs(fill.right - fill.left - want) <= 1
+        : !!fill && !fill.visible
+      check(`${label}: G2 hud.goal.fill = деньги/цель`, fillOk, `money=${st.money} want=${want} ${fill ? JSON.stringify(fill) : 'нет объекта'}`)
+      const staff = sh['hud.goal.staff'], core = sh['hud.goal.core'], dl = sh['hud.goal.deadline']
+      let g3 = true, g3fact = 'ok'
+      if (def.name === 'fresh_hard_debt') {
+        g3 = !!staff?.visible && !!core?.visible && staff.right < goal.left - 2 && core.right < goal.left - 2 &&
+          staff.fill === 0x5d7275 && core.fill === 0x5d7275 && !dl?.visible
+      } else if (def.name === 'broke_day3_hardcore_debt') {
+        g3 = !!dl?.visible && Math.abs(dl.left - (884 + Math.round(380 * 2 / 30))) <= 1 && !staff?.visible && !core?.visible
+      } else if (def.name === 'fresh_0emp') {
+        g3 = !staff?.visible && !core?.visible && !dl?.visible
+      }
+      if (!g3) g3fact = JSON.stringify({ staff, core, dl, goalLeft: goal?.left })
+      check(`${label}: G3 метки штата/core и засечка дедлайна`, g3, g3fact)
+    }
 
     // (d) стек тостов — только у кейса-стресса (у остальных тостов обычно нет)
     if (def.stress) {
