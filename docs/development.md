@@ -998,8 +998,9 @@ Departure Mono 1.500 plus ITD Symbols, an 8-glyph OFL subset of Unifont for
 `FONT` in `client/src/render.ts`, `BootScene` waits for both before the
 menu). Emoji (achievement icons, 🏆📊🔒⚠️) still come from the system emoji
 font. The committed baseline (9 scenarios, `broken_pc` included) was
-regenerated **2026-10-10** (last time for ITGAME-94: the office action
-column; lint counts unchanged) on the pinned Chrome for Testing 152.0.7977.54
+regenerated **2026-10-12** (last time for ITGAME-21: header bars, tab locks,
+the coach plate on fresh/soft_lock/pre_victory, the log strip; lint counts not
+worse, contrast down by one on some scenarios) on the pinned Chrome for Testing 152.0.7977.54
 (headless, SwiftShader software GL, Arch Linux, Noto Color Emoji); two
 consecutive runs without `--update` gave 0 differing pixels on every scenario.
 The layout-linter counts in `baseline.json` did not change with the font.

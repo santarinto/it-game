@@ -35,7 +35,7 @@
     "lint": {
       "overlaps": 0,
       "offscreen": 0,
-      "contrast": 7,
+      "contrast": 6,
       "tiny": 6
     }
   },
@@ -51,7 +51,7 @@
     "lint": {
       "overlaps": 0,
       "offscreen": 0,
-      "contrast": 16,
+      "contrast": 15,
       "tiny": 14
     }
   },
