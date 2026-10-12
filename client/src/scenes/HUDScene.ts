@@ -14,6 +14,7 @@ import { playSfx } from '../audio'
 import { emitUi } from '../uibus'
 import { activeZoom, applyZoom, ZOOM_OPTIONS, zoomLabel } from '../uiscale'
 import { FONT, HIRES_CAMERA } from '../render'
+import { ONBOARD_STEPS, onboardStep } from '../onboarding'
 import { LOG_LINES, diffEvents } from '../eventlog'
 import { WORKDAY, dayShare, hourShare } from '../workday'
 import {
@@ -87,6 +88,11 @@ export class HUDScene extends Phaser.Scene {
   private logText!: Phaser.GameObjects.Text
   private logLines!: string[]
   private logPrev!: StateMessage | null
+  // Плашка онбординга (ITGAME-21): текущий шаг цепочки (null — не показываем) и её объекты.
+  private coachStep: number | null = null
+  private coachBg!: Phaser.GameObjects.Rectangle
+  private coachText!: Phaser.GameObjects.Text
+  private coachTarget!: Phaser.GameObjects.Rectangle
   // Полоса дня (ITGAME-21): 10:00→19:00, обеденная плашка и засечки 17:00/18:00.
   private dayBar!: Phaser.GameObjects.Rectangle
   private dayFill!: Phaser.GameObjects.Rectangle
@@ -324,6 +330,23 @@ export class HUDScene extends Phaser.Scene {
     this.logText = tag(this.add.text(548, 624, '', {
       fontFamily: FONT, fontSize: '12px', color: '#94b0c2', lineSpacing: 2,
     }), 'hud.log')
+
+    // Плашка-подсказка цепочки онбординга (ITGAME-21): не тост — без звука, без стека.
+    // Рамка цели — только контур (без заливки: мимо occlusion/contrast) и не интерактивна.
+    this.coachStep = null
+    this.coachBg = tag(
+      this.add.rectangle(884, 104, 246, 46, 0x14162b, 0.95).setOrigin(0).setStrokeStyle(2, 0xffcd75).setDepth(30),
+      'hud.coach.bg',
+    )
+    this.coachText = tag(
+      this.add.text(892, 110, '', { fontFamily: FONT, fontSize: '12px', color: '#f4f4f4' }).setDepth(30),
+      'hud.coach',
+    )
+    this.coachTarget = tag(
+      this.add.rectangle(0, 0, 10, 10).setOrigin(0).setStrokeStyle(2, 0xffcd75).setDepth(30),
+      'hud.coach.target',
+    )
+    this.hideCoach()
 
     const unsub = client.subscribe({
       onState: (s) => {
@@ -650,6 +673,45 @@ export class HUDScene extends Phaser.Scene {
     }
     this.currentRoom = key
     this.highlightNav()
+    this.updateCoachFrame() // refresh выше шёл ещё со старой комнатой
+  }
+
+  private hideCoach() {
+    this.coachStep = null
+    this.coachBg.setVisible(false)
+    this.coachText.setVisible(false)
+    this.coachTarget.setVisible(false)
+  }
+
+  // Рамка цели видна только в офисе 0 (кнопки и слот роутера — его).
+  private updateCoachFrame() {
+    const step = this.coachStep === null ? null : ONBOARD_STEPS[this.coachStep]
+    if (!step) {
+      this.coachTarget.setVisible(false)
+      return
+    }
+    const t = step.target
+    this.coachTarget.setPosition(t.x, t.y).setSize(t.w, t.h)
+    this.coachTarget.setVisible(this.currentRoom === 'office' && nav.activeOffice === 0)
+  }
+
+  // Цепочка онбординга: hire → второй ПК → роутер. Пройдена — запоминаем в хранилище.
+  private refreshCoach(s: StateMessage) {
+    if (s.phase !== 'running' || localStore.get('itd.onboard') === 'done') {
+      this.hideCoach()
+      return
+    }
+    const i = onboardStep(s)
+    if (i === null) {
+      localStore.set('itd.onboard', 'done')
+      this.hideCoach()
+      return
+    }
+    this.coachStep = i
+    this.coachText.setText(ONBOARD_STEPS[i].text)
+    this.coachBg.setVisible(true)
+    this.coachText.setVisible(true)
+    this.updateCoachFrame()
   }
 
   private highlightNav() {
@@ -805,6 +867,7 @@ export class HUDScene extends Phaser.Scene {
     } else {
       this.closeEvent() // отчёт дня/победа/банкротство глушат панель
     }
+    this.refreshCoach(s)
     this.checkHints(s)
     this.debugFrames.forEach((f) => f.destroy())
     this.debugFrames = drawDebugFrames(this, this.hudInteractive)
@@ -997,7 +1060,12 @@ export class HUDScene extends Phaser.Scene {
         text: 'Нанять не на что, а дохода нет — сдаться и начать заново: кнопка ⌂',
       },
     ]
-    const hint = hints.find((h) => h.when && !localStore.get('itd.hint:' + h.id))
+    // Пока плашка показывает шаг, остальные хинты ждут: хинт router дублировал бы шаг 3, а
+    // хинты 11:00/12:00/15:00 засыпали бы новичка на шаге 1. master/softlock предупреждают о
+    // сломанной/тупиковой партии — они срабатывают всегда.
+    const held = this.coachStep !== null
+    const hint = hints.find((h) =>
+      h.when && (!held || h.id === 'master' || h.id === 'softlock') && !localStore.get('itd.hint:' + h.id))
     if (hint) {
       localStore.set('itd.hint:' + hint.id, '1')
       this.toast(hint.text, 2200)
@@ -1293,6 +1361,7 @@ export class HUDScene extends Phaser.Scene {
     this.logPrev = null
     this.logLines = []
     this.logText.setText('')
+    this.hideCoach()
   }
 
   // Выход в меню с сейвами (ITGAME-8): выход сохраняет прогресс, сдаться —

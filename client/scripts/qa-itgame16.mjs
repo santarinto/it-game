@@ -18,6 +18,9 @@
 //       обеденная плашка 14–15 и засечки 17:00/18:00; текст hud.day начинается на дорожке
 //   (i) журнал событий (ITGAME-21): hud.log.bg 540..1270 × 620..714, hud.log внутри; кейс log_flow —
 //       найм/ПК/роутер ложатся строками со штампом времени (E2); нижние тосты выше y 614 (E3)
+//   (j) плашка онбординга (ITGAME-21): hud.coach/.bg/.target по цепочке найм → второй ПК → роутер;
+//       O1–O5 кейс onboarding (шаги, рамка в офисе 0, скрыта в серверной, itd.onboard=done), O6 каждый
+//       кейс — плашка видна ровно там, где цепочка не пройдена
 //   (l) замки закрытых офисов hud.lock.office1/2 в своей вкладке и подсветка вкладки, которую
 //       можно купить (ITGAME-21): L1 замки, L2 кейс tabs_affordable, L3 full_office
 //
@@ -94,39 +97,39 @@ async function restoreEmployees(page, count) {
 
 // ── Кейсы ────────────────────────────────────────────────────────────────
 const CASES = [
-  { name: 'fresh_0emp', setup: (p) => loadScenario(p, 'fresh', 'normal', 'fresh0') },
-  { name: 'pre_victory_1emp', setup: (p) => loadScenario(p, 'pre_victory', 'normal', 'previc1') },
-  { name: 'full_office_12emp', setup: (p) => loadScenario(p, 'full_office', 'normal', 'full12') },
+  { name: 'fresh_0emp', coach: '1/3', setup: (p) => loadScenario(p, 'fresh', 'normal', 'fresh0') },
+  { name: 'pre_victory_1emp', coach: '2/3', setup: (p) => loadScenario(p, 'pre_victory', 'normal', 'previc1') },
+  { name: 'full_office_12emp', coach: null, setup: (p) => loadScenario(p, 'full_office', 'normal', 'full12') },
   {
-    name: 'full_office_9emp',
+    name: 'full_office_9emp', coach: null,
     setup: async (p) => {
       await loadScenario(p, 'full_office', 'normal', 'full9')
       await restoreEmployees(p, 9)
     },
   },
   {
-    name: 'full_office_15emp',
+    name: 'full_office_15emp', coach: null,
     setup: async (p) => {
       await loadScenario(p, 'full_office', 'normal', 'full15')
       await restoreEmployees(p, 15)
     },
   },
   {
-    name: 'full_office_longmoney',
+    name: 'full_office_longmoney', coach: null,
     setup: async (p) => {
       await loadScenario(p, 'full_office', 'normal', 'longmoney')
       await p.evaluate(() => window.itd.set({ money: 1234567 }))
     },
   },
   {
-    name: 'broke_day3_hardcore_debt',
+    name: 'broke_day3_hardcore_debt', coach: null,
     setup: async (p) => {
       await loadScenario(p, 'broke_day3', 'hardcore', 'brokehc')
       await p.evaluate(() => window.itd.set({ money: -9999 }))
     },
   },
   {
-    name: 'fresh_hard_debt',
+    name: 'fresh_hard_debt', coach: '1/3',
     // самая длинная цель/рынок/долг (winStaff+winCore на hard)
     setup: async (p) => {
       await loadScenario(p, 'fresh', 'hard', 'freshhard')
@@ -135,17 +138,23 @@ const CASES = [
   },
   {
     // L2 (ITGAME-21): деньги меняются в самом кейсе — отдельный кейс, чтобы не трогать fresh_0emp
-    name: 'tabs_affordable',
+    name: 'tabs_affordable', coach: '1/3',
     setup: (p) => loadScenario(p, 'fresh', 'normal', 'tabsaff'),
     flow: 'tabs',
   },
   {
-    name: 'log_flow',
+    name: 'onboarding',
+    coach: '1/3',
+    setup: (p) => loadScenario(p, 'fresh', 'normal', 'onboard'),
+    flow: 'onboarding',
+  },
+  {
+    name: 'log_flow', coach: '1/3',
     setup: (p) => loadScenario(p, 'fresh', 'normal', 'logflow'),
     flow: 'log',
   },
   {
-    name: 'toast_stress',
+    name: 'toast_stress', coach: '1/3',
     setup: async (p) => {
       await loadScenario(p, 'fresh', 'normal', 'toaststress')
       await p.evaluate(() => window.itd.set({ money: 0 }))
@@ -222,6 +231,30 @@ async function logText(page) {
   })
 }
 
+// Комната: дребезг switchRoom (250 мс игрового времени, в headless кадры редкие) отвечает
+// code debounced — повторяем, иначе второй клик молча пропадает (как goRoom в qa-itgame17).
+async function goRoom(page, navId) {
+  for (let i = 0; i < 20; i++) {
+    const r = await page.evaluate((n) => window.itd.click(n), navId)
+    if (r.code !== 'debounced') break
+    await delay(150)
+  }
+  await delay(300)
+}
+
+// Плашка онбординга: текст + bounds и видимость фигур.
+async function coachDump(page) {
+  const sh = await dumpShapes(page, ['hud.coach.bg', 'hud.coach.target'])
+  const t = await page.evaluate(() => {
+    const scene = window.__itd.scene.getScene('hud')
+    const o = scene.children.list.find((x) => x.type === 'Text' && x.getData('id') === 'hud.coach')
+    if (!o) return null
+    const b = o.getBounds()
+    return { text: o.text, visible: o.visible, left: b.left, right: b.right, top: b.top, bottom: b.bottom }
+  })
+  return { text: t, bg: sh['hud.coach.bg'], target: sh['hud.coach.target'] }
+}
+
 async function navFill(page, id) {
   return page.evaluate((i) => window.itd.nodes().find((n) => n.id === i)?.fill, id)
 }
@@ -267,6 +300,14 @@ async function runCase(browser, zoom, def) {
     // (c) линтер
     check(`${label}: itd.overlaps() пуст`, lint.overlaps.length === 0, `n=${lint.overlaps.length} ${JSON.stringify(lint.overlaps).slice(0, 200)}`)
     check(`${label}: itd.offscreen() пуст`, lint.offscreen.length === 0, `n=${lint.offscreen.length} ${JSON.stringify(lint.offscreen).slice(0, 200)}`)
+
+    // (j) O6 плашка онбординга: видна ровно там, где цепочка не пройдена (ITGAME-21)
+    {
+      const c = await coachDump(page)
+      const shown = !!c.text?.visible && c.text.text !== ''
+      const ok = def.coach === null ? !shown && !c.bg?.visible && !c.target?.visible : shown && c.text.text.startsWith(def.coach)
+      check(`${label}: O6 hud.coach ${def.coach ?? 'скрыта'}`, ok, JSON.stringify(c))
+    }
 
     // (g) полоса цели (ITGAME-21)
     if (!def.stress) {
@@ -363,6 +404,32 @@ async function runCase(browser, zoom, def) {
       const e1 = !!bg && near(bg.left, 540) && near(bg.right, 1270) && near(bg.top, 620) && near(bg.bottom, 714) &&
         !!lg && (lg.text === '' || (lg.left >= 540 && lg.top >= 620 && lg.bottom <= 714 + 0.5))
       check(`${label}: E1 hud.log в полосе 540..1270 × 620..714`, e1, JSON.stringify({ bg, lg }))
+    }
+    if (def.flow === 'onboarding') {
+      const cmd = async (c, ...a) => { await page.evaluate((x, y) => window.itd.cmd(x, ...y), c, a); await delay(300) }
+      let c = await coachDump(page)
+      const geo = (o, l, t, r, b) => !!o && o.visible && near(o.left, l) && near(o.top, t) && near(o.right, r) && near(o.bottom, b)
+      const o1 = c.text?.visible && c.text.text.startsWith('1/3') && c.text.left >= 884 && c.text.right <= 1130 &&
+        c.text.top >= 104 && c.text.bottom <= 150 && geo(c.target, 1142, 438, 1270, 482) && geo(c.bg, 884, 104, 1130, 150)
+      check(`${label}: O1 шаг 1/3 «Нанять», рамка на btn.hire`, !!o1, JSON.stringify(c))
+      // O5 рамка только в офисе 0: в серверной скрыта, обратно — видна
+      await goRoom(page, 'nav.serverRoom')
+      const inSrv = await coachDump(page)
+      await goRoom(page, 'nav.office0')
+      c = await coachDump(page)
+      check(`${label}: O5 рамка скрыта в серверной, плашка осталась`, !inSrv.target?.visible && !!inSrv.text?.visible && !!c.target?.visible, JSON.stringify({ inSrv, back: c.target }))
+      await cmd('hire')
+      c = await coachDump(page)
+      check(`${label}: O2 после найма 2/3, рамка на btn.pc`, !!c.text?.text.startsWith('2/3') && geo(c.target, 1142, 384, 1270, 428), JSON.stringify(c))
+      await page.evaluate(() => window.itd.set({ money: 5000 }))
+      await delay(300)
+      await cmd('buy_pc')
+      c = await coachDump(page)
+      check(`${label}: O3 после ПК 3/3, рамка на слоте роутера`, !!c.text?.text.startsWith('3/3') && geo(c.target, 1164, 128, 1248, 212), JSON.stringify(c))
+      await cmd('buy_router')
+      c = await coachDump(page)
+      const stored = await page.evaluate(() => localStorage.getItem('itd.onboard'))
+      check(`${label}: O4 после роутера плашка скрыта, itd.onboard=done`, !c.text?.visible && !c.bg?.visible && !c.target?.visible && stored === 'done', JSON.stringify({ c, stored }))
     }
     if (def.flow === 'log') {
       const cmd = async (c, ...a) => { await page.evaluate((x, y) => window.itd.cmd(x, ...y), c, a); await delay(300) }
