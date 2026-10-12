@@ -891,7 +891,8 @@ export interface ItdApi {
    * stale, at}. client — sha этой вкладки, dist — sha сборки, которую стенд
    * отдаст при перезагрузке (meta build его index.html), server — sha бинаря
    * (GET /api/version). stale: client ≠ dist (без dist — ≠ server); null —
-   * сверить не с чем (vite dev, сборка без git). Та же проверка красит метку
+   * сверить не с чем: vite dev, либо сборка без git и без штампа BUILD_SHA/-ldflags
+   * (sha dev/unknown, ITGAME-81; со штампом без git sha есть). Та же проверка красит метку
    * «устарело, обнови» в #topbar; shown — видна ли метка на экране после неё
    * (ITGAME-88: скрытая метка остаётся в DOM — display:none, 0×0, — по DOM её
    * не судить); false и там, где #topbar нет (без ?debug=1 / itd.admin).
@@ -902,13 +903,15 @@ export interface ItdApi {
   /**
    * Песочница агента (ITGAME-77): itd.sandbox('acc3') → {ok, sid, owner:{sid,
    * diff}} — ставит вкладке свой sid a-<метка>-<время> и запоминает общие ключи
-   * владельца (localStorage itd.sid/itd.diff) и вкладки (sessionStorage); меню
+   * владельца (localStorage itd.sid/itd.diff/itd.onboard, ITGAME-21) и вкладки (sessionStorage); меню
    * перечитывает сводку. Пока песочница есть, новая партия и финал («Сдаться»)
    * берут новый sid песочницы, а не общий ключ. Ставится из меню (в партии —
    * code in_party). itd.sandbox.restore() → {sidSame, diffSame, fake, restored,
    * kept, removed}: сверка (то и есть замер гарда), возврат ключей как при
-   * входе — наше (fake) или стёртое значение возвращается, чужое (kept) не
-   * перетирается; тоже только из меню. itd.sandbox.fakeOwner() → {sid, diff} —
+   * входе — для itd.sid/itd.diff наше (fake) или стёртое значение возвращается,
+   * чужое (kept) не перетирается; itd.onboard (его пишет только HUD) возвращается
+   * к значению при входе при ЛЮБОМ отличии, даже если его записала вкладка владельца;
+   * тоже только из меню. itd.sandbox.fakeOwner() → {sid, diff} —
    * «чужой» общий ключ вызовом игры (agent javascript_tool писать в
    * localStorage не может); restore() вернёт настоящий.
    * @example itd.sandbox('acc3')
@@ -1820,10 +1823,10 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.errors()                      — ошибки страницы (window.onerror + unhandledrejection), переживают перезагрузку вкладки: load — номер загрузки
   itd.net(20)                       — последние сообщения WS в обе стороны + сокет/rtt/реконнекты/rev; info: out — id, state — rev/cause/re, error — code/re/rev
   itd.version                       — {sha, builtAt} сборки (+ <meta name="build"> в html)
-  itd.sandbox('acc3')               — своя партия вкладки: sid a-acc3-<время> во вкладку, ключи владельца (localStorage itd.sid/itd.diff, sessionStorage вкладки) запомнены → {ok, sid, owner:{sid, diff}}; новая партия и «Сдаться» берут новый sid песочницы, общий ключ не трогают; из меню (в партии — in_party)
+  itd.sandbox('acc3')               — своя партия вкладки: sid a-acc3-<время> во вкладку, ключи владельца (localStorage itd.sid/itd.diff/itd.onboard, sessionStorage вкладки) запомнены → {ok, sid, owner:{sid, diff}}; новая партия и «Сдаться» берут новый sid песочницы, общий ключ не трогают; из меню (в партии — in_party)
   itd.sandbox.fakeOwner()           — «чужой» общий ключ itd.sid/itd.diff вызовом игры (проверить гард «Сдаться») → {sid, diff}; restore() вернёт настоящий
-  itd.sandbox.restore()             — выйти из песочницы (из меню): {sidSame, diffSame, fake, restored, kept, removed} — sidSame/diffSame: общий ключ тот, что при входе (или fake); наше/стёртое значение возвращено, чужое (kept) не перетёрто
-  await itd.stale()                 — вкладка на старом JS? {client, server, dist, stale, at, shown}: shown — метка «устарело, обнови» видна на экране (скрытая живёт в DOM как display:none 0×0); client — sha вкладки, dist — sha сборки, которую стенд отдаст на F5, server — sha бинаря (/api/version); stale null — сверить не с чем (vite dev, сборка без git); красная метка «устарело, обнови» в #topbar — та же проверка
+  itd.sandbox.restore()             — выйти из песочницы (из меню): {sidSame, diffSame, fake, restored, kept, removed} — sidSame/diffSame: общий ключ тот, что при входе (или fake); itd.sid/itd.diff: наше/стёртое значение возвращено, чужое (kept) не перетёрто; itd.onboard возвращается к значению при входе при любом отличии
+  await itd.stale()                 — вкладка на старом JS? {client, server, dist, stale, at, shown}: shown — метка «устарело, обнови» видна на экране (скрытая живёт в DOM как display:none 0×0); client — sha вкладки, dist — sha сборки, которую стенд отдаст на F5, server — sha бинаря (/api/version); stale null — сверить не с чем (vite dev; сборка без git и без штампа BUILD_SHA/-ldflags — sha dev/unknown; со штампом sha есть); красная метка «устарело, обнови» в #topbar — та же проверка
   itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне палитры манифеста ключа (hd32/sweetie16), дубли ключей
   itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк)
   itd.reset()                       — снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум, отчёты)

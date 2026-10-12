@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "53009a937715",
+  "hash": "5d298d319943",
   "methods": {
     "version": {
       "kind": "prop",
@@ -242,7 +242,7 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "Promise<StaleInfo>",
-      "doc": "Вкладка на старом JS? (ITGAME-78) Свежая проверка: {client, server, dist,\nstale, at}. client — sha этой вкладки, dist — sha сборки, которую стенд\nотдаст при перезагрузке (meta build его index.html), server — sha бинаря\n(GET /api/version). stale: client ≠ dist (без dist — ≠ server); null —\nсверить не с чем (vite dev, сборка без git). Та же проверка красит метку\n«устарело, обнови» в #topbar; shown — видна ли метка на экране после неё\n(ITGAME-88: скрытая метка остаётся в DOM — display:none, 0×0, — по DOM её\nне судить); false и там, где #topbar нет (без ?debug=1 / itd.admin).",
+      "doc": "Вкладка на старом JS? (ITGAME-78) Свежая проверка: {client, server, dist,\nstale, at}. client — sha этой вкладки, dist — sha сборки, которую стенд\nотдаст при перезагрузке (meta build его index.html), server — sha бинаря\n(GET /api/version). stale: client ≠ dist (без dist — ≠ server); null —\nсверить не с чем: vite dev, либо сборка без git и без штампа BUILD_SHA/-ldflags\n(sha dev/unknown, ITGAME-81; со штампом без git sha есть). Та же проверка красит метку\n«устарело, обнови» в #topbar; shown — видна ли метка на экране после неё\n(ITGAME-88: скрытая метка остаётся в DOM — display:none, 0×0, — по DOM её\nне судить); false и там, где #topbar нет (без ?debug=1 / itd.admin).",
       "examples": [
         "await itd.stale()",
         "(await itd.stale()).shown"
@@ -252,7 +252,7 @@ export const CONTRACT = {
       "kind": "prop",
       "type": "SandboxApi",
       "readonly": true,
-      "doc": "Песочница агента (ITGAME-77): itd.sandbox('acc3') → {ok, sid, owner:{sid,\ndiff}} — ставит вкладке свой sid a-<метка>-<время> и запоминает общие ключи\nвладельца (localStorage itd.sid/itd.diff) и вкладки (sessionStorage); меню\nперечитывает сводку. Пока песочница есть, новая партия и финал («Сдаться»)\nберут новый sid песочницы, а не общий ключ. Ставится из меню (в партии —\ncode in_party). itd.sandbox.restore() → {sidSame, diffSame, fake, restored,\nkept, removed}: сверка (то и есть замер гарда), возврат ключей как при\nвходе — наше (fake) или стёртое значение возвращается, чужое (kept) не\nперетирается; тоже только из меню. itd.sandbox.fakeOwner() → {sid, diff} —\n«чужой» общий ключ вызовом игры (agent javascript_tool писать в\nlocalStorage не может); restore() вернёт настоящий.",
+      "doc": "Песочница агента (ITGAME-77): itd.sandbox('acc3') → {ok, sid, owner:{sid,\ndiff}} — ставит вкладке свой sid a-<метка>-<время> и запоминает общие ключи\nвладельца (localStorage itd.sid/itd.diff/itd.onboard, ITGAME-21) и вкладки (sessionStorage); меню\nперечитывает сводку. Пока песочница есть, новая партия и финал («Сдаться»)\nберут новый sid песочницы, а не общий ключ. Ставится из меню (в партии —\ncode in_party). itd.sandbox.restore() → {sidSame, diffSame, fake, restored,\nkept, removed}: сверка (то и есть замер гарда), возврат ключей как при\nвходе — для itd.sid/itd.diff наше (fake) или стёртое значение возвращается,\nчужое (kept) не перетирается; itd.onboard (его пишет только HUD) возвращается\nк значению при входе при ЛЮБОМ отличии, даже если его записала вкладка владельца;\nтоже только из меню. itd.sandbox.fakeOwner() → {sid, diff} —\n«чужой» общий ключ вызовом игры (agent javascript_tool писать в\nlocalStorage не может); restore() вернёт настоящий.",
       "examples": [
         "itd.sandbox('acc3')",
         "itd.sandbox.fakeOwner()",

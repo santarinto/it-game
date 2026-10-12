@@ -36,7 +36,7 @@ type agentStatusMessage struct {
 	SID      string `json:"sid"`
 	Role     string `json:"role"`         // owner (headless) | observer (прицепился к живой)
 	Phase    string `json:"phase"`        // фаза игры сессии ("" если сессия недоступна)
-	Version  string `json:"version"`      // sha сервера (vcs.revision)
+	Version  string `json:"version"`      // sha сервера: штамп -ldflags (buildSHA), иначе vcs.revision[:7], иначе unknown
 	Seed     string `json:"seed"`         // сид партии
 	Scenario string `json:"scenario"`     // фиксура старта ("" — обычная)
 	At       string `json:"at"`           // время ответа, ISO
