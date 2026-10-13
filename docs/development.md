@@ -102,12 +102,11 @@ Notes:
   sha (ITGAME-98, same as the retired `bin/deploy-local.sh`); releases built
   before that read `dev` / `unknown`. Check a release:
   `curl -s https://<host>/ | grep -o '<meta name="build"[^>]*'`.
-- Production nginx answers `/api/*` with the SPA's `index.html`, so a tab
-  cannot read the server's SHA there until `/api/version` is proxied to Go
-  and the server is stamped (ITGAME-98).
-  The owner installs this block on the box (nginx config is not in this
-  repo); an exact-match location wins over any `/api/` prefix or SPA
-  fallback, and the Go handler already sends `Cache-Control: no-store`:
+- Production nginx answers `/api/*` with the SPA's `index.html`; the one
+  exception is `/api/version`, proxied to Go by a block on the box (both
+  vhosts, installed 13.10.2026; nginx config is not in this repo). An
+  exact-match location wins over any `/api/` prefix or SPA fallback, and the
+  Go handler already sends `Cache-Control: no-store`:
 
   ```nginx
   location = /api/version {
@@ -115,10 +114,10 @@ Notes:
   }
   ```
 
-  Until it is there, `itd.stale()` on production compares the tab with the
-  `<meta name="build">` of a fresh `/` only, and `server` stays `null`; with
-  the block but an unstamped server it answers `unknown`, which also counts
-  as `null` until ITGAME-98 stamps the build.
+  A vhost rebuilt without it answers `/api/version` with `index.html`:
+  `itd.stale()` then compares the tab with the `<meta name="build">` of a
+  fresh `/` only, and `server` stays `null` (an unstamped server answers
+  `unknown`, which counts as `null` too).
 - A deploy drops live WebSocket connections; saves live in `shared/saves`,
   and clients reconnect and resume.
 - nginx must not SPA-fallback `/assets/`, or a missing asset returns
@@ -241,7 +240,7 @@ The start menu reads the save's facts through `/ws?peek=1&sid=…`
 the socket. It counts missed time offline the same way a reconnect does,
 but on a copy: nothing is written, no session is taken over. It rides on
 `/ws` because that is the only path production nginx proxies to Go (plus
-`/api/version` once the owner installs its block, see [Deploy](#deploy)) —
+`/api/version`, see [Deploy](#deploy)) —
 the rest of `/api/*` there falls through to the SPA's `index.html`. The menu shows
 «ПРОДОЛЖИТЬ — День 3 · $60 · НОРМА» for a live save, «ИТОГ: …» for a
 game that ended while the player was away, hides the card when the
@@ -599,8 +598,9 @@ is no `#topbar`); `stale: null` means there is nothing to compare
 `BUILD_SHA` nor git reads `dev`; so does a release built before
 `tools/deploy` stamped, ITGAME-98, see [Deploy](#deploy) — there `stale`
 stays `null` and the badge never shows). A stamped release (ITGAME-81) is
-checked against the served `<meta name="build">`; on production `server`
-stays `null` until the owner installs the `/api/version` nginx block.
+checked against the served `<meta name="build">`; `server` comes from
+`/api/version` and is `null` where nginx does not proxy it (see
+[Deploy](#deploy)).
 `itd.screen().meta.stale` carries the
 last result.
 
