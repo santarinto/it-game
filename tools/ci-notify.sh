@@ -1,6 +1,7 @@
 #!/bin/sh
 # Deploy-observability event → Vector :9880 → ClickHouse logs.entries.
-# Contract and pitfalls: docs/ops-traps.md, «Деплой-наблюдаемость».
+# Contract and pitfalls: the minipc repo's docs/ops-traps.md, «Деплой-наблюдаемость»
+# (this script came from there); the events as used here: docs/development.md, «Deploy».
 #   ci-notify.sh <step> start
 #   ci-notify.sh <step> finish <success|fail> [duration_s]
 #   ci-notify.sh <step> finish-unless-done          ← for a CI job's after_script
