@@ -809,7 +809,8 @@ export interface ItdApi {
    * ответ на команду — state с re = её id. ITGAME-88: pointer — настоящие
    * mousedown/mouseup в окне: {type: down|up, button, x, y (мировые 1280×720),
    * onCanvas, wins/stack — хит-тест Phaser в момент события (как itd.stack),
-   * got — кому Phaser раздал gameobjectdown/up}; itd.click() сюда не попадает
+   * got — до кого дошёл pointerdown/up (GAMEOBJECT_POINTER_DOWN/UP объекта; кнопка,
+   * удалившая себя в pointerdown, в got на down есть, на up её нет)}; itd.click() сюда не попадает
    * (мимо input-слоя). Открытое окно для клика другим вызовом инструмента:
    * itd.trace.start() → {id} … клик … itd.trace.stop(id?) → тот же TraceResult
    * (windowMs — длина окна; само закроется через maxMs, по умолчанию 120 с, cut: true).
@@ -1652,8 +1653,8 @@ function pointerProbe(game: Phaser.Game): PointerProbe {
     const px = game.scale.transformX(ev.pageX)
     const py = game.scale.transformY(ev.pageY)
     const w = cam ? cam.getWorldPoint(px, py) : { x: px, y: py }
-    const { stack, wins } = stackAt(game, w.x, w.y)
-    return { x: w.x, y: w.y, wins, stack }
+    const { stack, wins, hits } = stackAt(game, w.x, w.y)
+    return { x: w.x, y: w.y, wins, stack, objs: hits.map((h) => h.obj) }
   }
 }
 
@@ -1822,7 +1823,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.hover('office.worker.0')      — наведение по id (тултипы)
   itd.key('1'|'enter'|'space'|'esc')— клавиша: 1-4 сложность в меню, up/down — фокус меню, enter — пункт в фокусе меню / отчёт дня, space/esc — отчёт дня
   itd.cmd('hire')                   — команда с квитанцией сервера ('abandon' — путём кнопки «Сдаться»: сейв удалён, вкладка в меню): Promise<{ok, code?, id, rev}> — ответ на ЭТУ команду по id (state|error с re = id; тики и чужие команды не в счёт), rev — версия снапшота-ответа; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
-  itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, id, …}] по порядку, recv[error/day_report…] (у error info.re/rev), states[{rev, cause, re?}] — снапшоты окна, transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}], pointer[{type: down|up, button, x, y — мировые, onCanvas, wins/stack — хит-тест Phaser в момент события (как itd.stack), got — кому Phaser раздал gameobjectdown/up; [] — до объектов не дошло}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой); itd.click() в pointer не попадает (мимо input-слоя)
+  itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, id, …}] по порядку, recv[error/day_report…] (у error info.re/rev), states[{rev, cause, re?}] — снапшоты окна, transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}], pointer[{type: down|up, button, x, y — мировые, onCanvas, wins/stack — хит-тест Phaser в момент события (как itd.stack), got — до кого дошёл pointerdown/up объекта, в т.ч. удалившегося в обработчике (✕ модалки) — на up его уже нет; [] — до объектов не дошло}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой); itd.click() в pointer не попадает (мимо input-слоя)
   itd.trace.start({maxMs?})          — открытое окно (ITGAME-88): подписки сразу → {ok, id, t0, maxMs, open}; настоящий клик/клавиша — другим вызовом инструмента; само закроется через maxMs (по умолчанию 120000, до 600000; cut: true); коды bad_max, too_many (больше 8 окон)
   itd.trace.stop(id?)               — закрыть окно (без id — последнее) → тот же TraceResult, что у itd.trace() (+ id, windowMs = длина окна); нет окна — {ok:false, code:'no_trace'}. Пример: const {id} = itd.trace.start(); …клик…; const tr = itd.trace.stop(id); tr.pointer[0].wins, tr.sent
   itd.warm()                        — прогреть кадр вручную (шаги лупа); в скрытой вкладке itd делает это сам

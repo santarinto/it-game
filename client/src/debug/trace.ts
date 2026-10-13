@@ -13,7 +13,8 @@ import { onUi } from '../uibus'
 //
 // ITGAME-88: указатель (mousedown/mouseup — то, что слушает Phaser) с мировыми
 // координатами и целью по настоящему хит-тесту Phaser (тот же, что itd.stack/hit),
-// плюс got — кому Phaser реально раздал gameobjectdown/up. И открытое окно:
+// плюс got — до кого реально дошёл pointerdown/up (GAMEOBJECT_POINTER_DOWN/UP
+// самих объектов; ITGAME-112). И открытое окно:
 // itd.trace.start() → … настоящий клик другим вызовом инструмента … →
 // itd.trace.stop(): фиксированное окно гонялось с кликом, пришедшим позже.
 
@@ -28,7 +29,9 @@ export interface TraceTarget {
   title: string | null
 }
 
-export type PointerProbe = (ev: MouseEvent) => { x: number; y: number; wins: TraceTarget | null; stack: string[] }
+// objs — те же interactive под точкой (stackAt.hits), объектами: трассировка
+// вешает на них слушателей got ДО Phaser (ITGAME-112).
+export type PointerProbe = (ev: MouseEvent) => { x: number; y: number; wins: TraceTarget | null; stack: string[]; objs: Phaser.GameObjects.GameObject[] }
 
 export interface TracePointer {
   t: number
@@ -39,7 +42,7 @@ export interface TracePointer {
   onCanvas: boolean // событие пришло в канвас; false — мимо холста (#topbar, поля страницы)
   wins: TraceTarget | null // кто получит событие по хит-тесту Phaser в момент события (как itd.stack().wins); null — ни одна hitArea не накрывает точку
   stack: string[] // все interactive под точкой сверху вниз, как itd.stack().stack
-  got: string[] // кому Phaser реально раздал gameobjectdown/up в этом событии: safe id или тип без id; [] — до объектов не дошло
+  got: string[] // до кого Phaser реально довёл pointerdown/up в этом событии (GAMEOBJECT_POINTER_DOWN/UP объекта): safe id или тип без id; [] — до объектов не дошло. Кнопка, удалившая себя в pointerdown, в got на down есть, на up её нет
 }
 
 export interface TraceResult {
@@ -65,10 +68,15 @@ export interface TraceResult {
   sounds: { t: number; name: string; key: string; volume: number; ok: boolean; scene: string }[]
   /**
    * ITGAME-88: настоящие нажатия указателя в окне (mousedown/mouseup): мировые x/y,
-   * wins/stack — хит-тест Phaser в момент события, got — кому Phaser раздал
-   * gameobjectdown/up. itd.click() сюда не попадает: он мимо input-слоя.
+   * wins/stack — хит-тест Phaser в момент события, got — до кого дошёл
+   * pointerdown/up (GAMEOBJECT_POINTER_DOWN/UP самих объектов, ITGAME-112:
+   * сценовый gameobjectdown терял объект, удаливший себя в обработчике).
+   * itd.click() сюда не попадает: он мимо input-слоя.
    * Пусто при «команда не ушла» — клик до страницы не дошёл; есть запись с
-   * got [] — дошёл до хит-теста, цели нет; got с целью — обработчик сам решил не слать.
+   * got [] — дошёл до хит-теста, цели нет; got с целью — до неё дошёл
+   * pointerdown/up, обработчик сам решил не слать (или закрыл своё окно: такой
+   * объект в got на down есть, а на up его уже нет — удалённый до отпускания
+   * не попадает в хит-тест Phaser).
    */
   pointer: TracePointer[]
   id?: number // ITGAME-88: открытое окно itd.trace.start() — его id
@@ -254,45 +262,48 @@ function openTrace(game: Phaser.Game, probe: PointerProbe, windowMs: number): Op
 
   // ── pointer (ITGAME-88): mousedown/mouseup в capture окна — раньше Phaser ──
   // (его слушатель на канвасе, обработка синхронная): хит-тест в тот же момент,
-  // что у Phaser. got — gameobjectdown/up input-плагинов сцен в этом же событии.
+  // что у Phaser. got — GAMEOBJECT_POINTER_DOWN/UP объектов из хит-теста: слушатели
+  // на них ставятся здесь же, в capture, — раньше обработчиков игры. Сценовый
+  // GAMEOBJECT_DOWN/UP Phaser шлёт, только если у объекта после его события ещё
+  // есть input (InputPlugin.processDownEvents), так что объект, удаливший себя
+  // в pointerdown (✕ модалки, «Продолжить»), оставался бы в got [].
+  let pending: (() => void)[] = []
+  const flush = () => { const fs = pending; pending = []; fs.forEach((f) => f()) }
   const onMouse = (ev: MouseEvent) => {
-    let hit: ReturnType<PointerProbe> = { x: 0, y: 0, wins: null, stack: [] }
+    flush() // слушатели прошлого события: Phaser разослал его синхронно, они отработали
+    let hit: ReturnType<PointerProbe> = { x: 0, y: 0, wins: null, stack: [], objs: [] }
     try {
       hit = probe(ev)
     } catch (e) {
       console.error('[trace] pointer probe упал:', e)
     }
-    r.pointer.push({
-      t: rel(), type: ev.type === 'mousedown' ? 'down' : 'up', button: ev.button,
+    const down = ev.type === 'mousedown'
+    const rec: TracePointer = {
+      t: rel(), type: down ? 'down' : 'up', button: ev.button,
       x: Math.round(hit.x * 10) / 10, y: Math.round(hit.y * 10) / 10,
       onCanvas: ev.target === game.canvas, wins: hit.wins, stack: hit.stack, got: [],
-    })
+    }
+    r.pointer.push(rec)
+    const evName = down ? Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN : Phaser.Input.Events.GAMEOBJECT_POINTER_UP
+    for (const obj of hit.objs) {
+      // имя читаем сейчас: после destroy() в обработчике getData/type уже пусты
+      const id = obj.getData?.('id')
+      const label = typeof id === 'string' ? id.replace(/\./g, ':') : obj.type
+      const on = () => { rec.got.push(label) }
+      obj.on(evName, on)
+      pending.push(() => obj.off(evName, on))
+    }
+    // Phaser отрабатывает событие синхронно сразу за capture-слушателем; страховка
+    // для случая, когда следующего события не будет.
+    setTimeout(flush, 0)
   }
   window.addEventListener('mousedown', onMouse, true)
   window.addEventListener('mouseup', onMouse, true)
   offs.push(() => {
     window.removeEventListener('mousedown', onMouse, true)
     window.removeEventListener('mouseup', onMouse, true)
+    flush()
   })
-  const gotFor = (type: 'down' | 'up') => (_p: unknown, obj: Phaser.GameObjects.GameObject) => {
-    const last = r.pointer[r.pointer.length - 1]
-    if (!last || last.type !== type) return
-    const id = obj.getData?.('id')
-    last.got.push(typeof id === 'string' ? id.replace(/\./g, ':') : obj.type)
-  }
-  const onDown = gotFor('down')
-  const onUp = gotFor('up')
-  for (const scene of game.scene.scenes) {
-    const input = (scene as Phaser.Scene & { input?: Phaser.Input.InputPlugin }).input
-    if (!input) continue
-    input.on(Phaser.Input.Events.GAMEOBJECT_DOWN, onDown)
-    input.on(Phaser.Input.Events.GAMEOBJECT_UP, onUp)
-    offs.push(() => {
-      input.off(Phaser.Input.Events.GAMEOBJECT_DOWN, onDown)
-      input.off(Phaser.Input.Events.GAMEOBJECT_UP, onUp)
-    })
-  }
-
   let closed = false
   return {
     r,

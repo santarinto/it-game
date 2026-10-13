@@ -47,6 +47,9 @@
 //      по центру btn.pc (screen() x/y) ОТДЕЛЬНЫМ вызовом → itd.trace.stop(id): pointer
 //      down/up, onCanvas, x/y ≈ cx/cy, wins — btn.pc (хит-тест Phaser), got ['btn:pc'],
 //      sent buy_pc; клик по #build (#topbar) — onCanvas false, wins null, got []
+//  14b (ITGAME-112) got у кнопки, удалившей себя в pointerdown: настоящий клик по ✕ «Выйти в меню?» —
+//      got на down [modal:close], на up его нет; тестовые прямоугольники в hud: удаляющий себя в
+//      pointerdown — got [probe:gone] на down и [] на up, второй — [probe:keep] на down и up
 //  15  (ITGAME-88) окно: stop() без окна — no_trace; start({maxMs:300}) само закрылось —
 //      cut, windowMs ≈ 300; bad_max; два окна — stop() закрывает последнее, stop(id) первое;
 //      itd.click() внутри окна — sent есть, pointer пуст (мимо input-слоя);
@@ -538,6 +541,76 @@ async function run() {
       '14: клик по #build (мимо холста) — onCanvas false, wins null, got []',
       !!bar14 && bar14.wins === null && bar14.got.length === 0,
       JSON.stringify(bar14 ?? null),
+    )
+
+    // ── 14b (ITGAME-112): got у кнопки, удалившей себя в pointerdown. Сценовый GAMEOBJECT_DOWN Phaser
+    // такому объекту не шлёт (InputPlugin.processDownEvents: у удалённого нет input) — раньше got был [].
+    // (а) настоящий клик по btn.menu → по ✕ окна «Выйти в меню?» (modal.close закрывает окно в pointerdown);
+    // (б) два тестовых прямоугольника в hud: один удаляет себя в pointerdown, второй нет.
+    const st14b = await page.evaluate(() => window.itd.trace.start())
+    const menu14b = await page.evaluate(() => {
+      const row = window.itd.screen().items.find((i) => i.startsWith('btn:menu|'))?.split('|')
+      return { x: Number(row?.[2]), y: Number(row?.[3]) }
+    })
+    await page.mouse.click(menu14b.x, menu14b.y)
+    const x14b = await page.evaluate(() =>
+      window.itd.wait(() => window.itd.nodes().some((n) => n.id === 'modal.close' && n.visible), 5000).then(
+        () => {
+          const row = window.itd.screen().items.find((i) => i.startsWith('modal:close|'))?.split('|')
+          return { x: Number(row?.[2]), y: Number(row?.[3]), title: window.itd.screen().meta.title }
+        },
+        () => null,
+      ))
+    if (x14b) await page.mouse.click(x14b.x, x14b.y)
+    await delay(200)
+    const probe14b = await page.evaluate(async () => {
+      const game = window.__itd
+      const sc = game.scene.getScene('hud')
+      const free = [[24, 700], [640, 700], [1256, 700], [24, 400], [640, 400], [1000, 400]].filter(([px, py]) => window.itd.stack(px, py).stack.length === 0)
+      if (free.length < 2) return null
+      const mk = (pt, id, selfRemove) => {
+        const r = sc.add.rectangle(pt[0], pt[1], 40, 30, 0xff00ff).setDepth(999).setInteractive()
+        r.setData('id', id)
+        if (selfRemove) r.on('pointerdown', () => r.destroy())
+        return r
+      }
+      window.__qaP14 = [mk(free[0], 'probe.gone', true), mk(free[1], 'probe.keep', false)]
+      await new Promise((r) => requestAnimationFrame(r)) // объект виден хит-тесту со следующего кадра
+      const c = game.canvas.getBoundingClientRect()
+      const k = c.width / 1280
+      return free.slice(0, 2).map(([px, py]) => ({ x: c.left + px * k, y: c.top + py * k }))
+    })
+    if (probe14b) {
+      await page.mouse.click(probe14b[0].x, probe14b[0].y)
+      await page.mouse.click(probe14b[1].x, probe14b[1].y)
+    }
+    const t14b = await page.evaluate((id) => {
+      const tr = window.itd.trace.stop(id)
+      for (const r of window.__qaP14 ?? []) r.destroy()
+      delete window.__qaP14
+      return tr
+    }, st14b.id)
+    const ptr14b = (type, win) => t14b.pointer.find((p) => p.type === type && p.wins?.id === win)
+    check(
+      '14b: настоящий клик по ✕ «Выйти в меню?» (modal.close закрывает окно в pointerdown) — got на down содержит modal:close, окно закрылось',
+      !!x14b && x14b.title === 'Выйти в меню?' && !!ptr14b('down', 'modal.close') && ptr14b('down', 'modal.close').got.includes('modal:close'),
+      JSON.stringify({ x14b, pointer: t14b.pointer.map((p) => ({ type: p.type, wins: p.wins?.id ?? null, got: p.got })) }),
+    )
+    check(
+      '14b: после закрытия окна ✕ нет в nodes(); на up got пуст/без modal:close (удалённый объект до отпускания не получает up)',
+      !(await page.evaluate(() => window.itd.nodes().some((n) => n.id === 'modal.close' && n.visible))) &&
+        t14b.pointer.filter((p) => p.type === 'up' && p.stack.every((s) => !s.startsWith('modal:close '))).length >= 1 &&
+        t14b.pointer.filter((p) => p.type === 'up').every((p) => !p.got.includes('modal:close')),
+      JSON.stringify(t14b.pointer.map((p) => ({ type: p.type, wins: p.wins?.id ?? null, got: p.got }))),
+    )
+    check(
+      '14b: тестовые прямоугольники — удаливший себя в pointerdown: got [probe:gone] на down и [] на up; второй: [probe:keep] на down и up',
+      !!probe14b &&
+        JSON.stringify(ptr14b('down', 'probe.gone')?.got) === '["probe:gone"]' &&
+        JSON.stringify(t14b.pointer.find((p) => p.type === 'up' && p.x === ptr14b('down', 'probe.gone')?.x)?.got) === '[]' &&
+        JSON.stringify(ptr14b('down', 'probe.keep')?.got) === '["probe:keep"]' &&
+        JSON.stringify(ptr14b('up', 'probe.keep')?.got) === '["probe:keep"]',
+      JSON.stringify(t14b.pointer.map((p) => ({ type: p.type, x: p.x, wins: p.wins?.id ?? null, got: p.got }))),
     )
 
     // ── 15 (ITGAME-88): семантика открытого окна

@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "de0e1bfba9a4",
+  "hash": "6bf78d987f2d",
   "methods": {
     "version": {
       "kind": "prop",
@@ -135,7 +135,7 @@ export const CONTRACT = {
       "kind": "prop",
       "type": "TraceApi",
       "readonly": true,
-      "doc": "Живая трассировка окна вокруг action (ITGAME-37): подписка ДО action,\nокно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь\nигрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().\nITGAME-45: sent — с id команды, states — снапшоты окна {rev, cause, re?}:\nответ на команду — state с re = её id. ITGAME-88: pointer — настоящие\nmousedown/mouseup в окне: {type: down|up, button, x, y (мировые 1280×720),\nonCanvas, wins/stack — хит-тест Phaser в момент события (как itd.stack),\ngot — кому Phaser раздал gameobjectdown/up}; itd.click() сюда не попадает\n(мимо input-слоя). Открытое окно для клика другим вызовом инструмента:\nitd.trace.start() → {id} … клик … itd.trace.stop(id?) → тот же TraceResult\n(windowMs — длина окна; само закроется через maxMs, по умолчанию 120 с, cut: true).",
+      "doc": "Живая трассировка окна вокруг action (ITGAME-37): подписка ДО action,\nокно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь\nигрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().\nITGAME-45: sent — с id команды, states — снапшоты окна {rev, cause, re?}:\nответ на команду — state с re = её id. ITGAME-88: pointer — настоящие\nmousedown/mouseup в окне: {type: down|up, button, x, y (мировые 1280×720),\nonCanvas, wins/stack — хит-тест Phaser в момент события (как itd.stack),\ngot — до кого дошёл pointerdown/up (GAMEOBJECT_POINTER_DOWN/UP объекта; кнопка,\nудалившая себя в pointerdown, в got на down есть, на up её нет)}; itd.click() сюда не попадает\n(мимо input-слоя). Открытое окно для клика другим вызовом инструмента:\nitd.trace.start() → {id} … клик … itd.trace.stop(id?) → тот же TraceResult\n(windowMs — длина окна; само закроется через maxMs, по умолчанию 120 с, cut: true).",
       "examples": [
         "itd.trace(() => itd.click('btn.pc'), 1000)",
         "itd.trace.start()",
@@ -3112,7 +3112,7 @@ export const CONTRACT = {
         "got": {
           "type": "string[]",
           "optional": false,
-          "doc": "кому Phaser реально раздал gameobjectdown/up в этом событии: safe id или тип без id; [] — до объектов не дошло"
+          "doc": "до кого Phaser реально довёл pointerdown/up в этом событии (GAMEOBJECT_POINTER_DOWN/UP объекта): safe id или тип без id; [] — до объектов не дошло. Кнопка, удалившая себя в pointerdown, в got на down есть, на up её нет"
         }
       }
     },
@@ -3192,7 +3192,7 @@ export const CONTRACT = {
         "pointer": {
           "type": "TracePointer[]",
           "optional": false,
-          "doc": "ITGAME-88: настоящие нажатия указателя в окне (mousedown/mouseup): мировые x/y,\nwins/stack — хит-тест Phaser в момент события, got — кому Phaser раздал\ngameobjectdown/up. itd.click() сюда не попадает: он мимо input-слоя.\nПусто при «команда не ушла» — клик до страницы не дошёл; есть запись с\ngot [] — дошёл до хит-теста, цели нет; got с целью — обработчик сам решил не слать."
+          "doc": "ITGAME-88: настоящие нажатия указателя в окне (mousedown/mouseup): мировые x/y,\nwins/stack — хит-тест Phaser в момент события, got — до кого дошёл\npointerdown/up (GAMEOBJECT_POINTER_DOWN/UP самих объектов, ITGAME-112:\nсценовый gameobjectdown терял объект, удаливший себя в обработчике).\nitd.click() сюда не попадает: он мимо input-слоя.\nПусто при «команда не ушла» — клик до страницы не дошёл; есть запись с\ngot [] — дошёл до хит-теста, цели нет; got с целью — до неё дошёл\npointerdown/up, обработчик сам решил не слать (или закрыл своё окно: такой\nобъект в got на down есть, а на up его уже нет — удалённый до отпускания\nне попадает в хит-тест Phaser)."
         },
         "id": {
           "type": "number",
