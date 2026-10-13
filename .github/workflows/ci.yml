@@ -1,3 +1,7 @@
+# ВЫВЕДЕН 08.10.2026 — не запускается и не запускать (ITGAME-111). Живой
+# CI и деплой — .forgejo/workflows/ci.yaml → tools/deploy; почему файл
+# остался в репо — docs/development.md, «Retired chain». Ниже — как было.
+#
 # CI + CD IT Director: тесты на каждый PR и пуш в main, деплой — только
 # из main и только после зелёных server/client.
 #
