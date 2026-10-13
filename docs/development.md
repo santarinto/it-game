@@ -813,6 +813,14 @@ documenting separately:
   scrollbar ate 14 px and «по окну» overflowed by 6). At the QA
   viewport 1920×1080 with 1×/1.4× it is absent, so visreg/qa counts are
   unchanged.
+- **`itd.contrast()` / `itd.tiny()`** — walk nested containers too (ITGAME-116):
+  Phaser 3.90 removes a container's children from `scene.children.list`, so
+  the tooltip text (`room.tooltip.text`) used to be invisible to both. Effective
+  visibility is the whole parent chain, effective alpha the product along it;
+  the background under a text is looked up in one flat render order where a
+  container's children follow the container (so `room.tooltip.bg` is found).
+  `itd.overlaps()` (text-text, occlusion) still reads the top level only;
+  `itd.offscreen()` checks a container as one box (its bounds union its children).
 - **`itd.log(n)`** — the ring buffer (200 entries, survives a console
   clear) of state/day/phase/speed/scene transitions, server errors and page
   errors, plus, since ITGAME-38, every `playSfx` call and HUD toast

@@ -994,12 +994,12 @@ export interface ItdApi {
    */
   injectError(message?: string): AgentResult
   /**
-   * Линтер: контраст текста к фону ниже 3:1.
+   * Линтер: контраст текста к фону ниже 3:1. Тексты в контейнерах тоже (видимость и альфа — по цепочке родителей).
    * @example itd.contrast()
    */
   contrast(): ContrastEntry[]
   /**
-   * Линтер: шрифт мельче 12px.
+   * Линтер: шрифт мельче 12px. Тексты в контейнерах тоже.
    * @example itd.tiny()
    */
   tiny(): TinyEntry[]
@@ -1838,8 +1838,8 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.offline()                     — последний офлайн-догон страницы {ticks, days, shown, at, droppedAt, leftAt, liveTicks, open, paused, seq, awayId} — liveTicks: шло вживую, пока сервер не заметил уход: shown:false — догон внутри дня, окна «Пока вас не было» не было; пока окно открыто, партия на паузе; ПОСЛЕДНИЙ, не «текущий»: seq — номер догона на странице, awayId — itd.away, во время которого пришёл (null — F5/реконнект); сверять по ключу, не по at
   await itd.away(5, {mode, timeout}) — уход на 5 с без ухода со страницы и возврат в ту же партию (тот же sid: песочницы или владельца): mode 'close' — как закрытая вкладка (close-фрейм, сервер знает сразу), 'net' — как обрыв сети (POST /api/debug/drop: сервер молчит и замечает уход своим таймаутом чтения — ITGAME_READ_TIMEOUT, 30 с; timeout — мс для этого соединения; до того партия идёт вживую) → {ok, mode, sid, leftAt, back, resumed, rev, drop{at, timeoutMs, noticeBy}, awayId — номер ухода, offline — догон ЭТОГО ухода (offline.awayId === awayId) или null}; пока в уходе — команды not_connected, сокет reconnecting
   itd.injectError('x')              — бросить тестовую ошибку страницы «itd.injectError: x» (проверить журнал errors() и поле load; у записи injected: true)
-  itd.contrast()                    — линтер: контраст текста к фону ниже 3:1
-  itd.tiny()                        — линтер: шрифт мельче 12px
+  itd.contrast()                    — линтер: контраст текста к фону ниже 3:1; тексты в контейнерах тоже, невидимый предок прячет
+  itd.tiny()                        — линтер: шрифт мельче 12px; тексты в контейнерах тоже
   itd.log(50)                       — журнал переходов (кольцевой на 200, переживает чистку консоли); + {type:'sound', key:'sfx:bong', name, volume, scene, ok}, {type:'toast', text, where, ms, bg, scene}
                                        Пример: itd.log(200).filter(e => e.type === 'sound').map(e => e.key)
   itd.errors()                      — ошибки страницы (window.onerror + unhandledrejection), переживают перезагрузку вкладки: load — номер загрузки

@@ -70,10 +70,48 @@ interface Node0 {
   getBounds(): Phaser.Geom.Rectangle
 }
 
+// Только верхний уровень сцены: на нём стоят text-text/occlusion в
+// findOverlaps (ITGAME-116: вложенные тексты там пока не видны — отдельная задача).
 function textObjs(scene: Phaser.Scene): Phaser.GameObjects.Text[] {
   return scene.children.list.filter(
     (o) => (o as unknown as { type?: string }).type === 'Text',
   ) as unknown as Phaser.GameObjects.Text[]
+}
+
+// ITGAME-116: узел порядка отрисовки с учётом родителей. Phaser 3.90 в
+// Container.addHandler снимает ребёнка со списка сцены (removeFromDisplayList),
+// так что scene.children.list контейнерных детей не содержит (тултип кнопок:
+// room.tooltip.text в контейнере). visible — все предки видимы, alpha —
+// произведение альф по цепочке (как рисует рендер).
+interface FlatNode {
+  obj: Phaser.GameObjects.GameObject
+  visible: boolean
+  alpha: number
+}
+
+// Порядок отрисовки: верхний уровень — по depth, внутри — по порядку в
+// children.list; содержимое контейнера идёт сразу за ним, в порядке своего list
+// (depth детей внутри контейнера рендер не учитывает). getBounds() ребёнка уже
+// мировой (Phaser применяет матрицу parentContainer), пересчитывать не нужно.
+function flatRender(scene: Phaser.Scene): FlatNode[] {
+  const top = scene.children.list
+  const sorted = [...top].sort((a, b) => {
+    const da = (a as unknown as { depth?: number }).depth ?? 0
+    const db = (b as unknown as { depth?: number }).depth ?? 0
+    return da !== db ? da - db : top.indexOf(a) - top.indexOf(b)
+  })
+  const out: FlatNode[] = []
+  const walk = (list: Phaser.GameObjects.GameObject[], visible: boolean, alpha: number): void => {
+    for (const obj of list) {
+      const n = obj as unknown as { visible?: boolean; alpha?: number; list?: Phaser.GameObjects.GameObject[] }
+      const v = visible && n.visible !== false
+      const a = alpha * (n.alpha ?? 1)
+      out.push({ obj, visible: v, alpha: a })
+      if (n.list) walk(n.list, v, a)
+    }
+  }
+  walk(sorted, true, 1)
+  return out
 }
 
 function nameOf(o: Node0): string {
@@ -432,15 +470,6 @@ interface Fillable extends Node0 {
   fillAlpha?: number
 }
 
-// Порядок отрисовки: сначала depth, внутри — порядок в children.list.
-function renderOrder(scene: Phaser.Scene): Phaser.GameObjects.GameObject[] {
-  return [...scene.children.list].sort((a, b) => {
-    const da = (a as unknown as { depth?: number }).depth ?? 0
-    const db = (b as unknown as { depth?: number }).depth ?? 0
-    return da !== db ? da - db : scene.children.list.indexOf(a) - scene.children.list.indexOf(b)
-  })
-}
-
 function colorOf(obj: Phaser.GameObjects.GameObject): string | null {
   const o = obj as unknown as Fillable
   if (o.type !== 'Rectangle' && o.type !== 'Ellipse' && o.type !== 'Arc' && o.type !== 'Polygon') return null
@@ -451,15 +480,17 @@ function colorOf(obj: Phaser.GameObjects.GameObject): string | null {
 
 // Цвет фона под текстом: верхний залитый примитив НИЖЕ текста в порядке
 // отрисовки, накрывающий центр текста. Нет такого — фон канваса.
-function bgUnder(scene: Phaser.Scene, order: Phaser.GameObjects.GameObject[], text: Phaser.GameObjects.Text): string | null {
+// ITGAME-116: order — flatRender(): плашка в том же контейнере (room.tooltip.bg
+// под room.tooltip.text) и плашка сцены под контейнером находятся одинаково.
+function bgUnder(order: FlatNode[], text: Phaser.GameObjects.Text): string | null {
   const b = (text as unknown as Node0).getBounds()
   const cx = b.x + b.width / 2
   const cy = b.y + b.height / 2
   let bg: string | null = null
-  for (const obj of order) {
+  for (const { obj, visible } of order) {
     if (obj === (text as unknown as Phaser.GameObjects.GameObject)) break // дошли до текста
+    if (!visible) continue // скрыт сам или любым предком
     const o = obj as unknown as Node0
-    if (o.visible === false) continue
     let rb: Phaser.Geom.Rectangle
     try {
       rb = o.getBounds()
@@ -476,15 +507,18 @@ function bgUnder(scene: Phaser.Scene, order: Phaser.GameObjects.GameObject[], te
 const GAME_BG = '#1a1c2c'
 
 // Тексты с контрастом ниже 3:1 к фону под ними (WCAG-порог крупного UI-текста).
+// Обходит и вложенные контейнеры (ITGAME-116).
 export function findLowContrast(game: Phaser.Game, threshold = 3): ContrastEntry[] {
   const out: ContrastEntry[] = []
   for (const scene of game.scene.getScenes(true)) {
-    const order = renderOrder(scene)
-    for (const t of textObjs(scene)) {
-      if (!t.visible || t.alpha < 0.5) continue
+    const order = flatRender(scene)
+    for (const { obj, visible, alpha } of order) {
+      if (obj.type !== 'Text') continue
+      const t = obj as Phaser.GameObjects.Text
+      if (!visible || alpha < 0.5) continue // ITGAME-116: эффективные видимость и альфа с учётом контейнеров
       const fg = t.style.color
       if (typeof fg !== 'string') continue
-      const bg = bgUnder(scene, order, t) ?? GAME_BG
+      const bg = bgUnder(order, t) ?? GAME_BG
       const ratio = contrastRatio(fg, bg)
       if (ratio === null) continue
       if (ratio < threshold) {
@@ -503,12 +537,13 @@ export function findLowContrast(game: Phaser.Game, threshold = 3): ContrastEntry
   return out
 }
 
-// Шрифт мельче 12px (читаемость на зуме и мелких экранах).
+// Шрифт мельче 12px (читаемость на зуме и мелких экранах). Обходит и вложенные контейнеры (ITGAME-116).
 export function findTiny(game: Phaser.Game, min = 12): TinyEntry[] {
   const out: TinyEntry[] = []
   for (const scene of game.scene.getScenes(true)) {
-    for (const t of textObjs(scene)) {
-      if (!t.visible) continue
+    for (const { obj, visible } of flatRender(scene)) {
+      if (obj.type !== 'Text' || !visible) continue
+      const t = obj as Phaser.GameObjects.Text
       const size = parseFloat(String(t.style.fontSize))
       if (Number.isNaN(size) || size >= min) continue
       const id = (t as unknown as Node0).getData?.('id')

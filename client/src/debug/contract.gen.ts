@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "6bf78d987f2d",
+  "hash": "207b6804ce13",
   "methods": {
     "version": {
       "kind": "prop",
@@ -350,7 +350,7 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "ContrastEntry[]",
-      "doc": "Линтер: контраст текста к фону ниже 3:1.",
+      "doc": "Линтер: контраст текста к фону ниже 3:1. Тексты в контейнерах тоже (видимость и альфа — по цепочке родителей).",
       "examples": [
         "itd.contrast()"
       ]
@@ -359,7 +359,7 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "TinyEntry[]",
-      "doc": "Линтер: шрифт мельче 12px.",
+      "doc": "Линтер: шрифт мельче 12px. Тексты в контейнерах тоже.",
       "examples": [
         "itd.tiny()"
       ]
