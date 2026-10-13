@@ -276,6 +276,11 @@ try {
     return tt?.visible
   })
   check('Тултип отображается до открытия модала', ttBeforeModal === true, `visible=${ttBeforeModal}`)
+  // Контраст тултипа снимаем, пока он на экране: contrast() пропускает скрытые
+  // тексты, а п.10 дальше прячет тултип модалом.
+  const tooltipContrast = await page.evaluate(() =>
+    window.itd.contrast().filter((c) => c.id === 'room.tooltip.text')
+  )
 
   await page.evaluate(() => window.itd.click('btn.menu'))
   await delay(100)
@@ -294,7 +299,6 @@ try {
     return {
       overlaps: window.itd.overlaps(),
       offscreen: window.itd.offscreen(),
-      contrast: window.itd.contrast(),
       tiny: window.itd.tiny(),
     }
   })
@@ -307,9 +311,6 @@ try {
   )
   check('Линтер: 0 оверлапов кнопок покупки и тултипов', buttonOverlaps.length === 0, `overlaps=${buttonOverlaps.length}`)
 
-  const tooltipContrast = lintResults.contrast.filter(
-    (c) => c.text && (c.text.includes('не хватает') || c.text.includes('уже') || c.text.includes('свободного'))
-  )
   check('Линтер: 0 проблем контраста тултипа', tooltipContrast.length === 0, `contrast=${tooltipContrast.length}`)
 
   // ── R (ITGAME-94): кнопки — в комнатах, колонка у правого края
