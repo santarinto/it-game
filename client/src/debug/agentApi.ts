@@ -590,7 +590,7 @@ export interface ScreenMeta {
 export interface ScreenMap {
   meta: ScreenMeta
   n: number
-  // 'safe|подпись|x|y|флаги': подпись — тексты внутри bounds (≤22 символа, «-» у
+  // 'safe|подпись|x|y|флаги': подпись — тексты, целиком лежащие внутри bounds (≤22 символа, «-» у
   // иконок без текста), x/y — центр в CSS px окна (или в рамке frame), флаги:
   // A — выбрана (active), X — перекрыта (hit не ok), D — неактивна (disabled)
   items: string[]
@@ -879,7 +879,8 @@ export interface ItdApi {
    * (sid), day, clock, t, bal, speed, phase, staff, pay, hudClock/hudBal (что
    * нарисовано в HUD, рядом с серверными clock/bal), blocker, title (заголовок
    * верхнего окна), stale (последний itd.stale()). items — строки 'safe|подпись|x|y|флаги' по видимым
-   * интерактивам с id: x/y — центр в CSS px окна, с frame — в рамке снимка такой
+   * интерактивам с id: подпись — тексты, целиком лежащие в рамке элемента (сосед,
+   * чей центр лёг на её кромку, — не подпись), x/y — центр в CSS px окна, с frame — в рамке снимка такой
    * ширины; флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), D —
    * неактивна (нет денег/мест). free — только без X, scene — одна сцена.
    * @example itd.screen()
@@ -927,6 +928,12 @@ export interface ItdApi {
    * stack — все interactive под точкой сверху вниз ('safe scene dN Type WxH';
    * '!' — сцена ниже забравшей клик), wins — кто получит pointerdown.
    * hit() и флаг X в screen() — тот же хит-тест, только верх в центре объекта.
+   * Объект, добавленный в этом кадре, виден со следующего кадра (ITGAME-113):
+   * setInteractive() ставит его в очередь input-плагина, в список хит-теста он
+   * попадает на следующем шаге лупа — и настоящий клик в тот же момент его
+   * тоже не видит (уходит тому, кто под ним). Нужен сразу — дождаться кадра:
+   * await new Promise(r => requestAnimationFrame(r)); в скрытой вкладке кадр
+   * прогревает сам stack().
    * @example itd.stack('office:slot:0')
    * @example itd.stack(260, 190).wins
    */
@@ -1514,6 +1521,12 @@ function buildScreen(game: Phaser.Game, opts: ScreenOptions = {}): ScreenMap {
     title: b?.title ?? topTitle(game),
     stale: lastStale()?.stale ?? null,
   }
+  // Подпись — тексты, чей bounds ЦЕЛИКОМ внутри bounds элемента (допуск 2 px). Раньше
+  // хватало центра текста в рамке, и чужой текст с центром на кромке клеился: ✕ окна
+  // «Выйти в меню?» (центр на верхней кромке btn.event.1 под окном) давал подпись
+  // «Отказаться (−$27) ✕» (ITGAME-113).
+  const inside = (t: AgentNode, n: AgentNode): boolean =>
+    Math.abs(t.cx - n.cx) + t.w / 2 <= n.w / 2 + 2 && Math.abs(t.cy - n.cy) + t.h / 2 <= n.h / 2 + 2
   const items: string[] = []
   for (const n of nodes) {
     if (!n.id || !n.interactive || !n.visible || n.alpha === 0) continue
@@ -1521,7 +1534,7 @@ function buildScreen(game: Phaser.Game, opts: ScreenOptions = {}): ScreenMap {
     const ok = hitAt(game, n.cx, n.cy)?.id === n.id
     if (opts.free && !ok) continue
     const label = texts
-      .filter((t) => t.scene === n.scene && Math.abs(t.cx - n.cx) <= n.w / 2 + 2 && Math.abs(t.cy - n.cy) <= n.h / 2 + 2)
+      .filter((t) => t.scene === n.scene && inside(t, n))
       .map((t) => oneLine(t.text as string))
       .join(' ')
       .replace(/\|/g, '/')
@@ -1539,6 +1552,14 @@ function buildScreen(game: Phaser.Game, opts: ScreenOptions = {}): ScreenMap {
 // (hitArea в локальных координатах объекта, inputCandidate — willRender камеры
 // и родителей), тот же порядок по camera.renderList прошлого кадра. Указатель —
 // заглушка: hitTest пишет в него worldX/worldY, sortGameObjects читает camera.
+// _list — тоже состояние прошлого шага лупа, и _pendingInsertion мы не читаем
+// намеренно (ITGAME-113, Phaser 3.90): setInteractive() кладёт объект в
+// _pendingInsertion, в _list его переносит InputPlugin.preUpdate (PRE_UPDATE сцены)
+// на следующем шаге, а mousedown/up Phaser разбирает сразу в DOM-обработчике
+// (InputManager.onMouseDown → updateInputPlugins → InputPlugin.update → hitTestPointer
+// по тому же _list). Клик до этого шага новый объект не видит — уходит тому, кто
+// под ним; воспроизведено и stack(), и настоящим mousedown в канвас. Через шаг объект
+// есть и в _list, и в renderList (рендер того же шага) — порядок честный.
 interface PhaserHit { obj: Phaser.GameObjects.GameObject; scene: string; captured: boolean }
 
 interface InputInternals {
@@ -1810,8 +1831,8 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.offscreen()                   — линтер: вылезание за канвас 1280×720; + {scene:'page', type:'canvas'} — канвас не влез в окно (CSS px)
   itd.hit('btn.menu')               — попадёт ли НАСТОЯЩИЙ клик в центр объекта в него (хит-тест Phaser, как stack): {ok, at{x,y}, top{scene,id,safe,type,depth,title}} — top перехватит (затемнение отчёта поверх HUD); itd.click этого не видит
   itd.blocker()                     — что перекрывает ввод во весь холст (затемнение отчёта, модалка) или null: {scene, type, id, safe, depth, title — заголовок окна}
-  itd.screen({frame?, free?, scene?}) — карта экрана: {meta:{sha, tab, day, clock, t, bal, speed, phase, staff, pay, hudClock, hudBal, blocker, title, stale}, n, items:['safe|подпись|x|y|флаги']}; x/y — центр в CSS px окна (frame — в рамке снимка такой ширины); флаги A выбрана, X перекрыта, D неактивна; free — только без X
-  itd.stack('office:slot:0')      — стек под центром объекта (или itd.stack(gx, gy)) по НАСТОЯЩЕМУ хит-тесту Phaser (hitArea, renderList, topOnly): {ok, at{x,y}, stack['safe scene dN Type WxH'], wins{scene,id,safe,type,depth,title}} — wins получит pointerdown; '!' — сцена под забравшей клик
+  itd.screen({frame?, free?, scene?}) — карта экрана: {meta:{sha, tab, day, clock, t, bal, speed, phase, staff, pay, hudClock, hudBal, blocker, title, stale}, n, items:['safe|подпись|x|y|флаги']}; подпись — тексты целиком в рамке элемента; x/y — центр в CSS px окна (frame — в рамке снимка такой ширины); флаги A выбрана, X перекрыта, D неактивна; free — только без X
+  itd.stack('office:slot:0')      — стек под центром объекта (или itd.stack(gx, gy)) по НАСТОЯЩЕМУ хит-тесту Phaser (hitArea, renderList, topOnly): {ok, at{x,y}, stack['safe scene dN Type WxH'], wins{scene,id,safe,type,depth,title}} — wins получит pointerdown; '!' — сцена под забравшей клик; объект, добавленный в этом кадре, виден со следующего кадра (и настоящий клик в тот же момент его не видит)
   itd.zones('office:slot:0', 'office:master:0') — где зона A перекрыта B и наоборот (сетка 1 px, тот же хит-тест): {aUnderB[{x,y,w,h}], bUnderA[…], area{a, aUnderB, b, bUnderA}}
   itd.offline()                     — последний офлайн-догон страницы {ticks, days, shown, at, droppedAt, leftAt, liveTicks, open, paused, seq, awayId} — liveTicks: шло вживую, пока сервер не заметил уход: shown:false — догон внутри дня, окна «Пока вас не было» не было; пока окно открыто, партия на паузе; ПОСЛЕДНИЙ, не «текущий»: seq — номер догона на странице, awayId — itd.away, во время которого пришёл (null — F5/реконнект); сверять по ключу, не по at
   await itd.away(5, {mode, timeout}) — уход на 5 с без ухода со страницы и возврат в ту же партию (тот же sid: песочницы или владельца): mode 'close' — как закрытая вкладка (close-фрейм, сервер знает сразу), 'net' — как обрыв сети (POST /api/debug/drop: сервер молчит и замечает уход своим таймаутом чтения — ITGAME_READ_TIMEOUT, 30 с; timeout — мс для этого соединения; до того партия идёт вживую) → {ok, mode, sid, leftAt, back, resumed, rev, drop{at, timeoutMs, noticeBy}, awayId — номер ухода, offline — догон ЭТОГО ухода (offline.awayId === awayId) или null}; пока в уходе — команды not_connected, сокет reconnecting

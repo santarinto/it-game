@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "d02b783af499",
+  "hash": "de0e1bfba9a4",
   "methods": {
     "version": {
       "kind": "prop",
@@ -232,7 +232,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "ScreenMap",
-      "doc": "Карта экрана одним вызовом (ITGAME-72): {meta, n, items}. meta — sha, tab\n(sid), day, clock, t, bal, speed, phase, staff, pay, hudClock/hudBal (что\nнарисовано в HUD, рядом с серверными clock/bal), blocker, title (заголовок\nверхнего окна), stale (последний itd.stale()). items — строки 'safe|подпись|x|y|флаги' по видимым\nинтерактивам с id: x/y — центр в CSS px окна, с frame — в рамке снимка такой\nширины; флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), D —\nнеактивна (нет денег/мест). free — только без X, scene — одна сцена.",
+      "doc": "Карта экрана одним вызовом (ITGAME-72): {meta, n, items}. meta — sha, tab\n(sid), day, clock, t, bal, speed, phase, staff, pay, hudClock/hudBal (что\nнарисовано в HUD, рядом с серверными clock/bal), blocker, title (заголовок\nверхнего окна), stale (последний itd.stale()). items — строки 'safe|подпись|x|y|флаги' по видимым\nинтерактивам с id: подпись — тексты, целиком лежащие в рамке элемента (сосед,\nчей центр лёг на её кромку, — не подпись), x/y — центр в CSS px окна, с frame — в рамке снимка такой\nширины; флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), D —\nнеактивна (нет денег/мест). free — только без X, scene — одна сцена.",
       "examples": [
         "itd.screen()",
         "itd.screen({ free: true, frame: 1280 })"
@@ -274,7 +274,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "StackResult",
-      "doc": "Стек под точкой по НАСТОЯЩЕМУ хит-тесту Phaser (InputManager.hitTest:\nhitArea, камера, видимость контейнеров; порядок — sortGameObjects по\nrenderList камеры; сцены сверху вниз, globalTopOnly + topOnly). Точка —\nцентр (cx/cy) объекта по id/safe-id или мировые gx, gy (1280×720).\nstack — все interactive под точкой сверху вниз ('safe scene dN Type WxH';\n'!' — сцена ниже забравшей клик), wins — кто получит pointerdown.\nhit() и флаг X в screen() — тот же хит-тест, только верх в центре объекта.",
+      "doc": "Стек под точкой по НАСТОЯЩЕМУ хит-тесту Phaser (InputManager.hitTest:\nhitArea, камера, видимость контейнеров; порядок — sortGameObjects по\nrenderList камеры; сцены сверху вниз, globalTopOnly + topOnly). Точка —\nцентр (cx/cy) объекта по id/safe-id или мировые gx, gy (1280×720).\nstack — все interactive под точкой сверху вниз ('safe scene dN Type WxH';\n'!' — сцена ниже забравшей клик), wins — кто получит pointerdown.\nhit() и флаг X в screen() — тот же хит-тест, только верх в центре объекта.\nОбъект, добавленный в этом кадре, виден со следующего кадра (ITGAME-113):\nsetInteractive() ставит его в очередь input-плагина, в список хит-теста он\nпопадает на следующем шаге лупа — и настоящий клик в тот же момент его\nтоже не видит (уходит тому, кто под ним). Нужен сразу — дождаться кадра:\nawait new Promise(r => requestAnimationFrame(r)); в скрытой вкладке кадр\nпрогревает сам stack().",
       "examples": [
         "itd.stack('office:slot:0')",
         "itd.stack(260, 190).wins"

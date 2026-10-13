@@ -14,6 +14,13 @@
 //       hudClock/hudBal — нарисованное; blocker() отдаёт safe и title
 //   S2  btn:next_day — без X, точка = центр в CSS px; btn:menu под затемнением — X; free и frame
 //   S3  $100 — у btn:pc флаг D в screen() и disabled true в nodes() (ITGAME-72)
+//   S4  (ITGAME-113) подпись в screen() — тексты целиком в рамке кнопки: карточка события под окном
+//       «Выйти в меню?» — ✕ окна центром на верхней кромке btn.event.1 (по старому правилу приклеивался:
+//       «Отказаться (−$27) ✕»), подпись btn:event:1 — только её собственный текст, флаг X; modal:close — «✕»
+//   H3  (ITGAME-113) stack() и объект, добавленный в этом кадре: сразу после add.rectangle().setInteractive()
+//       он в _pendingInsertion, stack() его не видит (wins null) — и настоящий mousedown в канвас в тот же
+//       момент Phaser ему не отдаёт (trace: wins null, got []); после одного requestAnimationFrame stack().wins —
+//       он, настоящий клик мышью — тоже он (trace: wins и got qa:h3)
 //   V1  itd.stale() на свежей вкладке: stale false, dist = client = version.sha, штамп sha в #topbar (ITGAME-78)
 //   V2  index.html стенда с другим sha (подмена ответа fetch('/')) → stale true, метка «устарело, обнови»
 //       видна, высота #topbar та же; ответ снова свой → метка скрыта
@@ -510,6 +517,96 @@ async function run() {
     // Деньги обратно: $100 при 0 сотрудниках < MinCostToEarn ($300 найм) —
     // конец дня ушёл бы в deadlock/game_over, а не в day_report (см. шапку).
     await page.evaluate(() => window.itd.set({ money: 5000 }))
+
+    // ── S4 (ITGAME-113): подпись в screen() — тексты ЦЕЛИКОМ в рамке кнопки, не всё, чей центр в ней.
+    // Карточка события (btn.event.1, глубина 41) под окном «Выйти в меню?» (70): ✕ окна стоит центром на
+    // верхней кромке btn.event.1 — старое правило клеило его в подпись «Отказаться (−$27) ✕». Событие ставит
+    // itd.restore, как qa:slots EV1; сейв до него возвращается после — дедлайн не остаётся в плане дня.
+    const saveS4 = await page.evaluate(async () => (await window.itd.snapshot()).save)
+    await page.evaluate(async (tick) => { await window.itd.restore({ activeEvent: { ID: 'deadline', Tick: tick } }) }, saveS4.tickInDay)
+    const evS4 = await page.evaluate(() =>
+      window.itd.wait(() => window.itd.ids().some((n) => n.id === 'btn.event.1'), 5000).then(() => true, () => false))
+    await page.evaluate(() => window.itd.click('btn.menu'))
+    await delay(200)
+    const s4 = await page.evaluate(() => {
+      const sc = window.itd.screen()
+      const nodes = window.itd.nodes()
+      const geo = (n) => n && { cx: n.cx, cy: n.cy, w: Math.round(n.w * 10) / 10, h: Math.round(n.h * 10) / 10 }
+      const btn = nodes.find((n) => n.id === 'btn.event.1' && n.visible)
+      const x = nodes.find((n) => n.id === 'modal.close' && n.visible)
+      // собственная подпись кнопки — Text в центре её рамки (showEvent: x + w/2, 212)
+      const own = btn && nodes.find((n) => n.type === 'Text' && n.visible && n.text && Math.abs(n.cx - btn.cx) <= 1 && Math.abs(n.cy - btn.cy) <= 2)
+      const row = (safe) => sc.items.find((i) => i.startsWith(safe + '|'))?.split('|')
+      return {
+        title: sc.meta.title, ev1: row('btn:event:1'), ev0: row('btn:event:0'), close: row('modal:close'),
+        own: own ? own.text.replace(/\s+/g, ' ').trim().replace(/\|/g, '/').slice(0, 22) : null, btn: geo(btn), x: geo(x),
+      }
+    })
+    // Предусловие кейса: центр ✕ в рамке btn.event.1 (±2 — старое правило его брало), а рамка ✕ — нет.
+    const s4Pre = !!s4.btn && !!s4.x &&
+      Math.abs(s4.x.cx - s4.btn.cx) <= s4.btn.w / 2 + 2 && Math.abs(s4.x.cy - s4.btn.cy) <= s4.btn.h / 2 + 2 &&
+      Math.abs(s4.x.cy - s4.btn.cy) + s4.x.h / 2 > s4.btn.h / 2 + 2
+    check(
+      'S4: окно выхода над карточкой события — подпись btn:event:1 без ✕ окна (центр ✕ на её кромке), только свой текст, флаг X; modal:close — «✕»',
+      evS4 && s4Pre && s4.title === 'Выйти в меню?' && !!s4.ev1 && s4.own !== null && s4.ev1[1] === s4.own && !s4.ev1[1].includes('✕') &&
+        s4.ev1[4].includes('X') && !!s4.ev0 && !s4.ev0[1].includes('✕') && s4.close?.[1] === '✕',
+      JSON.stringify({ evS4, pre: s4Pre, ...s4 }),
+    )
+    await page.evaluate(() => window.itd.click('modal.close'))
+    await delay(150)
+    await page.evaluate(async (save) => { await window.itd.restore(save) }, saveS4)
+    await page.evaluate(() =>
+      window.itd.wait(() => !window.itd.ids().some((n) => n.id.startsWith('btn.event.')), 5000).then(() => true, () => false))
+
+    // ── H3 (ITGAME-113): stack() и объект, добавленный в этом кадре. setInteractive() ставит его в
+    // _pendingInsertion, в _list (список хит-теста) его переносит preUpdate сцены на следующем шаге лупа.
+    // stack() — настоящий хит-тест: сразу объекта не видит, и настоящий mousedown, разобранный Phaser в тот
+    // же момент (его DOM-обработчик синхронный), тоже до него не доходит. Через кадр — видят оба.
+    const h3 = await page.evaluate(async () => {
+      const game = window.__itd
+      const sc = game.scene.getScene('hud')
+      const pt = [[24, 700], [640, 700], [1256, 700], [24, 400], [640, 400]].find(([px, py]) => window.itd.stack(px, py).stack.length === 0)
+      if (!pt) return null
+      const [x, y] = pt
+      const tr = window.itd.trace.start({ maxMs: 20000 })
+      const rect = sc.add.rectangle(x, y, 40, 30, 0xff00ff).setDepth(999).setInteractive()
+      rect.setData('id', 'qa.h3')
+      window.__qaH3 = rect
+      const queued = sc.input._pendingInsertion.includes(rect) && !sc.input._list.includes(rect)
+      const now = window.itd.stack(x, y)
+      const c = game.canvas.getBoundingClientRect()
+      const k = c.width / 1280
+      const css = { x: c.left + x * k, y: c.top + y * k }
+      const ev = (type) => new MouseEvent(type, { clientX: css.x, clientY: css.y, bubbles: true, cancelable: true, button: 0 })
+      game.canvas.dispatchEvent(ev('mousedown'))
+      game.canvas.dispatchEvent(ev('mouseup'))
+      await new Promise((r) => requestAnimationFrame(r)) // рецепт из JSDoc stack(): дождаться кадра
+      const listed = sc.input._list.includes(rect)
+      const next = window.itd.stack(x, y)
+      return { x, y, css, id: tr.id, queued, listed, now: { wins: now.wins?.id ?? null, n: now.stack.length }, next: { wins: next.wins?.id ?? null, stack: next.stack } }
+    })
+    if (h3) {
+      await page.mouse.click(h3.css.x, h3.css.y) // настоящий клик мышью — уже после кадра
+      await delay(150)
+    }
+    const h3tr = h3 && await page.evaluate((id) => {
+      const tr = window.itd.trace.stop(id)
+      window.__qaH3?.destroy()
+      delete window.__qaH3
+      return tr.pointer.map((p) => ({ type: p.type, wins: p.wins?.id ?? null, got: p.got }))
+    }, h3.id)
+    check(
+      'H3: объект, добавленный в этом кадре, — в _pendingInsertion: stack().wins null, mousedown в тот же момент Phaser ему не отдал (trace: wins null, got [])',
+      !!h3 && h3.queued && h3.now.wins === null && h3.now.n === 0 && h3tr?.length === 4 &&
+        h3tr.slice(0, 2).every((p) => p.wins === null && p.got.length === 0),
+      JSON.stringify({ h3, pointer: h3tr }),
+    )
+    check(
+      'H3: через один requestAnimationFrame — в _list, stack().wins он; настоящий клик мышью Phaser отдал ему (trace: wins и got qa:h3)',
+      !!h3 && h3.listed && h3.next.wins === 'qa.h3' && !!h3.next.stack[0]?.startsWith('qa:h3 hud ') &&
+        !!h3tr && h3tr.slice(2).every((p) => p.wins === 'qa.h3' && p.got.length === 1 && p.got[0] === 'qa:h3'),
+      JSON.stringify({ next: h3?.next, pointer: h3tr?.slice(2) }),
+    )
 
     // ── B2: skipReports=1 — смена дня без модалки, sound/toast по прибыли
     await page.evaluate(() => localStorage.setItem('itd.skipReports', '1'))
