@@ -817,7 +817,10 @@ documenting separately:
   visibility is the whole parent chain, effective alpha the product along it;
   the background under a text is looked up in one flat render order where a
   container's children follow the container (so `room.tooltip.bg` is found).
-  `itd.overlaps()` (text-text, occlusion) still reads the top level only;
+  Since ITGAME-117 `itd.overlaps()` (text-text, occlusion) uses the same flat
+  render order: texts and covering rectangles inside containers count, the
+  layer of a child is its top-level container's `depth`, "above" means later
+  in render order, hidden/translucent ancestors hide/dim their children;
   `itd.offscreen()` checks a container as one box (its bounds union its children).
 - **`itd.log(n)`** — the ring buffer (200 entries, survives a console
   clear) of state/day/phase/speed/scene transitions, server errors and page

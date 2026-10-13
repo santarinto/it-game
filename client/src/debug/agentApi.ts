@@ -833,7 +833,9 @@ export interface ItdApi {
   wait(cond: (s: AgentState, srv: AgentServer) => boolean, timeoutMs?: number): Promise<AgentState>
   /**
    * Линтер вёрстки: kind text — тексты одного depth; occlusion — текст под
-   * непрозрачной плашкой; interactive — интерактив частично перекрыт
+   * непрозрачной плашкой (text и occlusion обходят и контейнеры — ITGAME-117:
+   * видимость по всей цепочке предков, альфа — произведение, слой ребёнка —
+   * depth верхнего контейнера, «выше» — по порядку отрисовки); interactive — интерактив частично перекрыт
    * интерактивом или текстом (вложенность целиком — не находка). Каждая
    * пара: ratio — площадь пересечения / площадь меньшего из пары (occlusion —
    * / площадь текста), threshold — порог, с которым сравнили. minAreaRatio
@@ -1828,7 +1830,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.trace.stop(id?)               — закрыть окно (без id — последнее) → тот же TraceResult, что у itd.trace() (+ id, windowMs = длина окна); нет окна — {ok:false, code:'no_trace'}. Пример: const {id} = itd.trace.start(); …клик…; const tr = itd.trace.stop(id); tr.pointer[0].wins, tr.sent
   itd.warm()                        — прогреть кадр вручную (шаги лупа); в скрытой вкладке itd делает это сам
   itd.wait(s => s.day === 2)        — промис: поллинг state()/server() до условия (таймаут 5с, второй аргумент — свой); готовность меню — wait(s => s.menuReady), до старта партии state() null, но menuReady уже честен
-  itd.overlaps({minAreaRatio}?)     — линтер вёрстки: kind: text — тексты одного depth; occlusion — текст под непрозрачной плашкой; interactive — интерактив частично перекрыт интерактивом или текстом (вложенность целиком — не находка); пара {scene, kind, a, b, overlap{w,h}, at{x,y}, ratio, threshold}: ratio — площадь пересечения / площадь меньшего из пары (occlusion — / площадь текста), threshold — порог сравнения; minAreaRatio 0..1 заменяет пороги по умолчанию (text/interactive 0, occlusion 0.25 + >50% по каждой оси; заданный minAreaRatio заменяет и правило по осям — для occlusion находок может стать больше): 0 — строгий режим, 0.3 — порог по площади для всех kind; затемнение модалки (markDim: отчёт дня, финал, «Пока вас не было», окна, обрыв связи) — не перекрывающий при любой альфе: что оно закрывает от клика — itd.hit()/stack()
+  itd.overlaps({minAreaRatio}?)     — линтер вёрстки: kind: text — тексты одного depth (в т.ч. внутри контейнеров, depth ребёнка = depth верхнего контейнера); occlusion — текст под непрозрачной плашкой (плашка тоже может быть внутри контейнера); interactive — интерактив частично перекрыт интерактивом или текстом (вложенность целиком — не находка); пара {scene, kind, a, b, overlap{w,h}, at{x,y}, ratio, threshold}: ratio — площадь пересечения / площадь меньшего из пары (occlusion — / площадь текста), threshold — порог сравнения; minAreaRatio 0..1 заменяет пороги по умолчанию (text/interactive 0, occlusion 0.25 + >50% по каждой оси; заданный minAreaRatio заменяет и правило по осям — для occlusion находок может стать больше): 0 — строгий режим, 0.3 — порог по площади для всех kind; затемнение модалки (markDim: отчёт дня, финал, «Пока вас не было», окна, обрыв связи) — не перекрывающий при любой альфе: что оно закрывает от клика — itd.hit()/stack()
   itd.offscreen()                   — линтер: вылезание за канвас 1280×720; + {scene:'page', type:'canvas'} — канвас не влез в окно (CSS px)
   itd.hit('btn.menu')               — попадёт ли НАСТОЯЩИЙ клик в центр объекта в него (хит-тест Phaser, как stack): {ok, at{x,y}, top{scene,id,safe,type,depth,title}} — top перехватит (затемнение отчёта поверх HUD); itd.click этого не видит
   itd.blocker()                     — что перекрывает ввод во весь холст (затемнение отчёта, модалка) или null: {scene, type, id, safe, depth, title — заголовок окна}

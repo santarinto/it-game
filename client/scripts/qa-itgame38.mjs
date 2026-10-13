@@ -72,6 +72,7 @@
 //   P3  itd.set({money}) — правка видна в adjust, книга сведена
 //   K1  (ITGAME-87) broken_pc: наведение на office.slot.1 (до зон мест — office.worker.1) — текст тултипа visible true; pointerout
 //       прячет контейнер — тот же текст в itd.text() visible false (раньше true); hit/stack — «узел невидим»
+//   N1  (ITGAME-117) overlaps() видит тексты и плашку внутри контейнера (text-text с соседом и с текстом верхнего уровня, occlusion); скрытый контейнер — 0
 //   K2  (ITGAME-87) soft_lock → конец дня → «ТУПИК» (game_over): overlaps() без записей от затемнения;
 //       снятая метка dim вернула бы их (контроль: > 0), метка возвращена — снова 0; у отчёта дня (C2) — тоже 0
 //   K3  (ITGAME-88) nodes().fill: маркер меню (Triangle) и плашки — '#rrggbb' = fillColor объекта, у Text — null
@@ -1135,6 +1136,37 @@ async function run() {
       'K1: тултип показан — visible true; контейнер скрыт (pointerout) — тот же текст visible false, хотя у самого Text visible true',
       k1.shown === true && k1.hidden === false && k1.kept && k1.container === false && k1.child === true,
       JSON.stringify(k1),
+    )
+    // N1 (ITGAME-117) — тексты и плашка внутри контейнера видны text-text/occlusion в overlaps()
+    const n117 = await pk.evaluate(() => {
+      const office = window.__itd.scene.getScene('office')
+      const mk = (o, id) => { o.setData('id', id); return o }
+      const st = { fontSize: '16px', color: '#ffffff' }
+      const top = mk(office.add.text(40, 640, 'ZZZZZZZZZZ', st).setDepth(5), 'qa117.top')
+      const in1 = mk(office.add.text(0, 0, 'AAAAAAAAAA', st), 'qa117.in1')
+      const in2 = mk(office.add.text(2, 2, 'BBBBBBBBBB', st), 'qa117.in2')
+      const cover = mk(office.add.rectangle(0, 0, 200, 60, 0x123456, 1).setOrigin(0, 0), 'qa117.cover')
+      const box = office.add.container(40, 640, [in1, in2, cover]).setDepth(5)
+      const mine = () => window.itd.overlaps().filter((e) => `${e.a}${e.b}`.includes('qa117.'))
+      const pair = (list, kind, x, y) => list.some((e) => e.kind === kind && [e.a, e.b].sort().join() === [x, y].sort().join())
+      const shown = mine()
+      box.setVisible(false)
+      const hidden = mine()
+      const nested = office.children.list.includes(in1)
+      for (const o of [top, box]) o.destroy()
+      return {
+        nested, hiddenCount: hidden.length,
+        textInIn: pair(shown, 'text', 'qa117.in1', 'qa117.in2'),
+        textInTop: pair(shown, 'text', 'qa117.in1', 'qa117.top'),
+        occl: pair(shown, 'occlusion', 'qa117.in1', 'qa117.cover'),
+        left: mine().length,
+        shown: shown.map((e) => `${e.kind}:${e.a}|${e.b}`),
+      }
+    })
+    check(
+      'N1: текст в контейнере: text-text с соседом по контейнеру и с текстом верхнего уровня, occlusion плашкой контейнера; скрытый контейнер — 0 записей',
+      n117.nested === false && n117.textInIn && n117.textInTop && n117.occl && n117.hiddenCount === 0 && n117.left === 0,
+      JSON.stringify(n117),
     )
     // K2 — «ТУПИК»: затемнение финала не находка overlaps()
     await pk.evaluate(async () => {

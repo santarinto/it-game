@@ -70,14 +70,6 @@ interface Node0 {
   getBounds(): Phaser.Geom.Rectangle
 }
 
-// Только верхний уровень сцены: на нём стоят text-text/occlusion в
-// findOverlaps (ITGAME-116: вложенные тексты там пока не видны — отдельная задача).
-function textObjs(scene: Phaser.Scene): Phaser.GameObjects.Text[] {
-  return scene.children.list.filter(
-    (o) => (o as unknown as { type?: string }).type === 'Text',
-  ) as unknown as Phaser.GameObjects.Text[]
-}
-
 // ITGAME-116: узел порядка отрисовки с учётом родителей. Phaser 3.90 в
 // Container.addHandler снимает ребёнка со списка сцены (removeFromDisplayList),
 // так что scene.children.list контейнерных детей не содержит (тултип кнопок:
@@ -87,30 +79,38 @@ interface FlatNode {
   obj: Phaser.GameObjects.GameObject
   visible: boolean
   alpha: number
+  // ITGAME-117: depth верхнего предка (у верхнего уровня — свой): рендер depth
+  // детей внутри контейнера не учитывает, слой ребёнка = слой его контейнера.
+  depth: number
 }
 
 // Порядок отрисовки: верхний уровень — по depth, внутри — по порядку в
 // children.list; содержимое контейнера идёт сразу за ним, в порядке своего list
 // (depth детей внутри контейнера рендер не учитывает). getBounds() ребёнка уже
 // мировой (Phaser применяет матрицу parentContainer), пересчитывать не нужно.
-function flatRender(scene: Phaser.Scene): FlatNode[] {
+// sorted=false (ITGAME-117) — тот же обход, но верхний уровень в порядке
+// scene.children.list: так идут циклы overlaps, чтобы порядок находок не менялся.
+function flatRender(scene: Phaser.Scene, sortByDepth = true): FlatNode[] {
   const top = scene.children.list
-  const sorted = [...top].sort((a, b) => {
+  const sorted = !sortByDepth ? [...top] : [...top].sort((a, b) => {
     const da = (a as unknown as { depth?: number }).depth ?? 0
     const db = (b as unknown as { depth?: number }).depth ?? 0
     return da !== db ? da - db : top.indexOf(a) - top.indexOf(b)
   })
   const out: FlatNode[] = []
-  const walk = (list: Phaser.GameObjects.GameObject[], visible: boolean, alpha: number): void => {
+  const walk = (
+    list: Phaser.GameObjects.GameObject[], visible: boolean, alpha: number, layer: number | null,
+  ): void => {
     for (const obj of list) {
-      const n = obj as unknown as { visible?: boolean; alpha?: number; list?: Phaser.GameObjects.GameObject[] }
+      const n = obj as unknown as { visible?: boolean; alpha?: number; depth?: number; list?: Phaser.GameObjects.GameObject[] }
       const v = visible && n.visible !== false
       const a = alpha * (n.alpha ?? 1)
-      out.push({ obj, visible: v, alpha: a })
-      if (n.list) walk(n.list, v, a)
+      const d = layer ?? n.depth ?? 0
+      out.push({ obj, visible: v, alpha: a, depth: d })
+      if (n.list) walk(n.list, v, a, d)
     }
   }
-  walk(sorted, true, 1)
+  walk(sorted, true, 1, null)
   return out
 }
 
@@ -136,13 +136,20 @@ export function findOverlaps(game: Phaser.Game, rawOpts?: OverlapOptions | null)
   const opts = normalizeOverlapOptions(rawOpts)
   const out: OverlapEntry[] = []
   for (const scene of game.scene.getScenes(true)) {
-    const list = scene.children.list
-    const texts = textObjs(scene).filter((t) => t.visible && t.alpha > 0.5)
+    // ITGAME-117: тексты и закрывающие узлы — через flatRender (контейнеры, эффективные
+    // visible/alpha, слой = depth верхнего предка). Обход — в порядке списка сцены
+    // (порядок находок как раньше), «выше» — по позиции в порядке отрисовки.
+    const pos = new Map<Phaser.GameObjects.GameObject, number>()
+    flatRender(scene).forEach((n, i) => pos.set(n.obj, i))
+    const flat = flatRender(scene, false)
+    const texts = flat.filter(
+      (n) => (n.obj as unknown as Node0).type === 'Text' && n.visible && n.alpha > 0.5,
+    )
     for (let i = 0; i < texts.length; i++) {
       for (let j = i + 1; j < texts.length; j++) {
-        const a = texts[i] as unknown as Node0
-        const b = texts[j] as unknown as Node0
-        if (a.depth !== b.depth) continue
+        const a = texts[i].obj as unknown as Node0
+        const b = texts[j].obj as unknown as Node0
+        if (texts[i].depth !== texts[j].depth) continue
         const ra = a.getBounds()
         const rb = b.getBounds()
         const w = Math.min(ra.right, rb.right) - Math.max(ra.x, rb.x)
@@ -164,23 +171,20 @@ export function findOverlaps(game: Phaser.Game, rawOpts?: OverlapOptions | null)
       }
 
       // Проверка: не закрыт ли видимый текст непрозрачным объектом (например, плашкой модала).
-      const t = texts[i]
-      const tIdx = list.indexOf(t)
-      const tDepth = t.depth ?? 0
+      const t = texts[i].obj as unknown as Node0
+      const tPos = pos.get(texts[i].obj) ?? 0
       const rt = t.getBounds()
       if (rt.width <= 0 || rt.height <= 0) continue
 
-      for (let k = 0; k < list.length; k++) {
-        const o = list[k] as unknown as Node0 & { fillAlpha?: number; isFilled?: boolean }
-        if (o === (t as unknown) || !o.visible || (o.alpha ?? 1) < 0.9) continue
+      for (const fn of flat) {
+        const o = fn.obj as unknown as Node0 & { fillAlpha?: number; isFilled?: boolean }
+        if (o === t || !fn.visible || fn.alpha < 0.9) continue
         if (isDim(o)) continue // ITGAME-87: затемнение модалки — не находка, при любой альфе
         if (o.type !== 'Rectangle' && o.type !== 'Image') continue
         if (o.type === 'Rectangle' && (o.isFilled === false || (o.fillAlpha ?? 1) < 0.9)) continue
 
-        const oDepth = o.depth ?? 0
-        if (oDepth >= 90) continue // технические слои: баннер реконнекта (90), обрыв связи и тосты (100); рамки ?debug=1 тут больше не живут (ITGAME-84)
-        const isAbove = oDepth > tDepth || (oDepth === tDepth && k > tIdx)
-        if (!isAbove) continue
+        if (fn.depth >= 90) continue // технические слои: баннер реконнекта (90), обрыв связи и тосты (100); рамки ?debug=1 тут больше не живут (ITGAME-84)
+        if ((pos.get(fn.obj) ?? 0) <= tPos) continue // выше — позже в порядке отрисовки
 
         const ro = o.getBounds()
         const w = Math.min(rt.right, ro.right) - Math.max(rt.x, ro.x)
@@ -195,7 +199,7 @@ export function findOverlaps(game: Phaser.Game, rawOpts?: OverlapOptions | null)
           out.push({
             scene: scene.scene.key,
             kind: 'occlusion',
-            a: nameOf(t as unknown as Node0),
+            a: nameOf(t),
             b: nameOf(o),
             overlap: { w: Math.round(w), h: Math.round(h) },
             at: { x: Math.round(Math.max(rt.x, ro.x)), y: Math.round(Math.max(rt.y, ro.y)) },
@@ -281,13 +285,17 @@ function insideRect(a: Phaser.Geom.Rectangle, b: Phaser.Geom.Rectangle): boolean
   return a.x >= b.x - 1 && a.y >= b.y - 1 && a.right <= b.right + 1 && a.bottom <= b.bottom + 1
 }
 
-// Пара двух Text верхнего уровня одного depth уже поймана циклом текст-текст
-// (kind 'text') — не дублируем её как 'interactive'.
+// Слой отрисовки: depth верхнего предка (depth детей контейнера рендер не учитывает).
+function layerOf(n: WalkNode): number {
+  let p: WalkNode = n
+  while (p.parentContainer) p = p.parentContainer as unknown as WalkNode
+  return p.depth ?? 0
+}
+
+// Пара двух Text одного слоя уже поймана циклом текст-текст (kind 'text',
+// ITGAME-117: в том числе вложенные в контейнеры) — не дублируем её как 'interactive'.
 function sameTextPair(a: WalkNode, b: WalkNode): boolean {
-  return (
-    a.type === 'Text' && b.type === 'Text' && !a.parentContainer && !b.parentContainer &&
-    (a.depth ?? 0) === (b.depth ?? 0)
-  )
+  return a.type === 'Text' && b.type === 'Text' && layerOf(a) === layerOf(b)
 }
 
 function findInteractiveOverlaps(scene: Phaser.Scene, opts: OverlapOptions): OverlapEntry[] {
