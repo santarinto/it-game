@@ -98,9 +98,9 @@ Notes:
   hex of 7–40 characters — anything else is ignored with a warning — then
   falls back to `git rev-parse`, then `dev`; the server falls back to
   `vcs.revision`, then `unknown`. `make build` and the QA self-serve build
-  from a checkout and need neither. **`tools/deploy` does not stamp yet**
-  (ITGAME-98; the retired `bin/deploy-local.sh` did): live releases read
-  `dev` / `unknown` until it passes the same two values. Check a release:
+  from a checkout and need neither. `tools/deploy` passes both as the short
+  sha (ITGAME-98, same as the retired `bin/deploy-local.sh`); releases built
+  before that read `dev` / `unknown`. Check a release:
   `curl -s https://<host>/ | grep -o '<meta name="build"[^>]*'`.
 - Production nginx answers `/api/*` with the SPA's `index.html`, so a tab
   cannot read the server's SHA there until `/api/version` is proxied to Go
@@ -596,13 +596,11 @@ actually on screen after this check (a hidden badge stays in the DOM as
 `display: none`, 0×0 — don't judge it by its presence; `false` also where there
 is no `#topbar`); `stale: null` means there is nothing to compare
 (vite dev serves no meta and hot-reloads anyway; a build with neither
-`BUILD_SHA` nor git reads `dev`). That is today's production and stage:
-`tools/deploy` does not stamp yet (ITGAME-98, see [Deploy](#deploy)), so
-there `stale` stays `null` and the badge never shows. A stamped release (as
-the retired `bin/deploy-local.sh` built them, ITGAME-81) is checked against
-the served `<meta name="build">`; on production `server` stays `null` until
-the owner installs the `/api/version` nginx block and ITGAME-98 stamps the
-server (unstamped, it answers `unknown`).
+`BUILD_SHA` nor git reads `dev`; so does a release built before
+`tools/deploy` stamped, ITGAME-98, see [Deploy](#deploy) — there `stale`
+stays `null` and the badge never shows). A stamped release (ITGAME-81) is
+checked against the served `<meta name="build">`; on production `server`
+stays `null` until the owner installs the `/api/version` nginx block.
 `itd.screen().meta.stale` carries the
 last result.
 

@@ -150,16 +150,21 @@ say "1/4 сборка клиента (docker $NODE_IMAGE, кэш $CACHE/npm)"
 # cross-checks contract codes/commands against the sibling ../server — a
 # client-only mount fails it with «нет /server» (caught by the first live
 # stage deploy, 08.10).
-docker run --rm --user "$uid:$gid" -e HOME=/tmp \
+# BUILD_SHA (ITGAME-81/98): в архиве нет .git — без него штамп сборки
+# (<meta name="build">, itd.version) читался бы 'dev'. Тот же короткий sha,
+# что штампует bin/deploy-local.sh (vite принимает hex 7..40).
+docker run --rm --user "$uid:$gid" -e HOME=/tmp -e BUILD_SHA="$sha7" \
     -v "$CACHE/npm:/tmp/.npm" -v "$REL:/work" -w /work/client "$NODE_IMAGE" \
     sh -c 'npm ci --no-audit --no-fund && npm run build'
 rm -rf "$REL/client/node_modules"
 
 say "2/4 сборка сервера (docker $GO_IMAGE, кэш $CACHE/go)"
+# -X ws.buildSHA (ITGAME-81/98): vcs.revision в архиве нет — без него
+# /api/version, заголовок журнала и agent_status отвечали бы 'unknown'.
 docker run --rm --user "$uid:$gid" -e HOME=/tmp \
     -e GOMODCACHE=/tmp/go/pkg/mod -e GOCACHE=/tmp/go/build -e GOFLAGS=-mod=readonly \
     -v "$CACHE/go:/tmp/go" -v "$REL:/src" -w /src/server "$GO_IMAGE" \
-    go build -trimpath -o /src/bin/itdirector ./cmd/server
+    go build -trimpath -ldflags "-X itdirector/internal/ws.buildSHA=$sha7" -o /src/bin/itdirector ./cmd/server
 [ -x "$REL/bin/itdirector" ] || fail "bin/itdirector не собрался"
 
 say "3/4 атомарный своп current -> $ID + рестарт $UNIT"

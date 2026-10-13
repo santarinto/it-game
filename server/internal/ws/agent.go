@@ -202,8 +202,7 @@ func ServerVersion() string { return serverVersion() }
 
 // buildSHA — sha релиза, вшитый линкером (ITGAME-81). Релиз собирается из
 // git archive (без .git) — vcs.revision там нет, и рецепт деплоя должен
-// передавать короткий sha (сегодня tools/deploy не штампует — ITGAME-98,
-// живой релиз откатывается на dev/unknown):
+// передавать короткий sha (tools/deploy передаёт его с ITGAME-98):
 //
 //	go build -ldflags "-X itdirector/internal/ws.buildSHA=<sha>"
 //
