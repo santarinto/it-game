@@ -5,7 +5,7 @@ import { client } from '../net'
 import { nav } from '../rooms'
 import type { CommandType, EmployeeInfo, OfficeInfo, StateMessage } from '../protocol'
 import { drawDebugFrames } from '../debug'
-import { tag } from '../debug/agentApi'
+import { markDisabled, tag } from '../debug/agentApi'
 import { partyModals } from '../ui/modal'
 import { ACTION_COL_CX, ActionBar, actionColY, type ActionButton } from '../ui/actionButton'
 import { coreFree, routerGain } from '../network-preview'
@@ -500,7 +500,8 @@ export class OfficeScene extends Phaser.Scene {
       }
     }
 
-    // Полка быт-устройств: без них сотрудники ловят дебаффы.
+    // Полка быт-устройств: без них сотрудники ловят дебаффы. Кулер — первый:
+    // холодильник и кофеварка до него закрыты (ITGAME-102, сервер — need_cooler).
     const amenities: { key: 'cooler' | 'fridge' | 'coffee_machine'; owned: boolean; price: number; cmd: CommandType; label: string; hint: string }[] = [
       { key: 'cooler', owned: office.cooler, price: s.prices.cooler, cmd: 'buy_cooler', label: 'кулер',
         hint: 'Без кулера: жажда −10% с 12:00' },
@@ -512,9 +513,10 @@ export class OfficeScene extends Phaser.Scene {
     amenities.forEach((a, i) => {
       const ax = 220 + i * 130
       const ay = 660
-      const box = this.add.rectangle(ax, ay, 72, 72, 0x232640, a.owned ? 1 : 0.5)
+      const locked = !a.owned && a.key !== 'cooler' && !office.cooler
+      const box = this.add.rectangle(ax, ay, 72, 72, 0x232640, a.owned ? 1 : locked ? 0.25 : 0.5)
         .setStrokeStyle(2, a.owned ? 0x38b764 : 0x3a3f5c)
-        .setInteractive({ useHandCursor: !a.owned })
+        .setInteractive({ useHandCursor: !a.owned && !locked })
       this.objects.push(box)
       if (a.owned) {
         const img = tag(
@@ -524,6 +526,14 @@ export class OfficeScene extends Phaser.Scene {
         img.on('pointerover', () => this.showTextTooltip(`${a.label}\n${a.hint}`, ax, ay - 40))
         img.on('pointerout', () => this.hideTooltip())
         this.objects.push(img)
+      } else if (locked) {
+        markDisabled(tag(box, `office.amenity.${a.key}`), true)
+        this.objects.push(this.add.text(ax, ay, `${a.label}\n${fmtMoney(a.price)}\nнужен кулер`, {
+          fontFamily: FONT, fontSize: '10px', color: '#5d7275', align: 'center',
+        }).setOrigin(0.5).setAlpha(0.6))
+        box.on('pointerdown', () => playSfx(this, 'error'))
+        box.on('pointerover', () => this.showTextTooltip(`${a.label}\nСначала купите кулер`, ax, ay - 40))
+        box.on('pointerout', () => this.hideTooltip())
       } else {
         tag(box, `office.amenity.${a.key}`)
         this.objects.push(this.add.text(ax, ay, `${a.label}\n${fmtMoney(a.price)}`, {

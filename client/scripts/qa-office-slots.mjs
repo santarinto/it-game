@@ -939,6 +939,95 @@ async function caseSparePcs(browser) {
   }
 }
 
+// ── Кейс 9: полка быта — холодильник и кофеварка только после кулера (ITGAME-102) ──
+// spare_pcs: $5000, быта нет. Без кулера ячейки office.amenity.fridge/
+// coffee_machine закрыты (disabled, без руки-курсора, «нужен кулер»): настоящий
+// клик мышью ничего не шлёт, наведение — тултип «Сначала купите кулер»; после
+// покупки кулера те же клики шлют buy_fridge/buy_coffee и сервер их принимает.
+// Сервер отказывает и сам (need_cooler) — это go-тест TestFridgeAndCoffeeNeedCooler.
+async function caseAmenityShelf(browser) {
+  const page = await browser.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e)))
+  await page.setViewport({ width: 1920, height: 1080 })
+  try {
+    await loadScenario(page, 'spare_pcs', 'shelf')
+    const box = await canvasBox(page)
+    const SHELF = { cooler: 220, fridge: 350, coffee_machine: 480 } // OfficeScene.ts: ax = 220 + i * 130
+    const SHELF_Y = 660
+    const cell = (key) => page.evaluate((id) => {
+      const o = window.__itd.scene.getScene('office').children.list.find((n) => n.getData?.('id') === id)
+      if (!o) return null
+      return { type: o.type, disabled: o.getData('disabled') === true, cursor: o.input?.cursor ?? null }
+    }, `office.amenity.${key}`)
+    const tooltip = () => page.evaluate(() => {
+      const c = window.__itd.scene.getScene('office').children.list.find((o) => o.type === 'Container')
+      return { visible: c?.visible ?? null, text: c?.list?.find((o) => o.type === 'Text')?.text ?? '' }
+    })
+    const errorsSince = (t) => page.evaluate((t) => window.itd.net(50).last
+      .filter((m) => m.dir === 'in' && m.type === 'error' && m.at > t).map((m) => m.info?.code ?? '?'), t)
+
+    for (const key of ['fridge', 'coffee_machine']) {
+      const c = await cell(key)
+      check(`shelf: без кулера office.amenity.${key} закрыт (disabled, без руки-курсора)`,
+        c?.type === 'Rectangle' && c.disabled && c.cursor !== 'pointer', JSON.stringify(c))
+    }
+    const cooler0 = await cell('cooler')
+    check('shelf: кулер открыт (рука-курсор, не disabled)',
+      cooler0?.type === 'Rectangle' && !cooler0.disabled && cooler0.cursor === 'pointer', JSON.stringify(cooler0))
+
+    await page.mouse.move(box.x + SHELF.fridge * box.k, box.y + SHELF_Y * box.k)
+    await delay(150)
+    const tip = await tooltip()
+    check('shelf: наведение на закрытый холодильник — тултип «Сначала купите кулер»',
+      tip.visible === true && tip.text.includes('Сначала купите кулер'), JSON.stringify(tip))
+    await shot(page, 'shelf_locked')
+
+    let t0 = (await lastOut(page, 50)).at(-1)?.at ?? 0
+    for (const key of ['fridge', 'coffee_machine']) {
+      await worldClick(page, box, SHELF[key], SHELF_Y)
+    }
+    await delay(300)
+    const sentLocked = (await lastOut(page, 50)).filter((m) => m.at > t0)
+    check('shelf: клики по закрытым холодильнику и кофеварке ничего не шлют', sentLocked.length === 0,
+      JSON.stringify(sentLocked.map((m) => m.type)))
+
+    t0 = (await lastOut(page, 50)).at(-1)?.at ?? 0
+    await worldClick(page, box, SHELF.cooler, SHELF_Y)
+    await page.waitForFunction((id) => window.__itd.scene.getScene('office').children.list
+      .some((n) => n.type === 'Image' && n.getData?.('id') === id), { timeout: 5000 }, 'office.amenity.cooler')
+    const sentCooler = (await lastOut(page, 50)).filter((m) => m.at > t0).map((m) => m.type)
+    check('shelf: клик по кулеру шлёт buy_cooler, кулер встаёт', sentCooler.join() === 'buy_cooler',
+      JSON.stringify(sentCooler))
+    await page.mouse.move(0, 0)
+    for (const key of ['fridge', 'coffee_machine']) {
+      const c = await cell(key)
+      check(`shelf: после кулера office.amenity.${key} открыт`,
+        c?.type === 'Rectangle' && !c.disabled && c.cursor === 'pointer', JSON.stringify(c))
+    }
+
+    t0 = (await lastOut(page, 50)).at(-1)?.at ?? 0
+    await worldClick(page, box, SHELF.fridge, SHELF_Y)
+    await delay(400)
+    await worldClick(page, box, SHELF.coffee_machine, SHELF_Y)
+    await delay(400)
+    const sentOpen = (await lastOut(page, 50)).filter((m) => m.at > t0).map((m) => m.type)
+    const images = await dumpImages(page, 'office')
+    const bought = ['fridge', 'coffee_machine'].filter((k) => images.some((n) => n.id === `office.amenity.${k}` && n.key === k))
+    const errs = await errorsSince(t0)
+    check('shelf: после кулера клики шлют buy_fridge и buy_coffee, оба куплены, ошибок нет',
+      sentOpen.join() === 'buy_fridge,buy_coffee' && bought.length === 2 && errs.length === 0,
+      JSON.stringify({ sent: sentOpen, bought, errs }))
+
+    check('shelf: нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))
+    await shot(page, 'shelf_open')
+  } catch (e) {
+    check('shelf: кейс выполнен без ошибок', false, e instanceof Error ? e.message : String(e))
+  } finally {
+    await page.close().catch(() => {})
+  }
+}
+
 // ── Главный прогон: свежий браузер на кейс (без утечек между сценариями) ────
 let stopServer = null
 if (!process.env.QA_BASE) {
@@ -952,7 +1041,7 @@ if (!process.env.QA_BASE) {
 
 try {
   for (const runCase of [
-    caseFullOffice, caseLunch, caseBrokenPc, caseTooltipUnderModal, caseDebugFramesUnderWindows, caseServerRoomGateway, caseServerRoomEmptyRacks, caseSparePcs,
+    caseFullOffice, caseLunch, caseBrokenPc, caseTooltipUnderModal, caseDebugFramesUnderWindows, caseServerRoomGateway, caseServerRoomEmptyRacks, caseSparePcs, caseAmenityShelf,
   ]) {
     const browser = await puppeteer.launch({
       executablePath: chromePath(),

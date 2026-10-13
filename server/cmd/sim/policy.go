@@ -66,14 +66,15 @@ func greedyPolicy(g *game.Game, _ *rand.Rand, _ int) {
 			affordable(g, cfg.ServerLevels[0].Price) {
 			buy(g, game.CmdBuyServer, i, 0)
 		}
-		// быт: кулер и холодильник снимают дебаффы, кофе — бафф
+		// быт: кулер и холодильник снимают дебаффы, кофе — бафф;
+		// холодильник и кофеварка — только после кулера (ITGAME-102)
 		if !o.Cooler && affordable(g, cfg.CoolerPrice) {
 			buy(g, game.CmdBuyCooler, i, 0)
 		}
-		if !o.Fridge && affordable(g, cfg.FridgePrice) {
+		if o.Cooler && !o.Fridge && affordable(g, cfg.FridgePrice) {
 			buy(g, game.CmdBuyFridge, i, 0)
 		}
-		if !o.CoffeeMachine && affordable(g, cfg.CoffeeMachinePrice) {
+		if o.Cooler && !o.CoffeeMachine && affordable(g, cfg.CoffeeMachinePrice) {
 			buy(g, game.CmdBuyCoffee, i, 0)
 		}
 		// начальник открывает слоты, когда упёрлись в потолок штата
@@ -131,10 +132,10 @@ func randomPolicy(g *game.Game, rng *rand.Rand, _ int) {
 		if !o.Cooler {
 			doable = append(doable, action{game.CmdBuyCooler, i, cfg.CoolerPrice})
 		}
-		if !o.Fridge {
+		if o.Cooler && !o.Fridge {
 			doable = append(doable, action{game.CmdBuyFridge, i, cfg.FridgePrice})
 		}
-		if !o.CoffeeMachine {
+		if o.Cooler && !o.CoffeeMachine {
 			doable = append(doable, action{game.CmdBuyCoffee, i, cfg.CoffeeMachinePrice})
 		}
 	}

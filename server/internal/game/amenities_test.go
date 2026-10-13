@@ -34,8 +34,44 @@ func TestBuyAmenityValidation(t *testing.T) {
 	}
 	g2 := New(DefaultConfig())
 	g2.Money = 100
+	g2.Offices[0].Cooler = true
 	if err := g2.BuyFridge(0); err != ErrNotEnoughMoney {
 		t.Errorf("холодильник без денег: %v, хотим %v", err, ErrNotEnoughMoney)
+	}
+}
+
+// ITGAME-102: холодильник и кофеварка — только после кулера этого офиса;
+// отказ раньше проверки денег и ничего не списывает.
+func TestFridgeAndCoffeeNeedCooler(t *testing.T) {
+	g := New(DefaultConfig())
+	g.Money = 10000
+	if err := g.BuyFridge(0); err != ErrNeedCooler {
+		t.Errorf("холодильник без кулера: %v, хотим %v", err, ErrNeedCooler)
+	}
+	if err := g.BuyCoffeeMachine(0); err != ErrNeedCooler {
+		t.Errorf("кофеварка без кулера: %v, хотим %v", err, ErrNeedCooler)
+	}
+	if g.Money != 10000 || g.Offices[0].Fridge || g.Offices[0].CoffeeMachine {
+		t.Errorf("отказ что-то купил: Money=%d %+v", g.Money, g.Offices[0])
+	}
+	g.Money = 100
+	if err := g.BuyFridge(0); err != ErrNeedCooler {
+		t.Errorf("холодильник без кулера и без денег: %v, хотим %v", err, ErrNeedCooler)
+	}
+	g.Money = 10000
+	if err := g.BuyCooler(0); err != nil {
+		t.Fatalf("кулер: %v", err)
+	}
+	if err := g.BuyFridge(0); err != nil {
+		t.Errorf("холодильник после кулера: %v", err)
+	}
+	if err := g.BuyCoffeeMachine(0); err != nil {
+		t.Errorf("кофеварка после кулера: %v", err)
+	}
+	// кулер — по офису: кулер офиса 0 не открывает быт офиса 1
+	g.Offices[1].Unlocked = true
+	if err := g.BuyFridge(1); err != ErrNeedCooler {
+		t.Errorf("холодильник в офисе без своего кулера: %v, хотим %v", err, ErrNeedCooler)
 	}
 }
 

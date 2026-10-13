@@ -29,6 +29,7 @@ const (
 	ErrNotBroken        = Err("not_broken")
 	ErrNoEvent          = Err("no_event")
 	ErrBadOption        = Err("bad_option")
+	ErrNeedCooler       = Err("need_cooler")
 )
 
 // office проверяет адресата офисной команды: индекс и открытость.
@@ -296,8 +297,9 @@ func (g *Game) UpgradeCore() error {
 	return nil
 }
 
-// buyAmenity — общая покупка быт-устройства офиса.
-func (g *Game) buyAmenity(kind Command, office, price int, flag func(*Office) *bool) error {
+// buyAmenity — общая покупка быт-устройства офиса. needCooler — устройство
+// продаётся только после кулера этого офиса (холодильник и кофеварка, ITGAME-102).
+func (g *Game) buyAmenity(kind Command, office, price int, needCooler bool, flag func(*Office) *bool) error {
 	o, err := g.office(office)
 	if err != nil {
 		return err
@@ -305,6 +307,9 @@ func (g *Game) buyAmenity(kind Command, office, price int, flag func(*Office) *b
 	f := flag(o)
 	if *f {
 		return ErrEquipmentAlready
+	}
+	if needCooler && !o.Cooler {
+		return ErrNeedCooler
 	}
 	if g.Money < price {
 		return ErrNotEnoughMoney
@@ -316,17 +321,17 @@ func (g *Game) buyAmenity(kind Command, office, price int, flag func(*Office) *b
 
 // BuyCooler ставит кулер с водой (снимает дебафф жажды).
 func (g *Game) BuyCooler(office int) error {
-	return g.buyAmenity(CmdBuyCooler, office, g.cfg.CoolerPrice, func(o *Office) *bool { return &o.Cooler })
+	return g.buyAmenity(CmdBuyCooler, office, g.cfg.CoolerPrice, false, func(o *Office) *bool { return &o.Cooler })
 }
 
-// BuyFridge ставит холодильник (снимает дебафф голода).
+// BuyFridge ставит холодильник (снимает дебафф голода); только после кулера.
 func (g *Game) BuyFridge(office int) error {
-	return g.buyAmenity(CmdBuyFridge, office, g.cfg.FridgePrice, func(o *Office) *bool { return &o.Fridge })
+	return g.buyAmenity(CmdBuyFridge, office, g.cfg.FridgePrice, true, func(o *Office) *bool { return &o.Fridge })
 }
 
-// BuyCoffeeMachine ставит кофеварку (случайный бафф кофе).
+// BuyCoffeeMachine ставит кофеварку (случайный бафф кофе); только после кулера.
 func (g *Game) BuyCoffeeMachine(office int) error {
-	return g.buyAmenity(CmdBuyCoffee, office, g.cfg.CoffeeMachinePrice, func(o *Office) *bool { return &o.CoffeeMachine })
+	return g.buyAmenity(CmdBuyCoffee, office, g.cfg.CoffeeMachinePrice, true, func(o *Office) *bool { return &o.CoffeeMachine })
 }
 
 // Motivate — активный день: клик по сотруднику даёт бафф «мотивирован»

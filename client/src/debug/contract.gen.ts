@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "5d298d319943",
+  "hash": "d02b783af499",
   "methods": {
     "version": {
       "kind": "prop",
@@ -1278,7 +1278,7 @@ export const CONTRACT = {
           "doc": ""
         },
         "code": {
-          "type": "'not_enough_money' | 'no_free_office_slot' | 'no_free_pc' | 'no_free_rack_slot' | 'router_maxed' | 'wrong_phase' | 'staff_limit' | 'office_locked' | 'boss_already' | 'offices_maxed' | 'gateway_already' | 'bad_office' | 'equipment_already' | 'bad_slot' | 'server_maxed' | 'core_maxed' | 'motivate_cooldown' | 'not_broken' | 'no_event' | 'bad_option' | 'unknown_command' | 'bad_speed' | 'not_connected' | 'receipt_timeout' | 'disconnected'",
+          "type": "'not_enough_money' | 'no_free_office_slot' | 'no_free_pc' | 'no_free_rack_slot' | 'router_maxed' | 'wrong_phase' | 'staff_limit' | 'office_locked' | 'boss_already' | 'offices_maxed' | 'gateway_already' | 'bad_office' | 'equipment_already' | 'bad_slot' | 'server_maxed' | 'core_maxed' | 'motivate_cooldown' | 'not_broken' | 'no_event' | 'bad_option' | 'need_cooler' | 'unknown_command' | 'bad_speed' | 'not_connected' | 'receipt_timeout' | 'disconnected'",
           "optional": true,
           "doc": ""
         },
@@ -2684,6 +2684,7 @@ export const CONTRACT = {
         "equipment_already",
         "gateway_already",
         "motivate_cooldown",
+        "need_cooler",
         "no_event",
         "no_free_office_slot",
         "no_free_pc",

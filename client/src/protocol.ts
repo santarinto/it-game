@@ -172,6 +172,7 @@ export const SERVER_ERROR_CODES = [
   'not_broken',
   'no_event',
   'bad_option',
+  'need_cooler',
   'unknown_command',
   'bad_speed',
 ] as const
