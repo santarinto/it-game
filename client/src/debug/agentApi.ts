@@ -11,7 +11,7 @@ import { CONTRACT } from './contract.gen'
 import { checkStale, lastStale } from '../buildstamp'
 import { makeSandbox } from './sandbox'
 import type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult } from './sandbox'
-import { makeSpriteApi, triedKeys } from './spriteTry'
+import { isHiddenOriginal, makeSpriteApi, triedKeys } from './spriteTry'
 import type { SpriteApi } from './spriteTry'
 export type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult }
 import type { StaleInfo } from '../buildstamp'
@@ -2188,6 +2188,7 @@ function makeApi(game: Phaser.Game): ItdApi {
       let textTextures = 0
       const tried = triedKeys()
       for (const key of game.textures.getTextureKeys()) {
+        if (isHiddenOriginal(key)) continue // оригинал под пробой itd.sprite.try — не отдельная текстура
         if (INTERNAL_TEXTURES.has(key) || UUID_KEY.test(key)) {
           if (UUID_KEY.test(key)) textTextures++
           continue

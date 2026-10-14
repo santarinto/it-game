@@ -196,6 +196,38 @@ try {
   check('A2: assetSet() — active: tried; после reset снова png', a.tried.set.active === 'tried' && a.back.set.active === 'png' && a.back.row.source === 'png', { tried: a.tried.set, back: a.back.set })
   check('A3: help() описывает itd.sprite.try', a.help === true, a.help)
 
+  // C1: оригинал — кодоген-canvas из CanvasPool (ключ без PNG). remove() отдаёт canvas
+  // пулу, следующий add.text его забирает — reset обязан вернуть СВОЙ оригинал, а
+  // объект на кодогене (16px, растянут до 32) — сохранить экранный размер.
+  const c1 = await page.evaluate(async () => {
+    const game = window.__itd
+    const k = 'icon_money'
+    const scene = game.scene.getScenes(true)[0]
+    game.textures.remove(k)
+    const ct = game.textures.createCanvas(k, 16, 16)
+    ct.context.fillStyle = '#b13e53'
+    ct.context.fillRect(4, 4, 8, 8)
+    ct.refresh()
+    const img = scene.add.image(-500, -500, k).setDisplaySize(32, 32)
+    const orig = window.qa119.sig(k)
+    const r = await window.itd.sprite.try(k, window.qa119.blank(64, 64, '38b764'))
+    const afterTry = { w: Math.round(img.displayWidth), h: Math.round(img.displayHeight) }
+    const txt = scene.add.text(-500, -500, 'HELLO', { fontSize: '40px' })
+    const reset = window.itd.sprite.reset(k)
+    const back = window.qa119.sig(k)
+    const tex = game.textures.get(k).getSourceImage()
+    const out = {
+      ok: r.ok, reset: reset.ok, same: back === orig, size: [tex.width, tex.height], afterTry,
+      afterReset: { w: Math.round(img.displayWidth), h: Math.round(img.displayHeight) },
+      bound: img.texture === game.textures.get(k),
+    }
+    txt.destroy()
+    img.destroy()
+    return out
+  })
+  check('C1: кодоген-оригинал — reset возвращает свой canvas 16×16 байт в байт, а не canvas из пула', c1.ok && c1.reset && c1.same && c1.size[0] === 16 && c1.size[1] === 16, c1)
+  check('C1: экранный размер объекта сохраняется при try и reset (32×32)', c1.afterTry.w === 32 && c1.afterTry.h === 32 && c1.afterReset.w === 32 && c1.afterReset.h === 32 && c1.bound, c1)
+
   // S10: reset() без ключа снимает всё
   const s10 = await page.evaluate(async (k) => {
     // блок A уже вернул desk_pc — подменяем снова, чтобы reset() снимал два ключа

@@ -8,8 +8,6 @@ import { PALETTES, SPRITES } from '../assets/manifest'
 // живёт в памяти вкладки: в репо, dist, сейв и хранилища ничего не пишется,
 // перезагрузка её снимает. Контракт считает тот же код, что npm run check:sprites.
 
-type Source = HTMLImageElement | HTMLCanvasElement
-
 export interface SpriteReceipt {
   ok: boolean
   key?: string
@@ -47,9 +45,17 @@ export interface SpriteApi {
 
 const PNG_DATA_URL = /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/
 
-// Исходные источники подменённых ключей — то, что вернёт reset(); и то, что стоит сейчас.
-const originals = new Map<string, Source>()
+// Исходная текстура подменённого ключа не уничтожается, а прячется под служебным
+// ключом (renameTexture): remove() кодоген-текстуры отдал бы её canvas в CanvasPool,
+// и первый же add.text забрал бы его себе — reset вернул бы чужие пиксели (ревью
+// ITGAME-119). Texture-объект оригинала, его кадры и GL-текстура живут до reset.
+const ORIG_PREFIX = '__itd_orig:'
 const tried = new Map<string, SpriteTried>()
+
+// Служебный ключ спрятанного оригинала — itd.assets() его не аудирует.
+export function isHiddenOriginal(key: string): boolean {
+  return key.startsWith(ORIG_PREFIX)
+}
 
 // Ключи, подменённые через itd.sprite.try, — для пометки в itd.assets().
 export function triedKeys(): ReadonlySet<string> {
@@ -77,7 +83,10 @@ async function sha256Of(dataUrl: string): Promise<string | null> {
 interface Textured {
   texture: { key: string }
   frame: { name: string | number }
+  displayWidth: number
+  displayHeight: number
   setTexture(key: string, frame?: string | number): unknown
+  setDisplaySize?(w: number, h: number): unknown
 }
 
 function isTextured(o: unknown): o is Textured {
@@ -99,23 +108,31 @@ function usersOf(game: Phaser.Game, key: string): { obj: Textured; frame: string
   return out
 }
 
-// Заменить источник ключа. Занятый ключ add* не перезаписывает (инцидент ITGAME-11),
-// поэтому remove → add; объекты держат кадр снятой текстуры, их перевешиваем в том
-// же тике, до следующего кадра рендера.
-function swap(game: Phaser.Game, key: string, source: Source): number {
+// Поставить под key новую текстуру из source (или, без source, вернуть спрятанный
+// оригинал). Занятый ключ add* не перезаписывает (инцидент ITGAME-11): текущую
+// текстуру ключа сначала прячем (первый try) или снимаем (проба поверх пробы, reset).
+// Объекты перевешиваем в том же тике, до кадра рендера, и сохраняем им экранный
+// размер: кодоген-плейсхолдер 16px растянут до слота, PNG того же слота — 128px.
+function swap(game: Phaser.Game, key: string, source: HTMLImageElement | null): number {
   const spec = SPRITES[key]
-  const users = usersOf(game, key)
-  game.textures.remove(key)
-  if (spec.frames > 1) {
-    game.textures.addSpriteSheet(key, source as HTMLImageElement, {
-      frameWidth: spec.size, frameHeight: spec.size,
-    })
-  } else if (source instanceof HTMLCanvasElement) {
-    game.textures.addCanvas(key, source)
+  const users = usersOf(game, key).map((u) => ({ ...u, w: u.obj.displayWidth, h: u.obj.displayHeight }))
+  const hidden = ORIG_PREFIX + key
+  if (source === null) {
+    game.textures.remove(key)
+    game.textures.renameTexture(hidden, key)
   } else {
-    game.textures.addImage(key, source)
+    if (game.textures.exists(hidden)) game.textures.remove(key)
+    else game.textures.renameTexture(key, hidden)
+    if (spec.frames > 1) {
+      game.textures.addSpriteSheet(key, source, { frameWidth: spec.size, frameHeight: spec.size })
+    } else {
+      game.textures.addImage(key, source)
+    }
   }
-  for (const { obj, frame } of users) obj.setTexture(key, frame)
+  for (const { obj, frame, w, h } of users) {
+    obj.setTexture(key, frame)
+    obj.setDisplaySize?.(w, h)
+  }
   return users.length
 }
 
@@ -155,21 +172,19 @@ export function makeSpriteApi(game: Phaser.Game): SpriteApi {
       if (!game.textures.exists(key)) {
         return { ok: false, code: 'unknown_key', error: `текстуры '${key}' нет в игре — boot не закончен?` }
       }
-      // Исходник запоминаем один раз: второй try того же ключа его не перетирает.
-      if (!originals.has(key)) originals.set(key, game.textures.get(key).getSourceImage() as Source)
+      // Оригинал прячется один раз: второй try того же ключа снимает только пробу.
       const objects = swap(game, key, img)
       tried.set(key, { key, w, h, sha256, problems: res.problems })
       return { ok: true, key, w, h, sha256, objects, problems: res.problems, warnings: res.warnings, stats: res.stats }
     },
 
     reset(key) {
-      if (key !== undefined && !originals.has(key)) {
+      if (key !== undefined && !tried.has(key)) {
         return { ok: false, reset: [], code: 'not_tried', error: `ключ '${key}' не подменён — см. itd.sprite.list()` }
       }
-      const keys = key !== undefined ? [key] : [...originals.keys()]
+      const keys = key !== undefined ? [key] : [...tried.keys()]
       for (const k of keys) {
-        swap(game, k, originals.get(k) as Source)
-        originals.delete(k)
+        swap(game, k, null)
         tried.delete(k)
       }
       return { ok: true, reset: keys }
