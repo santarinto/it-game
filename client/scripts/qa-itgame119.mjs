@@ -183,8 +183,23 @@ try {
   }, KEY)
   check('S9: без crypto.subtle — ok:true, sha256 null', s9.ok === true && s9.sha256 === null, s9)
 
+  // A1–A3: подмена видна в аудите — visreg/QA не примут пробу за эталон
+  const a = await page.evaluate(async (k) => {
+    await window.itd.sprite.try(k, window.qa119.variant(k, 'ff00ff'))
+    const row = (key) => window.itd.assets().textures.find((t) => t.key === key)
+    const set = (key) => window.itd.assetSet().find((t) => t.key === key)
+    const tried = { row: row(k), set: set(k) }
+    window.itd.sprite.reset(k)
+    return { tried, back: { row: row(k), set: set(k) }, help: window.itd.help().includes('itd.sprite.try(') }
+  }, KEY)
+  check('A1: assets() помечает подменённый ключ source: tried и видит ff00ff вне палитры', a.tried.row.source === 'tried' && a.tried.row.offPalette.includes('#ff00ff'), a.tried.row)
+  check('A2: assetSet() — active: tried; после reset снова png', a.tried.set.active === 'tried' && a.back.set.active === 'png' && a.back.row.source === 'png', { tried: a.tried.set, back: a.back.set })
+  check('A3: help() описывает itd.sprite.try', a.help === true, a.help)
+
   // S10: reset() без ключа снимает всё
-  const s10 = await page.evaluate((k) => {
+  const s10 = await page.evaluate(async (k) => {
+    // блок A уже вернул desk_pc — подменяем снова, чтобы reset() снимал два ключа
+    await window.itd.sprite.try(k, window.qa119.variant(k, 'b13e53'))
     const r = window.itd.sprite.reset()
     return { r, list: window.itd.sprite.list(), same: window.qa119.sig(k) }
   }, KEY)

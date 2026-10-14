@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "cd094297cea8",
+  "hash": "54034666de7b",
   "methods": {
     "version": {
       "kind": "prop",
@@ -379,7 +379,7 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "{ textures: AssetReport[]; duplicates: { keys: string[]; expected: boolean; }[]; textTextures: number; }",
-      "doc": "Аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне\nпалитры манифеста этого ключа (manifest.palettes[spec.palette]), дубли\nключей.",
+      "doc": "Аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне\nпалитры манифеста этого ключа (manifest.palettes[spec.palette]), дубли\nключей.\nsource: tried — ключ подменён пробой itd.sprite.try (ITGAME-119), это не эталон.",
       "examples": [
         "itd.assets()"
       ]
@@ -388,7 +388,7 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "AssetSetEntry[]",
-      "doc": "Чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк).",
+      "doc": "Чем рисуют сцены: png (подменён из assets/), pixelart (кодоген-фолбэк) или\ntried (проба itd.sprite.try).",
       "examples": [
         "itd.assetSet()"
       ]
@@ -1142,9 +1142,9 @@ export const CONTRACT = {
           "doc": ""
         },
         "source": {
-          "type": "'png' | 'pixelart'",
+          "type": "'png' | 'pixelart' | 'tried'",
           "optional": false,
-          "doc": "чем заполнен ключ: подменённый PNG или кодоген"
+          "doc": "подменённый PNG, кодоген или проба itd.sprite.try (ITGAME-119)"
         },
         "w": {
           "type": "number",
@@ -1187,9 +1187,9 @@ export const CONTRACT = {
           "doc": "ai:<key> приехал с сервера"
         },
         "active": {
-          "type": "'png' | 'pixelart'",
+          "type": "'png' | 'pixelart' | 'tried'",
           "optional": false,
-          "doc": "чем реально рисуют сцены"
+          "doc": "чем реально рисуют сцены; tried — проба itd.sprite.try"
         }
       }
     },

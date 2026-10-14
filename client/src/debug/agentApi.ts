@@ -11,7 +11,7 @@ import { CONTRACT } from './contract.gen'
 import { checkStale, lastStale } from '../buildstamp'
 import { makeSandbox } from './sandbox'
 import type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult } from './sandbox'
-import { makeSpriteApi } from './spriteTry'
+import { makeSpriteApi, triedKeys } from './spriteTry'
 import type { SpriteApi } from './spriteTry'
 export type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult }
 import type { StaleInfo } from '../buildstamp'
@@ -266,7 +266,7 @@ const UUID_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
 
 export interface AssetReport {
   key: string
-  source: 'png' | 'pixelart' // чем заполнен ключ: подменённый PNG или кодоген
+  source: 'png' | 'pixelart' | 'tried' // подменённый PNG, кодоген или проба itd.sprite.try (ITGAME-119)
   w: number
   h: number
   transparentPct: number // доля прозрачных пикселей (alpha < 26)
@@ -277,7 +277,7 @@ export interface AssetReport {
 export interface AssetSetEntry {
   key: string
   pngLoaded: boolean // ai:<key> приехал с сервера
-  active: 'png' | 'pixelart' // чем реально рисуют сцены
+  active: 'png' | 'pixelart' | 'tried' // чем реально рисуют сцены; tried — проба itd.sprite.try
 }
 
 // Пиксельный анализ текстуры: любой источник (img/canvas) через drawImage.
@@ -1027,6 +1027,7 @@ export interface ItdApi {
    * Аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне
    * палитры манифеста этого ключа (manifest.palettes[spec.palette]), дубли
    * ключей.
+   * source: tried — ключ подменён пробой itd.sprite.try (ITGAME-119), это не эталон.
    * @example itd.assets()
    */
   assets(): {
@@ -1035,7 +1036,8 @@ export interface ItdApi {
     textTextures: number // растеризации Text-объектов (UUID-ключи), вне аудита
   }
   /**
-   * Чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк).
+   * Чем рисуют сцены: png (подменён из assets/), pixelart (кодоген-фолбэк) или
+   * tried (проба itd.sprite.try).
    * @example itd.assetSet()
    */
   assetSet(): AssetSetEntry[]
@@ -1869,8 +1871,10 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.sandbox.fakeOwner()           — «чужой» общий ключ itd.sid/itd.diff вызовом игры (проверить гард «Сдаться») → {sid, diff}; restore() вернёт настоящий
   itd.sandbox.restore()             — выйти из песочницы (из меню): {sidSame, diffSame, fake, restored, kept, removed} — sidSame/diffSame: общий ключ тот, что при входе (или fake); itd.sid/itd.diff: наше/стёртое значение возвращено, чужое (kept) не перетёрто; itd.onboard возвращается к значению при входе при любом отличии
   await itd.stale()                 — вкладка на старом JS? {client, server, dist, stale, at, shown}: shown — метка «устарело, обнови» видна на экране (скрытая живёт в DOM как display:none 0×0); client — sha вкладки, dist — sha сборки, которую стенд отдаст на F5, server — sha бинаря (/api/version); stale null — сверить не с чем (vite dev; сборка без git и без штампа BUILD_SHA/-ldflags — sha dev/unknown; со штампом sha есть); красная метка «устарело, обнови» в #topbar — та же проверка
-  itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне палитры манифеста ключа (hd32/sweetie16), дубли ключей
-  itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк)
+  itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне палитры манифеста ключа (hd32/sweetie16), дубли ключей; source: tried — проба itd.sprite.try
+  itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк); active: tried — проба itd.sprite.try
+  await itd.sprite.try(key, dataUrl) — примерка спрайта: PNG (data:image/png;base64,…) вместо текстуры ключа манифеста во вкладке → {ok, key, w, h, sha256, objects, problems, warnings, stats}; problems — контракт check:sprites, текстура стоит и с нарушениями; отказы unknown_key | bad_src | bad_size; в репо и сейв ничего не пишется
+  itd.sprite.list() / reset(key?)   — что подменено [{key, w, h, sha256, problems}] / вернуть исходную текстуру (без ключа — все), not_tried — ключ не подменён
   itd.reset()                       — снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум, отчёты)
   itd.pause() / resume() / speed(n) — темп сессии: set_speed 0/1/0..3 (серверный, живёт в сейве); до коннекта — {ok:false, code:'not_connected'}
   itd.step(2000) / step({ticks:60}) — пауза + промотка офлайн-движком (без кофе/событий/поломок/XP, день закрывается без day_report): мс (1 тик = 1000 мс, до 10 тиков) или {ticks: 1..10000}; из фазы отчёта — сначала next_day; сводка — в .advance и «debug · advance» в itd.snapshot().events; вне running (game_over) — 200 с advance.ticks 0, ничего не промотано
@@ -2182,15 +2186,17 @@ function makeApi(game: Phaser.Game): ItdApi {
       const textures: AssetReport[] = []
       const bySig = new Map<string, string[]>()
       let textTextures = 0
+      const tried = triedKeys()
       for (const key of game.textures.getTextureKeys()) {
         if (INTERNAL_TEXTURES.has(key) || UUID_KEY.test(key)) {
           if (UUID_KEY.test(key)) textTextures++
           continue
         }
-        // Источник: ai:<key> — сам PNG; <key> — PNG, если подменён
-        // источником ai:<key> в BootScene, иначе кодоген.
+        // Источник: ai:<key> — сам PNG; <key> — проба itd.sprite.try (ITGAME-119),
+        // PNG, если подменён источником ai:<key> в BootScene, иначе кодоген.
         let source: AssetReport['source'] = 'pixelart'
         if (key.startsWith('ai:')) source = 'png'
+        else if (tried.has(key)) source = 'tried'
         else if (sameSource(game, key, 'ai:' + key)) source = 'png'
         const res = analyzeTexture(game, key, source)
         if (!res) continue
@@ -2209,12 +2215,15 @@ function makeApi(game: Phaser.Game): ItdApi {
       return { textures, duplicates, textTextures }
     },
     assetSet() {
+      const tried = triedKeys()
       return AI_SPRITES.map((key) => {
         const pngLoaded = game.textures.exists('ai:' + key)
         return {
           key,
           pngLoaded,
-          active: pngLoaded && sameSource(game, key, 'ai:' + key) ? 'png' : 'pixelart',
+          active: tried.has(key)
+            ? 'tried'
+            : pngLoaded && sameSource(game, key, 'ai:' + key) ? 'png' : 'pixelart',
         }
       })
     },
