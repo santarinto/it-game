@@ -11,6 +11,8 @@ import { CONTRACT } from './contract.gen'
 import { checkStale, lastStale } from '../buildstamp'
 import { makeSandbox } from './sandbox'
 import type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult } from './sandbox'
+import { makeSpriteApi } from './spriteTry'
+import type { SpriteApi } from './spriteTry'
 export type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult }
 import type { StaleInfo } from '../buildstamp'
 export type { StaleInfo }
@@ -923,6 +925,22 @@ export interface ItdApi {
    * @example itd.sandbox.restore()
    */
   readonly sandbox: SandboxApi
+  /**
+   * Примерка спрайта (ITGAME-119): itd.sprite.try(key, dataUrl) ставит PNG вместо
+   * текстуры ключа манифеста во вкладке и перевешивает живые объекты сцен →
+   * {ok, key, w, h, sha256, objects, problems, warnings, stats} — problems считает
+   * тот же контракт, что npm run check:sprites (палитра, альфа, шум), текстура при
+   * нарушениях всё равно стоит. Отказы: unknown_key (ключа нет в sprites.json),
+   * bad_src (не data:image/png;base64 или PNG битый), bad_size (не size·frames ×
+   * size ключа). itd.sprite.list() → [{key, w, h, sha256, problems}];
+   * itd.sprite.reset(key?) → {ok, reset[]} — вернуть исходную текстуру (без ключа —
+   * все), not_tried — ключ не подменён. В репо, dist и сейв ничего не пишется,
+   * перезагрузка страницы снимает подмену.
+   * @example await itd.sprite.try('desk_pc', dataUrl)
+   * @example itd.sprite.list()
+   * @example itd.sprite.reset()
+   */
+  readonly sprite: SpriteApi
   /**
    * Стек под точкой по НАСТОЯЩЕМУ хит-тесту Phaser (InputManager.hitTest:
    * hitArea, камера, видимость контейнеров; порядок — sortGameObjects по
@@ -2107,6 +2125,7 @@ function makeApi(game: Phaser.Game): ItdApi {
     },
     stale: () => checkStale(),
     sandbox: makeSandbox(game),
+    sprite: makeSpriteApi(game),
     stack(safeOrX, gy) {
       warmIfHidden()
       let x: number

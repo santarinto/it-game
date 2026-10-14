@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "82c7a949a855",
+  "hash": "cd094297cea8",
   "methods": {
     "version": {
       "kind": "prop",
@@ -257,6 +257,17 @@ export const CONTRACT = {
         "itd.sandbox('acc3')",
         "itd.sandbox.fakeOwner()",
         "itd.sandbox.restore()"
+      ]
+    },
+    "sprite": {
+      "kind": "prop",
+      "type": "SpriteApi",
+      "readonly": true,
+      "doc": "Примерка спрайта (ITGAME-119): itd.sprite.try(key, dataUrl) ставит PNG вместо\nтекстуры ключа манифеста во вкладке и перевешивает живые объекты сцен →\n{ok, key, w, h, sha256, objects, problems, warnings, stats} — problems считает\nтот же контракт, что npm run check:sprites (палитра, альфа, шум), текстура при\nнарушениях всё равно стоит. Отказы: unknown_key (ключа нет в sprites.json),\nbad_src (не data:image/png;base64 или PNG битый), bad_size (не size·frames ×\nsize ключа). itd.sprite.list() → [{key, w, h, sha256, problems}];\nitd.sprite.reset(key?) → {ok, reset[]} — вернуть исходную текстуру (без ключа —\nвсе), not_tried — ключ не подменён. В репо, dist и сейв ничего не пишется,\nперезагрузка страницы снимает подмену.",
+      "examples": [
+        "await itd.sprite.try('desk_pc', dataUrl)",
+        "itd.sprite.list()",
+        "itd.sprite.reset()"
       ]
     },
     "stack": {
@@ -2747,6 +2758,141 @@ export const CONTRACT = {
         "open",
         "reconnecting"
       ]
+    },
+    "SpriteApi": {
+      "kind": "object",
+      "fields": {
+        "try": {
+          "type": "Promise<SpriteReceipt>",
+          "optional": false,
+          "doc": ""
+        },
+        "reset": {
+          "type": "SpriteResetResult",
+          "optional": false,
+          "doc": ""
+        },
+        "list": {
+          "type": "SpriteTried[]",
+          "optional": false,
+          "doc": ""
+        }
+      }
+    },
+    "SpriteReceipt": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "optional": false,
+          "doc": ""
+        },
+        "key": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
+        },
+        "w": {
+          "type": "number",
+          "optional": true,
+          "doc": ""
+        },
+        "h": {
+          "type": "number",
+          "optional": true,
+          "doc": ""
+        },
+        "sha256": {
+          "type": "string | null",
+          "optional": true,
+          "doc": "null — страница не в secure context, crypto.subtle нет"
+        },
+        "objects": {
+          "type": "number",
+          "optional": true,
+          "doc": "живых объектов сцен перевешено на новую текстуру"
+        },
+        "problems": {
+          "type": "string[]",
+          "optional": true,
+          "doc": "нарушения контракта; текстура при этом СТОИТ"
+        },
+        "warnings": {
+          "type": "string[]",
+          "optional": true,
+          "doc": ""
+        },
+        "stats": {
+          "type": "{ transparentPct: number; whitePct: number; noiseSummary: string; totalSpecks: number; maxSpecks: number; }",
+          "optional": true,
+          "doc": ""
+        },
+        "code": {
+          "type": "'unknown_key' | 'bad_src' | 'bad_size'",
+          "optional": true,
+          "doc": ""
+        },
+        "error": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
+        }
+      }
+    },
+    "SpriteResetResult": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "optional": false,
+          "doc": ""
+        },
+        "reset": {
+          "type": "string[]",
+          "optional": false,
+          "doc": ""
+        },
+        "code": {
+          "type": "'not_tried'",
+          "optional": true,
+          "doc": ""
+        },
+        "error": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
+        }
+      }
+    },
+    "SpriteTried": {
+      "kind": "object",
+      "fields": {
+        "key": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "w": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "h": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "sha256": {
+          "type": "string | null",
+          "optional": false,
+          "doc": ""
+        },
+        "problems": {
+          "type": "string[]",
+          "optional": false,
+          "doc": ""
+        }
+      }
     },
     "StackResult": {
       "kind": "object",

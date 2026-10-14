@@ -16,6 +16,7 @@
     "qa:hud": "node scripts/qa-itgame16.mjs",
     "qa:facade": "node scripts/qa-itgame38.mjs",
     "qa:slots": "node scripts/qa-office-slots.mjs",
+    "qa:sprite-try": "node scripts/qa-itgame119.mjs",
     "qa:trace": "node scripts/qa-itgame37.mjs",
     "qa:contract": "node scripts/qa-itgame39.mjs",
     "qa:party": "node scripts/qa-itgame47.mjs",
