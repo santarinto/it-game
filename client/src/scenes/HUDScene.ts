@@ -759,7 +759,8 @@ export class HUDScene extends Phaser.Scene {
           const msg = newAchs.length === 1
             ? `Достижение: «${newAchs[0].title}»!`
             : `Достижения: ${newAchs.map((a) => a.title).join(', ')}`
-          this.toast(msg, 4000, { bg: '#2a6b3f', icon: 'icon_trophy' })
+          // одно достижение — его собственная иконка, несколько — общий кубок (ITGAME-83)
+          this.toast(msg, 4000, { bg: '#2a6b3f', icon: newAchs.length === 1 ? newAchs[0].icon : 'icon_trophy' })
         }
       } catch (err) {
         console.error('Ошибка обновления мета-прогресса в HUD:', err)

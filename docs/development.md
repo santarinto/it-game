@@ -827,8 +827,9 @@ documenting separately:
   errors, plus, since ITGAME-38, every `playSfx` call and HUD toast
   (`{type:'sound', key, name, volume, scene, ok}` /
   `{type:'toast', text, where, ms, bg, scene, icon?}` — `icon` is the sprite
-  key drawn left of the text, `icon_trophy` on an achievement toast since
-  ITGAME-83, which replaced the 🏆 prefix in `text`), routed through
+  key drawn left of the text: on an achievement toast since ITGAME-83 the
+  achievement's own `ach_*` when it is one, `icon_trophy` when several unlock
+  at once; the emoji prefix in `text` is gone), routed through
   `client/src/uibus.ts`; since ITGAME-48 also one boot entry for the fonts,
   `{type:'font', ok, ms, faces, font, reason?}` — `ok:false` (load error or
   the 4 s timeout) means the whole session renders with plain `monospace`.

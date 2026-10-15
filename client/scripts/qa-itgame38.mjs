@@ -1333,18 +1333,21 @@ async function run() {
           const staff = await window.itd.wait((s) => s.staff === 1, 5000).then((s) => s.staff, () => null)
           const t0 = window.itd.state().tickInDay
           await window.itd.wait((s) => s.tickInDay >= t0 + 3, 10000).catch(() => null)
-          // ITGAME-83: тост достижения помечен спрайтом icon_trophy (поле icon), а не эмодзи 🏆 в тексте
-          const trophies = window.itd.log(200).filter((e) => e.type === 'toast' && e.icon === 'icon_trophy').map((e) => e.text)
+          // ITGAME-83: тост достижения помечен спрайтом (поле icon), а не эмодзи в тексте; одно
+          // достижение — его собственная иконка (ach_first_hire), несколько — общий icon_trophy
+          const achToasts = window.itd.log(200).filter((e) => e.type === 'toast' && /^Достижени/.test(e.text ?? ''))
+          const trophies = achToasts.map((e) => e.text)
+          const firstHire = achToasts.filter((e) => e.text.includes('Первые кадры')).map((e) => e.icon)
           const hud = window.__itd.scene.getScene('hud')
-          const toastIcons = hud.children.list.filter((o) => o.texture?.key === 'icon_trophy').map((o) => Math.round(o.displayWidth))
-          return { up, sid, hudBal, receipt, staff, ticks: window.itd.state().tickInDay - t0, trophies, toastIcons }
+          const toastIcons = hud.children.list.filter((o) => o.texture?.key === 'ach_first_hire').map((o) => Math.round(o.displayWidth))
+          return { up, sid, hudBal, receipt, staff, ticks: window.itd.state().tickInDay - t0, trophies, firstHire, toastIcons }
         })
       : null
     check(
-      'L2: партия стартует, hudBal нарисован, hire ok; «Первые кадры» — один тост за 3+ тика, тосты достижений не повторяются',
+      'L2: партия стартует, hudBal нарисован, hire ok; «Первые кадры» — один тост за 3+ тика с иконкой ach_first_hire 24px, тосты достижений не повторяются',
       lb2?.up === true && typeof lb2?.sid === 'string' && /^\$[\d,]+$/.test(lb2.hudBal ?? '') && lb2.receipt?.ok === true &&
         lb2.staff === 1 && lb2.ticks >= 3 && lb2.trophies.filter((t) => t.includes('Первые кадры')).length === 1 &&
-        new Set(lb2.trophies).size === lb2.trophies.length && lb2.toastIcons.includes(24),
+        new Set(lb2.trophies).size === lb2.trophies.length && lb2.firstHire.join() === 'ach_first_hire' && lb2.toastIcons.includes(24),
       JSON.stringify(lb2),
     )
 
