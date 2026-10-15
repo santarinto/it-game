@@ -46,6 +46,62 @@
     "icon_chart": {
       "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/icon_chart.png --key icon_chart --smooth --chroma auto; кнопка «Статистика» 16px, заголовок окна 24px"
+    },
+    "icon_warning": {
+      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/icon_warning.png --key icon_warning --smooth --chroma auto; заголовки окон «Партия в другой вкладке» и «Начать заново?» 24px"
+    },
+    "icon_lock": {
+      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/icon_lock.png --key icon_lock --smooth --chroma auto; плашка «Заблокировано» на карточке достижения (текст 10px)"
+    },
+    "ach_first_hire": {
+      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_first_hire.png --key ach_first_hire --smooth --chroma auto; иконка достижения «Первые кадры» (meta.ts first_hire), у заголовка карточки ~16px"
+    },
+    "ach_first_day": {
+      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_first_day.png --key ach_first_day --smooth --chroma auto; иконка достижения «Первый рабочий день» (meta.ts first_day), у заголовка карточки ~16px"
+    },
+    "ach_coffee_break": {
+      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_coffee_break.png --key ach_coffee_break --smooth --chroma auto; иконка достижения «Кофейная пауза» (meta.ts coffee_break), у заголовка карточки ~16px"
+    },
+    "ach_star_hunter": {
+      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_star_hunter.png --key ach_star_hunter --smooth --chroma auto; иконка достижения «Охотник за звёздами» (meta.ts star_hunter), у заголовка карточки ~16px"
+    },
+    "ach_survivor_10": {
+      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_survivor_10.png --key ach_survivor_10 --smooth --chroma auto; иконка достижения «10 дней без банкротства» (meta.ts survivor_10), у заголовка карточки ~16px"
+    },
+    "ach_three_offices": {
+      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_three_offices.png --key ach_three_offices --smooth --chroma auto; иконка достижения «Корпорация» (meta.ts three_offices), у заголовка карточки ~16px"
+    },
+    "ach_full_staff": {
+      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_full_staff.png --key ach_full_staff --smooth --chroma auto; иконка достижения «Полный штат» (meta.ts full_staff), у заголовка карточки ~16px"
+    },
+    "ach_core_max": {
+      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_core_max.png --key ach_core_max --smooth --chroma auto; иконка достижения «Ядро системы» (meta.ts core_max), у заголовка карточки ~16px"
+    },
+    "ach_network_36": {
+      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_network_36.png --key ach_network_36 --smooth --chroma auto; иконка достижения «36/36 в сети» (meta.ts network_36), у заголовка карточки ~16px"
+    },
+    "ach_millionaire": {
+      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_millionaire.png --key ach_millionaire --smooth --chroma auto; иконка достижения «Первый миллион» (meta.ts millionaire), у заголовка карточки ~16px"
+    },
+    "ach_clean_win": {
+      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_clean_win.png --key ach_clean_win --smooth --chroma auto; иконка достижения «Победа без аменити» (meta.ts clean_win), у заголовка карточки ~16px"
+    },
+    "ach_hardcore_win": {
+      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_hardcore_win.png --key ach_hardcore_win --smooth --chroma auto; иконка достижения «Хардкорный директор» (meta.ts hardcore_win; решение владельца 15.10 — свой кубок с красной эмблемой, не icon_trophy), у заголовка карточки ~16px"
     }
   },
   "aliases": {}

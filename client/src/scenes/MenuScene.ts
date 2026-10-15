@@ -146,7 +146,7 @@ export class MenuScene extends Phaser.Scene {
         .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true }),
       'menu.stats',
     )
-    // ITGAME-83: спрайт icon_chart вместо эмодзи 📊
+    // ITGAME-83: спрайт icon_chart вместо эмодзи графика
     const statsTxt = this.add
       .text(250, 665, 'Статистика', { fontFamily: FONT, fontSize: '12px', color: '#f4f4f4' })
       .setOrigin(0.5)
@@ -202,7 +202,7 @@ export class MenuScene extends Phaser.Scene {
         .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true }),
       'menu.achievements',
     )
-    // ITGAME-83: спрайт icon_trophy вместо эмодзи 🏆 — иконка рядом с Text, а не символ в строке
+    // ITGAME-83: спрайт icon_trophy вместо эмодзи кубка — иконка рядом с Text, а не символ в строке
     const achTxt = this.add
       .text(990, 665, `Достижения ${unlockedCount}/${totalCount}`, {
         fontFamily: FONT, fontSize: '12px', color: '#ffcd75',
@@ -525,19 +525,21 @@ export class MenuScene extends Phaser.Scene {
         .setStrokeStyle(1, strokeColor).setDepth(82)
 
       const titleColor = ach.unlocked ? '#ffcd75' : '#94b0c2'
-      const name = this.add.text(x + 12, y + 10, `${ach.icon} ${ach.title}`, {
+      const name = this.add.text(x + 12, y + 10, ach.title, {
         fontFamily: FONT, fontSize: '13px', color: titleColor,
       }).setDepth(83)
+      const nameIcon = attachIcon(name, ach.icon, { px: 16 })
 
       const desc = this.add.text(x + 12, y + 32, ach.desc, {
         fontFamily: FONT, fontSize: '11px', color: ach.unlocked ? '#f4f4f4' : '#94b0c2',
       }).setDepth(83)
 
-      const statusBadge = this.add.text(x + colW - 12, y + 10, ach.unlocked ? '✓ Получено' : '🔒 Заблокировано', {
+      const statusBadge = this.add.text(x + colW - 12, y + 10, ach.unlocked ? '✓ Получено' : 'Заблокировано', {
         fontFamily: FONT, fontSize: '10px', color: ach.unlocked ? '#38b764' : '#94b0c2',
       }).setOrigin(1, 0).setDepth(83)
+      const lockIcon = ach.unlocked ? [] : [attachIcon(statusBadge, 'icon_lock', { px: 12, gap: 4 })]
 
-      achCards.push(bg, name, desc, statusBadge)
+      achCards.push(bg, nameIcon, name, desc, ...lockIcon, statusBadge)
     })
 
     this.modalUI = [...frameUI, ...achCards]
@@ -637,7 +639,7 @@ export class MenuScene extends Phaser.Scene {
     })
     const pw = 620
     const ph = 260
-    const { frameUI, topY } = this.createModalFrame(pw, ph, '⚠️ ПАРТИЯ В ДРУГОЙ ВКЛАДКЕ', 0xffcd75, false)
+    const { frameUI, topY } = this.createModalFrame(pw, ph, 'ПАРТИЯ В ДРУГОЙ ВКЛАДКЕ', 0xffcd75, false, 'icon_warning')
 
     const textLines = [
       `Эта партия прямо сейчас открыта в другой вкладке браузера${day ? ` (день ${day})` : ''}.`,
@@ -692,7 +694,7 @@ export class MenuScene extends Phaser.Scene {
     })
     const pw = 640
     const ph = 250
-    const { frameUI, topY } = this.createModalFrame(pw, ph, '⚠️ НАЧАТЬ ЗАНОВО?', 0xffcd75, false)
+    const { frameUI, topY } = this.createModalFrame(pw, ph, 'НАЧАТЬ ЗАНОВО?', 0xffcd75, false, 'icon_warning')
     const s = this.summary
     const current = s && s.exists && s.alive ? `Текущая партия (${saveFacts(s)})` : 'Текущая сохранённая партия'
     const body = this.add.text(CX, topY + 66, [

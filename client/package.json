@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/gen-contract.mjs --check && tsc --noEmit && vite build && node scripts/check-sprites.mjs",
+    "build": "node scripts/gen-contract.mjs --check && tsc --noEmit && vite build && node scripts/check-sprites.mjs && node scripts/check-emoji.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test scripts/lib/*.test.mjs",
     "preview": "vite preview",
@@ -24,6 +24,7 @@
     "qa:report-pause": "node scripts/qa-itgame18.mjs",
     "qa:journal": "node scripts/qa-itgame46.mjs",
     "check:sprites": "node scripts/check-sprites.mjs",
+    "check:emoji": "node scripts/check-emoji.mjs",
     "gen:contract": "node scripts/gen-contract.mjs",
     "check:contract": "node scripts/gen-contract.mjs --check",
     "visreg": "node scripts/visreg.mjs"

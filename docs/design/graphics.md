@@ -112,6 +112,27 @@ sweetie16, не больше 32). Hex — в `sprites.json → palettes`, зде
 виден (подтвердила и заглушка); сжатие LINEAR без mipmaps честно до 2×, поэтому
 исходник 64 — для 16 и 32 px на экране, для 24 px нужен 48.
 
+**Набор ITGAME-83, 15.10.2026.** По пилоту сделаны все иконки интерфейса — 16 ключей
+`render: smooth`: `icon_trophy`, `icon_chart`, `icon_warning`, `icon_lock` и 12
+`ach_*` (свой ключ на каждое достижение `meta.ts`; у «Хардкорного директора» —
+свой кубок с красной эмблемой, не `icon_trophy`, решение владельца). Генерирует
+владелец (grok), каждую картинку — `sprite-remap --smooth --chroma auto`, команда в
+`note` ключа. Шаблон промта, который сработал:
+
+> Single game UI icon: ‹предмет, 2–3 цвета sweetie16 hex›. To be shown at 16 px on a
+> dark navy background (#232640). IMPORTANT: no dark outline or dark border at all;
+> instead a clearly visible light outline (#f4f4f4, about 3% of the icon width)
+> around the whole silhouette; no shadow under the object. Very simple bold shapes,
+> no fine details. Clean flat vector style with soft gradients, no drop shadow, no
+> text, no background — transparent PNG, square 1:1 canvas, object centered with
+> empty margin around it.
+
+Без абзаца IMPORTANT кайма пропадает (первый замок: тёмная дужка растворилась на
+`232640`); grok всё равно иногда рисует тёмный контур или тень (звезда, глобус) —
+на тёмной подложке это терпимо. Отдаёт то PNG с альфой, то JPG на тёмном фоне:
+`--chroma auto` снимает и то и другое (допуск по шуму фона, не 48 — иначе съедает
+почти чёрный контур).
+
 Пока не зафиксировано. По каждому пункту — предложение и что проверить.
 
 1. **Размер иконки.** Предложение: один класс `icon16` — 16 px на экране,
@@ -146,8 +167,8 @@ sweetie16, не больше 32). Hex — в `sprites.json → palettes`, зде
   `client/scripts/sprite-remap.mjs` квантизует произвольный вход в палитру
   ключа, даунскейлит nearest-neighbor, бинаризует альфу, чистит спеки и
   прогоняет контракт `check:sprites`. Для `render: smooth` — `--smooth`:
-  хромакей фона (`--chroma ff00ff` или `--chroma auto` — цвет по углам, на
-  прозрачном входе ключ пропускается; PNG и JPEG), квадрат вокруг силуэта с полем и
+  хромакей фона (`--chroma ff00ff` или `--chroma auto` — цвет по углам, допуск
+  по шуму фона, на прозрачном входе ключ пропускается; PNG и JPEG), квадрат вокруг силуэта с полем и
   площадная выборка с весом альфы, без палитры. От модели нужна картинка, а
   не соблюдение палитры.
 - **Задание** — набор, а не одна иконка: ключи манифеста, класс (размер,

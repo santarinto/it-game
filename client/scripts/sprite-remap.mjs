@@ -12,7 +12,7 @@
 //     [--downscale-nearest] [--despeckle N=0] [--bottom-margin N=0] \
 //     [--flip-x] [--place X,Y]
 //   node client/scripts/sprite-remap.mjs <in.png> <out.png> --key <ключ> --smooth \
-//     [--margin N=4] [--alpha N=128] [--chroma RRGGBB|auto] [--chroma-tol N=48]
+//     [--margin N=4] [--alpha N=128] [--chroma RRGGBB|auto] [--chroma-tol N=48; auto: 2× шум углов]
 //
 // --smooth (ITGAME-83) — отдельный путь для ключей render: 'smooth': генерация модели
 // любого размера → холст size×size площадной выборкой с весом альфы (без палитры,
@@ -80,7 +80,7 @@ function usageError(msg) {
       '[--size N] [--palette sweetie16|hd32] [--alpha N=128] [--downscale-nearest] ' +
       '[--despeckle N=0] [--bottom-margin N=0] [--flip-x] [--place X,Y]\n' +
       '       node client/scripts/sprite-remap.mjs <in.png> <out.png> --key <ключ> --smooth ' +
-      '[--margin N=4] [--alpha N=128] [--chroma RRGGBB|auto] [--chroma-tol N=48]',
+      '[--margin N=4] [--alpha N=128] [--chroma RRGGBB|auto] [--chroma-tol N=48; auto: 2× шум углов]',
   )
   process.exit(1)
 }
@@ -88,7 +88,7 @@ function usageError(msg) {
 // ── Аргументы ────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2)
 const positional = []
-const opts = { alpha: 128, despeckle: 0, bottomMargin: 0, downscaleNearest: false, flipX: false, place: null, smooth: false, margin: 4, chroma: null, chromaTol: 48 }
+const opts = { alpha: 128, despeckle: 0, bottomMargin: 0, downscaleNearest: false, flipX: false, place: null, smooth: false, margin: 4, chroma: null, chromaTol: undefined }
 const pixelOnly = [] // флаги пиксельного пути — с --smooth запрещены
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i]
@@ -178,7 +178,7 @@ if (opts.smooth) {
   if (opts.margin !== undefined && (!Number.isInteger(opts.margin) || opts.margin < 0)) {
     usageError(`некорректный --margin: ${opts.margin}`)
   }
-  if (!Number.isFinite(opts.chromaTol) || opts.chromaTol < 0) usageError(`некорректный --chroma-tol: ${opts.chromaTol}`)
+  if (opts.chromaTol !== undefined && (!Number.isFinite(opts.chromaTol) || opts.chromaTol < 0)) usageError(`некорректный --chroma-tol: ${opts.chromaTol}`)
   // Гладкий PNG у ключа render: pixel упадёт в check:sprites на полутонах и палитре —
   // лучше сказать это здесь, чем на сборке.
   if (spriteSpec && spriteSpec.render !== 'smooth') {
@@ -202,7 +202,7 @@ if (opts.smooth) {
   console.log(outPath)
   console.log(
     `  ${size}x${size}, smooth, margin ${opts.margin}, alpha>=${opts.alpha} для bbox` +
-      (fit.chroma ? `, chroma #${fit.chroma}±${opts.chromaTol}` : opts.chroma === 'auto' ? ', chroma auto: углы прозрачны, ключ не нужен' : ''),
+      (fit.chroma ? `, chroma #${fit.chroma}±${fit.chromaTol}` : opts.chroma === 'auto' ? ', chroma auto: углы прозрачны, ключ не нужен' : ''),
   )
   console.log(`  вход ${raw.width}x${raw.height}, bbox ${fit.bbox.w}x${fit.bbox.h} @ (${fit.bbox.x}, ${fit.bbox.y}), шаг ${Math.round(fit.scale * 100) / 100}`)
   console.log(`  полупрозрачных: ${semi}, прозрачность: ${stats.transparentPct}%, #${WHITE_HEX}: ${stats.whitePct}%${stats.noiseSummary}`)

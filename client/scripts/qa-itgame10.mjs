@@ -108,6 +108,29 @@ try {
   })
   check('Модалка статистики закрылась по ESC', statsModalClosed, `closed=${statsModalClosed}`)
 
+  // ITGAME-83: иконки карточек достижений — спрайты ach_* по 16px слева от названия (ключ
+  // из meta.ts), у закрытых — icon_lock 12px слева от «Заблокировано»; эмодзи в текстах окна нет
+  const achCardIcons = () => {
+    const menu = window.__itd.scene.getScene('menu')
+    const list = window.itd.meta().achievements.list
+    const imgs = menu.children.list.filter((o) => o.type === 'Image' && o.visible)
+    const near = (key, t, px) => {
+      const b = t.getBounds()
+      return imgs.some((o) => o.texture?.key === key && Math.round(o.displayWidth) === px &&
+        o.x > b.x && o.x < b.x + px + 2 && Math.abs(o.y - (b.y + (t.padding.top ?? 0) + (b.height - (t.padding.top ?? 0) - (t.padding.bottom ?? 0)) / 2)) <= 2)
+    }
+    const texts = menu.children.list.filter((o) => o.type === 'Text')
+    const cards = list.map((a) => {
+      const name = texts.find((t) => t.text === a.title)
+      return { id: a.id, key: a.icon, unlocked: a.unlocked, icon: !!name && near(a.icon, name, 16) }
+    })
+    const badges = texts.filter((t) => t.text === 'Заблокировано')
+    const locks = imgs.filter((o) => o.texture?.key === 'icon_lock' && Math.round(o.displayWidth) === 12).length
+    const locksPlaced = badges.every((t) => near('icon_lock', t, 12))
+    const emoji = texts.map((t) => String(t.text)).filter((t) => /\p{Extended_Pictographic}/u.test(t.replace(/[✓✕]/g, '')))
+    return { cards, badges: badges.length, locks, locksPlaced, emoji }
+  }
+
   // 4. Открытие модалки достижений
   await page.evaluate(() => window.itd.click('menu.achievements'))
   await delay(100)
@@ -138,10 +161,17 @@ try {
     const noEmoji = ![titleObj?.text, btnText?.text].some((t) => !t || t.includes('🏆'))
     return { hasTitle, hasFirstMillion, hasFullStaff, hasNetwork36, hasCleanWin, hasSurvivor10, overlapsCount: overlaps.length, icons, titleIconOk, noEmoji, btnIconFollows }
   })
+  const achCards0 = await page.evaluate(achCardIcons)
   check('Модалка достижений открылась', achModalOpen.hasTitle, 'заголовок найден')
   check('ITGAME-83: кубки — спрайты 16 (кнопка) и 24 (заголовок окна), 🏆 в текстах нет',
     achModalOpen.icons.map((i) => i.w).sort().join(',') === '16,24' && achModalOpen.noEmoji && achModalOpen.btnIconFollows, JSON.stringify(achModalOpen.icons))
   check('ITGAME-83: кубок заголовка — в поле слева от текста, по центру строки', achModalOpen.titleIconOk, JSON.stringify(achModalOpen.icons))
+  check('ITGAME-83: у 12 карточек — свой спрайт ach_* 16px слева от названия',
+    achCards0.cards.length === 12 && achCards0.cards.every((c) => c.icon && c.key.startsWith('ach_')) && new Set(achCards0.cards.map((c) => c.key)).size === 12,
+    JSON.stringify(achCards0.cards.filter((c) => !c.icon)))
+  check('ITGAME-83: все 12 закрыты — 12 замков icon_lock 12px слева от «Заблокировано», эмодзи в окне нет',
+    achCards0.badges === 12 && achCards0.locks === 12 && achCards0.locksPlaced && achCards0.emoji.length === 0,
+    JSON.stringify({ badges: achCards0.badges, locks: achCards0.locks, placed: achCards0.locksPlaced, emoji: achCards0.emoji }))
   check('Достижение «Первый миллион» отображено', achModalOpen.hasFirstMillion, 'найдено')
   check('Достижение «Полный штат» отображено', achModalOpen.hasFullStaff, 'найдено')
   check('Достижение «36/36 в сети» отображено', achModalOpen.hasNetwork36, 'найдено')
@@ -195,6 +225,37 @@ try {
   check('Достижение сохранилось после перезагрузки', metaAfterReload.achievements.unlockedCount === 1, `unlocked=${metaAfterReload.achievements.unlockedCount}`)
   const achItem = metaAfterReload.achievements.list.find((a) => a.id === 'first_hire')
   check('first_hire отмечен как unlocked', achItem?.unlocked === true, `status=${achItem?.unlocked}`)
+
+  // ITGAME-83: открытое достижение — без замка, своя иконка остаётся; замков 11
+  await page.evaluate(() => window.itd.click('menu.achievements'))
+  await delay(100)
+  const achCards1 = await page.evaluate(achCardIcons)
+  check('ITGAME-83: после first_hire — 11 замков, у открытой карточки иконка на месте',
+    achCards1.locks === 11 && achCards1.badges === 11 && achCards1.locksPlaced && achCards1.cards.every((c) => c.icon),
+    JSON.stringify({ locks: achCards1.locks, badges: achCards1.badges, missing: achCards1.cards.filter((c) => !c.icon) }))
+  await page.evaluate(() => window.itd.key('escape'))
+  await delay(100)
+
+  // ITGAME-83: окна-предупреждения — icon_warning 24px слева от заголовка, ⚠ в заголовке нет.
+  // Оба окна открываются по сценарию партии (конфликт вкладок, новая игра при живом сейве) —
+  // здесь вызываем их напрямую, проверяется только рамка
+  const warn = await page.evaluate(() => {
+    const menu = window.__itd.scene.getScene('menu')
+    const probe = (open, title) => {
+      open()
+      const t = menu.children.list.find((o) => o.type === 'Text' && o.text === title)
+      const tb = t?.getBounds()
+      const icon = menu.children.list.find((o) => o.texture?.key === 'icon_warning')
+      const ok = !!tb && !!icon && Math.round(icon.displayWidth) === 24 && Math.abs(icon.y - tb.centerY) <= 2 &&
+        icon.x > tb.x && icon.x < tb.x + 24 + 2
+      menu.closeModal()
+      const gone = !menu.children.list.some((o) => o.texture?.key === 'icon_warning')
+      return { title, found: !!t, ok, gone }
+    }
+    return [probe(() => menu.showConfirmNewModal('normal'), 'НАЧАТЬ ЗАНОВО?'), probe(() => menu.showSessionConflictModal(3), 'ПАРТИЯ В ДРУГОЙ ВКЛАДКЕ')]
+  })
+  check('ITGAME-83: «Начать заново?» и «Партия в другой вкладке» — icon_warning 24px слева от заголовка, уходит с окном',
+    warn.every((w) => w.found && w.ok && w.gone), JSON.stringify(warn))
 
   // 7. Проверка обновления и отображения статистики прогонов
   await page.evaluate(() => {

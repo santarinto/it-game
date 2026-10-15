@@ -36,8 +36,8 @@ export const HIRES_CAMERA: Phaser.Types.Cameras.Scene2D.CameraConfig = {
 //   • Departure Mono 1.500 (OFL 1.1) — латиница, кириллица, цифры, ·«»—→…;
 //   • ITD Symbols — OFL-подмножество Unifont 16.0.04: ⌂⏸▶☣✓✕✖✗, которых нет в
 //     Departure Mono (unicode-range — только они; сборка scripts/font-symbols.py).
-// Эмодзи (иконки достижений, 🔒⚠️; 🏆📊 в меню и итогах — спрайты ITGAME-83) намеренно остаются на системном
-// цветном шрифте — в стек не входят.
+// Эмодзи в интерфейсе нет (ITGAME-83): иконки — спрайты рядом с Text (ui/iconText.ts),
+// цветной системный шрифт в стек не входит; check:emoji держит client/src без них.
 // let, а не const: BootScene по таймауту загрузки переключает его на голый
 // monospace (fontFallback), чтобы ВСЕ тексты партии рисовались одним
 // фолбэком, а не частью — фолбэком, частью — догрузившимся шрифтом.

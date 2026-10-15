@@ -27,6 +27,7 @@ export interface AchievementDef {
   id: string
   title: string
   desc: string
+  /** Ключ спрайта иконки в манифесте (ITGAME-83: было эмодзи), рисуется рядом с Text через attachIcon. */
   icon: string
 }
 
@@ -40,73 +41,73 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     id: 'first_hire',
     title: 'Первые кадры',
     desc: 'Нанять первого сотрудника компании',
-    icon: '👥',
+    icon: 'ach_first_hire',
   },
   {
     id: 'first_day',
     title: 'Первый рабочий день',
     desc: 'Завершить 1-й день и получить отчёт',
-    icon: '📅',
+    icon: 'ach_first_day',
   },
   {
     id: 'coffee_break',
     title: 'Кофейная пауза',
     desc: 'Купить кофемашину в офис',
-    icon: '☕',
+    icon: 'ach_coffee_break',
   },
   {
     id: 'star_hunter',
     title: 'Охотник за звёздами',
     desc: 'Нанять сотрудника со статусом «звезда»',
-    icon: '⭐',
+    icon: 'ach_star_hunter',
   },
   {
     id: 'survivor_10',
     title: '10 дней без банкротства',
     desc: 'Продержаться в кресле директора 10 дней',
-    icon: '⏳',
+    icon: 'ach_survivor_10',
   },
   {
     id: 'three_offices',
     title: 'Корпорация',
     desc: 'Открыть все 3 офиса компании',
-    icon: '🏢',
+    icon: 'ach_three_offices',
   },
   {
     id: 'full_staff',
     title: 'Полный штат',
     desc: 'Нанять всех 36 сотрудников',
-    icon: '👔',
+    icon: 'ach_full_staff',
   },
   {
     id: 'core_max',
     title: 'Ядро системы',
     desc: 'Прокачать Core-коммутатор до максимума',
-    icon: '🎛️',
+    icon: 'ach_core_max',
   },
   {
     id: 'network_36',
     title: '36/36 в сети',
     desc: 'Подключить всех 36 сотрудников к сети',
-    icon: '🌐',
+    icon: 'ach_network_36',
   },
   {
     id: 'millionaire',
     title: 'Первый миллион',
     desc: 'Накопить на балансе $1,000,000',
-    icon: '💰',
+    icon: 'ach_millionaire',
   },
   {
     id: 'clean_win',
     title: 'Победа без аменити',
     desc: 'Одержать победу без кулеров, холодильников и кофе',
-    icon: '🛡️',
+    icon: 'ach_clean_win',
   },
   {
     id: 'hardcore_win',
     title: 'Хардкорный директор',
     desc: 'Одержать победу на сложности ХАРДКОР',
-    icon: '🏆',
+    icon: 'ach_hardcore_win',
   },
 ]
 

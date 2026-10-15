@@ -121,3 +121,14 @@ test("chroma 'auto': светлая полоса шва по краю кадра
   assert.deepEqual(bbox, { x: 16, y: 16, w: 32, h: 32 })
   assert.deepEqual(px(png, 0, 0), [60, 180, 250, 255])
 })
+
+test("chroma 'auto': допуск по шуму фона — тёмный контур рядом с цветом фона не вырезается", () => {
+  const src = blank(64, 64)
+  fill(src, 0, 0, 64, 64, [48, 48, 60, 255])
+  for (let i = 0; i < 64; i += 2) fill(src, i, 0, i + 1, 64, [52, 50, 66, 255]) // шум фона ~7
+  fill(src, 16, 16, 48, 48, [22, 23, 29, 255]) // контур: ~48 от фона
+  fill(src, 20, 20, 44, 44, [240, 220, 190, 255])
+  const { png, chromaTol } = smoothFit(src, { size: 8, margin: 0, chroma: 'auto' })
+  assert.ok(chromaTol >= 12 && chromaTol < 30, `chromaTol=${chromaTol}`)
+  assert.deepEqual(px(png, 0, 0), [22, 23, 29, 255]) // угол предмета — контур, не дыра
+})

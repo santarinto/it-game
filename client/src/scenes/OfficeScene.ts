@@ -295,7 +295,7 @@ export class OfficeScene extends Phaser.Scene {
       // меняем. На обеде — тот же начальник с кофе и сэндвичем
       // (boss_lunch), как и у сотрудников (s.isLunch, см. deskKey выше);
       // оба спрайта 128px/hd32 с одинаковым --bottom-margin в build-hd.sh —
-      // ноги на одной строке, смены обед↔работа не «прыгают».
+      // ноги на одной строке, смены обед/работа не «прыгают».
       const bossKey = s.isLunch ? 'boss_lunch' : 'boss'
       const bossImg = tag(
         addSprite(this, bx, by, bossKey, 'person').setInteractive({ useHandCursor: true }),

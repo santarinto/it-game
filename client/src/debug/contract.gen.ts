@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "8107e6e1a628",
+  "hash": "419d570cb4e0",
   "methods": {
     "version": {
       "kind": "prop",
@@ -690,7 +690,7 @@ export const CONTRACT = {
         "icon": {
           "type": "string",
           "optional": false,
-          "doc": ""
+          "doc": "Ключ спрайта иконки в манифесте (ITGAME-83: было эмодзи), рисуется рядом с Text через attachIcon."
         }
       }
     },

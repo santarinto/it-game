@@ -494,7 +494,7 @@ export class HUDScene extends Phaser.Scene {
       ...(finalLine ? ['', finalLine] : []),
       ...(offlineAchs.length > 0 ? [''] : []),
     ]
-    const trophy = offlineAchs.length > 0 ? `Достижение: ${offlineAchs.map((a) => `${a.icon} ${a.title}`).join(', ')}` : null
+    const trophy = offlineAchs.length > 0 ? `Достижение: ${offlineAchs.map((a) => a.title).join(', ')}` : null
     const overlay = markDim(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(55).setInteractive(), 'Пока вас не было')
     const panel = this.add.rectangle(CX, 300, 460, 320, 0x14162b).setStrokeStyle(2, 0xffcd75).setDepth(56)
     const title = this.add
@@ -757,8 +757,8 @@ export class HUDScene extends Phaser.Scene {
         if (newAchs.length > 0) {
           playSfx(this, 'confirmation')
           const msg = newAchs.length === 1
-            ? `Достижение: ${newAchs[0].icon} «${newAchs[0].title}»!`
-            : `Достижения: ${newAchs.map((a) => `${a.icon} ${a.title}`).join(', ')}`
+            ? `Достижение: «${newAchs[0].title}»!`
+            : `Достижения: ${newAchs.map((a) => a.title).join(', ')}`
           this.toast(msg, 4000, { bg: '#2a6b3f', icon: 'icon_trophy' })
         }
       } catch (err) {
@@ -942,7 +942,8 @@ export class HUDScene extends Phaser.Scene {
   // Строка в журнал событий: время игры + текст в одну строку, последние LOG_LINES.
   private logLine(text: string) {
     const clock = client.latest?.clock ?? '--:--'
-    // Эмодзи (🏆 👥 …) в журнал не берём: системный шрифт широкий и машинозависимый.
+    // Эмодзи в журнал не берём: системный шрифт широкий и машинозависимый (страховка —
+    // с ITGAME-83 в строках клиента эмодзи нет, это держит check:emoji).
     // 76 знаков по 12 px — не шире полосы (730 px), строка не вылезает за x 1270.
     const one = text.replace(/[\u{1F000}-\u{1FFFF}\uFE0F]/gu, '').replace(/\s+/g, ' ').trim()
     const body = one.length > 76 ? one.slice(0, 76) + '…' : one
@@ -1255,7 +1256,7 @@ export class HUDScene extends Phaser.Scene {
     ]
     lines.push(`Всего достижений: ${unlockedCount}/${totalCount}`)
     const trophy = newAchievements.length > 0
-      ? `Новое достижение: ${newAchievements.map((a) => `${a.icon} ${a.title}`).join(', ')}`
+      ? `Новое достижение: ${newAchievements.map((a) => a.title).join(', ')}`
       : null
 
     const body = this.bodyWithTrophy(290, lines, trophy, { fontFamily: FONT, fontSize: '15px', color: '#f4f4f4', lineSpacing: 6, align: 'center' }, 61)
@@ -1327,11 +1328,11 @@ export class HUDScene extends Phaser.Scene {
       `Баланс: ${fmtMoney(v.balance)}`,
     ]
     if (isRecord) {
-      lines.push('⭐ Новый рекорд баланса!')
+      lines.push('★ Новый рекорд баланса!') // ★ — глиф Departure Mono, не эмодзи (ITGAME-83)
     }
     lines.push(`Всего достижений: ${unlockedCount}/${totalCount}`)
     const trophy = newAchievements.length > 0
-      ? `Новое достижение: ${newAchievements.map((a) => `${a.icon} ${a.title}`).join(', ')}`
+      ? `Новое достижение: ${newAchievements.map((a) => a.title).join(', ')}`
       : null
 
     const body = this.bodyWithTrophy(290, lines, trophy, { fontFamily: FONT, fontSize: '15px', color: '#f4f4f4', lineSpacing: 6, align: 'center' }, 61)

@@ -6,7 +6,8 @@
 //   1. (опционально) хромакей: пиксели ближе chromaTol к цвету chroma — прозрачные
 //      (фон диффузии, которая не умеет альфу: #ff00ff в промте); chroma 'auto' берёт
 //      цвет по углам (в EDGE px от края) и снимает рамку EDGE со швом генератора,
-//      а на входе с прозрачными углами ключ пропускает;
+//      допуск — 2× шум углов (не меньше AUTO_TOL_MIN), если chromaTol не задан явно;
+//      на входе с прозрачными углами ключ пропускает;
 //   2. bbox по альфе >= alpha — полупрозрачный ореол вырезки рамку не раздувает;
 //   3. квадрат со стороной max(bbox) вокруг bbox: по X по центру, по Y прижат к низу —
 //      общая базовая линия набора; вписывается в size − 2·margin;
@@ -18,11 +19,12 @@
 
 const BG_ALPHA = 26 // как в sprite-check-core: ниже — прозрачный пиксель
 const EDGE = 4 // chroma 'auto': отступ углов от края и снимаемая рамка (шов генератора)
+const AUTO_TOL_MIN = 12 // chroma 'auto': нижний предел допуска (2× шум углов, но не меньше)
 
 /**
  * @param {{width:number, height:number, data:Uint8Array|Buffer}} src RGBA
  * @param {{size:number, margin?:number, alpha?:number, chroma?:string|'auto', chromaTol?:number}} opts
- * @returns {{png:{width:number,height:number,data:Uint8Array}, bbox:{x:number,y:number,w:number,h:number}, scale:number, chroma:string|null}}
+ * @returns {{png:{width:number,height:number,data:Uint8Array}, bbox:{x:number,y:number,w:number,h:number}, scale:number, chroma:string|null, chromaTol:number|null}}
  */
 export function smoothFit(src, opts) {
   const { size } = opts
@@ -33,8 +35,15 @@ export function smoothFit(src, opts) {
   const { width: W, height: H } = src
   const data = Uint8Array.from(src.data)
 
-  const tol = opts.chromaTol ?? 48
-  const chroma = opts.chroma === 'auto' ? cornerChroma(src, tol) : (opts.chroma ?? null)
+  // явный chroma (маджента) — допуск 48: фон далеко от предмета. auto — допуск по шуму
+  // углов: у grok тёмный контур в 40–50 от тёмного фона, 48 съедает его целиком
+  let tol = opts.chromaTol ?? 48
+  let chroma = opts.chroma ?? null
+  if (opts.chroma === 'auto') {
+    const bg = cornerChroma(src, opts.chromaTol ?? 48)
+    chroma = bg?.hex ?? null
+    if (bg && opts.chromaTol === undefined) tol = Math.max(AUTO_TOL_MIN, Math.ceil(2 * bg.noise))
+  }
   if (chroma && opts.chroma === 'auto') {
     // шов генератора: светлая полоса в 1–2 px по краю непрозрачного кадра — рамку EDGE снимаем
     for (let y = 0; y < H; y++) {
@@ -109,7 +118,7 @@ export function smoothFit(src, opts) {
       out[di + 3] = A
     }
   }
-  return { png: { width: size, height: size, data: out }, bbox: { x: x0, y: y0, w: bw, h: bh }, scale: k, chroma }
+  return { png: { width: size, height: size, data: out }, bbox: { x: x0, y: y0, w: bw, h: bh }, scale: k, chroma, chromaTol: chroma ? tol : null }
 }
 
 // chroma 'auto': цвет фона — среднее по четырём угловым квадратам (сторона 1/32 меньшей
@@ -127,15 +136,18 @@ function cornerChroma(src, tol) {
     if (clear === px.length) return null
     if (clear > 0) throw new Error('chroma auto: угол наполовину прозрачен — укажите --chroma RRGGBB')
     const mean = [0, 1, 2].map((c) => px.reduce((s, p) => s + p[c], 0) / px.length)
-    if (px.some((p) => dist(p, mean) > tol)) throw new Error('chroma auto: угол пёстрый, фон не однотонный — укажите --chroma RRGGBB')
-    return mean
+    const noise = Math.max(...px.map((p) => dist(p, mean)))
+    if (noise > tol) throw new Error('chroma auto: угол пёстрый, фон не однотонный — укажите --chroma RRGGBB')
+    return { mean, noise }
   })
   const solid = corners.filter(Boolean)
   if (solid.length === 0) return null
   if (solid.length < 4) throw new Error('chroma auto: углы прозрачны не все — укажите --chroma RRGGBB')
-  const mean = [0, 1, 2].map((c) => solid.reduce((s, m) => s + m[c], 0) / 4)
-  if (solid.some((m) => dist(m, mean) > tol / 2)) throw new Error('chroma auto: углы разного цвета — укажите --chroma RRGGBB')
-  return mean.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
+  const mean = [0, 1, 2].map((c) => solid.reduce((s, m) => s + m.mean[c], 0) / 4)
+  if (solid.some((m) => dist(m.mean, mean) > tol / 2)) throw new Error('chroma auto: углы разного цвета — укажите --chroma RRGGBB')
+  // шум — от общего среднего: разброс внутри угла плюс сдвиг угла от остальных
+  const noise = Math.max(...solid.map((m) => m.noise + dist(m.mean, mean)))
+  return { hex: mean.map((v) => Math.round(v).toString(16).padStart(2, '0')).join(''), noise }
 }
 
 function dist(p, q) {

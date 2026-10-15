@@ -1018,8 +1018,9 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 
 | Command | Checks | Port (`QA_PORT`/…) |
 |---|---|---|
-| `npm test` | `node --test` over `client/scripts/lib/*.test.mjs`: the sprite contract core (pixel and `render: smooth` profiles, no `node:*` imports) and `sprite-smooth` (fractional-step area resampling, alpha-weighted colour, centre/bottom placement, chroma key, background zeroing) — no browser, no server | — |
-| `npm run qa:meta` | stats/achievements modals | :4173, `vite preview` — needs a Go server already on :8080 |
+| `npm test` | `node --test` over `client/scripts/lib/*.test.mjs`: the sprite contract core (pixel and `render: smooth` profiles, no `node:*` imports) and `sprite-smooth` (fractional-step area resampling, alpha-weighted colour, centre/bottom placement, chroma key, `chroma: 'auto'` by corners with a noise-derived tolerance, background zeroing), and `emoji-check` (what counts as an emoji) — no browser, no server | — |
+| `npm run check:emoji` | no emoji in `client/src` — strings, comments, the manifest (ITGAME-83): a `\p{Extended_Pictographic}` character or U+FE0F, except the glyphs our own fonts carry (`FONT_PICTOGRAPHS` in `client/scripts/lib/emoji-check.mjs`, the cmap of both woff2 by `fc-query`); an icon is a sprite next to a Text (`attachIcon`), a text symbol is a glyph of our fonts; last step of `npm run build` | — |
+| `npm run qa:meta` | stats/achievements modals; ITGAME-83 icons: the menu buttons (16) and modal titles (24) — `icon_trophy`, `icon_chart`, `icon_warning` on «Начать заново?» / «Партия в другой вкладке»; each achievement card's own `ach_*` (16) left of its title, `icon_lock` (12) left of every «Заблокировано», no emoji in the modal | :4173, `vite preview` — needs a Go server already on :8080 |
 | `npm run qa:buttons` | buy-button enabled/tooltip/alpha states (ITGAME-17); R1–R7 the room action column (ITGAME-94): `btn.pc`/`hire`/`boss` in the `office` scene at x 1142, 128×44, y 384/438/492, no overlap with any office object; the `room.tooltip` sits left of the column; a real mouse click at the `screen()` point buys a PC; under the router window `hit()` fails, `X`, no tooltip; in a locked office the column is hidden and `itd.click` answers `code: 'hidden'`; `btn.gateway` in `serverRoom` at x 1142 y 452 | :4180, self-serve |
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35); T0 the `Storage.prototype` probe; T1–T2 storage fully blocked (ITGAME-80): «Сохранить и выйти» → «Продолжить» resumes the same sid from tab memory, after a reload no «Продолжить» and a new sid | :4179, self-serve + temp saves dir |
 | `npm run qa:hud` | HUD layout column (left block right ≤ 832 since ITGAME-94, right column left ≥ 848), toast stack, no overlaps (ITGAME-16); goal/day bars G1–G3/D1–D3, tab locks L1–L3, event log E1–E3, onboarding coach O1–O6 (ITGAME-21) | :4174, self-serve |
@@ -1102,15 +1103,16 @@ system font: the game draws all text with its own fonts (ITGAME-48) —
 Departure Mono 1.500 plus ITD Symbols, an 8-glyph OFL subset of Unifont for
 ⌂⏸▶☣✓✕✖✗ (files and licenses in `client/public/assets/fonts`, the stack is
 `FONT` in `client/src/render.ts`, `BootScene` waits for both before the
-menu). Emoji (achievement icons, 🏆📊🔒⚠️) still come from the system emoji
-font. The committed baseline (9 scenarios, `broken_pc` included) was
+menu). No emoji are drawn since ITGAME-83: icons are sprites next to a Text
+(`client/src/ui/iconText.ts`), `npm run check:emoji` keeps `client/src` free of
+them. The committed baseline (9 scenarios, `broken_pc` included) was
 regenerated **2026-10-12** (last time for ITGAME-21: header bars, tab locks,
 the coach plate on fresh/soft_lock/pre_victory, the log strip; lint counts not
 worse, contrast down by one on some scenarios) on the pinned Chrome for Testing 152.0.7977.54
 (headless, SwiftShader software GL, Arch Linux, Noto Color Emoji); two
 consecutive runs without `--update` gave 0 differing pixels on every scenario.
 The layout-linter counts in `baseline.json` did not change with the font.
-Another machine may still differ by GPU rasterizer or emoji font.
+Another machine may still differ by GPU rasterizer.
 Kill stray Chromium processes before a run — they starve software WebGL.
 The Forgejo CI does not run visreg (see [CI](#ci)); run it locally after a
 UI change.
@@ -1300,8 +1302,10 @@ and the finished PNGs are committed.
   (`--chroma ff00ff`, `--chroma-tol 48`) for a diffusion output without alpha;
   `--chroma auto` takes the background from four corner patches inset 4 px
   (a generator's light seam runs along the frame edge, that 4 px frame is
-  cut too), skips keying when the corners are already transparent, and
-  refuses on a busy corner or corners of different colours. The input is
+  cut too) with a tolerance of twice the corners' noise, at least 12 (a fixed
+  48 ate grok's near-black contour 42–53 away from its dark background), skips
+  keying when the corners are already transparent, and refuses on a busy
+  corner or corners of different colours. The input is
   PNG or JPEG, told apart by signature (`jpeg-js`);
   bbox by `--alpha`, a square around it centred on X and sitting on the
   bottom `--margin` (default 4), then area resampling with fractional edges
@@ -1309,7 +1313,9 @@ and the finished PNGs are committed.
   by `node --test`) — no palette, no alpha threshold, the half-tones stay.
   `icon_trophy.png` is `node client/scripts/sprite-remap.mjs <generation.png>
   client/public/assets/sprites/icon_trophy.png --key icon_trophy --smooth`.
-  `icon_chart.png` is the same with `--key icon_chart --chroma auto`.
+  `icon_chart.png` and the rest of the ITGAME-83 set (`icon_warning`,
+  `icon_lock`, the 12 `ach_*` achievement icons) are the same with their key
+  and `--chroma auto`; each key's `note` in `sprites.json` carries its command.
 - **Edit:** `scripts/sprite-edit.sh <name> "<instruction>"` — Gemini
   (`GEMINI_IMAGE_MODEL`, default `gemini-2.5-flash-image`) → remap;
   overwrites the tracked PNG only if the result passes the contract.
