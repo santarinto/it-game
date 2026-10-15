@@ -826,7 +826,9 @@ documenting separately:
   clear) of state/day/phase/speed/scene transitions, server errors and page
   errors, plus, since ITGAME-38, every `playSfx` call and HUD toast
   (`{type:'sound', key, name, volume, scene, ok}` /
-  `{type:'toast', text, where, ms, bg, scene}`), routed through
+  `{type:'toast', text, where, ms, bg, scene, icon?}` — `icon` is the sprite
+  key drawn left of the text, `icon_trophy` on an achievement toast since
+  ITGAME-83, which replaced the 🏆 prefix in `text`), routed through
   `client/src/uibus.ts`; since ITGAME-48 also one boot entry for the fonts,
   `{type:'font', ok, ms, faces, font, reason?}` — `ok:false` (load error or
   the 4 s timeout) means the whole session renders with plain `monospace`.
@@ -1504,6 +1506,21 @@ and closed offices' racks render `rack_empty` dimmed with no tint. On
 the desk-only states full offices never exercise: a bought PC with no
 employee draws `desk_pc_off`, and a slot with no PC at all draws
 `desk_empty`.
+
+### Icon next to text
+
+`attachIcon(text, key, { px, gap })` (`client/src/ui/iconText.ts`, ITGAME-83)
+puts a sprite left of a `Text` instead of an emoji inside it. The room comes
+from the text's own left `padding`, so a text background (a toast) stretches
+over the icon and a centred text stays centred as a pair. The icon copies the
+text's x/y/alpha/visible/depth on every `prerender` and is destroyed with it:
+toast stacking and fade-out, a hidden menu and a closing modal need no extra
+code. Without a background the icon sits below the text in display order, so
+`itd.overlaps` does not take it for a plate over the text. A multi-line block
+cannot hold a sprite mid-text: `HUDScene.bodyWithTrophy` gives the achievement
+line its own `Text` under the block, the pair centred where the old block was.
+Sizes in use: 16 px next to 12–15 px text, 24 px next to an 18–20 px title or
+toast.
 
 ### Trying a sprite in the tab
 

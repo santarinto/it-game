@@ -10,6 +10,7 @@ import { debug, drawDebugFrames, setDebug } from '../debug'
 import { markActive, markDim, markTitle, rejectClick, tag } from '../debug/agentApi'
 import { showModal, type ModalButton } from '../ui/modal'
 import { hideActionTooltips } from '../ui/actionButton'
+import { attachIcon } from '../ui/iconText'
 import { playSfx } from '../audio'
 import { emitUi } from '../uibus'
 import { activeZoom, applyZoom, ZOOM_OPTIONS, zoomLabel } from '../uiscale'
@@ -491,16 +492,15 @@ export class HUDScene extends Phaser.Scene {
       `Расходы:    ${r.payroll > 0 ? '−' : ''}${fmtMoney(r.payroll)}`,
       `Баланс:      ${fmtMoney(r.balance)}`,
       ...(finalLine ? ['', finalLine] : []),
-      ...(offlineAchs.length > 0 ? ['', `🏆 Достижение: ${offlineAchs.map((a) => `${a.icon} ${a.title}`).join(', ')}`] : []),
-    ].join('\n')
+      ...(offlineAchs.length > 0 ? [''] : []),
+    ]
+    const trophy = offlineAchs.length > 0 ? `Достижение: ${offlineAchs.map((a) => `${a.icon} ${a.title}`).join(', ')}` : null
     const overlay = markDim(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(55).setInteractive(), 'Пока вас не было')
     const panel = this.add.rectangle(CX, 300, 460, 320, 0x14162b).setStrokeStyle(2, 0xffcd75).setDepth(56)
     const title = this.add
       .text(CX, 170, 'Пока вас не было', { fontFamily: FONT, fontSize: '22px', color: '#ffcd75' })
       .setOrigin(0.5).setDepth(56)
-    const bodyText = this.add
-      .text(CX, 275, body, { fontFamily: FONT, fontSize: '15px', color: '#f4f4f4', lineSpacing: 7, align: 'center' })
-      .setOrigin(0.5).setDepth(56)
+    const bodyText = this.bodyWithTrophy(275, body, trophy, { fontFamily: FONT, fontSize: '15px', color: '#f4f4f4', lineSpacing: 7, align: 'center' }, 56)
     const final = r.gameOver || r.victory
     // Итог читают на паузе: партия не идёт под окном. Повторный отчёт (окно уже
     // открыто) паузу не перезаписывает — иначе «Продолжить» вернул бы 0.
@@ -511,7 +511,7 @@ export class HUDScene extends Phaser.Scene {
         this.offlinePauseSeq = client.speedSeq
       }
     }
-    this.offlineUI = [overlay, panel, title, bodyText]
+    this.offlineUI = [overlay, panel, title, ...bodyText]
     if (final) {
       const btnBg = tag(
         this.add
@@ -757,9 +757,9 @@ export class HUDScene extends Phaser.Scene {
         if (newAchs.length > 0) {
           playSfx(this, 'confirmation')
           const msg = newAchs.length === 1
-            ? `🏆 Достижение: ${newAchs[0].icon} «${newAchs[0].title}»!`
-            : `🏆 Достижения: ${newAchs.map((a) => `${a.icon} ${a.title}`).join(', ')}`
-          this.toast(msg, 4000, { bg: '#2a6b3f' })
+            ? `Достижение: ${newAchs[0].icon} «${newAchs[0].title}»!`
+            : `Достижения: ${newAchs.map((a) => `${a.icon} ${a.title}`).join(', ')}`
+          this.toast(msg, 4000, { bg: '#2a6b3f', icon: 'icon_trophy' })
         }
       } catch (err) {
         console.error('Ошибка обновления мета-прогресса в HUD:', err)
@@ -951,10 +951,10 @@ export class HUDScene extends Phaser.Scene {
     this.logText.setText(this.logLines.join('\n'))
   }
 
-  private toast(text: string, ms = 1500, opts?: { top?: boolean; bg?: string }) {
+  private toast(text: string, ms = 1500, opts?: { top?: boolean; bg?: string; icon?: string }) {
     const where: 'top' | 'bottom' = opts?.top ? 'top' : 'bottom'
     const bg = opts?.bg ?? '#b13e53'
-    emitUi({ type: 'toast', text, where, ms, bg, scene: this.scene.key })
+    emitUi({ type: 'toast', text, where, ms, bg, scene: this.scene.key, ...(opts?.icon ? { icon: opts.icon } : {}) })
     this.logLine(text)
     const startY = where === 'top' ? 175 : 614 - 20 // косметика до первой layoutToasts()
     const t = tag(
@@ -967,6 +967,8 @@ export class HUDScene extends Phaser.Scene {
         .setOrigin(0.5).setDepth(100),
       'toast',
     )
+    // ITGAME-83: спрайт слева от текста внутри плашки тоста (24px при кегле 18)
+    if (opts?.icon) attachIcon(t, opts.icon, { px: 24, gap: 8 })
     const stack = this.toasts[where]
     stack.push(t)
     if (stack.length > 3) {
@@ -1251,15 +1253,12 @@ export class HUDScene extends Phaser.Scene {
       `Пик дохода: ${fmtMoney(o.peakIncomePerTick)}/сек`,
       `На зарплаты не хватило: ${fmtMoney(-o.balance)}`,
     ]
-    if (newAchievements.length > 0) {
-      const names = newAchievements.map((a) => `${a.icon} ${a.title}`).join(', ')
-      lines.push(`🏆 Новое достижение: ${names}`)
-    }
     lines.push(`Всего достижений: ${unlockedCount}/${totalCount}`)
+    const trophy = newAchievements.length > 0
+      ? `Новое достижение: ${newAchievements.map((a) => `${a.icon} ${a.title}`).join(', ')}`
+      : null
 
-    const body = this.add
-      .text(CX, 290, lines.join('\n'), { fontFamily: FONT, fontSize: '15px', color: '#f4f4f4', lineSpacing: 6, align: 'center' })
-      .setOrigin(0.5).setDepth(61)
+    const body = this.bodyWithTrophy(290, lines, trophy, { fontFamily: FONT, fontSize: '15px', color: '#f4f4f4', lineSpacing: 6, align: 'center' }, 61)
     const btnBg = tag(
       this.add
         .rectangle(CX - 100, 380, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(61)
@@ -1272,8 +1271,32 @@ export class HUDScene extends Phaser.Scene {
     btnBg.on('pointerdown', () => this.returnToMenu())
     btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
     btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
-    this.gameOverUI = [overlay, title, body, btnBg, btnText]
+    this.gameOverUI = [overlay, title, ...body, btnBg, btnText]
     this.gameOverUI.push(...drawDebugFrames(this, this.gameOverUI))
+  }
+
+  // ITGAME-83: блок строк и строка достижения под ним — спрайт кубка в строку Text не
+  // встаёт, поэтому строка достижения — свой Text с attachIcon. Пара центрирована по y там
+  // же, где стоял прежний единый блок (origin 0.5), зазор между ними — lineSpacing.
+  private bodyWithTrophy(
+    y: number,
+    lines: string[],
+    trophy: string | null,
+    style: Phaser.Types.GameObjects.Text.TextStyle,
+    depth: number,
+  ): Phaser.GameObjects.Text[] {
+    const body = this.add.text(CX, y, lines.join('\n'), style).setOrigin(0.5, 0).setDepth(depth)
+    if (!trophy) {
+      body.setY(Math.round(y - body.height / 2))
+      return [body]
+    }
+    const gap = Number(style.lineSpacing ?? 0)
+    const ach = this.add.text(CX, y, trophy, style).setOrigin(0.5, 0).setDepth(depth)
+    attachIcon(ach, 'icon_trophy', { px: 16 })
+    const top = Math.round(y - (body.height + gap + ach.height) / 2)
+    body.setY(top)
+    ach.setY(top + body.height + gap)
+    return [body, ach]
   }
 
   private closeGameOver() {
@@ -1306,15 +1329,12 @@ export class HUDScene extends Phaser.Scene {
     if (isRecord) {
       lines.push('⭐ Новый рекорд баланса!')
     }
-    if (newAchievements.length > 0) {
-      const names = newAchievements.map((a) => `${a.icon} ${a.title}`).join(', ')
-      lines.push(`🏆 Новое достижение: ${names}`)
-    }
     lines.push(`Всего достижений: ${unlockedCount}/${totalCount}`)
+    const trophy = newAchievements.length > 0
+      ? `Новое достижение: ${newAchievements.map((a) => `${a.icon} ${a.title}`).join(', ')}`
+      : null
 
-    const body = this.add
-      .text(CX, 290, lines.join('\n'), { fontFamily: FONT, fontSize: '15px', color: '#f4f4f4', lineSpacing: 6, align: 'center' })
-      .setOrigin(0.5).setDepth(61)
+    const body = this.bodyWithTrophy(290, lines, trophy, { fontFamily: FONT, fontSize: '15px', color: '#f4f4f4', lineSpacing: 6, align: 'center' }, 61)
     const btnBg = tag(
       this.add
         .rectangle(CX - 100, 380, 200, 34, 0x3b5dc9).setOrigin(0, 0).setDepth(61)
@@ -1327,7 +1347,7 @@ export class HUDScene extends Phaser.Scene {
     btnBg.on('pointerdown', () => this.returnToMenu())
     btnBg.on('pointerover', () => btnBg.setFillStyle(0x41a6f6))
     btnBg.on('pointerout', () => btnBg.setFillStyle(0x3b5dc9))
-    this.victoryUI = [overlay, title, body, btnBg, btnText]
+    this.victoryUI = [overlay, title, ...body, btnBg, btnText]
     this.victoryUI.push(...drawDebugFrames(this, this.victoryUI))
   }
 

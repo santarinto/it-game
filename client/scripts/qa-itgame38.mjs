@@ -1333,17 +1333,45 @@ async function run() {
           const staff = await window.itd.wait((s) => s.staff === 1, 5000).then((s) => s.staff, () => null)
           const t0 = window.itd.state().tickInDay
           await window.itd.wait((s) => s.tickInDay >= t0 + 3, 10000).catch(() => null)
-          const trophies = window.itd.log(200).filter((e) => e.type === 'toast' && String(e.text).startsWith('🏆')).map((e) => e.text)
-          return { up, sid, hudBal, receipt, staff, ticks: window.itd.state().tickInDay - t0, trophies }
+          // ITGAME-83: тост достижения помечен спрайтом icon_trophy (поле icon), а не эмодзи 🏆 в тексте
+          const trophies = window.itd.log(200).filter((e) => e.type === 'toast' && e.icon === 'icon_trophy').map((e) => e.text)
+          const hud = window.__itd.scene.getScene('hud')
+          const toastIcons = hud.children.list.filter((o) => o.texture?.key === 'icon_trophy').map((o) => Math.round(o.displayWidth))
+          return { up, sid, hudBal, receipt, staff, ticks: window.itd.state().tickInDay - t0, trophies, toastIcons }
         })
       : null
     check(
       'L2: партия стартует, hudBal нарисован, hire ok; «Первые кадры» — один тост за 3+ тика, тосты достижений не повторяются',
       lb2?.up === true && typeof lb2?.sid === 'string' && /^\$[\d,]+$/.test(lb2.hudBal ?? '') && lb2.receipt?.ok === true &&
         lb2.staff === 1 && lb2.ticks >= 3 && lb2.trophies.filter((t) => t.includes('Первые кадры')).length === 1 &&
-        new Set(lb2.trophies).size === lb2.trophies.length,
+        new Set(lb2.trophies).size === lb2.trophies.length && lb2.toastIcons.includes(24),
       JSON.stringify(lb2),
     )
+
+    // L2b (ITGAME-83): строка достижения в итогах (победа, поражение, «Пока вас не было») —
+    // отдельный Text под блоком с кубком 16px слева; пара центрирована по прежнему y.
+    const l2b = lb2?.up
+      ? await pl.evaluate(async () => {
+          const hud = window.__itd.scene.getScene('hud')
+          const style = { fontFamily: 'monospace', fontSize: '15px', color: '#f4f4f4', lineSpacing: 6, align: 'center' }
+          const [body, ach] = hud.bodyWithTrophy(290, ['Строка 1', 'Строка 2'], 'Новое достижение: X', style, 61)
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))) // иконка встаёт на prerender
+          const icon = hud.children.list.find((o) => o.texture?.key === 'icon_trophy' && Math.round(o.displayWidth) === 16)
+          const ab = ach.getBounds()
+          const out = {
+            n: [body, ach].length,
+            stacked: Math.abs(ach.y - (body.y + body.height + 6)) <= 1,
+            centred: Math.abs((body.y + ach.y + ach.height) / 2 - 290) <= 1,
+            iconLeft: !!icon && icon.x > ab.x && icon.x < ab.x + 16 + 1 && Math.abs(icon.y - ab.centerY) <= 2,
+          }
+          body.destroy()
+          ach.destroy()
+          out.iconGone = !hud.children.list.includes(icon)
+          return out
+        })
+      : null
+    check('L2b: итоги — строка достижения своим Text под блоком, кубок 16px слева по центру строки, уходит вместе с ней',
+      l2b?.n === 2 && l2b.stacked && l2b.centred && l2b.iconLeft && l2b.iconGone, JSON.stringify(l2b))
 
     // Пауза отчёта (ITGAME-18) — sessionStorage-ключ itd.speedBeforeReport: при закрытом хранилище он живёт в памяти
     // вкладки. Пауза до tickInDay 53 — чтобы день не кончился на старой скорости раньше speed(3).

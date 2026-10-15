@@ -7,7 +7,7 @@
 
 export type UiEvent =
   | { type: 'sound'; key: string; name: string; volume: number; scene: string; ok: boolean }
-  | { type: 'toast'; text: string; where: 'top' | 'bottom'; ms: number; bg: string; scene: string }
+  | { type: 'toast'; text: string; where: 'top' | 'bottom'; ms: number; bg: string; scene: string; icon?: string } // icon — ключ спрайта слева от текста (ITGAME-83)
   // сцена реально отработала клавишу (обработчик прошёл свои guard'ы); key — имя
   // Phaser (ENTER/SPACE/ESC/ONE…), action — что сделано
   | { type: 'key'; key: string; scene: string; action: string }

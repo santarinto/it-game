@@ -104,9 +104,28 @@ try {
     const hasCleanWin = texts.some((t) => t && t.includes('Победа без аменити'))
     const hasSurvivor10 = texts.some((t) => t && t.includes('10 дней без банкротства'))
     const overlaps = window.itd.overlaps()
-    return { hasTitle, hasFirstMillion, hasFullStaff, hasNetwork36, hasCleanWin, hasSurvivor10, overlapsCount: overlaps.length }
+    // ITGAME-83: кубок — спрайт icon_trophy, не эмодзи: 16px у кнопки меню и 24px слева от
+    // заголовка окна, по высоте — на середине строки заголовка, левее текста заголовка
+    const menu = window.__itd.scene.getScene('menu')
+    // окно прячет интерфейс меню — иконка кнопки прячется вместе со своим текстом
+    const icons = menu.children.list
+      .filter((o) => o.texture?.key === 'icon_trophy')
+      .map((o) => ({ w: Math.round(o.displayWidth), x: o.x, y: o.y, depth: o.depth, visible: o.visible }))
+    const btnText = menu.children.list.find((o) => o.type === 'Text' && String(o.text).startsWith('Достижения '))
+    const btnIconFollows = icons.find((i) => i.w === 16)?.visible === btnText?.visible
+    const titleObj = menu.children.list.find((o) => o.type === 'Text' && String(o.text).startsWith('ДОСТИЖЕНИЯ ('))
+    const tb = titleObj?.getBounds()
+    const titleIcon = icons.find((i) => i.w === 24)
+    const titleIconOk = !!tb && !!titleIcon && Math.abs(titleIcon.y - tb.centerY) <= 2 && titleIcon.x < tb.x + 24 + 2 &&
+      titleIcon.x > tb.x
+    // карточка достижения с собственной иконкой 🏆 (meta.ts) — набор из 12, он отдельно
+    const noEmoji = ![titleObj?.text, btnText?.text].some((t) => !t || t.includes('🏆'))
+    return { hasTitle, hasFirstMillion, hasFullStaff, hasNetwork36, hasCleanWin, hasSurvivor10, overlapsCount: overlaps.length, icons, titleIconOk, noEmoji, btnIconFollows }
   })
   check('Модалка достижений открылась', achModalOpen.hasTitle, 'заголовок найден')
+  check('ITGAME-83: кубки — спрайты 16 (кнопка) и 24 (заголовок окна), 🏆 в текстах нет',
+    achModalOpen.icons.map((i) => i.w).sort().join(',') === '16,24' && achModalOpen.noEmoji && achModalOpen.btnIconFollows, JSON.stringify(achModalOpen.icons))
+  check('ITGAME-83: кубок заголовка — в поле слева от текста, по центру строки', achModalOpen.titleIconOk, JSON.stringify(achModalOpen.icons))
   check('Достижение «Первый миллион» отображено', achModalOpen.hasFirstMillion, 'найдено')
   check('Достижение «Полный штат» отображено', achModalOpen.hasFullStaff, 'найдено')
   check('Достижение «36/36 в сети» отображено', achModalOpen.hasNetwork36, 'найдено')

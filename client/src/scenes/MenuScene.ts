@@ -6,7 +6,7 @@ import { FONT, HIRES_CAMERA } from '../render'
 import { markActive, markDim, tag } from '../debug/agentApi'
 import { fmtMoney } from '../format'
 import { getAchievementsSummary, loadStats } from '../meta'
-import { spriteKey } from '../assets/manifest'
+import { attachIcon } from '../ui/iconText'
 import type { DifficultyId, SaveSummaryMessage } from '../protocol'
 import { emitUi } from '../uibus'
 import { resetForNewGame } from '../party'
@@ -200,21 +200,13 @@ export class MenuScene extends Phaser.Scene {
         .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true }),
       'menu.achievements',
     )
-    // ITGAME-83: спрайт icon_trophy вместо эмодзи 🏆 — иконка рядом с Text, а не символ
-    // в строке. Исходник 64, на экране ACH_ICON_PX: displaySize, а не setScale, —
-    // itd.sprite.try сохраняет экранный размер объекта при любой пробе.
-    const ACH_ICON_PX = 16
-    const ACH_ICON_GAP = 6
+    // ITGAME-83: спрайт icon_trophy вместо эмодзи 🏆 — иконка рядом с Text, а не символ в строке
     const achTxt = this.add
-      .text(0, 665, `Достижения ${unlockedCount}/${totalCount}`, {
+      .text(990, 665, `Достижения ${unlockedCount}/${totalCount}`, {
         fontFamily: FONT, fontSize: '12px', color: '#ffcd75',
       })
-      .setOrigin(0, 0.5)
-    const achLeft = Math.round(990 - (ACH_ICON_PX + ACH_ICON_GAP + achTxt.width) / 2)
-    const achIcon = this.add
-      .image(achLeft + ACH_ICON_PX / 2, 665, spriteKey(this, 'icon_trophy'))
-      .setDisplaySize(ACH_ICON_PX, ACH_ICON_PX)
-    achTxt.setX(achLeft + ACH_ICON_PX + ACH_ICON_GAP)
+      .setOrigin(0.5)
+    const achIcon = attachIcon(achTxt, 'icon_trophy', { px: 16 })
     achBg.on('pointerover', () => achBg.setStrokeStyle(2, 0xffcd75))
     achBg.on('pointerout', () => achBg.setStrokeStyle(2, 0x3a3f5c))
     achBg.on('pointerdown', () => this.showAchievementsModal())
@@ -411,7 +403,7 @@ export class MenuScene extends Phaser.Scene {
     }
   }
 
-  private createModalFrame(pw: number, ph: number, titleText: string, strokeColor = 0x41a6f6, withDefaultCloseBtn = true) {
+  private createModalFrame(pw: number, ph: number, titleText: string, strokeColor = 0x41a6f6, withDefaultCloseBtn = true, titleIcon?: string) {
     const overlay = this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.85).setOrigin(0).setDepth(80).setInteractive()
     overlay.on('pointerdown', () => this.closeModal())
     markDim(overlay, titleText) // ITGAME-72, ITGAME-87
@@ -421,6 +413,8 @@ export class MenuScene extends Phaser.Scene {
     const title = this.add.text(CX, GAME_H / 2 - ph / 2 + 28, titleText, {
       fontFamily: FONT, fontSize: '20px', color: '#ffcd75',
     }).setOrigin(0.5).setDepth(82)
+    // ITGAME-83: иконка заголовка — спрайт слева от текста (24px при кегле 20)
+    if (titleIcon) attachIcon(title, titleIcon, { px: 24, gap: 8 })
 
     const closeX = tag(this.add.text(CX + pw / 2 - 24, GAME_H / 2 - ph / 2 + 24, '✕', {
       fontFamily: FONT, fontSize: '18px', color: '#94b0c2',
@@ -508,7 +502,7 @@ export class MenuScene extends Phaser.Scene {
     const { unlockedCount, totalCount, list } = getAchievementsSummary()
     const pw = 840
     const ph = 500
-    const { frameUI, topY } = this.createModalFrame(pw, ph, `🏆 ДОСТИЖЕНИЯ (${unlockedCount} / ${totalCount})`, 0x38b764)
+    const { frameUI, topY } = this.createModalFrame(pw, ph, `ДОСТИЖЕНИЯ (${unlockedCount} / ${totalCount})`, 0x38b764, true, 'icon_trophy')
 
     // 12 достижений в 2 колонки по 6 строк
     const colW = 380
