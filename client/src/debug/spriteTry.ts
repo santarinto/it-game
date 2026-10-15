@@ -1,4 +1,4 @@
-import type Phaser from 'phaser'
+import Phaser from 'phaser'
 import { checkSpriteImage } from '../../scripts/lib/sprite-check-core.mjs'
 import type { SpriteCheckResult } from '../../scripts/lib/sprite-check-core.mjs'
 import { PALETTES, SPRITES } from '../assets/manifest'
@@ -8,17 +8,27 @@ import { PALETTES, SPRITES } from '../assets/manifest'
 // живёт в памяти вкладки: в репо, dist, сейв и хранилища ничего не пишется,
 // перезагрузка её снимает. Контракт считает тот же код, что npm run check:sprites.
 
+// Фильтр сэмплирования пробы. pixelArt: true даёт всей игре NEAREST (рендерер так
+// решает по antialias: false); linear — билинейный только этой текстуре: детальный
+// исходник крупнее слота сжимается гладко (честно — до 2×, mipmaps нет).
+export type SpriteFilter = 'nearest' | 'linear'
+
+export interface SpriteTryOptions {
+  filter?: SpriteFilter // по умолчанию nearest — как у всей сцены
+}
+
 export interface SpriteReceipt {
   ok: boolean
   key?: string
   w?: number
   h?: number
+  filter?: SpriteFilter
   sha256?: string | null // null — страница не в secure context, crypto.subtle нет
   objects?: number // живых объектов сцен перевешено на новую текстуру
   problems?: string[] // нарушения контракта; текстура при этом СТОИТ
   warnings?: string[]
   stats?: SpriteCheckResult['stats']
-  code?: 'unknown_key' | 'bad_src' | 'bad_size'
+  code?: 'unknown_key' | 'bad_src' | 'bad_size' | 'bad_filter'
   error?: string
 }
 
@@ -26,6 +36,7 @@ export interface SpriteTried {
   key: string
   w: number
   h: number
+  filter: SpriteFilter
   sha256: string | null
   problems: string[]
 }
@@ -38,7 +49,7 @@ export interface SpriteResetResult {
 }
 
 export interface SpriteApi {
-  try(key: string, src: string): Promise<SpriteReceipt>
+  try(key: string, src: string, opts?: SpriteTryOptions): Promise<SpriteReceipt>
   reset(key?: string): SpriteResetResult
   list(): SpriteTried[]
 }
@@ -138,10 +149,14 @@ function swap(game: Phaser.Game, key: string, source: HTMLImageElement | null): 
 
 export function makeSpriteApi(game: Phaser.Game): SpriteApi {
   return {
-    async try(key, src) {
+    async try(key, src, opts) {
       const spec = SPRITES[key]
       if (!spec) {
         return { ok: false, code: 'unknown_key', error: `ключа '${key}' нет в манифесте sprites.json` }
+      }
+      const filter = opts?.filter ?? 'nearest'
+      if (filter !== 'nearest' && filter !== 'linear') {
+        return { ok: false, code: 'bad_filter', error: `filter — 'nearest' или 'linear', получено ${JSON.stringify(filter)}` }
       }
       if (typeof src !== 'string' || !PNG_DATA_URL.test(src)) {
         return { ok: false, code: 'bad_src', error: 'src — data URL вида data:image/png;base64,…' }
@@ -174,8 +189,15 @@ export function makeSpriteApi(game: Phaser.Game): SpriteApi {
       }
       // Оригинал прячется один раз: второй try того же ключа снимает только пробу.
       const objects = swap(game, key, img)
-      tried.set(key, { key, w, h, sha256, problems: res.problems })
-      return { ok: true, key, w, h, sha256, objects, problems: res.problems, warnings: res.warnings, stats: res.stats }
+      // Новая текстура рождается NEAREST (её рендерер не сглаживает при antialias: false);
+      // setFilter пишет фильтр прямо в GL. Оригинал под ORIG_PREFIX свой фильтр хранит.
+      if (filter === 'linear') game.textures.get(key).setFilter(Phaser.Textures.FilterMode.LINEAR)
+      const warnings = [...res.warnings]
+      if (filter === 'linear' && game.renderer.type !== Phaser.WEBGL) {
+        warnings.push('filter: linear действует только в WebGL — canvas-рендер рисует как раньше')
+      }
+      tried.set(key, { key, w, h, filter, sha256, problems: res.problems })
+      return { ok: true, key, w, h, filter, sha256, objects, problems: res.problems, warnings, stats: res.stats }
     },
 
     reset(key) {

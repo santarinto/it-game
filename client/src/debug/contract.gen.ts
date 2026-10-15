@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "54034666de7b",
+  "hash": "5eaa5f834ec9",
   "methods": {
     "version": {
       "kind": "prop",
@@ -263,9 +263,10 @@ export const CONTRACT = {
       "kind": "prop",
       "type": "SpriteApi",
       "readonly": true,
-      "doc": "Примерка спрайта (ITGAME-119): itd.sprite.try(key, dataUrl) ставит PNG вместо\nтекстуры ключа манифеста во вкладке и перевешивает живые объекты сцен →\n{ok, key, w, h, sha256, objects, problems, warnings, stats} — problems считает\nтот же контракт, что npm run check:sprites (палитра, альфа, шум), текстура при\nнарушениях всё равно стоит. Отказы: unknown_key (ключа нет в sprites.json),\nbad_src (не data:image/png;base64 или PNG битый), bad_size (не size·frames ×\nsize ключа). itd.sprite.list() → [{key, w, h, sha256, problems}];\nitd.sprite.reset(key?) → {ok, reset[]} — вернуть исходную текстуру (без ключа —\nвсе), not_tried — ключ не подменён. В репо, dist и сейв ничего не пишется,\nперезагрузка страницы снимает подмену.",
+      "doc": "Примерка спрайта (ITGAME-119): itd.sprite.try(key, dataUrl) ставит PNG вместо\nтекстуры ключа манифеста во вкладке и перевешивает живые объекты сцен →\n{ok, key, w, h, sha256, objects, problems, warnings, stats} — problems считает\nтот же контракт, что npm run check:sprites (палитра, альфа, шум), текстура при\nнарушениях всё равно стоит. Третий аргумент {filter: 'linear'} — билинейный\nфильтр только этой текстуре (вся игра — NEAREST по pixelArt): детальный\nисходник крупнее слота сжимается гладко; по умолчанию 'nearest', в квитанции\nи list() — filter. Отказы: unknown_key (ключа нет в sprites.json),\nbad_src (не data:image/png;base64 или PNG битый), bad_size (не size·frames ×\nsize ключа), bad_filter (не nearest/linear). itd.sprite.list() → [{key, w, h,\nfilter, sha256, problems}];\nitd.sprite.reset(key?) → {ok, reset[]} — вернуть исходную текстуру (без ключа —\nвсе), not_tried — ключ не подменён. В репо, dist и сейв ничего не пишется,\nперезагрузка страницы снимает подмену.",
       "examples": [
         "await itd.sprite.try('desk_pc', dataUrl)",
+        "await itd.sprite.try('icon_money', dataUrl, { filter: 'linear' })",
         "itd.sprite.list()",
         "itd.sprite.reset()"
       ]
@@ -2779,6 +2780,13 @@ export const CONTRACT = {
         }
       }
     },
+    "SpriteFilter": {
+      "kind": "enum",
+      "values": [
+        "linear",
+        "nearest"
+      ]
+    },
     "SpriteReceipt": {
       "kind": "object",
       "fields": {
@@ -2799,6 +2807,11 @@ export const CONTRACT = {
         },
         "h": {
           "type": "number",
+          "optional": true,
+          "doc": ""
+        },
+        "filter": {
+          "type": "SpriteFilter",
           "optional": true,
           "doc": ""
         },
@@ -2828,7 +2841,7 @@ export const CONTRACT = {
           "doc": ""
         },
         "code": {
-          "type": "'unknown_key' | 'bad_src' | 'bad_size'",
+          "type": "'unknown_key' | 'bad_src' | 'bad_size' | 'bad_filter'",
           "optional": true,
           "doc": ""
         },
@@ -2882,6 +2895,11 @@ export const CONTRACT = {
           "optional": false,
           "doc": ""
         },
+        "filter": {
+          "type": "SpriteFilter",
+          "optional": false,
+          "doc": ""
+        },
         "sha256": {
           "type": "string | null",
           "optional": false,
@@ -2891,6 +2909,16 @@ export const CONTRACT = {
           "type": "string[]",
           "optional": false,
           "doc": ""
+        }
+      }
+    },
+    "SpriteTryOptions": {
+      "kind": "object",
+      "fields": {
+        "filter": {
+          "type": "SpriteFilter",
+          "optional": true,
+          "doc": "по умолчанию nearest — как у всей сцены"
         }
       }
     },

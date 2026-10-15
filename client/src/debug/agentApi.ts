@@ -930,13 +930,18 @@ export interface ItdApi {
    * текстуры ключа манифеста во вкладке и перевешивает живые объекты сцен →
    * {ok, key, w, h, sha256, objects, problems, warnings, stats} — problems считает
    * тот же контракт, что npm run check:sprites (палитра, альфа, шум), текстура при
-   * нарушениях всё равно стоит. Отказы: unknown_key (ключа нет в sprites.json),
+   * нарушениях всё равно стоит. Третий аргумент {filter: 'linear'} — билинейный
+   * фильтр только этой текстуре (вся игра — NEAREST по pixelArt): детальный
+   * исходник крупнее слота сжимается гладко; по умолчанию 'nearest', в квитанции
+   * и list() — filter. Отказы: unknown_key (ключа нет в sprites.json),
    * bad_src (не data:image/png;base64 или PNG битый), bad_size (не size·frames ×
-   * size ключа). itd.sprite.list() → [{key, w, h, sha256, problems}];
+   * size ключа), bad_filter (не nearest/linear). itd.sprite.list() → [{key, w, h,
+   * filter, sha256, problems}];
    * itd.sprite.reset(key?) → {ok, reset[]} — вернуть исходную текстуру (без ключа —
    * все), not_tried — ключ не подменён. В репо, dist и сейв ничего не пишется,
    * перезагрузка страницы снимает подмену.
    * @example await itd.sprite.try('desk_pc', dataUrl)
+   * @example await itd.sprite.try('icon_money', dataUrl, { filter: 'linear' })
    * @example itd.sprite.list()
    * @example itd.sprite.reset()
    */
@@ -1873,8 +1878,8 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   await itd.stale()                 — вкладка на старом JS? {client, server, dist, stale, at, shown}: shown — метка «устарело, обнови» видна на экране (скрытая живёт в DOM как display:none 0×0); client — sha вкладки, dist — sha сборки, которую стенд отдаст на F5, server — sha бинаря (/api/version); stale null — сверить не с чем (vite dev; сборка без git и без штампа BUILD_SHA/-ldflags — sha dev/unknown; со штампом sha есть); красная метка «устарело, обнови» в #topbar — та же проверка
   itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне палитры манифеста ключа (hd32/sweetie16), дубли ключей; source: tried — проба itd.sprite.try
   itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк); active: tried — проба itd.sprite.try
-  await itd.sprite.try(key, dataUrl) — примерка спрайта: PNG (data:image/png;base64,…) вместо текстуры ключа манифеста во вкладке → {ok, key, w, h, sha256, objects, problems, warnings, stats}; problems — контракт check:sprites, текстура стоит и с нарушениями; отказы unknown_key | bad_src | bad_size; в репо и сейв ничего не пишется
-  itd.sprite.list() / reset(key?)   — что подменено [{key, w, h, sha256, problems}] / вернуть исходную текстуру (без ключа — все), not_tried — ключ не подменён
+  await itd.sprite.try(key, dataUrl, {filter?}) — примерка спрайта: PNG (data:image/png;base64,…) вместо текстуры ключа манифеста во вкладке → {ok, key, w, h, filter, sha256, objects, problems, warnings, stats}; filter 'nearest' (по умолчанию, как вся игра) | 'linear' (гладкое сжатие только этой текстуры); problems — контракт check:sprites, текстура стоит и с нарушениями; отказы unknown_key | bad_src | bad_size | bad_filter; в репо и сейв ничего не пишется
+  itd.sprite.list() / reset(key?)   — что подменено [{key, w, h, filter, sha256, problems}] / вернуть исходную текстуру (без ключа — все), not_tried — ключ не подменён
   itd.reset()                       — снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум, отчёты)
   itd.pause() / resume() / speed(n) — темп сессии: set_speed 0/1/0..3 (серверный, живёт в сейве); до коннекта — {ok:false, code:'not_connected'}
   itd.step(2000) / step({ticks:60}) — пауза + промотка офлайн-движком (без кофе/событий/поломок/XP, день закрывается без day_report): мс (1 тик = 1000 мс, до 10 тиков) или {ticks: 1..10000}; из фазы отчёта — сначала next_day; сводка — в .advance и «debug · advance» в itd.snapshot().events; вне running (game_over) — 200 с advance.ticks 0, ничего не промотано

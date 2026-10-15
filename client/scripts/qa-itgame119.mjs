@@ -237,6 +237,34 @@ try {
   }, KEY)
   check('S10: reset() без ключа возвращает все подменённые', s10.r.ok && s10.r.reset.includes(KEY) && s10.r.reset.includes('rack_server') && s10.list.length === 0 && s10.same === before.sig, s10.r)
 
+  // F1–F4: фильтр сэмплирования пробы. pixelArt: true не пишет NEAREST в текстуру
+  // (source.scaleMode остаётся 0 = LINEAR) — NEAREST выбирает рендерер по antialias:
+  // false, поэтому судим по GL-обёртке: minFilter/magFilter (9729 LINEAR, 9728 NEAREST).
+  const f = await page.evaluate(async (k) => {
+    const game = window.__itd
+    const gl = (key) => {
+      const t = game.textures.get(key).source[0].glTexture
+      return t ? [t.minFilter, t.magFilter] : null
+    }
+    const orig = gl(k)
+    const lin = await window.itd.sprite.try(k, window.qa119.variant(k, 'b13e53'), { filter: 'linear' })
+    const linGl = gl(k)
+    const linList = window.itd.sprite.list().find((t) => t.key === k)
+    const near = await window.itd.sprite.try(k, window.qa119.variant(k, 'b13e53'))
+    const nearGl = gl(k)
+    const sig = window.qa119.sig(k)
+    const bad = await window.itd.sprite.try(k, window.qa119.variant(k, '38b764'), { filter: 'bicubic' })
+    const badSame = window.qa119.sig(k) === sig && gl(k)?.[0] === nearGl?.[0]
+    await window.itd.sprite.try(k, window.qa119.variant(k, 'b13e53'), { filter: 'linear' })
+    window.itd.sprite.reset(k)
+    return { webgl: game.renderer.type === 2, orig, lin, linGl, linList, near, nearGl, bad, badSame, back: gl(k) }
+  }, KEY)
+  check('F0: стенд рисует WebGL (иначе фильтр не проверить)', f.webgl === true, f.webgl)
+  check('F1: try(…, {filter: linear}) → ok, filter: linear, GL-текстура LINEAR, list() называет фильтр', f.lin.ok && f.lin.filter === 'linear' && f.linGl?.[0] === 9729 && f.linGl?.[1] === 9729 && f.linList?.filter === 'linear', { r: f.lin.filter, gl: f.linGl, list: f.linList })
+  check('F2: try без опций → filter: nearest, GL-текстура NEAREST (как у всей сцены)', f.near.ok && f.near.filter === 'nearest' && f.nearGl?.[0] === 9728 && f.nearGl?.[1] === 9728, { r: f.near.filter, gl: f.nearGl })
+  check('F3: неизвестный фильтр → bad_filter, текстура не тронута', f.bad.ok === false && f.bad.code === 'bad_filter' && f.badSame, f.bad)
+  check('F4: reset после linear-пробы — оригинал снова NEAREST, как до try', f.back?.[0] === f.orig?.[0] && f.back?.[0] === 9728, { orig: f.orig, back: f.back })
+
   await delay(300)
   check('Ошибок на странице нет', pageErrors.length === 0, pageErrors)
 } finally {
