@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "node scripts/gen-contract.mjs --check && tsc --noEmit && vite build && node scripts/check-sprites.mjs",
     "typecheck": "tsc --noEmit",
+    "test": "node --test scripts/lib/*.test.mjs",
     "preview": "vite preview",
     "browser:install": "node scripts/browser-install.mjs",
     "smoke-ui": "node scripts/smoke-ui.mjs",

@@ -11,6 +11,16 @@
 //     [--size N] [--palette sweetie16|hd32] [--alpha N=128] \
 //     [--downscale-nearest] [--despeckle N=0] [--bottom-margin N=0] \
 //     [--flip-x] [--place X,Y]
+//   node client/scripts/sprite-remap.mjs <in.png> <out.png> --key <ключ> --smooth \
+//     [--margin N=4] [--alpha N=128] [--chroma RRGGBB] [--chroma-tol N=48]
+//
+// --smooth (ITGAME-83) — отдельный путь для ключей render: 'smooth': генерация модели
+// любого размера → холст size×size площадной выборкой с весом альфы (без палитры,
+// без порога альфы, полутоны сохраняются), см. lib/sprite-smooth.mjs. --chroma
+// вырезает однотонный фон (#ff00ff из промта для диффузии без альфы), --margin —
+// пустое поле по краю холста, предмет по центру X и на нижнем поле. Флаги
+// пиксельного пути (--downscale-nearest, --despeckle, --flip-x, --place,
+// --bottom-margin, --palette) с --smooth не сочетаются.
 //
 // Алгоритм (без ресемплинга/интерполяции — пиксель-арт терпит только
 // точное приближение цвета и точное прореживание):
@@ -47,6 +57,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PNG } from 'pngjs'
 import { checkSpriteImage, WHITE_HEX } from './lib/sprite-check.mjs'
+import { smoothFit } from './lib/sprite-smooth.mjs'
 
 const SCRIPTS_DIR = dirname(fileURLToPath(import.meta.url))
 const CLIENT_DIR = dirname(SCRIPTS_DIR)
@@ -57,7 +68,9 @@ function usageError(msg) {
   console.error(
     'Usage: node client/scripts/sprite-remap.mjs <in.png> <out.png> --key <ключ> ' +
       '[--size N] [--palette sweetie16|hd32] [--alpha N=128] [--downscale-nearest] ' +
-      '[--despeckle N=0] [--bottom-margin N=0] [--flip-x] [--place X,Y]',
+      '[--despeckle N=0] [--bottom-margin N=0] [--flip-x] [--place X,Y]\n' +
+      '       node client/scripts/sprite-remap.mjs <in.png> <out.png> --key <ключ> --smooth ' +
+      '[--margin N=4] [--alpha N=128] [--chroma RRGGBB] [--chroma-tol N=48]',
   )
   process.exit(1)
 }
@@ -65,7 +78,8 @@ function usageError(msg) {
 // ── Аргументы ────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2)
 const positional = []
-const opts = { alpha: 128, despeckle: 0, bottomMargin: 0, downscaleNearest: false, flipX: false, place: null }
+const opts = { alpha: 128, despeckle: 0, bottomMargin: 0, downscaleNearest: false, flipX: false, place: null, smooth: false, margin: 4, chroma: null, chromaTol: 48 }
+const pixelOnly = [] // флаги пиксельного пути — с --smooth запрещены
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i]
   switch (a) {
@@ -77,27 +91,48 @@ for (let i = 0; i < argv.length; i++) {
       break
     case '--palette':
       opts.palette = argv[++i]
+      pixelOnly.push(a)
       break
     case '--alpha':
       opts.alpha = Number(argv[++i])
       break
     case '--downscale-nearest':
       opts.downscaleNearest = true
+      pixelOnly.push(a)
       break
     case '--despeckle':
       opts.despeckle = Number(argv[++i])
+      pixelOnly.push(a)
       break
     case '--bottom-margin':
       opts.bottomMargin = Number(argv[++i])
+      pixelOnly.push(a)
       break
     case '--flip-x':
       opts.flipX = true
+      pixelOnly.push(a)
+      break
+    case '--smooth':
+      opts.smooth = true
+      break
+    case '--margin':
+      opts.margin = Number(argv[++i])
+      break
+    case '--chroma': {
+      const raw = (argv[++i] ?? '').replace(/^#/, '').toLowerCase()
+      if (!/^[0-9a-f]{6}$/.test(raw)) usageError(`--chroma ожидает RRGGBB, получено '${raw}'`)
+      opts.chroma = raw
+      break
+    }
+    case '--chroma-tol':
+      opts.chromaTol = Number(argv[++i])
       break
     case '--place': {
       const raw = argv[++i] ?? ''
       const m = /^(-?\d+),(-?\d+)$/.exec(raw)
       if (!m) usageError(`--place ожидает "X,Y" целыми числами, получено '${raw}'`)
       opts.place = { x: Number(m[1]), y: Number(m[2]) }
+      pixelOnly.push(a)
       break
     }
     default:
@@ -125,6 +160,49 @@ if (!Number.isInteger(size) || size <= 0) usageError(`некорректный s
 if (!palette) usageError(`неизвестная палитра '${paletteName}' (нет в manifest.palettes)`)
 if (!Number.isFinite(opts.alpha) || opts.alpha < 1 || opts.alpha > 255) {
   usageError(`некорректный --alpha: ${opts.alpha} (ожидается 1..255)`)
+}
+
+// ── --smooth: отдельный путь, до палитры и порога альфы ─────────────────
+if (opts.smooth) {
+  if (pixelOnly.length) usageError(`с --smooth не сочетаются: ${pixelOnly.join(' ')}`)
+  if (opts.margin !== undefined && (!Number.isInteger(opts.margin) || opts.margin < 0)) {
+    usageError(`некорректный --margin: ${opts.margin}`)
+  }
+  if (!Number.isFinite(opts.chromaTol) || opts.chromaTol < 0) usageError(`некорректный --chroma-tol: ${opts.chromaTol}`)
+  // Гладкий PNG у ключа render: pixel упадёт в check:sprites на полутонах и палитре —
+  // лучше сказать это здесь, чем на сборке.
+  if (spriteSpec && spriteSpec.render !== 'smooth') {
+    usageError(`ключ '${opts.key}' — render: ${spriteSpec.render ?? 'pixel'}; --smooth только для render: 'smooth' в sprites.json`)
+  }
+  const raw = PNG.sync.read(readFileSync(inPath))
+  let fit
+  try {
+    fit = smoothFit(raw, { size, margin: opts.margin, alpha: opts.alpha, chroma: opts.chroma, chromaTol: opts.chromaTol })
+  } catch (e) {
+    usageError(e instanceof Error ? e.message : String(e))
+  }
+  const out = new PNG({ width: size, height: size })
+  Buffer.from(fit.png.data).copy(out.data)
+  mkdirSync(dirname(outPath), { recursive: true })
+  writeFileSync(outPath, PNG.sync.write(out))
+  const spec = { size, frames: 1, render: 'smooth', maxWhitePct: spriteSpec?.maxWhitePct, maxSpecks: spriteSpec?.maxSpecks }
+  const { problems, warnings, stats } = checkSpriteImage(out, spec, palette, paletteName)
+  let semi = 0
+  for (let i = 3; i < out.data.length; i += 4) if (out.data[i] >= 26 && out.data[i] < 255) semi++
+  console.log(outPath)
+  console.log(
+    `  ${size}x${size}, smooth, margin ${opts.margin}, alpha>=${opts.alpha} для bbox` +
+      (opts.chroma ? `, chroma #${opts.chroma}±${opts.chromaTol}` : ''),
+  )
+  console.log(`  вход ${raw.width}x${raw.height}, bbox ${fit.bbox.w}x${fit.bbox.h} @ (${fit.bbox.x}, ${fit.bbox.y}), шаг ${Math.round(fit.scale * 100) / 100}`)
+  console.log(`  полупрозрачных: ${semi}, прозрачность: ${stats.transparentPct}%, #${WHITE_HEX}: ${stats.whitePct}%${stats.noiseSummary}`)
+  for (const w of warnings) console.log(`  warn: ${w}`)
+  if (problems.length) {
+    for (const p of problems) console.log(`  FAIL: ${p}`)
+    process.exit(1)
+  }
+  console.log('  CHECK OK')
+  process.exit(0)
 }
 
 // ── Ближайший цвет палитры: redmean ─────────────────────────────────────

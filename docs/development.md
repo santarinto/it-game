@@ -1016,6 +1016,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 
 | Command | Checks | Port (`QA_PORT`/…) |
 |---|---|---|
+| `npm test` | `node --test` over `client/scripts/lib/*.test.mjs`: the sprite contract core (pixel and `render: smooth` profiles, no `node:*` imports) and `sprite-smooth` (fractional-step area resampling, alpha-weighted colour, centre/bottom placement, chroma key, background zeroing) — no browser, no server | — |
 | `npm run qa:meta` | stats/achievements modals | :4173, `vite preview` — needs a Go server already on :8080 |
 | `npm run qa:buttons` | buy-button enabled/tooltip/alpha states (ITGAME-17); R1–R7 the room action column (ITGAME-94): `btn.pc`/`hire`/`boss` in the `office` scene at x 1142, 128×44, y 384/438/492, no overlap with any office object; the `room.tooltip` sits left of the column; a real mouse click at the `screen()` point buys a PC; under the router window `hit()` fails, `X`, no tooltip; in a locked office the column is hidden and `itd.click` answers `code: 'hidden'`; `btn.gateway` in `serverRoom` at x 1142 y 452 | :4180, self-serve |
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35); T0 the `Storage.prototype` probe; T1–T2 storage fully blocked (ITGAME-80): «Сохранить и выйти» → «Продолжить» resumes the same sid from tab memory, after a reload no «Продолжить» and a new sid | :4179, self-serve + temp saves dir |
@@ -1292,6 +1293,15 @@ and the finished PNGs are committed.
   resampling, except an exact integer `--downscale-nearest` factor. Shares
   its contract check with `check-sprites.mjs` via
   `client/scripts/lib/sprite-check.mjs`.
+  `--smooth` (ITGAME-83) is the separate path for `render: 'smooth'` keys and
+  refuses any other key and every pixel-path flag: an optional chroma key
+  (`--chroma ff00ff`, `--chroma-tol 48`) for a diffusion output without alpha,
+  bbox by `--alpha`, a square around it centred on X and sitting on the
+  bottom `--margin` (default 4), then area resampling with fractional edges
+  and alpha-weighted colour (`client/scripts/lib/sprite-smooth.mjs`, covered
+  by `node --test`) — no palette, no alpha threshold, the half-tones stay.
+  `icon_trophy.png` is `node client/scripts/sprite-remap.mjs <generation.png>
+  client/public/assets/sprites/icon_trophy.png --key icon_trophy --smooth`.
 - **Edit:** `scripts/sprite-edit.sh <name> "<instruction>"` — Gemini
   (`GEMINI_IMAGE_MODEL`, default `gemini-2.5-flash-image`) → remap;
   overwrites the tracked PNG only if the result passes the contract.
