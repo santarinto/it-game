@@ -13,12 +13,14 @@ import { spriteKey } from '../assets/manifest'
 export interface IconTextOptions {
   px?: number // сторона иконки на экране, мировые px (по умолчанию 16)
   gap?: number // зазор иконка → текст (по умолчанию 6)
+  alpha?: number // множитель поверх alpha текста — приглушить иконку (по умолчанию 1)
 }
 
 export function attachIcon(text: Phaser.GameObjects.Text, key: string, opts: IconTextOptions = {}): Phaser.GameObjects.Image {
   const scene = text.scene
   const px = opts.px ?? 16
   const gap = opts.gap ?? 6
+  const alphaMul = opts.alpha ?? 1
   const pad = text.padding
   const baseLeft = pad.left ?? 0
   text.setPadding(baseLeft + px + gap, pad.top ?? 0, pad.right ?? 0, pad.bottom ?? 0)
@@ -34,7 +36,7 @@ export function attachIcon(text: Phaser.GameObjects.Text, key: string, opts: Ico
     const lines = Math.max(1, text.getWrappedText().length)
     const innerH = text.height - (text.padding.top ?? 0) - (text.padding.bottom ?? 0)
     icon.setPosition(Math.round(tl.x + baseLeft + px / 2), Math.round(tl.y + (text.padding.top ?? 0) + innerH / lines / 2))
-    icon.setAlpha(text.alpha).setVisible(text.visible).setDepth(text.depth)
+    icon.setAlpha(text.alpha * alphaMul).setVisible(text.visible).setDepth(text.depth)
   }
   sync()
   scene.events.on(Phaser.Scenes.Events.PRE_RENDER, sync)

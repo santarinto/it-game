@@ -122,13 +122,17 @@ try {
     const texts = menu.children.list.filter((o) => o.type === 'Text')
     const cards = list.map((a) => {
       const name = texts.find((t) => t.text === a.title)
-      return { id: a.id, key: a.icon, unlocked: a.unlocked, icon: !!name && near(a.icon, name, 16) }
+      const img = imgs.find((o) => o.texture?.key === a.icon)
+      // приглушение закрытых: alpha 0.6 и ColorMatrix (обесцвечивание) в preFX
+      const fx = img?.preFX?.list?.filter((f) => f.constructor?.name === 'ColorMatrix' || 'grayscale' in f).length ?? 0
+      return { id: a.id, key: a.icon, unlocked: a.unlocked, icon: !!name && near(a.icon, name, 16), alpha: img ? Math.round(img.alpha * 100) / 100 : null, fx }
     })
+    const dimOk = cards.every((c) => (c.unlocked ? c.alpha === 1 && c.fx === 0 : c.alpha === 0.6 && c.fx === 1))
     const badges = texts.filter((t) => t.text === 'Заблокировано')
     const locks = imgs.filter((o) => o.texture?.key === 'icon_lock' && Math.round(o.displayWidth) === 12).length
     const locksPlaced = badges.every((t) => near('icon_lock', t, 12))
     const emoji = texts.map((t) => String(t.text)).filter((t) => /\p{Extended_Pictographic}/u.test(t.replace(/[✓✕]/g, '')))
-    return { cards, badges: badges.length, locks, locksPlaced, emoji }
+    return { cards, badges: badges.length, locks, locksPlaced, emoji, dimOk }
   }
 
   // 4. Открытие модалки достижений
@@ -230,6 +234,8 @@ try {
   await page.evaluate(() => window.itd.click('menu.achievements'))
   await delay(100)
   const achCards1 = await page.evaluate(achCardIcons)
+  check('ITGAME-83: иконки закрытых приглушены (alpha 0.6 + обесцвечивание), открытая first_hire — нет',
+    achCards1.dimOk && achCards0.dimOk, JSON.stringify(achCards1.cards.map((c) => [c.id, c.unlocked, c.alpha, c.fx])))
   check('ITGAME-83: после first_hire — 11 замков, у открытой карточки иконка на месте',
     achCards1.locks === 11 && achCards1.badges === 11 && achCards1.locksPlaced && achCards1.cards.every((c) => c.icon),
     JSON.stringify({ locks: achCards1.locks, badges: achCards1.badges, missing: achCards1.cards.filter((c) => !c.icon) }))

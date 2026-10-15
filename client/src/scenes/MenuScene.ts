@@ -19,6 +19,8 @@ const BOTTOM_TOP = 636
 // в 11–12px не читался).
 const DIM = '#94b0c2'
 const BASE_STROKE = 0x3a3f5c
+// ITGAME-83: иконка закрытого достижения — обесцвечена и полупрозрачна, в тон DIM названию
+const LOCKED_ICON_ALPHA = 0.6
 
 // Описания уровней — витрина выбора (сервер — источник истины).
 // Цели итерации 14 + рычаги «Сложности 2.0» (ITGAME-9).
@@ -528,7 +530,10 @@ export class MenuScene extends Phaser.Scene {
       const name = this.add.text(x + 12, y + 10, ach.title, {
         fontFamily: FONT, fontSize: '13px', color: titleColor,
       }).setDepth(83)
-      const nameIcon = attachIcon(name, ach.icon, { px: 16 })
+      // закрытое — иконка приглушена в тон серому названию: обесцвечена (preFX есть только
+      // в WebGL, в canvas — одна прозрачность) и полупрозрачна
+      const nameIcon = attachIcon(name, ach.icon, { px: 16, alpha: ach.unlocked ? 1 : LOCKED_ICON_ALPHA })
+      if (!ach.unlocked) nameIcon.preFX?.addColorMatrix().grayscale()
 
       const desc = this.add.text(x + 12, y + 32, ach.desc, {
         fontFamily: FONT, fontSize: '11px', color: ach.unlocked ? '#f4f4f4' : '#94b0c2',
