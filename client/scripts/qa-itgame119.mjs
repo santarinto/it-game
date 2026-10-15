@@ -42,6 +42,27 @@ try {
     () => window.itd != null && window.itd.ids().some((n) => n.id === 'menu.diff.normal'),
     { timeout: 20000 },
   )
+  // T1: место icon_trophy в меню (ITGAME-83) — иконка 16px у «Достижений»; проба 64px
+  // перевешивает её и сохраняет экранный размер, reset возвращает заглушку.
+  const t1 = await page.evaluate(async () => {
+    const game = window.__itd
+    const icons = game.scene.getScene('menu').children.list.filter((o) => o.texture?.key === 'icon_trophy')
+    const size = () => icons.map((o) => [Math.round(o.displayWidth), Math.round(o.displayHeight)])
+    const before = size()
+    const c = document.createElement('canvas')
+    c.width = 64
+    c.height = 64
+    const ctx = c.getContext('2d')
+    ctx.fillStyle = '#41a6f6'
+    ctx.fillRect(16, 16, 32, 32)
+    const r = await window.itd.sprite.try('icon_trophy', c.toDataURL('image/png'), { filter: 'linear' })
+    const after = size()
+    const reset = window.itd.sprite.reset('icon_trophy')
+    return { n: icons.length, before, after, ok: r.ok, objects: r.objects, problems: r.problems, reset: reset.ok }
+  })
+  check('T1: в меню одна иконка icon_trophy 16×16', t1.n === 1 && t1.before[0]?.[0] === 16 && t1.before[0]?.[1] === 16, t1)
+  check('T1: try(icon_trophy, 64px, linear) перевешивает её и держит 16×16, reset ok', t1.ok && t1.objects === 1 && t1.after[0]?.[0] === 16 && t1.after[0]?.[1] === 16 && t1.reset, t1)
+
   await page.evaluate(() => localStorage.setItem('itd.sid', 'qa119-' + Date.now().toString(36)))
   await page.evaluate(() => window.itd.click('menu.diff.normal'))
   await page.waitForFunction(() => window.itd.state().connected === true, { timeout: 20000 })

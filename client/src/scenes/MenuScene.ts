@@ -6,6 +6,7 @@ import { FONT, HIRES_CAMERA } from '../render'
 import { markActive, markDim, tag } from '../debug/agentApi'
 import { fmtMoney } from '../format'
 import { getAchievementsSummary, loadStats } from '../meta'
+import { spriteKey } from '../assets/manifest'
 import type { DifficultyId, SaveSummaryMessage } from '../protocol'
 import { emitUi } from '../uibus'
 import { resetForNewGame } from '../party'
@@ -199,15 +200,25 @@ export class MenuScene extends Phaser.Scene {
         .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true }),
       'menu.achievements',
     )
+    // ITGAME-83: спрайт icon_trophy вместо эмодзи 🏆 — иконка рядом с Text, а не символ
+    // в строке. Исходник 64, на экране ACH_ICON_PX: displaySize, а не setScale, —
+    // itd.sprite.try сохраняет экранный размер объекта при любой пробе.
+    const ACH_ICON_PX = 16
+    const ACH_ICON_GAP = 6
     const achTxt = this.add
-      .text(990, 665, `🏆 Достижения ${unlockedCount}/${totalCount}`, {
+      .text(0, 665, `Достижения ${unlockedCount}/${totalCount}`, {
         fontFamily: FONT, fontSize: '12px', color: '#ffcd75',
       })
-      .setOrigin(0.5)
+      .setOrigin(0, 0.5)
+    const achLeft = Math.round(990 - (ACH_ICON_PX + ACH_ICON_GAP + achTxt.width) / 2)
+    const achIcon = this.add
+      .image(achLeft + ACH_ICON_PX / 2, 665, spriteKey(this, 'icon_trophy'))
+      .setDisplaySize(ACH_ICON_PX, ACH_ICON_PX)
+    achTxt.setX(achLeft + ACH_ICON_PX + ACH_ICON_GAP)
     achBg.on('pointerover', () => achBg.setStrokeStyle(2, 0xffcd75))
     achBg.on('pointerout', () => achBg.setStrokeStyle(2, 0x3a3f5c))
     achBg.on('pointerdown', () => this.showAchievementsModal())
-    this.menuUI.push(achBg, achTxt)
+    this.menuUI.push(achBg, achIcon, achTxt)
 
     this.registerKeys()
   }

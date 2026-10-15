@@ -219,7 +219,7 @@ export const SPRITE_TARGET = {
   // тексель при 2× рендере); видимый размер предмета задаёт его bbox в
   // холсте 128×128 (scripts/sprites/build-hd.sh), а не target
   amenity: 64,
-  icon: 32, // мелкие UI-иконки (icon_money, icon_network) — пока нигде не рисуются
+  icon: 32, // UI-иконки: icon_money, icon_network не рисуются; icon_trophy (ITGAME-83) — в меню 16px через setDisplaySize
   tile: 64, // плитка пола (office_floor_tile) — пока нигде не рисуется
 } as const
 
