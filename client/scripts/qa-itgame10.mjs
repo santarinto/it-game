@@ -76,12 +76,28 @@ try {
     const hasTitle = texts.some((t) => t && t.includes('СТАТИСТИКА ПРОГОНОВ'))
     const overlaps = window.itd.overlaps()
     console.log('STATS OVERLAPS DETAILS:', JSON.stringify(overlaps))
-    return { hasTitle, overlaps, overlapsCount: overlaps.length }
+    // ITGAME-83: график — спрайт icon_chart, не эмодзи: 16px у кнопки меню, 24px слева от заголовка
+    const menu = window.__itd.scene.getScene('menu')
+    const icons = menu.children.list
+      .filter((o) => o.texture?.key === 'icon_chart')
+      .map((o) => ({ w: Math.round(o.displayWidth), x: o.x, y: o.y, visible: o.visible }))
+    const btnText = menu.children.list.find((o) => o.type === 'Text' && o.text === 'Статистика')
+    const btnIconFollows = !!btnText && icons.find((i) => i.w === 16)?.visible === btnText.visible
+    const titleObj = menu.children.list.find((o) => o.type === 'Text' && String(o.text).includes('СТАТИСТИКА ПРОГОНОВ'))
+    const tb = titleObj?.getBounds()
+    const titleIcon = icons.find((i) => i.w === 24)
+    const titleIconOk = !!tb && !!titleIcon && Math.abs(titleIcon.y - tb.centerY) <= 2 && titleIcon.x < tb.x + 24 + 2 &&
+      titleIcon.x > tb.x
+    const noEmoji = ![titleObj?.text, btnText?.text].some((t) => !t || t.includes('📊'))
+    return { hasTitle, overlaps, overlapsCount: overlaps.length, icons, btnIconFollows, titleIconOk, noEmoji }
   })
   if (statsModalOpen.overlaps.length > 0) {
     console.log('Stats overlaps:', statsModalOpen.overlaps)
   }
   check('Модалка статистики открылась', statsModalOpen.hasTitle, 'заголовок найден')
+  check('ITGAME-83: графики — спрайты 16 (кнопка) и 24 (заголовок окна), 📊 в текстах нет',
+    statsModalOpen.icons.map((i) => i.w).sort().join(',') === '16,24' && statsModalOpen.noEmoji && statsModalOpen.btnIconFollows, JSON.stringify(statsModalOpen.icons))
+  check('ITGAME-83: график заголовка — в поле слева от текста, по центру строки', statsModalOpen.titleIconOk, JSON.stringify(statsModalOpen.icons))
   check('Нет оверлапов в модалке статистики', statsModalOpen.overlapsCount === 0, `overlaps=${statsModalOpen.overlapsCount}`)
 
   // Закрытие по ESC

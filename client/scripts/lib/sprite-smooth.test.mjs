@@ -79,3 +79,45 @@ test('почти прозрачное (альфа < 26) обнуляется ц�
 test('пустой вход — ошибка с причиной', () => {
   assert.throws(() => smoothFit(blank(8, 8), { size: 16 }), /ни одного пикселя с альфой >= 128/)
 })
+
+test("chroma 'auto': фон берётся по углам, шум JPEG в пределах допуска вырезается", () => {
+  const src = blank(40, 40)
+  fill(src, 0, 0, 40, 40, [40, 45, 61, 255])
+  fill(src, 0, 0, 3, 3, [46, 41, 66, 255]) // шум в одном углу — в пределах tol
+  fill(src, 10, 10, 30, 30, [60, 180, 250, 255])
+  const { png, chroma } = smoothFit(src, { size: 8, margin: 0, chroma: 'auto' })
+  assert.match(chroma, /^[0-9a-f]{6}$/)
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) assert.deepEqual(px(png, x, y), [60, 180, 250, 255])
+})
+
+test("chroma 'auto' на входе с прозрачными углами — ключ не нужен, chroma: null", () => {
+  const src = blank(40, 40)
+  fill(src, 15, 15, 25, 25, [10, 10, 10, 255]) // тёмный предмет не должен вырезаться
+  const { png, chroma } = smoothFit(src, { size: 10, margin: 0, chroma: 'auto' })
+  assert.equal(chroma, null)
+  assert.deepEqual(px(png, 5, 5), [10, 10, 10, 255])
+})
+
+test("chroma 'auto': углы разного цвета — отказ, а не вырезка наугад", () => {
+  const src = blank(40, 40)
+  fill(src, 0, 0, 40, 20, [255, 0, 255, 255])
+  fill(src, 0, 20, 40, 40, [255, 255, 255, 255])
+  assert.throws(() => smoothFit(src, { size: 8, margin: 0, chroma: 'auto' }), /углы/)
+})
+
+test("chroma 'auto': часть углов прозрачна, часть нет — отказ", () => {
+  const src = blank(40, 40)
+  fill(src, 0, 0, 40, 20, [255, 0, 255, 255])
+  assert.throws(() => smoothFit(src, { size: 8, margin: 0, chroma: 'auto' }), /углы/)
+})
+
+test("chroma 'auto': светлая полоса шва по краю кадра не мешает углам и не раздувает bbox", () => {
+  const src = blank(64, 64)
+  fill(src, 0, 0, 64, 64, [40, 45, 61, 255])
+  fill(src, 0, 0, 1, 64, [125, 128, 147, 255]) // шов по левому краю
+  fill(src, 0, 0, 64, 2, [100, 104, 122, 255]) // и по верхнему
+  fill(src, 16, 16, 48, 48, [60, 180, 250, 255])
+  const { png, bbox } = smoothFit(src, { size: 8, margin: 0, chroma: 'auto' })
+  assert.deepEqual(bbox, { x: 16, y: 16, w: 32, h: 32 })
+  assert.deepEqual(px(png, 0, 0), [60, 180, 250, 255])
+})

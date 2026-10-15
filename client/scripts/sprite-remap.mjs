@@ -12,12 +12,13 @@
 //     [--downscale-nearest] [--despeckle N=0] [--bottom-margin N=0] \
 //     [--flip-x] [--place X,Y]
 //   node client/scripts/sprite-remap.mjs <in.png> <out.png> --key <ключ> --smooth \
-//     [--margin N=4] [--alpha N=128] [--chroma RRGGBB] [--chroma-tol N=48]
+//     [--margin N=4] [--alpha N=128] [--chroma RRGGBB|auto] [--chroma-tol N=48]
 //
 // --smooth (ITGAME-83) — отдельный путь для ключей render: 'smooth': генерация модели
 // любого размера → холст size×size площадной выборкой с весом альфы (без палитры,
 // без порога альфы, полутоны сохраняются), см. lib/sprite-smooth.mjs. --chroma
-// вырезает однотонный фон (#ff00ff из промта для диффузии без альфы), --margin —
+// вырезает однотонный фон (#ff00ff из промта для диффузии без альфы; auto — цвет по
+// углам, на прозрачных углах ключ пропускается), --margin —
 // пустое поле по краю холста, предмет по центру X и на нижнем поле. Флаги
 // пиксельного пути (--downscale-nearest, --despeckle, --flip-x, --place,
 // --bottom-margin, --palette) с --smooth не сочетаются.
@@ -56,8 +57,17 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PNG } from 'pngjs'
+import jpeg from 'jpeg-js'
 import { checkSpriteImage, WHITE_HEX } from './lib/sprite-check.mjs'
 import { smoothFit } from './lib/sprite-smooth.mjs'
+
+// Вход: PNG или JPEG (генераторы часто отдают .jpg без альфы — тогда фон снимает
+// --chroma). Формат — по сигнатуре, не по расширению.
+function readImage(path) {
+  const buf = readFileSync(path)
+  if (buf[0] === 0xff && buf[1] === 0xd8) return jpeg.decode(buf, { useTArray: true, formatAsRGBA: true })
+  return PNG.sync.read(buf)
+}
 
 const SCRIPTS_DIR = dirname(fileURLToPath(import.meta.url))
 const CLIENT_DIR = dirname(SCRIPTS_DIR)
@@ -70,7 +80,7 @@ function usageError(msg) {
       '[--size N] [--palette sweetie16|hd32] [--alpha N=128] [--downscale-nearest] ' +
       '[--despeckle N=0] [--bottom-margin N=0] [--flip-x] [--place X,Y]\n' +
       '       node client/scripts/sprite-remap.mjs <in.png> <out.png> --key <ключ> --smooth ' +
-      '[--margin N=4] [--alpha N=128] [--chroma RRGGBB] [--chroma-tol N=48]',
+      '[--margin N=4] [--alpha N=128] [--chroma RRGGBB|auto] [--chroma-tol N=48]',
   )
   process.exit(1)
 }
@@ -120,7 +130,7 @@ for (let i = 0; i < argv.length; i++) {
       break
     case '--chroma': {
       const raw = (argv[++i] ?? '').replace(/^#/, '').toLowerCase()
-      if (!/^[0-9a-f]{6}$/.test(raw)) usageError(`--chroma ожидает RRGGBB, получено '${raw}'`)
+      if (raw !== 'auto' && !/^[0-9a-f]{6}$/.test(raw)) usageError(`--chroma ожидает RRGGBB или auto, получено '${raw}'`)
       opts.chroma = raw
       break
     }
@@ -174,7 +184,7 @@ if (opts.smooth) {
   if (spriteSpec && spriteSpec.render !== 'smooth') {
     usageError(`ключ '${opts.key}' — render: ${spriteSpec.render ?? 'pixel'}; --smooth только для render: 'smooth' в sprites.json`)
   }
-  const raw = PNG.sync.read(readFileSync(inPath))
+  const raw = readImage(inPath)
   let fit
   try {
     fit = smoothFit(raw, { size, margin: opts.margin, alpha: opts.alpha, chroma: opts.chroma, chromaTol: opts.chromaTol })
@@ -192,7 +202,7 @@ if (opts.smooth) {
   console.log(outPath)
   console.log(
     `  ${size}x${size}, smooth, margin ${opts.margin}, alpha>=${opts.alpha} для bbox` +
-      (opts.chroma ? `, chroma #${opts.chroma}±${opts.chromaTol}` : ''),
+      (fit.chroma ? `, chroma #${fit.chroma}±${opts.chromaTol}` : opts.chroma === 'auto' ? ', chroma auto: углы прозрачны, ключ не нужен' : ''),
   )
   console.log(`  вход ${raw.width}x${raw.height}, bbox ${fit.bbox.w}x${fit.bbox.h} @ (${fit.bbox.x}, ${fit.bbox.y}), шаг ${Math.round(fit.scale * 100) / 100}`)
   console.log(`  полупрозрачных: ${semi}, прозрачность: ${stats.transparentPct}%, #${WHITE_HEX}: ${stats.whitePct}%${stats.noiseSummary}`)
@@ -237,7 +247,7 @@ function nearestPaletteColor(r, g, b) {
 }
 
 // ── 1. Вход + опциональный точный nearest-downscale ─────────────────────
-let src = PNG.sync.read(readFileSync(inPath))
+let src = readImage(inPath)
 if (opts.downscaleNearest) {
   if (src.width !== src.height) {
     usageError(`--downscale-nearest: вход не квадратный ${src.width}x${src.height}`)

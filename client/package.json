@@ -33,6 +33,7 @@
   },
   "devDependencies": {
     "@puppeteer/browsers": "^3.2.1",
+    "jpeg-js": "^0.4.4",
     "pixelmatch": "^7.2.0",
     "pngjs": "^7.0.0",
     "puppeteer-core": "^25.9.0",

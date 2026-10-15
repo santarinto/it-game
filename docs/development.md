@@ -1297,13 +1297,19 @@ and the finished PNGs are committed.
   `client/scripts/lib/sprite-check.mjs`.
   `--smooth` (ITGAME-83) is the separate path for `render: 'smooth'` keys and
   refuses any other key and every pixel-path flag: an optional chroma key
-  (`--chroma ff00ff`, `--chroma-tol 48`) for a diffusion output without alpha,
+  (`--chroma ff00ff`, `--chroma-tol 48`) for a diffusion output without alpha;
+  `--chroma auto` takes the background from four corner patches inset 4 px
+  (a generator's light seam runs along the frame edge, that 4 px frame is
+  cut too), skips keying when the corners are already transparent, and
+  refuses on a busy corner or corners of different colours. The input is
+  PNG or JPEG, told apart by signature (`jpeg-js`);
   bbox by `--alpha`, a square around it centred on X and sitting on the
   bottom `--margin` (default 4), then area resampling with fractional edges
   and alpha-weighted colour (`client/scripts/lib/sprite-smooth.mjs`, covered
   by `node --test`) — no palette, no alpha threshold, the half-tones stay.
   `icon_trophy.png` is `node client/scripts/sprite-remap.mjs <generation.png>
   client/public/assets/sprites/icon_trophy.png --key icon_trophy --smooth`.
+  `icon_chart.png` is the same with `--key icon_chart --chroma auto`.
 - **Edit:** `scripts/sprite-edit.sh <name> "<instruction>"` — Gemini
   (`GEMINI_IMAGE_MODEL`, default `gemini-2.5-flash-image`) → remap;
   overwrites the tracked PNG only if the result passes the contract.

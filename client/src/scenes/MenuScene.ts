@@ -146,13 +146,15 @@ export class MenuScene extends Phaser.Scene {
         .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true }),
       'menu.stats',
     )
+    // ITGAME-83: спрайт icon_chart вместо эмодзи 📊
     const statsTxt = this.add
-      .text(250, 665, '📊 Статистика', { fontFamily: FONT, fontSize: '12px', color: '#f4f4f4' })
+      .text(250, 665, 'Статистика', { fontFamily: FONT, fontSize: '12px', color: '#f4f4f4' })
       .setOrigin(0.5)
+    const statsIcon = attachIcon(statsTxt, 'icon_chart', { px: 16 })
     statsBg.on('pointerover', () => statsBg.setStrokeStyle(2, 0x41a6f6))
     statsBg.on('pointerout', () => statsBg.setStrokeStyle(2, 0x3a3f5c))
     statsBg.on('pointerdown', () => this.showStatsModal())
-    this.menuUI.push(statsBg, statsTxt)
+    this.menuUI.push(statsBg, statsIcon, statsTxt)
 
     // Масштаб UI (ITGAME-15): стартовый экран — единственное место, где все
     // варианты видны рядом; применяется на лету, переживает перезагрузку.
@@ -452,7 +454,7 @@ export class MenuScene extends Phaser.Scene {
     const stats = loadStats()
     const pw = 740
     const ph = 470
-    const { frameUI, topY } = this.createModalFrame(pw, ph, '📊 СТАТИСТИКА ПРОГОНОВ', 0x41a6f6)
+    const { frameUI, topY } = this.createModalFrame(pw, ph, 'СТАТИСТИКА ПРОГОНОВ', 0x41a6f6, true, 'icon_chart')
 
     const topSummary = this.add.text(CX, topY + 65, [
       `Всего игр: ${stats.totalRuns}   ·   Побед: ${stats.totalWins}   ·   Поражений: ${stats.totalLosses}`,
