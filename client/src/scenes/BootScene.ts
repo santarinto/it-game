@@ -110,6 +110,9 @@ export class BootScene extends Phaser.Scene {
         } else {
           this.textures.addImage(key, img as HTMLImageElement)
         }
+        // render: smooth (ITGAME-83): детальный исходник крупнее слота — LINEAR только
+        // этой текстуре; pixelArt оставляет всей игре NEAREST.
+        if (spec.render === 'smooth') this.textures.get(key).setFilter(Phaser.Textures.FilterMode.LINEAR)
         substituted.push(key)
       } catch (e) {
         console.error(`спрайт ${key}: PNG не подменён, остаётся плейсхолдер`, e)

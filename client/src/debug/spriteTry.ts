@@ -14,7 +14,7 @@ import { PALETTES, SPRITES } from '../assets/manifest'
 export type SpriteFilter = 'nearest' | 'linear'
 
 export interface SpriteTryOptions {
-  filter?: SpriteFilter // по умолчанию nearest — как у всей сцены
+  filter?: SpriteFilter // по умолчанию — как ключ рисуется в игре: linear у render: smooth, иначе nearest
 }
 
 export interface SpriteReceipt {
@@ -154,7 +154,8 @@ export function makeSpriteApi(game: Phaser.Game): SpriteApi {
       if (!spec) {
         return { ok: false, code: 'unknown_key', error: `ключа '${key}' нет в манифесте sprites.json` }
       }
-      const filter = opts?.filter ?? 'nearest'
+      // По умолчанию — фильтр, с которым ключ рисуется в игре (render в манифесте).
+      const filter = opts?.filter ?? (spec.render === 'smooth' ? 'linear' : 'nearest')
       if (filter !== 'nearest' && filter !== 'linear') {
         return { ok: false, code: 'bad_filter', error: `filter — 'nearest' или 'linear', получено ${JSON.stringify(filter)}` }
       }

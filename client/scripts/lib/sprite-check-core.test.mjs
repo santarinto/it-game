@@ -44,3 +44,27 @@ test('модуль не тянет node:* — годится для сборки
   const src = readFileSync(new URL('./sprite-check-core.mjs', import.meta.url), 'utf8')
   assert.equal(/from 'node:/.test(src), false)
 })
+
+// render: 'smooth' (ITGAME-83) — детальный спрайт под LINEAR-фильтр: полутона альфы и
+// цвета вне палитры законны, остальной контракт (размер, фон, белое, шум) — в силе.
+test('smooth: полупрозрачные и цвета вне палитры — не нарушение', () => {
+  const r = checkSpriteImage(png('fbcc58', { alpha: 128 }), { size: 8, render: 'smooth' }, PALETTE, 'test')
+  assert.deepEqual(r.problems, [])
+})
+
+test('smooth: запечённый фон по-прежнему нарушение', () => {
+  const data = new Uint8Array(8 * 8 * 4).fill(255)
+  const r = checkSpriteImage({ width: 8, height: 8, data }, { size: 8, render: 'smooth' }, PALETTE)
+  assert.ok(r.problems.some((p) => p.startsWith('прозрачных 0%')))
+})
+
+test('smooth: чужой размер по-прежнему нарушение', () => {
+  const r = checkSpriteImage(png('fbcc58', { size: 4 }), { size: 8, render: 'smooth' }, PALETTE)
+  assert.ok(r.problems.some((p) => p.startsWith('размер 4×4')))
+})
+
+test('pixel по умолчанию: тот же полутон — нарушение', () => {
+  const r = checkSpriteImage(png('fbcc58', { alpha: 128 }), { size: 8, render: 'pixel' }, PALETTE, 'test')
+  assert.ok(r.problems.some((p) => p.startsWith('полупрозрачных')))
+  assert.ok(r.problems.some((p) => p.includes('вне палитры test')))
+})

@@ -12,7 +12,7 @@ export const WHITE_HEX = 'f4f4f4'
 
 /**
  * @param {{width:number, height:number, data:Uint8Array|Buffer}} png декодированный RGBA-буфер (pngjs или совместимый)
- * @param {{size:number, frames?:number, maxWhitePct?:number, maxSpecks?:number}} spec запись манифеста для ключа (или эквивалент)
+ * @param {{size:number, frames?:number, maxWhitePct?:number, maxSpecks?:number, render?:'pixel'|'smooth'}} spec запись манифеста для ключа (или эквивалент)
  * @param {string[]} palette палитра ключа (hex без '#'), т.е. manifest.palettes[spec.palette]
  * @param {string} [paletteName] имя палитры — только для текста сообщения «вне палитры <имя>»
  * @returns {{problems:string[], warnings:string[], stats:{transparentPct:number, whitePct:number, noiseSummary:string, totalSpecks:number, maxSpecks:number}}}
@@ -27,6 +27,10 @@ export function checkSpriteImage(png, spec, palette, paletteName) {
 
   const problems = []
   const warnings = []
+  // render: 'smooth' (ITGAME-83) — детальный спрайт, который рисуется LINEAR-фильтром
+  // крупнее-в-меньшее: полутона альфы на краях и тона вне палитры — его суть, а не
+  // брак. Размер, прозрачный фон, белая заливка и шум проверяются как у пиксель-арта.
+  const smooth = spec.render === 'smooth'
 
   if (w !== expectW || h !== expectH) {
     problems.push(`размер ${w}×${h}, контракт ${expectW}×${expectH} (size=${size}×frames=${frames})`)
@@ -62,13 +66,13 @@ export function checkSpriteImage(png, spec, palette, paletteName) {
   if (transparentPct < MIN_TRANSPARENT_PCT) {
     problems.push(`прозрачных ${transparentPct}% < ${MIN_TRANSPARENT_PCT}% — фон запечён?`)
   }
-  if (semi > 0) {
+  if (semi > 0 && !smooth) {
     problems.push(`полупрозрачных пикселей ${semi} (alpha 26..254) — сглаживание/полутон не по контракту`)
   }
   if (whitePct > maxWhitePct) {
     problems.push(`#${WHITE_HEX} занимает ${whitePct}% > ${maxWhitePct}% — чекерборд/белая заливка`)
   }
-  if (offPalette.size > 0) {
+  if (offPalette.size > 0 && !smooth) {
     const top = [...offPalette.keys()].slice(0, 5)
     const label = paletteName ? `вне палитры ${paletteName}` : 'вне палитры'
     problems.push(`${label}: ${top.join(' ')}${offPalette.size > 5 ? '…' : ''}`)
@@ -132,7 +136,7 @@ export function checkSpriteImage(png, spec, palette, paletteName) {
       problems.push(`шум: ${totalSpecks} спек(ов) площадью <=${speckThreshold}px > лимита ${maxSpecks}`)
     }
     const speckledPct = totalInterior > 0 ? Math.round((totalSpeckled / totalInterior) * 1000) / 10 : 0
-    if (speckledPct > INTERIOR_SPECKLE_WARN_PCT) {
+    if (speckledPct > INTERIOR_SPECKLE_WARN_PCT && !smooth) {
       warnings.push(`${speckledPct}% внутренних пикселей шумят цветом (>${INTERIOR_SPECKLE_WARN_PCT}%) — не фейл, но арт стоит перегенерировать`)
     }
     noiseSummary = `, шум ${totalSpecks}/${maxSpecks}`

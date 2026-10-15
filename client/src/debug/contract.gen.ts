@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "5eaa5f834ec9",
+  "hash": "8107e6e1a628",
   "methods": {
     "version": {
       "kind": "prop",
@@ -263,7 +263,7 @@ export const CONTRACT = {
       "kind": "prop",
       "type": "SpriteApi",
       "readonly": true,
-      "doc": "Примерка спрайта (ITGAME-119): itd.sprite.try(key, dataUrl) ставит PNG вместо\nтекстуры ключа манифеста во вкладке и перевешивает живые объекты сцен →\n{ok, key, w, h, sha256, objects, problems, warnings, stats} — problems считает\nтот же контракт, что npm run check:sprites (палитра, альфа, шум), текстура при\nнарушениях всё равно стоит. Третий аргумент {filter: 'linear'} — билинейный\nфильтр только этой текстуре (вся игра — NEAREST по pixelArt): детальный\nисходник крупнее слота сжимается гладко; по умолчанию 'nearest', в квитанции\nи list() — filter. Отказы: unknown_key (ключа нет в sprites.json),\nbad_src (не data:image/png;base64 или PNG битый), bad_size (не size·frames ×\nsize ключа), bad_filter (не nearest/linear). itd.sprite.list() → [{key, w, h,\nfilter, sha256, problems}];\nitd.sprite.reset(key?) → {ok, reset[]} — вернуть исходную текстуру (без ключа —\nвсе), not_tried — ключ не подменён. В репо, dist и сейв ничего не пишется,\nперезагрузка страницы снимает подмену.",
+      "doc": "Примерка спрайта (ITGAME-119): itd.sprite.try(key, dataUrl) ставит PNG вместо\nтекстуры ключа манифеста во вкладке и перевешивает живые объекты сцен →\n{ok, key, w, h, sha256, objects, problems, warnings, stats} — problems считает\nтот же контракт, что npm run check:sprites (палитра, альфа, шум), текстура при\nнарушениях всё равно стоит. Третий аргумент {filter: 'linear'} — билинейный\nфильтр только этой текстуре (вся игра — NEAREST по pixelArt): детальный\nисходник крупнее слота сжимается гладко; по умолчанию — фильтр ключа (linear у\nrender: smooth в манифесте, иначе nearest), в квитанции\nи list() — filter. Отказы: unknown_key (ключа нет в sprites.json),\nbad_src (не data:image/png;base64 или PNG битый), bad_size (не size·frames ×\nsize ключа), bad_filter (не nearest/linear). itd.sprite.list() → [{key, w, h,\nfilter, sha256, problems}];\nitd.sprite.reset(key?) → {ok, reset[]} — вернуть исходную текстуру (без ключа —\nвсе), not_tried — ключ не подменён. В репо, dist и сейв ничего не пишется,\nперезагрузка страницы снимает подмену.",
       "examples": [
         "await itd.sprite.try('desk_pc', dataUrl)",
         "await itd.sprite.try('icon_money', dataUrl, { filter: 'linear' })",
@@ -1170,7 +1170,12 @@ export const CONTRACT = {
         "offPalette": {
           "type": "string[]",
           "optional": false,
-          "doc": "цвета вне палитры манифеста этого ключа (у кодогена пусто всегда)"
+          "doc": "цвета вне палитры манифеста этого ключа (у кодогена и render: smooth пусто всегда)"
+        },
+        "render": {
+          "type": "'pixel' | 'smooth'",
+          "optional": false,
+          "doc": "как ключ рисуется (ITGAME-83): smooth — LINEAR, палитра не контракт"
         }
       }
     },
@@ -2918,7 +2923,7 @@ export const CONTRACT = {
         "filter": {
           "type": "SpriteFilter",
           "optional": true,
-          "doc": "по умолчанию nearest — как у всей сцены"
+          "doc": "по умолчанию — как ключ рисуется в игре: linear у render: smooth, иначе nearest"
         }
       }
     },

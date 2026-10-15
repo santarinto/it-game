@@ -40,8 +40,8 @@
     "icon_money": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon" },
     "icon_network": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon" },
     "icon_trophy": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon",
-      "note": "заглушка ITGAME-83 (контур 1a1c2c, золото ffcd75/ef7d57, блик f4f4f4) — место под пилот генерации, примерка через itd.sprite.try"
+      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "note": "пилот ITGAME-83: генерация владельца, уменьшена до 64 усреднением блоков с учётом альфы; smooth — LINEAR на 16px в меню, палитра не проверяется (в sweetie16 нет золота fbcc58 — ремап давал медь)"
     }
   },
   "aliases": {}

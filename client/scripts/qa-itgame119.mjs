@@ -63,6 +63,29 @@ try {
   check('T1: в меню одна иконка icon_trophy 16×16', t1.n === 1 && t1.before[0]?.[0] === 16 && t1.before[0]?.[1] === 16, t1)
   check('T1: try(icon_trophy, 64px, linear) перевешивает её и держит 16×16, reset ok', t1.ok && t1.objects === 1 && t1.after[0]?.[0] === 16 && t1.after[0]?.[1] === 16 && t1.reset, t1)
 
+  // T2–T3: icon_trophy — render: smooth (ITGAME-83): BootScene ставит LINEAR, try без
+  // опций берёт фильтр ключа, явный nearest его перекрывает, reset — снова LINEAR.
+  const t2 = await page.evaluate(async () => {
+    const game = window.__itd
+    const gl = () => { const t = game.textures.get('icon_trophy').source[0].glTexture; return t ? t.minFilter : null }
+    const boot = gl()
+    const c = document.createElement('canvas')
+    c.width = 64
+    c.height = 64
+    c.getContext('2d').fillRect(16, 16, 32, 32)
+    const src = c.toDataURL('image/png')
+    const dflt = await window.itd.sprite.try('icon_trophy', src)
+    const dfltGl = gl()
+    const near = await window.itd.sprite.try('icon_trophy', src, { filter: 'nearest' })
+    const nearGl = gl()
+    window.itd.sprite.reset('icon_trophy')
+    return { boot, dflt: dflt.filter, dfltGl, near: near.filter, nearGl, back: gl() }
+  })
+  check('T2: icon_trophy (render: smooth) грузится с LINEAR', t2.boot === 9729, t2)
+  check('T3: try без опций на smooth-ключе → linear; явный nearest перекрывает; reset → LINEAR', t2.dflt === 'linear' && t2.dfltGl === 9729 && t2.near === 'nearest' && t2.nearGl === 9728 && t2.back === 9729, t2)
+  const t4 = await page.evaluate(() => window.itd.assets().textures.find((t) => t.key === 'icon_trophy'))
+  check('T4: assets() — icon_trophy render: smooth, offPalette пуст (палитра у smooth не контракт)', t4?.render === 'smooth' && t4.offPalette.length === 0, { render: t4?.render, off: t4?.offPalette.length })
+
   await page.evaluate(() => localStorage.setItem('itd.sid', 'qa119-' + Date.now().toString(36)))
   await page.evaluate(() => window.itd.click('menu.diff.normal'))
   await page.waitForFunction(() => window.itd.state().connected === true, { timeout: 20000 })

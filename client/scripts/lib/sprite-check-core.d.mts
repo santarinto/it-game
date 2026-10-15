@@ -9,6 +9,7 @@ export interface SpriteCheckSpec {
   frames?: number
   maxWhitePct?: number
   maxSpecks?: number
+  render?: 'pixel' | 'smooth'
 }
 
 export interface SpriteCheckResult {

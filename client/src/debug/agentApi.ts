@@ -271,7 +271,8 @@ export interface AssetReport {
   h: number
   transparentPct: number // доля прозрачных пикселей (alpha < 26)
   f4Pct: number // доля #f4f4f4: детектор запечённого чекерборда/фона
-  offPalette: string[] // цвета вне палитры манифеста этого ключа (у кодогена пусто всегда)
+  offPalette: string[] // цвета вне палитры манифеста этого ключа (у кодогена и render: smooth пусто всегда)
+  render: 'pixel' | 'smooth' // как ключ рисуется (ITGAME-83): smooth — LINEAR, палитра не контракт
 }
 
 export interface AssetSetEntry {
@@ -300,6 +301,8 @@ function analyzeTexture(
   ctx.drawImage(src as CanvasImageSource, 0, 0)
   const data = ctx.getImageData(0, 0, w, h).data
   const paletteSet = paletteSetFor(key)
+  // render: smooth (ITGAME-83) — тона вне палитры законны, сотни «нарушений» только шумят
+  const render = SPRITES[key]?.render ?? 'pixel'
   let transparent = 0
   let f4 = 0
   const off = new Map<string, number>()
@@ -312,7 +315,7 @@ function analyzeTexture(
     const hex =
       '#' + [data[i], data[i + 1], data[i + 2]].map((v) => v.toString(16).padStart(2, '0')).join('')
     if (hex === '#f4f4f4') f4++
-    if (!paletteSet.has(hex)) off.set(hex, (off.get(hex) ?? 0) + 1)
+    if (render === 'pixel' && !paletteSet.has(hex)) off.set(hex, (off.get(hex) ?? 0) + 1)
   }
   const total = w * h
   // Подпись контента (без ключа — для поиска дублей): бинарная строка
@@ -331,6 +334,7 @@ function analyzeTexture(
       transparentPct: Math.round((transparent / total) * 1000) / 10,
       f4Pct: Math.round((f4 / total) * 1000) / 10,
       offPalette: [...off.entries()].sort((a, b) => b[1] - a[1]).map(([hex]) => hex),
+      render,
     },
     sig: `${w}x${h}:${bin}`,
   }
@@ -932,7 +936,8 @@ export interface ItdApi {
    * тот же контракт, что npm run check:sprites (палитра, альфа, шум), текстура при
    * нарушениях всё равно стоит. Третий аргумент {filter: 'linear'} — билинейный
    * фильтр только этой текстуре (вся игра — NEAREST по pixelArt): детальный
-   * исходник крупнее слота сжимается гладко; по умолчанию 'nearest', в квитанции
+   * исходник крупнее слота сжимается гладко; по умолчанию — фильтр ключа (linear у
+   * render: smooth в манифесте, иначе nearest), в квитанции
    * и list() — filter. Отказы: unknown_key (ключа нет в sprites.json),
    * bad_src (не data:image/png;base64 или PNG битый), bad_size (не size·frames ×
    * size ключа), bad_filter (не nearest/linear). itd.sprite.list() → [{key, w, h,
@@ -1876,9 +1881,9 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.sandbox.fakeOwner()           — «чужой» общий ключ itd.sid/itd.diff вызовом игры (проверить гард «Сдаться») → {sid, diff}; restore() вернёт настоящий
   itd.sandbox.restore()             — выйти из песочницы (из меню): {sidSame, diffSame, fake, restored, kept, removed} — sidSame/diffSame: общий ключ тот, что при входе (или fake); itd.sid/itd.diff: наше/стёртое значение возвращено, чужое (kept) не перетёрто; itd.onboard возвращается к значению при входе при любом отличии
   await itd.stale()                 — вкладка на старом JS? {client, server, dist, stale, at, shown}: shown — метка «устарело, обнови» видна на экране (скрытая живёт в DOM как display:none 0×0); client — sha вкладки, dist — sha сборки, которую стенд отдаст на F5, server — sha бинаря (/api/version); stale null — сверить не с чем (vite dev; сборка без git и без штампа BUILD_SHA/-ldflags — sha dev/unknown; со штампом sha есть); красная метка «устарело, обнови» в #topbar — та же проверка
-  itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне палитры манифеста ключа (hd32/sweetie16), дубли ключей; source: tried — проба itd.sprite.try
+  itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне палитры манифеста ключа (hd32/sweetie16; у render: smooth не считаются), дубли ключей; source: tried — проба itd.sprite.try
   itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк); active: tried — проба itd.sprite.try
-  await itd.sprite.try(key, dataUrl, {filter?}) — примерка спрайта: PNG (data:image/png;base64,…) вместо текстуры ключа манифеста во вкладке → {ok, key, w, h, filter, sha256, objects, problems, warnings, stats}; filter 'nearest' (по умолчанию, как вся игра) | 'linear' (гладкое сжатие только этой текстуры); problems — контракт check:sprites, текстура стоит и с нарушениями; отказы unknown_key | bad_src | bad_size | bad_filter; в репо и сейв ничего не пишется
+  await itd.sprite.try(key, dataUrl, {filter?}) — примерка спрайта: PNG (data:image/png;base64,…) вместо текстуры ключа манифеста во вкладке → {ok, key, w, h, filter, sha256, objects, problems, warnings, stats}; filter 'nearest' | 'linear' (гладкое сжатие только этой текстуры), по умолчанию — как ключ рисуется в игре (linear у render: smooth); problems — контракт check:sprites, текстура стоит и с нарушениями; отказы unknown_key | bad_src | bad_size | bad_filter; в репо и сейв ничего не пишется
   itd.sprite.list() / reset(key?)   — что подменено [{key, w, h, filter, sha256, problems}] / вернуть исходную текстуру (без ключа — все), not_tried — ключ не подменён
   itd.reset()                       — снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум, отчёты)
   itd.pause() / resume() / speed(n) — темп сессии: set_speed 0/1/0..3 (серверный, живёт в сейве); до коннекта — {ok:false, code:'not_connected'}
