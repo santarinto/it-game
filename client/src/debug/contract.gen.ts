@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "c5b2a770ea05",
+  "hash": "f7a7af6b9649",
   "methods": {
     "version": {
       "kind": "prop",
@@ -578,7 +578,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<DebugState>",
-      "doc": "Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|\nsoft_lock|pre_victory|spare_pcs|broken_pc|doomed_debt. Сбрасывает клиентское состояние партии: активный\nофис → О1 (ITGAME-55), оверлеи HUD — отчёт дня, событие, «Пока вас не было», финал,\nокно выхода — и учёт паузы отчёта (ITGAME-64), окна офиса и серверной — устройства,\nувольнение (ITGAME-69). Скорость сессии не трогает: вызванный\nиз открытого отчёта или окна выхода, оставляет новую партию на паузе — itd.resume(). Работает и после\nфинала (сессия жива до «В меню»). Ошибка (неизвестная фикстура) партию не трогает.\nТолько в партии вкладки (ITGAME-131): из меню — до первой партии, после «В меню»/«Сдаться» — и\nпосле перехвата сессии другой вкладкой отказ сразу, без запроса: reject «not_in_party: …».\nИз меню — itd.click('menu.diff.normal') (при живом сейве меню спросит «Начать заново?» —\nitd.click('modal.btn.confirm'); или itd.click('menu.continue')), затем await itd.wait(s => s.connected);\nпосле перехвата меню нет — обновите страницу (F5). Так же set, step, advanceDays, ledger,\nsnapshot, restore; itd.journal() — без этого правила.",
+      "doc": "Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|\nsoft_lock|pre_victory|spare_pcs|broken_pc|doomed_debt|virus_outbreak. Сбрасывает клиентское состояние партии: активный\nофис → О1 (ITGAME-55), оверлеи HUD — отчёт дня, событие, «Пока вас не было», финал,\nокно выхода — и учёт паузы отчёта (ITGAME-64), окна офиса и серверной — устройства,\nувольнение (ITGAME-69). Скорость сессии не трогает: вызванный\nиз открытого отчёта или окна выхода, оставляет новую партию на паузе — itd.resume(). Работает и после\nфинала (сессия жива до «В меню»). Ошибка (неизвестная фикстура) партию не трогает.\nТолько в партии вкладки (ITGAME-131): из меню — до первой партии, после «В меню»/«Сдаться» — и\nпосле перехвата сессии другой вкладкой отказ сразу, без запроса: reject «not_in_party: …».\nИз меню — itd.click('menu.diff.normal') (при живом сейве меню спросит «Начать заново?» —\nitd.click('modal.btn.confirm'); или itd.click('menu.continue')), затем await itd.wait(s => s.connected);\nпосле перехвата меню нет — обновите страницу (F5). Так же set, step, advanceDays, ledger,\nsnapshot, restore; itd.journal() — без этого правила.",
       "examples": [
         "itd.scenario('soft_lock')"
       ]
@@ -1086,6 +1086,16 @@ export const CONTRACT = {
           "type": "number | null",
           "optional": false,
           "doc": "обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)"
+        },
+        "virusPCs": {
+          "type": "number | null",
+          "optional": false,
+          "doc": "заражённых мест по компании (ITGAME-103); по офисам — snapshot().state.offices[i].virusPCs"
+        },
+        "virusWaveAt": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "«HH:MM», с которого видна следующая волна; '' — заражённых нет"
         },
         "winTarget": {
           "type": "number | null",

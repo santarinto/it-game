@@ -3,6 +3,9 @@
 //   J2  настоящие клики HUD (btn.pc, btn.hire), темп 3, команды через itd.cmd — в том
 //       числе отказ (fire несуществующего слота)
 //   J3  debug: itd.set({money}) и itd.step({ticks}) — тоже входы журнала
+//   J3b (ITGAME-138) вирус: itd.restore с заражённым местом и волной через 2 тика, живая
+//       волна на 3x (ролл цели — вход реплея), 6 virus_click чистят два места, 7-й —
+//       not_infected; J6b — эти команды в журнале с id и отказом
 //   J4  перезагрузка страницы на скорости 3 → «Продолжить»: первый снапшот resumed,
 //       в журнале запись resume (офлайн-догон посчитан сервером от wall-clock)
 //   J5  ещё ход и пауза; GET /api/debug/journal?sid= отдаёт JSONL (application/x-ndjson)
@@ -117,6 +120,34 @@ try {
   await sleep(1200)
   note('J3 itd.set и itd.step прошли', j3.money === 9000 && j3.ticks === 20 && j3.speed, JSON.stringify(j3))
 
+  // J3b (ITGAME-138) — вирус: itd.restore заражает место 1 при двух сотрудниках и
+  // волне через 2 тика, живые тики на 3x катят волну (ролл цели из PCG — вход
+  // реплея), virus_click чистит оба места, лишний клик — отказ not_infected.
+  const j3b = await page.evaluate(async () => {
+    const itd = window.itd
+    const snap = await itd.snapshot()
+    const o = snap.save.offices[0]
+    o.PCs = Math.max(o.PCs, 2)
+    o.Employees = [{ ...o.Employees[0], Infected: true, VirusClicks: 0, PCBroken: false }, { ...o.Employees[0], Name: 'Вирус Тестов', Infected: false, PCBroken: false }]
+    snap.save.virusWaveIn = 2
+    await itd.restore(snap.save)
+    itd.speed(3)
+    await itd.wait((s) => s.virusPCs === 2, 8000).catch(() => null)
+    itd.pause()
+    const waved = itd.state().virusPCs
+    const clicks = []
+    for (const slot of [0, 0, 0, 1, 1, 1]) clicks.push((await itd.cmd('virus_click', 0, { slot })).ok)
+    const extra = await itd.cmd('virus_click', 0, { slot: 0 })
+    itd.speed(3)
+    return { waved, clicks, extra: extra.code, left: itd.state().virusPCs }
+  })
+  await sleep(600)
+  note(
+    'J3b вирус: живая волна заразила второе место, 6 кликов вычистили оба, лишний — not_infected',
+    j3b.waved === 2 && j3b.clicks.every(Boolean) && j3b.extra === 'not_infected' && j3b.left === 0,
+    JSON.stringify(j3b),
+  )
+
   // J4 — перезагрузка на скорости 3 и «Продолжить»
   await page.reload({ waitUntil: 'domcontentloaded' })
   const hasContinue = await page.evaluate(async () => {
@@ -179,6 +210,12 @@ try {
   const withId = recs.filter((r) => r.k === 'cmd' && r.id > 0).length
   const rejected = recs.filter((r) => r.k === 'cmd' && r.err).map((r) => `${r.type}:${r.err}`)
   const resume = recs.find((r) => r.k === 'resume')
+  const virusClicks = recs.filter((r) => r.k === 'cmd' && r.type === 'virus_click')
+  note(
+    'J6b журнал: virus_click с id, отказ not_infected (ITGAME-138)',
+    virusClicks.length === 7 && virusClicks.every((r) => r.id > 0) && virusClicks.filter((r) => r.err === 'not_infected').length === 1,
+    JSON.stringify(virusClicks.map((r) => `${r.slot ?? 0}:${r.err ?? 'ok'}`)),
+  )
   note(
     'J6 журнал: header, start, cmd с id, отказ, debug, end, resume; seq подряд',
     lines[0].k === 'header' &&

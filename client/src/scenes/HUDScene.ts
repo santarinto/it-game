@@ -122,7 +122,7 @@ export class HUDScene extends Phaser.Scene {
   private dayProfitText!: Phaser.GameObjects.Text
   private marketText!: Phaser.GameObjects.Text
   private debtText!: Phaser.GameObjects.Text
-  private navItems!: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; sub: Phaser.GameObjects.Text; lock?: { body: Phaser.GameObjects.Rectangle; shackle: Phaser.GameObjects.Arc } }[]
+  private navItems!: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; sub: Phaser.GameObjects.Text; lock?: { body: Phaser.GameObjects.Rectangle; shackle: Phaser.GameObjects.Arc }; virus?: Phaser.GameObjects.Text }[]
   private currentRoom!: 'office' | 'serverRoom'
   private reportUI!: Phaser.GameObjects.GameObject[]
   private eventUI!: Phaser.GameObjects.GameObject[]
@@ -675,8 +675,17 @@ export class HUDScene extends Phaser.Scene {
         const shackle = this.add.arc(49, y + 6, 4, 180, 360, false).setStrokeStyle(2, 0x5d7275)
         lock = { body, shackle }
       }
+      // Вирус (ITGAME-103): «☣ k» — заражённые места офиса, вплотную под
+      // значком (внутри значка подпись «О1» и «9/12» места не оставляют, а
+      // зазор до следующего значка — 28px; «☣ 12» шириной 32px влезает).
+      // Тостов на волну нет (решение владельца 16.10) — рост виден здесь, у
+      // каждого офиса, в том числе у текущего.
+      const virus = r.key === 'office'
+        ? tag(this.add.text(NAV_W / 2, y + 50, '', { fontFamily: FONT, fontSize: '10px', color: '#a7f070' })
+          .setOrigin(0.5, 0).setVisible(false), 'hud.virus.office' + r.office)
+        : undefined
       bg.on('pointerdown', () => this.switchRoom(r.key, r.office))
-      this.navItems.push({ bg, label, sub, lock })
+      this.navItems.push({ bg, label, sub, lock, virus })
       this.hudInteractive.push(bg)
     })
   }
@@ -878,6 +887,7 @@ export class HUDScene extends Phaser.Scene {
         item.lock.body.setVisible(locked).setFillStyle(c)
         item.lock.shackle.setVisible(locked).setStrokeStyle(2, c)
       }
+      item.virus?.setText(`☣ ${o.virusPCs}`).setVisible(o.virusPCs > 0)
     })
     this.highlightNav()
     this.speedBtns.forEach((b) => {
@@ -1146,6 +1156,10 @@ export class HUDScene extends Phaser.Scene {
         text: 'ПК сломан: доход места 0. Чините кликами по столу или мастером',
       },
       {
+        id: 'virus', when: s.offices.some((o) => o.virusPCs > 0),
+        text: 'Вирус: −30% места, раз в 3 часа заражает ещё. Чистка — 3 клика по столу',
+      },
+      {
         id: 'router', when: emps.some((e) => e.offlineReason === 'no_router'),
         text: 'Сотрудник вне сети: роутер офиса ведёт к серверам (×1.2+). Купите роутер',
       },
@@ -1176,11 +1190,12 @@ export class HUDScene extends Phaser.Scene {
       },
     ]
     // Пока плашка показывает шаг, остальные хинты ждут: хинт router дублировал бы шаг 3, а
-    // хинты 11:00/12:00/15:00 засыпали бы новичка на шаге 1. master/softlock предупреждают о
-    // сломанной/тупиковой партии — они срабатывают всегда.
+    // хинты 11:00/12:00/15:00 засыпали бы новичка на шаге 1. master/virus/softlock предупреждают о
+    // сломанной, заражённой или тупиковой партии — они срабатывают всегда.
     const held = this.coachStep !== null
+    const urgent = ['master', 'virus', 'softlock']
     const hint = hints.find((h) =>
-      h.when && (!held || h.id === 'master' || h.id === 'softlock') && !localStore.get('itd.hint:' + h.id))
+      h.when && (!held || urgent.includes(h.id)) && !localStore.get('itd.hint:' + h.id))
     if (hint) {
       localStore.set('itd.hint:' + hint.id, '1')
       this.toast(hint.text, 2200)
@@ -1228,6 +1243,8 @@ export class HUDScene extends Phaser.Scene {
       `Прибыль:   ${fmtMoney(r.profit)}`,
       `Баланс:    ${fmtMoney(r.balance)}`,
       ...(r.incidents > 0 ? [`Поломки:   ${r.incidents} (−${fmtMoney(r.lostIncome)})`] : []),
+      // Вирус (ITGAME-103): новых заражений за день и упущенное из-за −30%.
+      ...(r.virusPCs > 0 || r.virusLost > 0 ? [`Вирус:     ${r.virusPCs} ПК (−${fmtMoney(r.virusLost)})`] : []),
       ...(r.events?.length ? ['', 'Журнал событий:', ...r.events.map((e) => `· ${e}`)] : []),
     ].join('\n')
 

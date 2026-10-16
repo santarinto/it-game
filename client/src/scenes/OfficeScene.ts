@@ -18,18 +18,25 @@ import { FONT, HIRES_CAMERA } from '../render'
 // места (ITGAME-103); TestOfficeColsMirrorsClientGrid сверяет их.
 const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
 // ITGAME-92: у занятого рабочего места ОДНА зона клика office.slot.i —
-// прямоугольник объединения bounds сотрудника и стола, а пока ПК сломан — ещё
-// и метки «✖ чинить k/N» над ними (ITGAME-75: клик «по значку поломки» —
-// это клик по месту). ЛКМ выбирает действие по состоянию: ПК сломан →
-// repair_click, иначе → motivate; ПКМ («Уволить сотрудника?») и тултип общие.
-// Пока ПК сломан, зона мигает красным (подсветка = кликабельная область,
-// владелец 10.10); у целого ПК заливка прозрачная (fillAlpha 0, alpha 1 —
-// иначе Phaser не считает объект целью ввода). Спрайт сотрудника и метка
-// поломки — картинки без ввода; их id office.worker.i и office.repair.i
-// оставлены для itd.click/itd.hover и узлов itd.nodes(): события с них
-// переадресуются зоне. Явный depth — над столом и сотрудником при любом
-// порядке create().
+// прямоугольник объединения bounds сотрудника и стола, а пока ПК сломан или
+// заражён — ещё и метки «✖ чинить k/N» / «☣ вирус k/3» над ними (ITGAME-75:
+// клик «по значку поломки» — это клик по месту). У места одно состояние за
+// раз (ITGAME-103): сломан > заражён > в порядке — сломанное заражённое
+// показывает поломку, после ремонта место снова заражено. ЛКМ выбирает
+// действие по состоянию: repair_click, virus_click, иначе motivate; ПКМ
+// («Уволить сотрудника?») и тултип общие. Пока место сломано, зона мигает
+// красным, заражено — зелёным (подсветка = кликабельная область, владелец
+// 10.10); у здорового места заливка прозрачная (fillAlpha 0, alpha 1 —
+// иначе Phaser не считает объект целью ввода). Спрайт сотрудника и метки —
+// картинки без ввода; их id office.worker.i, office.repair.i и
+// office.virus.i оставлены для itd.click/itd.hover и узлов itd.nodes():
+// события с них переадресуются зоне. Явный depth — над столом и
+// сотрудником при любом порядке create().
 const SLOT_ZONE_DEPTH = 5
+
+// Цвета состояния места: поломка — красный, вирус — зелёный (sweetie16).
+const BROKEN_COLOR = 0xb13e53
+const VIRUS_COLOR = 0xa7f070
 
 // Верх колонки действий офиса (ITGAME-94): под слотом начальника (бокс до y 362).
 const ACTIONS_TOP = 384
@@ -78,7 +85,8 @@ const LEVEL_BONUS: Record<number, number> = { 1: 1, 2: 2, 3: 2 }
 // ITD Symbols, ITGAME-48; см. client/scripts/qa-office-slots.mjs-style замер):
 // OFFLINE_LABELS при 9px — «✗ роутер» 45px, «✗ core» 34px, «без стойки» 58px
 // (самая длинная); «✖ чинить k/N» при 11px — 88×14px при N ≤ 9 и до 102×14px
-// при N 10..15 (ITGAME-93: «0/15» 95px, «10/15» 102px).
+// при N 10..15 (ITGAME-93: «0/15» 95px, «10/15» 102px); «☣ вирус k/3» —
+// та же строка (repairText), уже «✖ чинить» на символ.
 const SLOT_LAYOUT_HD = {
   // У правого верхнего угла стола, ниже и левее монитора. Кружок 8px —
   // не текст и не интерактив, линтер его не видит; важно лишь не вылезти
@@ -362,6 +370,7 @@ export class OfficeScene extends Phaser.Scene {
       // Зона места office.slot.i (при поломке мигает и накрывает метку)
       // строится ниже, когда известны bounds сотрудника.
       let repairLabel: Phaser.GameObjects.Text | null = null
+      let virusLabel: Phaser.GameObjects.Text | null = null
       let repairBounds: Phaser.Geom.Rectangle | null = null
       if (e?.pcBroken) {
         const masterBg = tag(
@@ -386,6 +395,16 @@ export class OfficeScene extends Phaser.Scene {
         repairBounds = repairLabel.getBounds()
         repairLabel.setText(`✖ чинить ${e.repairClicks}/${need}`)
         this.objects.push(repairLabel, masterBg, masterTxt)
+      } else if (e?.infected) {
+        // Заражённое место (ITGAME-103): −30% выработки, три клика по месту
+        // чистят. Метка — на месте метки поломки, bounds — по «3/3».
+        const need = e.virusNeeded > 0 ? e.virusNeeded : 3
+        virusLabel = this.add.text(x, y + layout.repairText.y, `☣ вирус ${need}/${need}`, {
+          fontFamily: FONT, fontSize: '11px', color: '#a7f070',
+        }).setOrigin(0.5)
+        repairBounds = virusLabel.getBounds()
+        virusLabel.setText(`☣ вирус ${e.virusClicks}/${need}`)
+        this.objects.push(virusLabel)
       }
       if (e) {
         // Слот-картинка занятого места (id office.worker.i, без ввода):
@@ -428,28 +447,31 @@ export class OfficeScene extends Phaser.Scene {
         if (repairBounds) Phaser.Geom.Rectangle.Union(r, repairBounds, r)
         const zx = Math.floor(r.x)
         const zy = Math.floor(r.y)
+        const flagged = e.pcBroken || e.infected
         const zone = tag(
-          this.add.rectangle(zx, zy, Math.ceil(r.right) - zx, Math.ceil(r.bottom) - zy, 0xb13e53, e.pcBroken ? 0.3 : 0)
+          this.add.rectangle(zx, zy, Math.ceil(r.right) - zx, Math.ceil(r.bottom) - zy,
+            e.pcBroken ? BROKEN_COLOR : VIRUS_COLOR, flagged ? 0.3 : 0)
             .setOrigin(0).setInteractive({ useHandCursor: true }).setDepth(SLOT_ZONE_DEPTH),
           `office.slot.${i}`,
         )
         this.objects.push(zone)
-        if (e.pcBroken) {
+        if (flagged) {
           // Твин держит alpha ≥ 0.15 — при alpha 0 Phaser не считает объект
           // целью ввода (willRender).
           this.tweens.add({
             targets: zone, alpha: { from: 0.65, to: 0.15 }, duration: 420, yoyo: true, repeat: -1,
           })
         }
-        // ЛКМ: ПК сломан → клик починки, иначе мотивация (+25% на 3 часа с
-        // кулдауном). ПКМ — модалка увольнения (итерация 15).
+        // ЛКМ: ПК сломан → клик починки, заражён → клик чистки, иначе
+        // мотивация (+25% на 3 часа с кулдауном). ПКМ — модалка увольнения
+        // (итерация 15).
         zone.on('pointerdown', (p: Phaser.Input.Pointer) => {
           if (p.rightButtonDown()) {
             this.openFireModal(e, i)
             return
           }
           playSfx(this, 'click')
-          client.send(e.pcBroken ? 'repair_click' : 'motivate', nav.activeOffice, { slot: i })
+          client.send(e.pcBroken ? 'repair_click' : e.infected ? 'virus_click' : 'motivate', nav.activeOffice, { slot: i })
         })
         zone.on('pointerover', () => {
           if (this.windowOpen()) return // ITGAME-89: под окном тултипа нет
@@ -467,6 +489,7 @@ export class OfficeScene extends Phaser.Scene {
         }
         forward(slotImg)
         if (repairLabel) forward(tag(repairLabel, `office.repair.${i}`))
+        if (virusLabel) forward(tag(virusLabel, `office.virus.${i}`))
         // Спрайт пересоздан — восстанавливаем тултип, но только если курсор
         // реально над зоной: pointerout не срабатывает по уничтоженному
         // объекту, и без этой проверки hoveredSlot «залипает».
@@ -634,12 +657,21 @@ export class OfficeScene extends Phaser.Scene {
     if (e.pcBroken) {
       lines.push(`ПК СЛОМАН — доход 0; кликайте по месту: ${e.repairClicks}/${e.repairNeeded > 0 ? e.repairNeeded : 3}`)
     }
-    // ITGAME-75: пока ПК сломан, ЛКМ по месту — ремонт, мотивации кликом нет.
+    // Сломанное заражённое: строка вируса тоже есть, но ЛКМ сначала чинит.
+    if (e.infected) {
+      lines.push(e.pcBroken
+        ? 'ЗАРАЖЁН — после ремонта вирус останется'
+        : `ЗАРАЖЁН — выработка −30%; кликайте по месту: ${e.virusClicks}/${e.virusNeeded > 0 ? e.virusNeeded : 3}`)
+    }
+    // ITGAME-75: пока ПК сломан, ЛКМ по месту — ремонт, мотивации кликом нет;
+    // пока заражён — чистка (ITGAME-103).
     lines.push(e.pcBroken
       ? 'мотивация: после починки ПК'
-      : e.motivateReadyAt ? `мотивация: после ${e.motivateReadyAt}` : 'мотивация: готова (клик)')
+      : e.infected
+        ? 'мотивация: после чистки'
+        : e.motivateReadyAt ? `мотивация: после ${e.motivateReadyAt}` : 'мотивация: готова (клик)')
     lines.push(`уволить: ${fmtMoney(e.firePrice)} (правый клик)`)
-    const EFFECT_NAMES: Record<string, string> = { thirst: 'жажда', hunger: 'голоден', coffee: 'выпил кофе', motivated: 'мотивирован', offended: 'обижен' }
+    const EFFECT_NAMES: Record<string, string> = { thirst: 'жажда', hunger: 'голоден', coffee: 'выпил кофе', motivated: 'мотивирован', offended: 'обижен', virus: 'вирус' }
     // Ремень безопасности: старый сервер мог прислать null вместо [] —
     // краш тултипа обрывал перерисовку всей сцены.
     for (const ef of e.effects ?? []) {

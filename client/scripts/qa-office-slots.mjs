@@ -11,7 +11,9 @@
 // рамки ?debug=1 объектов под окном (роутер, выход в меню, карточка события, «Пока вас не было», отчёт дня) лежат под его
 // подложкой, рамки кнопок окна — над ней (ITGAME-84/97), слот шлюза серверной рисует gateway (не router), полка
 // быта (office.amenity.cooler/fridge/coffee_machine) и слот сети офиса
-// рисуют свои HD-текстуры, занятые/пустые серверные стойки — rack_server/
+// рисуют свои HD-текстуры, заражённое место (fixtures/virus_outbreak.json) —
+// метка «☣ вирус k/3» в той же зоне, клики 0/3 → чисто, сломан > заражён
+// (ITGAME-103/138), занятые/пустые серверные стойки — rack_server/
 // rack_empty (пустая — с подсветкой первой свободной, ITGAME-11), ПК куплен
 // без сотрудника рисует desk_pc_off и слот вовсе без ПК — desk_empty
 // (fixtures/spare_pcs.json), всё без itd.overlaps()/itd.offscreen(). Стиль/
@@ -452,6 +454,190 @@ async function caseBrokenPc(browser) {
     await shot(page, 'broken_pc')
   } catch (e) {
     check('broken_pc: кейс выполнен без ошибок', false, e instanceof Error ? e.message : String(e))
+  } finally {
+    await page.close().catch(() => {})
+  }
+}
+
+// ── Кейс 3г: заражённое место — третье состояние той же зоны (ITGAME-103/138) ─
+// Фикстура virus_outbreak: в офисе 1 заражены места 1 и 6 (слоты 0 и 5), в
+// офисе 2 — место 2; карточка «Вирус в сети» висит. Метка «☣ вирус k/3»
+// стоит там же, где «✖ чинить k/N», и входит в зону office.slot.i; зона
+// мигает зелёным; ЛКМ шлёт virus_click, третий клик чистит, после чего та же
+// зона мотивирует. У места одно состояние: сломан > заражён — сломанное
+// заражённое показывает поломку и шлёт repair_click, после ремонта метка
+// вируса возвращается. Плашка офиса «☣ вирус: k из n мест · волна в HH:MM»,
+// значки «☣ k» на вкладках офисов.
+async function caseVirus(browser) {
+  const page = await browser.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e)))
+  await page.setViewport({ width: 1920, height: 1080 })
+  try {
+    await loadScenario(page, 'virus_outbreak', 'virus')
+    // Карточку закрываем настоящим кликом: «Чистить вручную» — единственная опция.
+    const box = await canvasBox(page)
+    const btn = await page.evaluate(() => window.itd.nodes().find((n) => n.id === 'btn.event.0') ?? null)
+    if (!btn) throw new Error('virus_outbreak: нет карточки события btn.event.0')
+    await worldClick(page, box, btn.cx, btn.cy)
+    await delay(300)
+    const cardGone = await page.evaluate(() => window.itd.state().activeEvent === null)
+    check('virus: клик «Чистить вручную» закрывает карточку', cardGone, String(cardGone))
+
+    const readGeo = () => page.evaluate(() => {
+      const ns = window.itd.nodes()
+      const by = (id) => ns.find((n) => n.id === id) ?? null
+      const t = window.itd.text()
+      return {
+        slot: by('office.slot.0'), worker: by('office.worker.0'), label: by('office.virus.0'),
+        label5: by('office.virus.5'), slot1: by('office.slot.1'), label1: by('office.virus.1'),
+        repairs: ns.filter((n) => /^office\.repair\./.test(n.id ?? '')).map((n) => n.id),
+        plate: (t.find((n) => (n.text ?? '').startsWith('☣ вирус:')) ?? {}).text ?? null,
+        badges: [0, 1, 2].map((k) => {
+          const n = window.__itd.scene.getScene('hud').children.list.find((o) => o.getData?.('id') === 'hud.virus.office' + k)
+          return n ? { text: n.text, visible: n.visible } : null
+        }),
+      }
+    })
+    const geo = await readGeo()
+    if (!geo.slot || !geo.worker || !geo.label) throw new Error(`virus: нет узлов ${JSON.stringify(geo)}`)
+    check('virus: метки «☣ вирус 0/3» у мест 1 и 6, у здорового места 2 метки нет, меток поломки нет',
+      geo.label.text === '☣ вирус 0/3' && geo.label5?.text === '☣ вирус 0/3' && geo.label1 === null && geo.repairs.length === 0,
+      JSON.stringify({ l0: geo.label.text, l5: geo.label5?.text, l1: geo.label1, repairs: geo.repairs }))
+    check('virus: плашка офиса «☣ вирус: 2 из 9 мест · волна в 12:00»', geo.plate === '☣ вирус: 2 из 9 мест · волна в 12:00', String(geo.plate))
+    check('virus: значки вкладок «☣ 2» / «☣ 1» / нет',
+      geo.badges[0]?.visible && geo.badges[0].text === '☣ 2' && geo.badges[1]?.visible && geo.badges[1].text === '☣ 1' && geo.badges[2]?.visible === false,
+      JSON.stringify(geo.badges))
+    check('virus: office.worker.0 и office.virus.0 без ввода, зона office.slot.0 с вводом',
+      geo.worker.interactive === false && geo.label.interactive === false && geo.slot.interactive === true,
+      JSON.stringify({ worker: geo.worker.interactive, label: geo.label.interactive, slot: geo.slot.interactive }))
+    const inside = (a, b) => a.cx - a.w / 2 >= b.cx - b.w / 2 - 0.5 && a.cx + a.w / 2 <= b.cx + b.w / 2 + 0.5
+      && a.cy - a.h / 2 >= b.cy - b.h / 2 - 0.5 && a.cy + a.h / 2 <= b.cy + b.h / 2 + 0.5
+    check('virus: зона office.slot.0 накрывает сотрудника и метку вируса целиком',
+      inside(geo.worker, geo.slot) && inside(geo.label, geo.slot),
+      JSON.stringify({ slot: [geo.slot.cx, geo.slot.cy, geo.slot.w, geo.slot.h], label: [geo.label.w, geo.label.h] }))
+    // Подсветка — сама зона, зелёная; красной (поломки) нет.
+    const glow = await page.evaluate(() => window.__itd.scene.getScene('office').children.list
+      .filter((o) => o.type === 'Rectangle' && o.fillAlpha > 0 && (o.fillColor === 0xa7f070 || o.fillColor === 0xb13e53))
+      .map((o) => ({ id: o.getData('id') ?? null, fill: o.fillColor })))
+    check('virus: мигают зелёным ровно зоны office.slot.0 и office.slot.5, красных нет',
+      glow.length === 2 && glow.every((g) => g.fill === 0xa7f070) && glow.map((g) => g.id).sort().join() === 'office.slot.0,office.slot.5',
+      JSON.stringify(glow))
+    const l = geo.label
+    const w = geo.worker
+    const spots = [
+      { label: '☣ метки', x: l.cx - l.w / 2 + 4, y: l.cy },
+      { label: 'центр метки', x: l.cx, y: l.cy },
+      { label: 'зазор метка/сотрудник', x: w.cx, y: (l.cy + l.h / 2 + w.cy - w.h / 2) / 2 },
+      { label: 'центр сотрудника', x: w.cx, y: w.cy },
+    ]
+    const stacks = await page.evaluate((pts) => pts.map((p) => window.itd.stack(p.x, p.y)), spots)
+    spots.forEach((p, k) => {
+      const st = stacks[k]
+      check(`virus: itd.stack «${p.label}» → wins office.slot.0`, st.wins?.id === 'office.slot.0',
+        JSON.stringify({ at: st.at, stack: st.stack, wins: st.wins?.id ?? null }))
+    })
+    const lint = await page.evaluate(() => ({ ov: window.itd.overlaps(), off: window.itd.offscreen() }))
+    check('virus: itd.overlaps()/offscreen() пусты', lint.ov.length === 0 && lint.off.length === 0,
+      JSON.stringify({ ov: lint.ov.slice(0, 5), off: lint.off.slice(0, 5) }))
+
+    // Тултип: настоящее наведение на метку.
+    await page.mouse.move(box.x + spots[1].x * box.k, box.y + spots[1].y * box.k)
+    await delay(150)
+    const tip = await page.evaluate(() => {
+      const c = window.__itd.scene.getScene('office').children.list.find((o) => o.type === 'Container')
+      return { visible: c?.visible ?? null, text: c?.list?.find((o) => o.type === 'Text')?.text ?? '' }
+    })
+    check('virus: наведение на метку — тултип «ЗАРАЖЁН … 0/3», эффект «вирус −30%», мотивация после чистки',
+      tip.visible === true && tip.text.includes('ЗАРАЖЁН — выработка −30%; кликайте по месту: 0/3')
+        && tip.text.includes('вирус -30%') && tip.text.includes('мотивация: после чистки'),
+      JSON.stringify({ visible: tip.visible, lines: tip.text.split('\n').filter((x) => /ЗАРАЖЁН|вирус|мотивация/.test(x)) }))
+
+    // ПКМ — увольнение, ничего не шлёт.
+    const lastAt = (await lastOut(page, 50)).at(-1)?.at ?? 0
+    await page.mouse.click(box.x + w.cx * box.k, box.y + w.cy * box.k, { button: 'right' })
+    await delay(200)
+    const fireOpen = await page.evaluate(() => window.itd.text().some((n) => n.text === 'Уволить сотрудника?'))
+    const sentRight = (await lastOut(page, 50)).filter((m) => m.at > lastAt)
+    check('virus: ПКМ по заражённому месту открывает «Уволить сотрудника?», ничего не шлёт',
+      fireOpen && sentRight.length === 0, JSON.stringify({ fireOpen, sent: sentRight.map((m) => m.type) }))
+    await page.evaluate(() => window.itd.click('modal.close'))
+    await delay(150)
+
+    // Три настоящих клика: ровно virus_click слота 0, 1/3 → 2/3 → чисто.
+    const clickSpots = [spots[0], spots[2], spots[3]]
+    for (let k = 0; k < clickSpots.length; k++) {
+      const p = clickSpots[k]
+      const since = (await lastOut(page, 50)).at(-1)?.at ?? 0
+      await worldClick(page, box, p.x, p.y)
+      await delay(250)
+      const sent = (await lastOut(page, 50)).filter((m) => m.at > since)
+      check(`virus: клик мышью «${p.label}» шлёт ровно virus_click слота 0`,
+        sent.length === 1 && sent[0].type === 'virus_click' && sent[0].info?.slot === 0,
+        JSON.stringify(sent.map((m) => ({ type: m.type, info: m.info }))))
+      if (k < clickSpots.length - 1) {
+        const txt = await page.evaluate(() => window.itd.nodes().find((n) => n.id === 'office.virus.0')?.text ?? null)
+        check(`virus: после клика ${k + 1} метка «☣ вирус ${k + 1}/3»`, txt === `☣ вирус ${k + 1}/3`, String(txt))
+      }
+    }
+    await delay(300)
+    const after = await readGeo()
+    const afterWins = await page.evaluate(() => window.itd.stack('office:worker:0').wins?.id ?? null)
+    check('virus: после 3 кликов метки нет, зона office.slot.0 64×64, плашка «1 из 9», значок «☣ 1»',
+      !after.label && afterWins === 'office.slot.0' && Math.round(after.slot.w) === 64 && Math.round(after.slot.h) === 64
+        && (after.plate ?? '').startsWith('☣ вирус: 1 из 9 мест') && after.badges[0]?.text === '☣ 1',
+      JSON.stringify({ label: !!after.label, wins: afterWins, slot: after.slot && [after.slot.w, after.slot.h], plate: after.plate, badge: after.badges[0] }))
+    const since = (await lastOut(page, 50)).at(-1)?.at ?? 0
+    await worldClick(page, box, w.cx, w.cy)
+    await delay(250)
+    const sentAfter = (await lastOut(page, 50)).filter((m) => m.at > since)
+    check('virus: после чистки клик мышью по месту шлёт motivate слота 0',
+      sentAfter.length === 1 && sentAfter[0].type === 'motivate' && sentAfter[0].info?.slot === 0,
+      JSON.stringify(sentAfter.map((m) => ({ type: m.type, info: m.info }))))
+
+    // Сломан > заражён: место 6 ломаем поверх вируса (itd.restore — дельта над сейвом).
+    const snap = await page.evaluate(() => window.itd.snapshot())
+    snap.save.offices[0].Employees[5].PCBroken = true
+    snap.save.offices[0].Employees[5].RepairNeeded = 3
+    await page.evaluate((save) => window.itd.restore(save), snap.save)
+    await delay(400)
+    const both = await page.evaluate(() => {
+      const ns = window.itd.nodes()
+      const by = (id) => ns.find((n) => n.id === id) ?? null
+      const zone = window.__itd.scene.getScene('office').children.list.find((o) => o.getData?.('id') === 'office.slot.5')
+      return { repair: by('office.repair.5')?.text ?? null, virus: by('office.virus.5'), slot: by('office.slot.5'), fill: zone?.fillColor ?? null, worker: by('office.worker.5') }
+    })
+    check('virus: сломанное заражённое место показывает поломку («✖ чинить 0/3», красная зона), метки вируса нет',
+      both.repair === '✖ чинить 0/3' && both.virus === null && both.fill === 0xb13e53,
+      JSON.stringify({ repair: both.repair, virus: !!both.virus, fill: both.fill }))
+    await page.mouse.move(box.x + both.worker.cx * box.k, box.y + both.worker.cy * box.k)
+    await delay(150)
+    const tip2 = await page.evaluate(() => window.__itd.scene.getScene('office').children.list
+      .find((o) => o.type === 'Container')?.list?.find((o) => o.type === 'Text')?.text ?? '')
+    check('virus: тултип сломанного заражённого — «после ремонта вирус останется»',
+      tip2.includes('ПК СЛОМАН') && tip2.includes('после ремонта вирус останется'),
+      JSON.stringify(tip2.split('\n').filter((x) => /СЛОМАН|ЗАРАЖЁН/.test(x))))
+    for (let k = 0; k < 3; k++) {
+      const since2 = (await lastOut(page, 50)).at(-1)?.at ?? 0
+      await worldClick(page, box, both.worker.cx, both.worker.cy)
+      await delay(250)
+      const sent = (await lastOut(page, 50)).filter((m) => m.at > since2)
+      check(`virus: клик ${k + 1} по сломанному заражённому шлёт repair_click слота 5`,
+        sent.length === 1 && sent[0].type === 'repair_click' && sent[0].info?.slot === 5,
+        JSON.stringify(sent.map((m) => ({ type: m.type, info: m.info }))))
+    }
+    await delay(300)
+    const repaired = await page.evaluate(() => {
+      const ns = window.itd.nodes()
+      return { virus: ns.find((n) => n.id === 'office.virus.5')?.text ?? null, repair: ns.find((n) => n.id === 'office.repair.5') ?? null }
+    })
+    check('virus: после ремонта место снова заражено — «☣ вирус 0/3», метки поломки нет',
+      repaired.virus === '☣ вирус 0/3' && repaired.repair === null, JSON.stringify(repaired))
+
+    check('virus: нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))
+    await shot(page, 'virus')
+  } catch (e) {
+    check('virus: кейс выполнен без ошибок', false, e instanceof Error ? e.message : String(e))
   } finally {
     await page.close().catch(() => {})
   }
@@ -1036,7 +1222,7 @@ if (!process.env.QA_BASE) {
 
 try {
   for (const runCase of [
-    caseFullOffice, caseLunch, caseBrokenPc, caseTooltipUnderModal, caseDebugFramesUnderWindows, caseServerRoomGateway, caseServerRoomEmptyRacks, caseSparePcs, caseAmenityShelf,
+    caseFullOffice, caseLunch, caseBrokenPc, caseVirus, caseTooltipUnderModal, caseDebugFramesUnderWindows, caseServerRoomGateway, caseServerRoomEmptyRacks, caseSparePcs, caseAmenityShelf,
   ]) {
     const browser = await puppeteer.launch({
       executablePath: chromePath(),

@@ -23,6 +23,9 @@
 //       кейс — плашка видна ровно там, где цепочка не пройдена
 //   (l) замки закрытых офисов hud.lock.office1/2 в своей вкладке и подсветка вкладки, которую
 //       можно купить (ITGAME-21): L1 замки, L2 кейс tabs_affordable, L3 full_office
+//   (v) вирус (ITGAME-138), кейс virus_outbreak: V1 значки «☣ k» hud.virus.officeN под вкладками
+//       офисов, V2 живая волна (virusWaveIn 1 через itd.restore, скорость 3 — itd.step волн не
+//       катит) растит значки без тостов, V3 строка «Вирус:     k ПК (−$X)» в отчёте дня
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
 // :4174 — dist + собранный bin/itdirector, как visreg.mjs). Общий
@@ -146,6 +149,13 @@ const CASES = [
     name: 'log_flow', coach: '1/3',
     setup: (p) => loadScenario(p, 'fresh', 'normal', 'logflow'),
     flow: 'log',
+  },
+  {
+    // V1–V3 (ITGAME-138): значки «☣ k» на вкладках офисов, рост на живой волне без
+    // тостов, строка «Вирус:» в отчёте дня. Карточка «Вирус в сети» висит — HUD с ней.
+    name: 'virus_outbreak', coach: null,
+    setup: (p) => loadScenario(p, 'virus_outbreak', 'normal', 'virus'),
+    flow: 'virus',
   },
   {
     name: 'toast_stress', coach: '1/3',
@@ -294,6 +304,46 @@ async function runCase(browser, zoom, def) {
     // (c) линтер
     check(`${label}: itd.overlaps() пуст`, lint.overlaps.length === 0, `n=${lint.overlaps.length} ${JSON.stringify(lint.overlaps).slice(0, 200)}`)
     check(`${label}: itd.offscreen() пуст`, lint.offscreen.length === 0, `n=${lint.offscreen.length} ${JSON.stringify(lint.offscreen).slice(0, 200)}`)
+
+    // V1–V3 вирус (ITGAME-138): значки, живая волна без тостов, строка отчёта
+    if (def.flow === 'virus') {
+      const badges = () => page.evaluate(() => [0, 1, 2].map((k) => {
+        const n = window.__itd.scene.getScene('hud').children.list.find((o) => o.getData?.('id') === 'hud.virus.office' + k)
+        if (!n) return null
+        const b = n.getBounds()
+        return { text: n.text, visible: n.visible, top: b.top, bottom: b.bottom, left: b.left, right: b.right }
+      }))
+      const v1 = await badges()
+      const tabs = await dumpShapes(page, ['nav.office0', 'nav.office1'])
+      check(`${label}: V1 «☣ 2» под вкладкой О1, «☣ 1» под О2, у О3 значка нет`,
+        v1[0]?.visible && v1[0].text === '☣ 2' && v1[1]?.visible && v1[1].text === '☣ 1' && v1[2]?.visible === false
+          && v1[0].top >= tabs['nav.office0'].bottom && v1[1].top >= tabs['nav.office1'].bottom,
+        JSON.stringify({ v1, tabs: [tabs['nav.office0']?.bottom, tabs['nav.office1']?.bottom] }))
+      // Волна живыми тиками: itd.step идёт офлайн-движком, там волн нет (ITGAME-103).
+      const sn = await page.evaluate(() => window.itd.snapshot())
+      sn.save.virusWaveIn = 1
+      await page.evaluate((save) => window.itd.restore(save), sn.save)
+      const logAt = await page.evaluate(() => window.itd.log(200).length)
+      await page.evaluate(() => window.itd.speed(3))
+      await page.waitForFunction(() => window.itd.state().virusPCs > 3, { timeout: 8000 }).catch(() => {})
+      await page.evaluate(() => window.itd.pause())
+      await delay(300)
+      const v2 = await badges()
+      const total = await page.evaluate(() => window.itd.state().virusPCs)
+      const toasts = await page.evaluate((from) => window.itd.log(200).slice(from).filter((e) => e.type === 'toast').map((e) => e.text), logAt)
+      const sum = v2.reduce((n, b) => n + (b?.visible ? Number(b.text.replace('☣ ', '')) : 0), 0)
+      check(`${label}: V2 живая волна — значки выросли до суммы ${total} > 3, тостов про волну нет`,
+        total > 3 && sum === total && !toasts.some((t) => /волн|заражено|вирус в офисе/i.test(t)),
+        JSON.stringify({ total, badges: v2.map((b) => b?.visible && b.text), toasts }))
+      // Отчёт дня: строка «Вирус:     k ПК (−$X)» под «Поломки».
+      await page.evaluate(() => window.itd.set({ tickInDay: 53 }))
+      await page.evaluate(() => window.itd.speed(1))
+      await page.waitForFunction(() => window.itd.text().some((n) => /^День \d+ завершён$/.test(n.text ?? '')), { timeout: 8000 }).catch(() => {})
+      const body = await page.evaluate(() => (window.itd.text().find((n) => (n.text ?? '').startsWith('Доход:')) ?? {}).text ?? '')
+      const line = body.split('\n').find((x) => x.startsWith('Вирус:')) ?? null
+      check(`${label}: V3 отчёт дня — строка «Вирус:     k ПК (−$X)»`, !!line && /^Вирус: {5}\d+ ПК \(−\$[\d,]+\)$/.test(line),
+        JSON.stringify({ line, body: body.split('\n').slice(0, 8) }))
+    }
 
     // (j) O6 плашка онбординга: видна ровно там, где цепочка не пройдена (ITGAME-21)
     {

@@ -518,6 +518,8 @@ export interface AgentState {
   creditLimit: number | null
   creditRatePct: number | null
   bankruptInDays: number | null // обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)
+  virusPCs: number | null // заражённых мест по компании (ITGAME-103); по офисам — snapshot().state.offices[i].virusPCs
+  virusWaveAt: string | null // «HH:MM», с которого видна следующая волна; '' — заражённых нет
   winTarget: number | null
   winStaff: number | null
   winCore: number | null
@@ -1219,7 +1221,7 @@ export interface ItdApi {
   set(patch: { money?: number; day?: number; tickInDay?: number }): Promise<DebugState>
   /**
    * Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|
-   * soft_lock|pre_victory|spare_pcs|broken_pc|doomed_debt. Сбрасывает клиентское состояние партии: активный
+   * soft_lock|pre_victory|spare_pcs|broken_pc|doomed_debt|virus_outbreak. Сбрасывает клиентское состояние партии: активный
    * офис → О1 (ITGAME-55), оверлеи HUD — отчёт дня, событие, «Пока вас не было», финал,
    * окно выхода — и учёт паузы отчёта (ITGAME-64), окна офиса и серверной — устройства,
    * увольнение (ITGAME-69). Скорость сессии не трогает: вызванный
@@ -1328,7 +1330,8 @@ function buildState(game: Phaser.Game): AgentState {
       staffConnected: null, staffLimit: null, officesUnlocked: null,
       officesTotal: null, servers: null, coreLevel: null, coreConnected: null,
       coreCapacity: null, gateway: null, debt: null, creditLimit: null,
-      creditRatePct: null, bankruptInDays: null, winTarget: null, winStaff: null, winCore: null,
+      creditRatePct: null, bankruptInDays: null, virusPCs: null, virusWaveAt: null,
+      winTarget: null, winStaff: null, winCore: null,
       winDayLimit: null, activeEvent: null,
       seed: null, scenario: null, tickInDay: null, dayIncome: null, dayProfit: null,
     }
@@ -1361,6 +1364,8 @@ function buildState(game: Phaser.Game): AgentState {
     creditLimit: s.creditLimit,
     creditRatePct: s.creditRatePct,
     bankruptInDays: s.bankruptInDays,
+    virusPCs: s.offices.reduce((n, o) => n + o.virusPCs, 0),
+    virusWaveAt: s.virusWaveAt,
     winTarget: s.winTarget,
     winStaff: s.winStaff,
     winCore: s.winCore,
@@ -1895,6 +1900,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.hover('office.worker.0')      — наведение по id (тултипы)
   itd.key('1'|'enter'|'space'|'esc')— клавиша: 1-4 сложность в меню, up/down — фокус меню, enter — пункт в фокусе меню / отчёт дня, space/esc — отчёт дня
   itd.cmd('hire')                   — команда с квитанцией сервера ('abandon' — путём кнопки «Сдаться»: сейв удалён, вкладка в меню): Promise<{ok, code?, id, rev}> — ответ на ЭТУ команду по id (state|error с re = id; тики и чужие команды не в счёт), rev — версия снапшота-ответа; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
+                                       Вирус (ITGAME-103): itd.cmd('virus_click', 0, {slot: 0}) — клик чистки заражённого места (3 на чистку, k в employees[i].virusClicks), здоровое — not_infected; на сломанном заражённом ЛКМ по месту сначала чинит (repair_click)
   itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, id, …}] по порядку, recv[error/day_report…] (у error info.re/rev), states[{rev, cause, re?}] — снапшоты окна, transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}], pointer[{type: down|up, button, x, y — мировые, onCanvas, wins/stack — хит-тест Phaser в момент события (как itd.stack), got — до кого дошёл pointerdown/up объекта, в т.ч. удалившегося в обработчике (✕ модалки) — на up его уже нет; [] — до объектов не дошло}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой); itd.click() в pointer не попадает (мимо input-слоя)
   itd.trace.start({maxMs?})          — открытое окно (ITGAME-88): подписки сразу → {ok, id, t0, maxMs, open}; настоящий клик/клавиша — другим вызовом инструмента; само закроется через maxMs (по умолчанию 120000, до 600000; cut: true); коды bad_max, too_many (больше 8 окон)
   itd.trace.stop(id?)               — закрыть окно (без id — последнее) → тот же TraceResult, что у itd.trace() (+ id, windowMs = длина окна); нет окна — {ok:false, code:'no_trace'}. Пример: const {id} = itd.trace.start(); …клик…; const tr = itd.trace.stop(id); tr.pointer[0].wins, tr.sent
@@ -1927,13 +1933,13 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.sprite.list() / reset(key?)   — что подменено [{key, w, h, filter, sha256, problems}] / вернуть исходную текстуру (без ключа — все), not_tried — ключ не подменён
   itd.reset()                       — снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум, отчёты)
   itd.pause() / resume() / speed(n) — темп сессии: set_speed 0/1/0..3 (серверный, живёт в сейве); до коннекта — {ok:false, code:'not_connected'}
-  itd.step(2000) / step({ticks:60}) — пауза + промотка офлайн-движком (без кофе/событий/поломок/XP, день закрывается без day_report): мс (1 тик = 1000 мс, до 10 тиков) или {ticks: 1..10000}; из фазы отчёта — сначала next_day; сводка — в .advance и «debug · advance» в itd.snapshot().events; вне running (game_over) — 200 с advance.ticks 0, ничего не промотано
+  itd.step(2000) / step({ticks:60}) — пауза + промотка офлайн-движком (без кофе/событий/поломок/волн вируса/XP, день закрывается без day_report; таймер волны стоит — волну видно только живыми тиками): мс (1 тик = 1000 мс, до 10 тиков) или {ticks: 1..10000}; из фазы отчёта — сначала next_day; сводка — в .advance и «debug · advance» в itd.snapshot().events; вне running (game_over) — 200 с advance.ticks 0, ничего не промотано
   itd.advanceDays(3)                — промотка дней офлайн-движком: день N → N+3 (из фазы отчёта — сначала next_day, и HUD вернёт скорость до отчёта: партия побежит живьём, для паузы — itd.pause() ДО вызова), без day_report; сводка {days, income, payroll, balance} — в ответе .advance и строкой «debug · advance» в itd.snapshot().events, в itd.log() — только смена дня
   await itd.play([{cmd:'set_speed', extra:{speed:0}}, {cmd:'hire'}, {days:1}]) — партия из консоли: шаг {cmd, office?, extra?} (квитанция как у itd.cmd) или {days: n} (как itd.advanceDays); строка на шаг «cmd | ok/FAIL code | dN tN | бал>бал | staff a>b | pay N | phase»; без таймеров — шаг ждёт квитанцию и снапшот rev ≥ её rev; FAIL партию не прерывает
   await itd.ledger(day?)            — бухгалтерия дня с сервера: {day, balanceStart, income, eventMoney, events[{what, money, clock}], purchases[{type, price, clock}], purchasesTotal, payroll, gatewayOpex, interest, adjust, balanceEnd, profit, delta, balanced, closed, offline, history}; слагаемые = balanceEnd − balanceStart ровно; profit = day_report.profit; без day — текущий (payroll 0 до вечера), иначе один из history (7 закрытых + текущий)
   await itd.journal({tail?, sid?})  — журнал партии (ITGAME-46, сервер с ITGAME_DEBUG=1): хвост входов (tail 1..500, по умолчанию 20) строками «#seq k что | dN tN $M фаза Nx revR +tk» и объектами без сейвов; kinds по всему журналу, total, dropped; url — полный JSONL для make replay ARGS="-url …"; cmd несёт id, как itd.trace().sent, и conn/src (ITGAME-91): «buy_pc c2 id1 ok» — соединение 2 партии, «c3 bridge» — мост агента; уникальна пара (conn, id), не id; end — evicted | read_timeout | debug_drop | disconnect (закрыл клиент)
   itd.set({money: 50000})           — читы живой сессии: {money, day, tickInDay}
-  itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs|broken_pc|doomed_debt; сбрасывает клиентское состояние партии (офис → О1, оверлеи HUD, окна офиса/серверной, пауза отчёта); скорость не трогает — из отчёта или окна выхода партия остаётся на паузе: itd.resume(); работает и после финала; из меню — сразу not_in_party (ниже)
+  itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs|broken_pc|doomed_debt|virus_outbreak; сбрасывает клиентское состояние партии (офис → О1, оверлеи HUD, окна офиса/серверной, пауза отчёта); скорость не трогает — из отчёта или окна выхода партия остаётся на паузе: itd.resume(); работает и после финала; из меню — сразу not_in_party (ниже)
   itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы
   itd.restore(save)                 — вернуть состояние из snapshot().save (дельта над текущим); закрытый в новом состоянии активный офис → О1; окна офиса/серверной закрывает
   itd.quiet()                       — стоп твитов/миганий для стабильных скриншотов

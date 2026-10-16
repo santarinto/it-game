@@ -70,5 +70,13 @@
       "contrast": 15,
       "tiny": 15
     }
+  },
+  "virus_outbreak": {
+    "lint": {
+      "overlaps": 0,
+      "offscreen": 0,
+      "contrast": 24,
+      "tiny": 26
+    }
   }
 }
