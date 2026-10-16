@@ -404,8 +404,8 @@ func (g *Game) NextDay() error {
 	if g.Phase != PhaseDayReport {
 		return ErrWrongPhase
 	}
-	// Сбрасываем флаги неполного дня для нанятых после обеда, баффы
-	// дня и поломки (ночной ИТ-шник чинит ПК и лечит вирусы сам).
+	// Сбрасываем флаги неполного дня для нанятых после обеда и баффы дня.
+	// Поломка ночь переживает (ITGAME-136): ПК ждёт кликов или мастера.
 	for i := range g.Offices {
 		o := &g.Offices[i]
 		for j := range o.Employees {
@@ -413,9 +413,6 @@ func (g *Game) NextDay() error {
 			o.Employees[j].CoffeeUntil = 0
 			o.Employees[j].MotivatedUntil = 0
 			o.Employees[j].MotivateCooldownUntil = 0
-			o.Employees[j].PCBroken = false
-			o.Employees[j].RepairClicks = 0
-			o.Employees[j].RepairNeeded = 0
 			o.Employees[j].OffendedUntil = 0
 		}
 		o.BossUnpaidToday = false

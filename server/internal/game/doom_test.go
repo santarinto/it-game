@@ -109,9 +109,13 @@ func TestBankruptInDaysBrokenPCsCountAsRepaired(t *testing.T) {
 		{Name: "Мария Фёдорова", IncomePerTick: 14, HireDay: 1, PCBroken: true, RepairNeeded: 3},
 		{Name: "Дмитрий Смирнов", IncomePerTick: 14, HireDay: 1},
 	}
-	// Ремонт кликами бесплатный, ночью ПК чинятся сами — это не тупик.
+	// Ремонт кликами бесплатный — это не тупик, хотя ночью ПК сами больше
+	// не чинятся (ITGAME-136): прогноз обречённости считает их починенными.
 	if got := g.BankruptInDays(); got != 0 {
 		t.Fatalf("сломанные ПК чинятся бесплатно — сигнала нет, получили %d", got)
+	}
+	if !o.Employees[0].PCBroken || !o.Employees[1].PCBroken {
+		t.Fatal("прогноз обречённости починил ПК в живой игре")
 	}
 }
 

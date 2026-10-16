@@ -339,8 +339,9 @@ const doomHorizonDays = 365
 // (ITGAME-118); 0 — не обречена. Обречена: уровень с кредитом, партия идёт,
 // баланс в минусе (ни покупки, ни увольнения: всё требует Money >= цена) и
 // доход штата не покрывает ФОТ и проценты до CreditLimit. Доход — по шаблону
-// офлайн-движка: ПК целы (ремонт кликами бесплатный, ночью чинятся сами), без
-// баффов и событий, рынок нейтрален. Сегодня — остаток дня от текущего тика,
+// офлайн-движка, но с целыми ПК: ремонт кликами бесплатный, сломанный ПК —
+// не тупик, хотя ночью он сам больше не чинится (ITGAME-136). Без баффов и
+// событий, рынок нейтрален. Сегодня — остаток дня от текущего тика,
 // поэтому прогноз не скачет в течение дня. Дедлайн уровня раньше банкротства
 // закроет партию по time_up — тогда 0: предупреждать о банкротстве незачем.
 func (g *Game) BankruptInDays() int {
@@ -349,6 +350,11 @@ func (g *Game) BankruptInDays() int {
 	}
 	tpl := g.offlineTemplate()
 	tpl.MarketToday = 0
+	for i := range tpl.Offices {
+		for j := range tpl.Offices[i].Employees { // своя копия шаблона, живую игру не трогает
+			tpl.Offices[i].Employees[j].PCBroken = false
+		}
+	}
 	dayTicks := g.cfg.DayTicks()
 	net := tpl.sumIncome(0, dayTicks) - tpl.PayrollPerDay()
 	money := g.Money + tpl.sumIncome(g.TickInDay, dayTicks) - g.PayrollPerDay()

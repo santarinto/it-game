@@ -584,8 +584,11 @@ closes until bankruptcy, 0 when the party is not doomed, sent as
 `state.bankruptInDays`. Doomed means a level with credit, phase `running`,
 money below zero (nothing can be bought or fired) and income that does not
 cover payroll and interest before `CreditLimit`. Income comes from the
-offline engine's day template (PCs whole — repair clicks are free and PCs are
-fixed overnight —, no buffs, no events, neutral market); today counts from
+offline engine's day template with every PC whole — repair clicks are free,
+so a broken PC is not a dead end even though the night no longer fixes it
+(ITGAME-136); `BankruptInDays` repairs its own copy of the template, while
+the offline catch-up keeps broken PCs broken —, no buffs, no events, neutral
+market; today counts from
 the current tick, so N does not drift during the day. A level deadline
 (`WinDayLimit`) that comes first gives 0: the party ends by `time_up`. The
 HUD shows the plate once per day while N > 0 (ids `hud.doom`,
@@ -597,8 +600,12 @@ party paused, `hud.doom.close`).
 after the breakdown roll, so the party journal and `make replay` reproduce it.
 N lives on the employee (`Employee.RepairNeeded` in the save,
 `repairNeeded` in the snapshot, 0 while the PC works) and the office label
-reads «✖ чинить k/N»; the N-th `repair_click` repairs, `call_master` and the
-next day clear it. Saves from before ITGAME-93 (a broken PC without
+reads «✖ чинить k/N»; the N-th `repair_click` repairs and `call_master`
+clears it. The night does not: since ITGAME-136 a breakdown, with its k and
+N, survives `next_day`, the offline catch-up (`resetForNextDay`, the day
+template) and the forecast, until it is clicked away or the master comes —
+`make sim`'s `random` policy never repairs, so its parties now end bankrupt
+(normal 300×30: 39 survivors → 0). Saves from before ITGAME-93 (a broken PC without
 `RepairNeeded`, a config with the old `RepairClicksNeeded`) restore as N = 3
 and the 3..15 range. `make sim` models clicks as free (greedy clicks until
 repaired), so N does not move its economics — what it changes is the player's

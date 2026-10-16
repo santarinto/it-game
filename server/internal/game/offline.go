@@ -148,7 +148,8 @@ func (g *Game) sumIncome(lo, hi int) int {
 }
 
 // offlineTemplate — копия игры с дневными сбросами: точка отсчёта дохода
-// полного офлайн-дня (все оплачиваются, ПК целы, баффов нет).
+// полного офлайн-дня (все оплачиваются, баффов нет). Сломанные ПК остаются
+// сломанными — ночь их не чинит (ITGAME-136).
 func (g *Game) offlineTemplate() *Game {
 	tpl := &Game{
 		cfg: g.cfg, Money: g.Money, Offices: append([]Office(nil), g.Offices...),
@@ -163,9 +164,6 @@ func (g *Game) offlineTemplate() *Game {
 			o.Employees[j].UnpaidToday = false
 			o.Employees[j].CoffeeUntil = 0
 			o.Employees[j].MotivatedUntil = 0
-			o.Employees[j].PCBroken = false
-			o.Employees[j].RepairClicks = 0
-			o.Employees[j].RepairNeeded = 0
 			o.Employees[j].OffendedUntil = 0
 		}
 		o.BossUnpaidToday = false
@@ -175,6 +173,7 @@ func (g *Game) offlineTemplate() *Game {
 }
 
 // resetForNextDay — дневные сбросы NextDay без роллов кофе и событий.
+// Поломки не трогает, как и NextDay (ITGAME-136).
 func (g *Game) resetForNextDay() {
 	for i := range g.Offices {
 		o := &g.Offices[i]
@@ -183,9 +182,6 @@ func (g *Game) resetForNextDay() {
 			o.Employees[j].CoffeeUntil = 0
 			o.Employees[j].MotivatedUntil = 0
 			o.Employees[j].MotivateCooldownUntil = 0
-			o.Employees[j].PCBroken = false
-			o.Employees[j].RepairClicks = 0
-			o.Employees[j].RepairNeeded = 0
 			o.Employees[j].OffendedUntil = 0
 		}
 		o.BossUnpaidToday = false

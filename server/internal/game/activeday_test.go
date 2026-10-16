@@ -196,11 +196,15 @@ func TestCallMaster(t *testing.T) {
 	}
 }
 
+// Ночь сбрасывает баффы и счётчики дня, но не поломку: сломанный ПК ждёт
+// кликов или мастера с тем же прогрессом починки (ITGAME-136).
 func TestActiveDayResetOnNextDay(t *testing.T) {
 	g := New(dayTestConfig())
 	g.Money = 1000
 	g.Offices[0].Employees = testStaff(1)
 	g.Offices[0].Employees[0].PCBroken = true
+	g.Offices[0].Employees[0].RepairNeeded = 7
+	g.Offices[0].Employees[0].RepairClicks = 2
 	g.Offices[0].Employees[0].MotivatedUntil = 99
 	g.Offices[0].Employees[0].MotivateCooldownUntil = 99
 	for g.Phase == PhaseRunning {
@@ -210,9 +214,13 @@ func TestActiveDayResetOnNextDay(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := g.Offices[0].Employees[0]
-	if e.PCBroken || e.MotivatedUntil != 0 || e.MotivateCooldownUntil != 0 || g.DayIncidents != 0 || g.DayLostIncome != 0 {
+	if e.MotivatedUntil != 0 || e.MotivateCooldownUntil != 0 || g.DayIncidents != 0 || g.DayLostIncome != 0 {
 		t.Errorf("ресет дня не прошёл: %+v DayIncidents=%d DayLostIncome=%d",
 			e, g.DayIncidents, g.DayLostIncome)
+	}
+	if !e.PCBroken || e.RepairNeeded != 7 || e.RepairClicks != 2 {
+		t.Errorf("поломка не пережила ночь: broken=%v clicks=%d needed=%d, хотим true/2/7",
+			e.PCBroken, e.RepairClicks, e.RepairNeeded)
 	}
 }
 

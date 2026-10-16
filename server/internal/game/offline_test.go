@@ -145,17 +145,23 @@ func TestAdvanceOfflineZero(t *testing.T) {
 	}
 }
 
-func TestAdvanceOfflineBrokenPCFailsTodayFixedTomorrow(t *testing.T) {
+// Поломка переживает ночь и офлайн (ITGAME-136): сломанное место молчит
+// во всех днях догона, прогресс починки не теряется.
+func TestAdvanceOfflineBrokenPCStaysBroken(t *testing.T) {
 	g := hiredGame(t)
-	g.Offices[0].Employees[0].PCBroken = true // сломан в текущий день
+	g.Money = 10000
+	g.Offices[0].PCs = 2
+	g.Offices[0].Employees = append(g.Offices[0].Employees, Employee{Name: "Мария Фёдорова", IncomePerTick: 10, HireDay: 1})
+	broken := &g.Offices[0].Employees[0]
+	broken.PCBroken, broken.RepairNeeded, broken.RepairClicks = true, 5, 2
 	dayTicks := g.Config().DayTicks()
 	s := g.AdvanceOffline(2*dayTicks + 6)
-	// Сегодня 0 (ПК сломан), полный день 480, завтра 6 тиков × 10.
-	if s.Income != 0+480+60 {
-		t.Fatalf("доход офлайн %d, хотим 540 (поломка не чинится днём, чинится ночью)", s.Income)
+	// Работает только целый: сегодня 480, полный день 480, завтра 6 тиков × 10.
+	if s.Income != 480+480+60 {
+		t.Fatalf("доход офлайн %d, хотим 1020 (сломанный ПК молчит все дни)", s.Income)
 	}
-	if g.Offices[0].Employees[0].PCBroken {
-		t.Fatal("новый день должен начинаться с целым ПК")
+	if e := g.Offices[0].Employees[0]; !e.PCBroken || e.RepairNeeded != 5 || e.RepairClicks != 2 {
+		t.Fatalf("после офлайна: broken=%v clicks=%d needed=%d, хотим true/2/5", e.PCBroken, e.RepairClicks, e.RepairNeeded)
 	}
 	if g.TickInDay != 6 {
 		t.Fatalf("тик %d, хотим 6", g.TickInDay)
@@ -189,8 +195,12 @@ func TestOfflineTemplateDoesNotTouchLiveEmployees(t *testing.T) {
 	live.PCBroken, live.OffendedUntil = true, 9
 	tpl := g.offlineTemplate()
 	if e := tpl.Offices[0].Employees[0]; e.UnpaidToday || e.CoffeeUntil != 0 ||
-		e.MotivatedUntil != 0 || e.PCBroken || e.OffendedUntil != 0 {
+		e.MotivatedUntil != 0 || e.OffendedUntil != 0 {
 		t.Fatalf("шаблон не сбросил дневные поля: %+v", e)
+	}
+	// Поломка — не дневное поле: ночь её не чинит (ITGAME-136).
+	if !tpl.Offices[0].Employees[0].PCBroken {
+		t.Fatal("шаблон починил ПК, а поломка переживает ночь")
 	}
 	if !live.UnpaidToday || live.CoffeeUntil != 7 || live.MotivatedUntil != 8 ||
 		!live.PCBroken || live.OffendedUntil != 9 {
