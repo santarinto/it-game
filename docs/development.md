@@ -1247,16 +1247,39 @@ self-serve port is up (ITGAME-123). It is the systemd user unit
 `itgame-dev.service` on `127.0.0.1:15555` with `ITGAME_DEBUG=1`, so
 `http://localhost:15555/?debug=1` gives `window.itd`.
 
-    make stand        # build client + server, deploy, restart, check
+    make stand-init       # once: bare repo, deploy hook, remote «stand», first deploy
+    git push stand main   # deploy: exactly the pushed commit, no WIP
+    make stand            # by hand: build the WORKING tree, WIP included
 
-`tools/dev-stand/stand.sh` builds from the working tree (it warns when the
-tree is dirty), puts the binary, `client/dist` and the saves into
-`~/.local/share/itgame-dev/{bin,dist,saves}`, installs
-`tools/dev-stand/itgame-dev.service` into `~/.config/systemd/user`, enables
-and restarts it, then fails unless `:15555` serves the `<meta name="build">`
-it has just built. The stand runs a copy, not the working tree: QA scripts
-and visreg rebuild `client/dist` all the time and the stand does not change
-until the next `make stand`. There is no rebuild on commit, by design.
+**Deploy by push** (ITGAME-139): the stand is what the owner plays, so it
+changes only when `main` is pushed to the local remote `stand` — a bare repo
+`~/.local/share/itgame-dev/repo.git` whose `pre-receive` hook
+(`tools/dev-stand/pre-receive`, installed by `make stand-init`) lays the
+pushed tree out into `~/.local/share/itgame-dev/src` (its own index, no `.git`;
+the working clone takes no part, so a dirty tree ships nothing) and runs that
+tree's own `tools/dev-stand/stand.sh deploy` — changes to the deploy script
+ship with the code. The build is stamped like `tools/deploy` does it:
+`BUILD_SHA` for the client, `-ldflags -X itdirector/internal/ws.buildSHA` for
+the server; `npm ci` runs only when `client/package-lock.json` changed
+(`node_modules` lives in `src` between deploys). It is `pre-`, not
+`post-receive`: a failed build rejects the push, so the stand's `main` is
+always what really runs. Other branches are accepted and ignored («не main,
+стенд не трогаю»); deleting `main` is refused (`receive.denyDeletes`). One
+deploy at a time (`flock` on `deploy.lock`). Pushing to Forgejo is separate;
+to deploy on every `git push`, add the stand as a second push URL of `origin`.
+
+Both paths put the binary, `client/dist` and the saves into
+`~/.local/share/itgame-dev/{bin,dist,saves}`, install
+`tools/dev-stand/itgame-dev.service` into `~/.config/systemd/user`, enable
+and restart it, then fail unless `:15555` serves the `<meta name="build">`
+just built; if it does not come up, the previous binary and `dist`
+(`bin/itdirector.prev`, `dist.prev`) are put back and restarted. The stand
+runs a copy: QA scripts and visreg rebuild `client/dist` all the time and the
+stand does not change until the next deploy. A deploy keeps saves and the
+database, so a party continues after the reconnect — except across a save
+format break (ITGAME-103's `Save.Format`): then the menu has no «Продолжить».
+A browser agent's acceptance pins the stand's sha: do not push to `stand`
+while one runs.
 
 The database is `itdirector_dev` on the host's PostgreSQL, reached over the
 unix socket with peer auth (`postgres:///itdirector_dev?host=/run/postgresql`,

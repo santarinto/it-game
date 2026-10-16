@@ -81,7 +81,7 @@ worktree() {
   out=$(cd client && npm run build 2>&1) || { printf '%s\n' "$out" >&2; fail "сборка клиента"; }
   say "сервер: go build"
   mkdir -p "$STAND/bin"
-  (cd server && go build -o "$STAND/bin/itdirector.new" ./cmd/server)
+  (cd server && go build -o "$STAND/bin/itdirector.new" ./cmd/server) || fail "сборка сервера"
   serve "$REPO"
 }
 
@@ -104,7 +104,8 @@ deploy() {
   say "сервер: go build ($sha)"
   mkdir -p "$STAND/bin"
   (cd server && go build -trimpath -buildvcs=false \
-    -ldflags "-X itdirector/internal/ws.buildSHA=$sha" -o "$STAND/bin/itdirector.new" ./cmd/server)
+    -ldflags "-X itdirector/internal/ws.buildSHA=$sha" -o "$STAND/bin/itdirector.new" ./cmd/server) ||
+    fail "сборка сервера"
   serve "$src"
 }
 
