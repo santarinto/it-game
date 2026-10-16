@@ -8,7 +8,9 @@ export DATABASE_URL TEST_DATABASE_URL
 help: ## список целей (по умолчанию)
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
 
-push: ## git push текущей ветки в origin; пуш main = CI: тесты → stage → prod
+push: ## git push stand main (стенд :15555; сломанная сборка — стоп), затем текущей ветки в origin; пуш main = CI: тесты → stage → prod
+	@if git remote get-url stand >/dev/null 2>&1; then git push stand main; \
+	else echo "make push: remote stand нет (make stand-init) — стенд не обновлён"; fi
 	git push origin HEAD
 
 dev: ## сервер и клиент параллельно

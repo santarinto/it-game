@@ -14,7 +14,10 @@ front (outside this repo) answers `404 {"detail":"not_exposed"}` with or
 without credentials (checked 2026-10-09); the Go handler itself has no auth.
 
 A push to `main` deploys (since 08.10, MINIPC-206). The repo lives on
-Forgejo (`git.lan.santarinto.com`; `make push`), and every push to any
+Forgejo (`git.lan.santarinto.com`; `make push` — it first deploys `main` to
+the local stand with `git push stand main`, stops if that build fails, see
+[Local stand](#local-stand-15555), then pushes the current branch to
+`origin`), and every push to any
 branch runs `.forgejo/workflows/ci.yaml`: the `test-server` and
 `test-client` jobs (see [CI](#ci)), then — on `main` or a manual dispatch
 only, and only when both are green — the `deploy` job on the host runner
