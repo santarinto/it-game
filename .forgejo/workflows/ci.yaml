@@ -8,10 +8,29 @@
 # deploy-project itgame-stage / itgame, transient user unit, recipe
 # tools/deploy (contract v1) from the deployed SHA.
 #
-# Checkout is a plain `git clone` with the job token, NOT actions/checkout:
+# Checkout is a plain git fetch with the job token, NOT actions/checkout:
 # node-free where possible, and this runner serves no v4 artifact API
 # (minipc recipe note, MINIPC-164). The docker runner's config carries
 # add-host git.lan→10.8.1.12 — containers resolve the platform by mesh IP.
+#
+# Every job checks out the SHA the deploy ships (ITGAME-105): `inputs.ref`
+# on «Run workflow», else github.sha — `git fetch --depth 1 origin <sha>`
+# (Forgejo allows a want by sha). Until 105 the tests cloned the branch HEAD
+# by name while the deploy shipped github.sha, and a second quick push made
+# them differ: an untested commit could reach prod.
+#
+# Concurrency (ITGAME-105): one run per ref at a time. Without a
+# `concurrency` block Forgejo (v16 docs; the box runs 16.0.5) cancels the
+# older run of a push on every new push — on main that could cut a deploy
+# between stage and prod. On main the runs now queue (cancel-in-progress
+# false: each finishes, in push order, so prod ends on the last green push
+# and an older run can't land after a newer one); other branches keep
+# cancelling — they only test.
+#
+# Rollback (mode=rollback) does not build, so the test jobs skip their steps
+# and pass: a red branch head no longer blocks it. It needs an explicit
+# `ref`, and a stage that no longer holds the release (each target prunes
+# its own KEEP=3) does not stop the prod rollback — the job fails after both.
 #
 # Server tests need PostgreSQL (parity with the retired GitHub CI): the
 # service container is reachable by the service name `postgres`.
@@ -39,6 +58,10 @@ on:
         required: false
         default: ""
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 env:
   OBS_TOKEN: ${{ secrets.OBS_TOKEN }}
   DEPLOY_ENABLED: "1"
@@ -57,24 +80,40 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://itd:itd@postgres:5432/itdirector_test
     steps:
-      - run: git clone --depth 1 --branch "$GITHUB_REF_NAME" "https://x-access-token:${{ github.token }}@git.lan.santarinto.com/${GITHUB_REPOSITORY}.git" .
-      - run: |
+      - if: inputs.mode == 'rollback'
+        run: echo "rollback не собирает — test-server пропущен, релиз проверялся при своём деплое"
+      - if: inputs.mode != 'rollback'
+        env:
+          SHA: "${{ inputs.ref || github.sha }}"
+        run: |
+          printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{40}$' || { echo "bad ref: $SHA"; exit 1; }
+          git init -q . && git fetch -q --depth 1 "https://x-access-token:${{ github.token }}@git.lan.santarinto.com/${GITHUB_REPOSITORY}.git" "$SHA" && git checkout -q --detach FETCH_HEAD
+      - if: inputs.mode != 'rollback'
+        run: |
           sh tools/ci-notify.sh test-server start || true
           cd server && go test ./...
           sh ../tools/ci-notify.sh test-server finish success || true
-      - if: always()
+      - if: always() && inputs.mode != 'rollback'
         run: sh tools/ci-notify.sh test-server finish-unless-done || true
 
   test-client:
     runs-on: minipc-test
     container: node:22
     steps:
-      - run: git clone --depth 1 --branch "$GITHUB_REF_NAME" "https://x-access-token:${{ github.token }}@git.lan.santarinto.com/${GITHUB_REPOSITORY}.git" .
-      - run: |
+      - if: inputs.mode == 'rollback'
+        run: echo "rollback не собирает — test-client пропущен, релиз проверялся при своём деплое"
+      - if: inputs.mode != 'rollback'
+        env:
+          SHA: "${{ inputs.ref || github.sha }}"
+        run: |
+          printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{40}$' || { echo "bad ref: $SHA"; exit 1; }
+          git init -q . && git fetch -q --depth 1 "https://x-access-token:${{ github.token }}@git.lan.santarinto.com/${GITHUB_REPOSITORY}.git" "$SHA" && git checkout -q --detach FETCH_HEAD
+      - if: inputs.mode != 'rollback'
+        run: |
           sh tools/ci-notify.sh test-client start || true
           cd client && npm ci --no-audit --no-fund && npm run build
           sh ../tools/ci-notify.sh test-client finish success || true
-      - if: always()
+      - if: always() && inputs.mode != 'rollback'
         run: sh tools/ci-notify.sh test-client finish-unless-done || true
 
   deploy:
@@ -82,13 +121,16 @@ jobs:
     needs: [test-server, test-client]
     if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
     steps:
-      - run: |
+      - env:
+          SHA: "${{ inputs.ref || github.sha }}"
+        run: |
           # Host runner, no container: tools/ci-notify.sh needs only POSIX sh
-          # and curl; the clone is best-effort — the deploy itself does not
-          # need the checkout, the ssh line carries both words.
-          git clone --depth 1 --branch "$GITHUB_REF_NAME" "https://x-access-token:${{ github.token }}@git.lan.santarinto.com/${GITHUB_REPOSITORY}.git" . || true
+          # and curl; the checkout is best-effort — the deploy itself does not
+          # need it, the ssh line carries both words.
+          rm -rf .git && git init -q . && git fetch -q --depth 1 "https://x-access-token:${{ github.token }}@git.lan.santarinto.com/${GITHUB_REPOSITORY}.git" "$SHA" && git checkout -q -f --detach FETCH_HEAD || true
       - env:
           REF: "${{ inputs.ref || github.sha }}"
+          INPUT_REF: "${{ inputs.ref }}"
           MODE: "${{ inputs.mode || 'deploy' }}"
         run: |
           set -eu
@@ -100,8 +142,20 @@ jobs:
           fi
           printf '%s' "$REF"  | grep -Eq '^[0-9a-f]{40}$' || { echo "bad ref"; exit 1; }
           printf '%s' "$MODE" | grep -Eq '^(deploy|rollback)$' || { echo "bad mode"; exit 1; }
-          ssh -o BatchMode=yes deploy-itgame-stage "$MODE" "$REF"
-          ssh -o BatchMode=yes deploy-itgame "$MODE" "$REF"
+          if [ "$MODE" = rollback ]; then
+            # Откат на голову ветки бессмыслен — sha отката называют явно.
+            [ -n "$INPUT_REF" ] || { echo "rollback требует ref (sha40 релиза, который есть на цели)"; exit 1; }
+            # Цели чистят релизы независимо (KEEP=3): стейдж без этого sha не
+            # должен оставить прод на сломанном релизе. Оба отката — всегда,
+            # джоб красный, если не удался хоть один.
+            rc=0
+            ssh -o BatchMode=yes deploy-itgame-stage rollback "$REF" || { echo "стейдж НЕ откатился на $REF — откатываю прод всё равно"; rc=1; }
+            ssh -o BatchMode=yes deploy-itgame rollback "$REF" || { echo "прод НЕ откатился на $REF"; rc=1; }
+            [ "$rc" = 0 ] || exit 1
+          else
+            ssh -o BatchMode=yes deploy-itgame-stage deploy "$REF"
+            ssh -o BatchMode=yes deploy-itgame deploy "$REF"
+          fi
           sh tools/ci-notify.sh deploy-job finish success || true
       - if: always()
         run: sh tools/ci-notify.sh deploy-job finish-unless-done || true

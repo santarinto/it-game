@@ -17,10 +17,23 @@ A push to `main` deploys (since 08.10, MINIPC-206). The repo lives on
 Forgejo (`git.lan.santarinto.com`; `make push`), and every push to any
 branch runs `.forgejo/workflows/ci.yaml`: the `test-server` and
 `test-client` jobs (see [CI](#ci)), then — on `main` or a manual dispatch
-only, and only when both are green (they test the branch head, the deploy ships the pushed sha, so a quick second push can make them differ) — the `deploy` job on the host runner
+only, and only when both are green — the `deploy` job on the host runner
 `minipc-deploy`: `ssh deploy-itgame-stage <mode> <sha40>`, then
-`ssh deploy-itgame <mode> <sha40>` (`mode` is `deploy` on a push). Stage
-goes first; a failed stage stops the job before production. Each ssh target
+`ssh deploy-itgame <mode> <sha40>` (`mode` is `deploy` on a push). All three
+jobs check out the sha the deploy ships — the dispatch's `ref`, else the
+pushed commit — by `git fetch --depth 1 origin <sha>` (ITGAME-105; before
+it the tests cloned the branch head by name, and a quick second push could
+ship an untested commit). Stage goes first; on a deploy a failed stage stops
+the job before production.
+
+Runs are serialized per ref (`concurrency: ci-<ref>`, ITGAME-105). On
+`main` `cancel-in-progress` is false: a second push waits for the first run,
+deploy included, the runs finish in push order, and production ends on the
+last push that passed its tests. On other branches a new push cancels the
+older run. Without a `concurrency` block Forgejo (its v16 docs; the box runs
+16.0.5) cancels the older push run on every branch, `main` included, so a
+push could cut a deploy between stage and production — that is what `main`
+had until ITGAME-105. Each ssh target
 is a forced command of the platform loader (`deploy-project itgame-stage`,
 `deploy-project itgame`) on the box, outside this repo: it fetches and
 checks out the SHA and runs `tools/deploy` from that SHA's own tree, so
@@ -53,18 +66,18 @@ keeps the last `KEEP=3` releases and never prunes `current`.
   stage runs the new release and production the old or the broken new one
   until the next deploy or rollback.
 - **Rollback:** «Run workflow» on `ci.yaml` in Forgejo Actions with
-  `mode=rollback` and `ref=<sha40>` of a commit whose release is still on
-  BOTH targets (each keeps its own last three); it goes stage, then
-  production, and a stage failure stops the run before production — pick a
-  sha both hold or check
-  on the box with `ls /opt/itgame/releases /opt/itgame-stage/releases | grep <sha7>`.
-  Rollback never builds: it points `current` at the release whose
-  directory name ends in that sha7 and restarts. The `deploy` job needs
-  both test jobs even for a rollback, and the tests check the dispatched
-  branch head, not `ref`: a red branch head blocks a rollback, so dispatch
-  from `main`. «Run workflow» with `mode=deploy` (the default; an empty
-  `ref` is the branch head) deploys by hand; dispatched from a non-main
-  branch it ships that branch's `ref` to stage and then production.
+  `mode=rollback` and `ref=<sha40>` (required: an empty `ref` fails the job)
+  of a commit whose release is still on the targets (each keeps its own last
+  three; check on the box with
+  `ls /opt/itgame/releases /opt/itgame-stage/releases | grep <sha7>`). It
+  rolls back stage, then production, and production is rolled back even when
+  stage fails (stage no longer holds that release); the job is red if either
+  failed. Rollback never builds: it points `current` at the release whose
+  directory name ends in that sha7 and restarts. The test jobs skip their
+  steps on a rollback and pass, so a red branch head does not block it
+  (ITGAME-105). «Run workflow» with `mode=deploy` (the default; an empty
+  `ref` is the branch head) tests and deploys that sha by hand; dispatched
+  from a non-main branch it ships it to stage and then production.
 - **`--dry-run`** checks the mechanism only (docker, the SHA in the
   checkout, a writable `releases/`, the unit, curl; for `rollback`, that the
   release exists) and changes no release.
@@ -1180,8 +1193,11 @@ branch and on «Run workflow» (inputs `mode`, `ref` — see [Deploy](#deploy)):
 - **deploy** — after both, on `main` or a dispatch only, on the host runner
   `minipc-deploy`: stage, then production (see [Deploy](#deploy)).
 
-Each job checks out with a plain `git clone --depth 1` and the job token
-(no `actions/checkout`) and reports start/finish through
+Each job checks out the sha being deployed — the dispatch's `ref`, else the
+pushed commit — with `git fetch --depth 1 origin <sha>` and the job token
+(no `actions/checkout`); on `mode=rollback` the test jobs skip their steps.
+Runs are serialized per ref: queued on `main`, the older run cancelled on
+other branches (see [Deploy](#deploy)). Each job reports start/finish through
 `tools/ci-notify.sh`. Not in CI: `go vet`, the sim report, and everything
 that needs a browser or a running server — `smoke-ui` (menu and
 `OFFICE=1`), the `qa:*` suites, `live-check-*`, `visreg`. Run what your
