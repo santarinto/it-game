@@ -185,7 +185,8 @@ func randomStep(t *testing.T, tb *tab, rng *rand.Rand) {
 		{"type": "buy_cooler", "office": 0},
 		{"type": "buy_coffee", "office": 0},
 		{"type": "fire", "office": 0, "slot": slot},
-		{"type": "set_speed", "speed": rng.IntN(5)}, // 4 — bad_speed
+		{"type": "set_antivirus", "slot": rng.IntN(5)}, // 4 — bad_tier, повтор — antivirus_already (ITGAME-137)
+		{"type": "set_speed", "speed": rng.IntN(5)},    // 4 — bad_speed
 		{"type": "set_speed", "speed": 3},
 	}
 	tb.send(t, cmds[rng.IntN(len(cmds))])

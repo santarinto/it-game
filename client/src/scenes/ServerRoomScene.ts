@@ -12,6 +12,14 @@ import { addSprite } from '../pixelart'
 import { FONT, HIRES_CAMERA } from '../render'
 import type { StateMessage } from '../protocol'
 
+// «4 места», «15 мест», «21 место» — подпись тарифа в окне антивируса.
+function seatsLabel(n: number): string {
+  const d = n % 10
+  const dd = n % 100
+  const word = d === 1 && dd !== 11 ? 'место' : d >= 2 && d <= 4 && (dd < 12 || dd > 14) ? 'места' : 'мест'
+  return `${n} ${word}`
+}
+
 export class ServerRoomScene extends Phaser.Scene {
   private objects!: Phaser.GameObjects.GameObject[]
   // Окна стоек и core: закрываются при смене партии (ITGAME-69).
@@ -19,6 +27,7 @@ export class ServerRoomScene extends Phaser.Scene {
   // Колонка действий серверной (ITGAME-94): «Шлюз» переехал сюда из шапки HUD.
   private actions!: ActionBar
   private gatewayBtn!: ActionButton
+  private antivirusBtn!: ActionButton
 
   constructor() {
     super({ key: 'serverRoom', cameras: HIRES_CAMERA })
@@ -51,6 +60,11 @@ export class ServerRoomScene extends Phaser.Scene {
     this.gatewayBtn = this.actions.add(452, 'btn.gateway', () => {
       playSfx(this, 'select')
       client.send('buy_gateway')
+    })
+    // Подписка на антивирус (ITGAME-137) — под «Шлюзом», окно тарифов.
+    this.antivirusBtn = this.actions.add(506, 'btn.antivirus', () => {
+      playSfx(this, 'select')
+      if (client.latest) this.openAntivirusModal(client.latest)
     })
 
     const unsub = client.subscribe({
@@ -164,8 +178,12 @@ export class ServerRoomScene extends Phaser.Scene {
     this.objects.push(...drawDebugFrames(this, [...this.objects, ...this.actions.interactive]))
   }
 
-  // Доступность и подпись «Шлюза» (ITGAME-17, до ITGAME-94 — в HUDScene.refresh).
+  // Доступность и подпись «Шлюза» (ITGAME-17, до ITGAME-94 — в HUDScene.refresh)
+  // и «Антивируса» (ITGAME-137): окно открывается всегда — в нём и отключение.
   private refreshActions(s: StateMessage) {
+    const av = s.antivirus
+    this.antivirusBtn.setLabel(av.tier > 0 ? `Антивирус\n${av.name}` : 'Антивирус\nнет')
+    this.antivirusBtn.setEnabled(true)
     const gwPrice = s.prices.gateway
     if (s.gateway) {
       this.gatewayBtn.setLabel('Шлюз ✓')
@@ -177,6 +195,42 @@ export class ServerRoomScene extends Phaser.Scene {
       this.gatewayBtn.setLabel(`Шлюз\n${fmtMoney(gwPrice)}`)
       this.gatewayBtn.setEnabled(true)
     }
+  }
+
+  // Окно подписки на антивирус (ITGAME-137): три тарифа с ценой и строкой
+  // «защитит k из n», «Отключить». Подключить и сменить — сразу; день платит по
+  // самому дорогому тарифу, включённому за день. Повышение без денег на цену
+  // дня — недоступно (сервер ответил бы not_enough_money).
+  private openAntivirusModal(s: StateMessage) {
+    const av = s.antivirus
+    const staff = s.offices.reduce((n, o) => n + o.employees.length, 0)
+    const tiers = s.prices.antivirusTiers
+    const lines = [
+      av.tier > 0 ? `Сейчас: ${av.name} · защищено ${av.covered} из ${staff}` : 'Подписки нет',
+      'Первые места компании: офисы по порядку,',
+      'по найму. Заражённые места не лечит.',
+      ...tiers.map((t) => {
+        const seats = t.seats === 0 ? staff : Math.min(t.seats, staff)
+        return `${t.name}: ${t.seats === 0 ? 'все места' : seatsLabel(t.seats)} · защитит ${seats} из ${staff}`
+      }),
+      av.billedToday > 0 ? `Сегодня спишется ${fmtMoney(av.billedToday)}` : 'Сегодня — без расхода',
+    ]
+    const buttons = tiers.map((t, i) => {
+      const tier = i + 1
+      const upgrade = tier > av.tier
+      const short = upgrade && s.money < t.price
+      return {
+        id: `modal.av.${tier}`,
+        label: tier === av.tier ? `${t.name} ✓` : `${t.name} ${fmtMoney(t.price)}/день`,
+        disabled: tier === av.tier || short,
+        onClick: () => client.send('set_antivirus', 0, { slot: tier }),
+      }
+    })
+    buttons.push({
+      id: 'modal.av.off', label: 'Отключить', disabled: av.tier === 0,
+      onClick: () => client.send('set_antivirus', 0, { slot: 0 }),
+    })
+    this.modal('Антивирус', lines, buttons)
   }
 
   private openServerModal(s: StateMessage, oi: number, sl: number) {

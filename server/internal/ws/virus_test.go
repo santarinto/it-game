@@ -3,6 +3,7 @@ package ws
 import (
 	"encoding/json"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -43,7 +44,7 @@ func TestSnapshotVirus(t *testing.T) {
 	if virus == nil || virus.Percent != -30 || virus.Until != "" {
 		t.Errorf("эффект «вирус −30%%» до чистки: %+v", sick.Effects)
 	}
-	if s.ActiveEvent == nil || s.ActiveEvent.ID != "virus" || len(s.ActiveEvent.Options) != 1 {
+	if s.ActiveEvent == nil || s.ActiveEvent.ID != "virus" || len(s.ActiveEvent.Options) != 2 {
 		t.Errorf("карточка вируса: %+v", s.ActiveEvent)
 	}
 	raw, _ := json.Marshal(s)
@@ -53,6 +54,47 @@ func TestSnapshotVirus(t *testing.T) {
 	// Заражённых нет — волны нет.
 	if s := snapshot(game.New(game.DefaultConfig()), 1, false, ""); s.VirusWaveAt != "" || s.Offices[0].VirusPCs != 0 {
 		t.Errorf("новая партия: virusWaveAt %q, virusPCs %d", s.VirusWaveAt, s.Offices[0].VirusPCs)
+	}
+}
+
+// Подписка на антивирус в протоколе (ITGAME-137): state.antivirus,
+// prices.antivirusTiers, employeeInfo.avCovered, dayReport.antivirus.
+func TestSnapshotAntivirus(t *testing.T) {
+	g := game.NewWithSeed(game.DefaultConfig(), 1, 2)
+	g.Money = 10000
+	g.Offices[0].PCs = 6
+	for range 6 {
+		if err := g.Hire(0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := snapshot(g, 1, false, "")
+	if s.Antivirus != (antivirusInfo{}) || len(s.Prices.AntivirusTiers) != 3 ||
+		s.Prices.AntivirusTiers[1] != (antivirusTierPrice{Name: "One Office", Seats: 15, Price: 40}) {
+		t.Fatalf("без подписки: %+v, тарифы %+v", s.Antivirus, s.Prices.AntivirusTiers)
+	}
+	if err := g.SetAntivirus(3); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.SetAntivirus(1); err != nil {
+		t.Fatal(err)
+	}
+	s = snapshot(g, 1, false, "")
+	want := antivirusInfo{Tier: 1, Name: "SOHO Edition", Seats: 4, Covered: 4, BilledToday: 90}
+	if s.Antivirus != want {
+		t.Errorf("state.antivirus %+v, хотим %+v", s.Antivirus, want)
+	}
+	var covered []bool
+	for _, e := range s.Offices[0].Employees {
+		covered = append(covered, e.AVCovered)
+	}
+	if !slices.Equal(covered, []bool{true, true, true, true, false, false}) {
+		t.Errorf("avCovered по местам: %v, хотим первые 4", covered)
+	}
+	m := dayReportMsg(&game.DayReport{Day: 2, Antivirus: 90})
+	raw, _ := json.Marshal(m)
+	if !strings.Contains(string(raw), `"antivirus":90`) {
+		t.Errorf("day_report: %s", raw)
 	}
 }
 

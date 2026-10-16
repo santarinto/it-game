@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { GAME_H, GAME_W } from '../layout'
 import { FONT } from '../render'
 import { drawDebugFrames } from '../debug'
-import { markDim, tag } from '../debug/agentApi'
+import { markDim, markDisabled, tag } from '../debug/agentApi'
 import { onPartyReplaced } from '../party'
 
 export interface ModalButton {
@@ -12,6 +12,11 @@ export interface ModalButton {
   // (красная плашка), focus — действие по умолчанию (тёмная плашка в рамке фокуса).
   danger?: boolean
   focus?: boolean
+  // ITGAME-137: свой id вместо modal.btn.N (окно тарифов: modal.av.1..3/off) и
+  // недоступная кнопка — серая, без руки, клик не шлёт и окно не закрывает
+  // (markDisabled — itd.screen() помечает её D).
+  id?: string
+  disabled?: boolean
 }
 
 // Схема заполнения стойки: filled из total юнитов заняты.
@@ -104,23 +109,28 @@ export function showModal(
   }
   buttons.forEach((b, i) => {
     const by = cy + panelH / 2 - 26 - (buttons.length - 1 - i) * 46
-    const fill = b.danger ? 0xb13e53 : b.focus ? 0x232640 : 0x3b5dc9
+    const fill = b.disabled ? 0x333c57 : b.danger ? 0xb13e53 : b.focus ? 0x232640 : 0x3b5dc9
     const hover = b.danger ? 0xef7d57 : b.focus ? 0x2e335a : 0x41a6f6
     const bg = tag(
       scene.add.rectangle(cx + shift - 110, by - 17, 220, 34, fill).setOrigin(0).setDepth(72)
-        .setInteractive({ useHandCursor: true }),
-      `modal.btn.${i}`,
+        .setInteractive({ useHandCursor: !b.disabled }),
+      b.id ?? `modal.btn.${i}`,
     )
     if (b.focus) bg.setStrokeStyle(3, 0x41a6f6)
     const txt = scene.add
-      .text(cx + shift, by, b.label, { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4' })
+      .text(cx + shift, by, b.label, { fontFamily: FONT, fontSize: '14px', color: b.disabled ? '#94b0c2' : '#f4f4f4' })
       .setOrigin(0.5).setDepth(73)
-    bg.on('pointerdown', () => {
-      b.onClick()
-      close()
-    })
-    bg.on('pointerover', () => bg.setFillStyle(hover))
-    bg.on('pointerout', () => bg.setFillStyle(fill))
+    if (b.disabled) {
+      // Интерактивна, чтобы клик не провалился на панель и подложку (та закрыла бы окно).
+      markDisabled(bg, true)
+    } else {
+      bg.on('pointerdown', () => {
+        b.onClick()
+        close()
+      })
+      bg.on('pointerover', () => bg.setFillStyle(hover))
+      bg.on('pointerout', () => bg.setFillStyle(fill))
+    }
     objs.push(bg, txt)
   })
   objs.push(...drawDebugFrames(scene, objs))

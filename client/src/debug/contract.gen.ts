@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "f7a7af6b9649",
+  "hash": "4cb86ed0341e",
   "methods": {
     "version": {
       "kind": "prop",
@@ -111,7 +111,7 @@ export const CONTRACT = {
       "params": [
         {
           "name": "type",
-          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'abandon' | 'exit'",
+          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'set_antivirus' | 'abandon' | 'exit'",
           "optional": false
         },
         {
@@ -531,7 +531,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<DayLedger>",
-      "doc": "Бухгалтерия дня с сервера (ITGAME-73, GET /api/debug/ledger): из чего\nсложилась разница баланса — {day, balanceStart, income, eventMoney,\nevents[{what, money, clock}], purchases[{type, price, clock}], payroll,\ngatewayOpex, interest, adjust, balanceEnd, profit, delta, balanced, closed,\noffline, history}. balanceStart + income + eventMoney − purchasesTotal −\npayroll − gatewayOpex − interest + adjust = balanceEnd ровно (balanced).\nprofit = day_report.profit (покупки и процент в него не входят). Без day —\nтекущий день (balanceEnd — живой баланс, payroll 0 до вечера); иначе один из\nhistory: 7 последних закрытых дней + текущий, хранятся в сейве. Дня нет —\nошибка «нет книги дня N: есть [...]».\nВне партии вкладки — reject «not_in_party: …» без запроса (ITGAME-131, см. scenario).",
+      "doc": "Бухгалтерия дня с сервера (ITGAME-73, GET /api/debug/ledger): из чего\nсложилась разница баланса — {day, balanceStart, income, eventMoney,\nevents[{what, money, clock}], purchases[{type, price, clock}], payroll,\ngatewayOpex, antivirus, interest, adjust, balanceEnd, profit, delta, balanced, closed,\noffline, history}. balanceStart + income + eventMoney − purchasesTotal −\npayroll − gatewayOpex − antivirus − interest + adjust = balanceEnd ровно (balanced).\nprofit = day_report.profit (покупки и процент в него не входят). Без day —\nтекущий день (balanceEnd — живой баланс, payroll 0 до вечера); иначе один из\nhistory: 7 последних закрытых дней + текущий, хранятся в сейве. Дня нет —\nошибка «нет книги дня N: есть [...]».\nВне партии вкладки — reject «not_in_party: …» без запроса (ITGAME-131, см. scenario).",
       "examples": [
         "await itd.ledger()",
         "await itd.ledger(1)"
@@ -1097,6 +1097,11 @@ export const CONTRACT = {
           "optional": false,
           "doc": "«HH:MM», с которого видна следующая волна; '' — заражённых нет"
         },
+        "antivirusTier": {
+          "type": "number | null",
+          "optional": false,
+          "doc": "подписка на антивирус: 0 — нет, 1..3 (ITGAME-137); подробно — snapshot().state.antivirus"
+        },
         "winTarget": {
           "type": "number | null",
           "optional": false,
@@ -1146,6 +1151,36 @@ export const CONTRACT = {
           "type": "number | null",
           "optional": false,
           "doc": "= hud.dayProfit и «Прибыль» отчёта к концу дня (ITGAME-53)"
+        }
+      }
+    },
+    "AntivirusInfo": {
+      "kind": "object",
+      "fields": {
+        "tier": {
+          "type": "number",
+          "optional": false,
+          "doc": "0 — нет, 1..3 — prices.antivirusTiers[tier - 1]"
+        },
+        "name": {
+          "type": "string",
+          "optional": false,
+          "doc": "'' — нет"
+        },
+        "seats": {
+          "type": "number",
+          "optional": false,
+          "doc": "мест в тарифе; 0 — все"
+        },
+        "covered": {
+          "type": "number",
+          "optional": false,
+          "doc": "мест под защитой сейчас"
+        },
+        "billedToday": {
+          "type": "number",
+          "optional": false,
+          "doc": "спишется вечером, $"
         }
       }
     },
@@ -1310,7 +1345,7 @@ export const CONTRACT = {
           "doc": ""
         },
         "code": {
-          "type": "'not_enough_money' | 'no_free_office_slot' | 'no_free_pc' | 'no_free_rack_slot' | 'router_maxed' | 'wrong_phase' | 'staff_limit' | 'office_locked' | 'boss_already' | 'offices_maxed' | 'gateway_already' | 'bad_office' | 'equipment_already' | 'bad_slot' | 'server_maxed' | 'core_maxed' | 'motivate_cooldown' | 'not_broken' | 'not_infected' | 'no_event' | 'bad_option' | 'need_cooler' | 'unknown_command' | 'bad_speed' | 'not_connected' | 'receipt_timeout' | 'disconnected'",
+          "type": "'not_enough_money' | 'no_free_office_slot' | 'no_free_pc' | 'no_free_rack_slot' | 'router_maxed' | 'wrong_phase' | 'staff_limit' | 'office_locked' | 'boss_already' | 'offices_maxed' | 'gateway_already' | 'bad_office' | 'equipment_already' | 'bad_slot' | 'server_maxed' | 'core_maxed' | 'motivate_cooldown' | 'not_broken' | 'not_infected' | 'no_event' | 'bad_option' | 'need_cooler' | 'bad_tier' | 'antivirus_already' | 'unknown_command' | 'bad_speed' | 'not_connected' | 'receipt_timeout' | 'disconnected'",
           "optional": true,
           "doc": ""
         },
@@ -1353,6 +1388,7 @@ export const CONTRACT = {
         "next_day",
         "repair_click",
         "restart",
+        "set_antivirus",
         "set_speed",
         "upgrade_core",
         "upgrade_server",
@@ -1482,6 +1518,11 @@ export const CONTRACT = {
           "optional": false,
           "doc": "опекс шлюза вечером"
         },
+        "antivirus": {
+          "type": "number",
+          "optional": false,
+          "doc": "подписка на антивирус вечером (ITGAME-137), в «Прибыль» входит"
+        },
         "interest": {
           "type": "number",
           "optional": false,
@@ -1500,7 +1541,7 @@ export const CONTRACT = {
         "profit": {
           "type": "number",
           "optional": false,
-          "doc": "income + eventMoney − payroll − gatewayOpex = day_report.profit закрытого дня"
+          "doc": "income + eventMoney − payroll − gatewayOpex − antivirus = day_report.profit закрытого дня"
         },
         "delta": {
           "type": "number",
@@ -1725,6 +1766,11 @@ export const CONTRACT = {
           "type": "number",
           "optional": false,
           "doc": "кликов на чистку (3); 0 — место здорово"
+        },
+        "avCovered": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "место под подпиской на антивирус: не заражается (ITGAME-137)"
         },
         "salary": {
           "type": "number",
@@ -2472,7 +2518,7 @@ export const CONTRACT = {
       "kind": "object",
       "fields": {
         "cmd": {
-          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'abandon' | 'exit'",
+          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'set_antivirus' | 'abandon' | 'exit'",
           "optional": false,
           "doc": ""
         },
@@ -2723,10 +2769,12 @@ export const CONTRACT = {
     "ServerErrorCode": {
       "kind": "enum",
       "values": [
+        "antivirus_already",
         "bad_office",
         "bad_option",
         "bad_slot",
         "bad_speed",
+        "bad_tier",
         "boss_already",
         "core_maxed",
         "equipment_already",
@@ -3232,13 +3280,18 @@ export const CONTRACT = {
           "optional": false,
           "doc": "«HH:MM», с которого видна следующая волна вируса; '' — заражённых нет (ITGAME-103)"
         },
+        "antivirus": {
+          "type": "AntivirusInfo",
+          "optional": false,
+          "doc": "подписка на антивирус (ITGAME-137)"
+        },
         "activeEvent": {
           "type": "ActiveEventInfo | null",
           "optional": false,
           "doc": "висящее событие Unseen Forces"
         },
         "prices": {
-          "type": "{ pc: number; hire: number; boss: number; gateway: number; cooler: number; fridge: number; coffeeMachine: number; repair: number; serverLevels: { mult: number; price: number; }[]; coreLevels: { capacity: number; price: number; mult: number; }[]; }",
+          "type": "{ pc: number; hire: number; boss: number; gateway: number; cooler: number; fridge: number; coffeeMachine: number; repair: number; serverLevels: { mult: number; price: number; }[]; coreLevels: { capacity: number; price: number; mult: number; }[]; antivirusTiers: { name: string; seats: number; price: number; }[]; }",
           "optional": false,
           "doc": ""
         }

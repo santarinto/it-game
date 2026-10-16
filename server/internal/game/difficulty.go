@@ -101,6 +101,12 @@ func ApplyDifficulty(c Config, d Difficulty) Config {
 	c.SalaryPerDay = scale(c.SalaryPerDay, s.WageK)
 	c.BossSalaryPerDay = scale(c.BossSalaryPerDay, s.WageK)
 	c.GatewayOpexPerDay = scale(c.GatewayOpexPerDay, s.WageK)
+	// Подписка на антивирус — опекс, как шлюз (ITGAME-137): легко $10/$32/$72,
+	// сложно $15/$50/$113, хардкор $18/$60/$135.
+	c.AntivirusTiers = append([]AntivirusTier(nil), c.AntivirusTiers...)
+	for i := range c.AntivirusTiers {
+		c.AntivirusTiers[i].PricePerDay = scale(c.AntivirusTiers[i].PricePerDay, s.WageK)
+	}
 	c.IncomeMin = scale(c.IncomeMin, s.IncomeK)
 	c.IncomeMax = scale(c.IncomeMax, s.IncomeK)
 	c.CoffeeChancePct = s.CoffeePct

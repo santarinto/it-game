@@ -14,9 +14,10 @@ import (
 // seat — место компании: офис и индекс сотрудника в нём.
 type seat struct{ office, slot int }
 
-// virusTarget — годится ли место в цель вспышки или волны: здоровое и с
-// исправным ПК (сломанный ПК выключен — не заражается и не заражает).
-func virusTarget(e *Employee) bool { return !e.Infected && !e.PCBroken }
+// virusTarget — годится ли место в цель вспышки или волны: здоровое, с
+// исправным ПК (сломанный ПК выключен — не заражается и не заражает) и не под
+// подпиской на антивирус (ITGAME-137).
+func virusTarget(e *Employee, covered bool) bool { return !covered && !e.Infected && !e.PCBroken }
 
 // virusNeighbors — соседи места i по сетке офиса без диагоналей: по ряду
 // и по колонке, только занятые места (n — штат офиса).
@@ -112,9 +113,10 @@ func (g *Game) OfficeInfected(office int) int { return g.officeInfected(office) 
 // живой добавляет места и таймер не трогает. Возвращает число заражённых.
 func (g *Game) seedOutbreak(oi int) int {
 	o := &g.Offices[oi]
+	cov := g.AVCovered()
 	var cands []int
 	for i := range o.Employees {
-		if virusTarget(&o.Employees[i]) {
+		if virusTarget(&o.Employees[i], cov[oi][i]) {
 			cands = append(cands, i)
 		}
 	}
@@ -151,11 +153,11 @@ func (g *Game) tickVirus() {
 			}
 		}
 	}
-	net := g.Network()
+	net, cov := g.Network(), g.AVCovered()
 	for _, s := range sources {
 		var targets []seat
 		for _, t := range g.virusReach(net, s.office, s.slot) {
-			if virusTarget(&g.Offices[t.office].Employees[t.slot]) {
+			if virusTarget(&g.Offices[t.office].Employees[t.slot], cov[t.office][t.slot]) {
 				targets = append(targets, t)
 			}
 		}

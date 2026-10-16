@@ -90,6 +90,9 @@ type Config struct {
 	// Зеркало GRID.cols в client/src/scenes/OfficeScene.ts — место i
 	// стоит в колонке i%OfficeCols, ряду i/OfficeCols.
 	OfficeCols int
+	// Подписка на антивирус (ITGAME-137): тарифы по возрастанию цены, одна
+	// подписка на компанию; цена — опекс дня, ×WageK в ApplyDifficulty.
+	AntivirusTiers []AntivirusTier
 
 	// Сотрудники 2.0 (итерация 15): увольнение, опыт/уровни, звёзды.
 	// Числа — GDD «Сотрудники 2.0».
@@ -113,6 +116,14 @@ type RouterTier struct {
 type ServerLevel struct {
 	Mult  float64
 	Price int
+}
+
+// AntivirusTier — тариф подписки на антивирус: защищает первые Seats мест
+// компании в порядке core (0 — все места).
+type AntivirusTier struct {
+	Name        string
+	Seats       int
+	PricePerDay int
 }
 
 // CoreLevel — уровень core: ёмкость подключённых мест по компании.
@@ -205,6 +216,11 @@ func DefaultConfig() Config {
 		VirusSeedStaff:   4,
 		VirusCleanClicks: 3,
 		OfficeCols:       4,
+		AntivirusTiers: []AntivirusTier{
+			{Name: "SOHO Edition", Seats: 4, PricePerDay: 12},
+			{Name: "One Office", Seats: 15, PricePerDay: 40},
+			{Name: "Enterprise", Seats: 0, PricePerDay: 90},
+		},
 
 		XPPerTick:          2,
 		XPMentorPerTick:    3,

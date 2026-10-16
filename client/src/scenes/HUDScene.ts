@@ -59,6 +59,8 @@ const ERROR_TEXTS: Record<ServerErrorCode, string> = {
   no_event: 'Событие уже закрыто',
   bad_option: 'Нет такого варианта',
   need_cooler: 'Сначала купите кулер',
+  bad_tier: 'Нет такого тарифа',
+  antivirus_already: 'Этот тариф уже подключён',
 }
 
 // Правый край левого блока панели (ITGAME-16): правая колонка (цель/день/рынок)
@@ -949,6 +951,9 @@ export class HUDScene extends Phaser.Scene {
       const txt = this.add
         .text(x + w / 2, 212, label, { fontFamily: FONT, fontSize: '13px', color: '#f4f4f4' })
         .setOrigin(0.5).setDepth(42)
+      // Длинная опция («Подписка SOHO Edition $12/день», ITGAME-137) не влезает
+      // в кнопку 226px — шрифт ужимается до 11px, а не вылезает за кнопку.
+      for (let fs = 12; fs >= 11 && txt.width > w - 12; fs--) txt.setFontSize(fs)
       bg.on('pointerdown', () => client.send('event_choice', 0, { slot: i }))
       bg.on('pointerover', () => bg.setFillStyle(0x41a6f6))
       bg.on('pointerout', () => bg.setFillStyle(0x3b5dc9))
@@ -1237,6 +1242,8 @@ export class HUDScene extends Phaser.Scene {
       `Доход:     ${fmtMoney(r.income)}`,
       `Зарплата: -${fmtMoney(r.payroll)}`,
       ...(r.gatewayOpex > 0 ? [`Интернет: -${fmtMoney(r.gatewayOpex)}`] : []),
+      // Подписка на антивирус — опекс, как шлюз (ITGAME-137).
+      ...(r.antivirus > 0 ? [`Антивирус: -${fmtMoney(r.antivirus)}`] : []),
       // Деньги исходов событий входят в прибыль (ITGAME-53); расшифровка —
       // в журнале ниже.
       ...(r.eventMoney ? [`События:  ${r.eventMoney > 0 ? '+' : ''}${fmtMoney(r.eventMoney)}`] : []),

@@ -44,6 +44,8 @@ type Save struct {
 	DayIncidents      int        `json:"dayIncidents"`
 	DayLostIncome     int        `json:"dayLostIncome"`
 	VirusWaveIn       int        `json:"virusWaveIn"`  // тиков до волны вируса, 0 — заражённых нет (ITGAME-103)
+	AVTier            int        `json:"avTier"`       // подписка на антивирус: 0 — нет, 1..N — тариф (ITGAME-137)
+	AVTierBilled      int        `json:"avTierBilled"` // самый дорогой тариф, включённый за день: его цена — вечером
 	DayVirusPCs       int        `json:"dayVirusPCs"`  // новых заражений за день
 	DayVirusLost      int        `json:"dayVirusLost"` // упущено из-за вируса за день
 	DayEvents         []DayEvent `json:"dayEvents"`
@@ -68,6 +70,7 @@ func (g *Game) Export() Save {
 		DayIncome: g.DayIncome, DayEventMoney: g.DayEventMoney, PrevDayIncome: g.PrevDayIncome, PeakIncomePerTick: g.PeakIncomePerTick,
 		DayIncidents: g.DayIncidents, DayLostIncome: g.DayLostIncome,
 		VirusWaveIn: g.VirusWaveIn, DayVirusPCs: g.DayVirusPCs, DayVirusLost: g.DayVirusLost,
+		AVTier: g.AVTier, AVTierBilled: g.AVTierBilled,
 		EventLog:   slices.Clone(g.EventLog),
 		DeadlineOn: g.DeadlineOn, DeadlineGot: g.DeadlineGot, DeadlineGoal: g.DeadlineGoal,
 		MarketToday: g.MarketToday, MarketTomorrow: g.MarketTomorrow,
@@ -112,6 +115,7 @@ func cloneConfig(c Config) Config {
 	c.OfficePrices = slices.Clone(c.OfficePrices)
 	c.EmployeeLevelXP = slices.Clone(c.EmployeeLevelXP)
 	c.EmployeeLevelBonus = slices.Clone(c.EmployeeLevelBonus)
+	c.AntivirusTiers = slices.Clone(c.AntivirusTiers)
 	return c
 }
 
@@ -182,6 +186,14 @@ func Restore(s Save) (*Game, error) {
 	if s.Config.RepairClicksMax == 0 {
 		s.Config.RepairClicksMax = def.RepairClicksMax
 	}
+	// Сейвы формата 1 до ITGAME-137: тарифов в конфиге нет — берём тарифы
+	// уровня сейва, формат не поднимаем (партия на стенде переживает деплой).
+	if len(s.Config.AntivirusTiers) == 0 {
+		s.Config.AntivirusTiers = ApplyDifficulty(def, ParseDifficulty(string(s.Config.Difficulty))).AntivirusTiers
+	}
+	if s.AVTier < 0 || s.AVTier > len(s.Config.AntivirusTiers) || s.AVTierBilled < 0 || s.AVTierBilled > len(s.Config.AntivirusTiers) {
+		return nil, fmt.Errorf("%w: avTier=%d avTierBilled=%d", ErrBadSave, s.AVTier, s.AVTierBilled)
+	}
 	for oi := range s.Offices {
 		for ei := range s.Offices[oi].Employees {
 			if e := &s.Offices[oi].Employees[ei]; e.PCBroken && e.RepairNeeded <= 0 {
@@ -199,6 +211,7 @@ func Restore(s Save) (*Game, error) {
 		DayIncome: s.DayIncome, DayEventMoney: s.DayEventMoney, PrevDayIncome: s.PrevDayIncome, PeakIncomePerTick: s.PeakIncomePerTick,
 		DayIncidents: s.DayIncidents, DayLostIncome: s.DayLostIncome,
 		VirusWaveIn: s.VirusWaveIn, DayVirusPCs: s.DayVirusPCs, DayVirusLost: s.DayVirusLost,
+		AVTier: s.AVTier, AVTierBilled: s.AVTierBilled,
 		EventLog:   s.EventLog,
 		DeadlineOn: s.DeadlineOn, DeadlineGot: s.DeadlineGot, DeadlineGoal: s.DeadlineGoal,
 		MarketToday: s.MarketToday, MarketTomorrow: s.MarketTomorrow,

@@ -692,6 +692,40 @@ they roll no wave and the timer stands still — to see a wave, set `virusWaveIn
 with `itd.restore` and let live ticks run (`qa:hud` V2, `qa:journal` J3b). The
 desk stays `desk_pc`: the infected desk sprite is ITGAME-134.
 
+**Antivirus subscription** (ITGAME-137): `Config.AntivirusTiers` — SOHO Edition 4
+seats $12, One Office 15 seats $40, Enterprise all seats (Seats 0) $90 a day,
+ordered by price and scaled ×WageK in `ApplyDifficulty` (easy $10/$32/$72, hard
+$15/$50/$113, hardcore $18/$60/$135). One subscription per company: `Game.AVTier`
+(0 — none, 1..3) and `AVTierBilled`, the most expensive tier switched on that day
+— the evening charges its price; `next_day`, `resetForNextDay` and the offline day
+template start a day at `AVTier`. `AVCovered()` gives the first N occupied seats
+of the company in core order (offices 1 → 2 → 3, by hire), whatever the network;
+firing shifts it. A covered seat is never a target of an outbreak or a wave
+(`virusTarget`), an already infected one is not cured and still spreads to
+uncovered seats. `set_antivirus` (tier in `slot`, 0 switches it off): `bad_tier`,
+`antivirus_already`; going up costs nothing at once but refuses
+`not_enough_money` while money is below the new tier's day price (no purchases
+in debt), going down or off always works. The price is part of `PayrollPerDay` —
+so of the forecast, `dayProfit`, `BankruptInDays` and the offline catch-up — and
+of the evening `chargeDay`: `DayLedger.antivirus`, `dayReport.antivirus`, not part
+of «События». The virus card offers «Подписка <tier> $X/день» as option 1 — the
+cheapest tier covering the whole staff, when the current one does not — which
+connects it (`not_enough_money` keeps the card); an outbreak whose office is fully
+covered gives «Вирус отбит: подписка <tier> защитила офис N» (`DayEvent.AVTier`
+remembers the tier) and the log line «вирус в офисе N отбит подпиской <tier>».
+Saves of format 1 without tiers in the config restore with the tiers of their
+difficulty — the format stays 1. Protocol: `state.antivirus {tier, name, seats,
+covered, billedToday}`, `prices.antivirusTiers [{name, seats, price}]`,
+`employeeInfo.avCovered`. Client: `btn.antivirus` under «Шлюз» in the server room
+(x 1142, y 506) opens «Антивирус» — the current tier and covered seats, «защитит
+k из n» per tier, today's charge, buttons `modal.av.1..3` and `modal.av.off`; the
+current tier («✓»), an upgrade without the money and «Отключить» without a
+subscription are disabled (`ModalButton.disabled`: grey, `D` in `itd.screen()`, a
+click sends nothing and keeps the window). A covered seat draws a blue shield under
+the network dot; the tooltip says «антивирус: <tier>», «антивирус: место вне тарифа
+<tier>» or «без антивируса»; the day report «Антивирус: -$X» under «Интернет»;
+`itd.state().antivirusTier`. `make sim` policies never subscribe.
+
 **One click zone per workstation** (ITGAME-92): every occupied desk has a
 single interactive zone `office.slot.N` — the union of the worker frame and
 the desk (64×64), plus the «✖ чинить k/N» label while the PC is broken
@@ -1044,8 +1078,8 @@ documenting separately:
   first (`{cmd:'set_speed', extra:{speed:0}}`) or live ticks move the money
   between steps. `ledger(day?)` reads `GET /api/debug/ledger?sid=&day=N` —
   the server's book of a day: `balanceStart + income + eventMoney −
-  purchasesTotal − payroll − gatewayOpex − interest + adjust = balanceEnd`,
-  exactly (`balanced`). The book is written where `Money` changes
+  purchasesTotal − payroll − gatewayOpex − antivirus − interest + adjust =
+  balanceEnd`, exactly (`balanced`; `antivirus` — the subscription, ITGAME-137). The book is written where `Money` changes
   (`server/internal/game/ledger.go`): tick income, event money (same as
   `DayEventMoney`, ITGAME-53 — `profit` equals the day report's «Прибыль»),
   every purchase through `spend()` (the star hire from an event counts as a
@@ -1178,7 +1212,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm test` | `node --test` over `client/scripts/lib/*.test.mjs`: the sprite contract core (pixel and `render: smooth` profiles, no `node:*` imports) and `sprite-smooth` (fractional-step area resampling, alpha-weighted colour, centre/bottom placement, chroma key, `chroma: 'auto'` by corners with a noise-derived tolerance, background zeroing), and `emoji-check` (what counts as an emoji) — no browser, no server | — |
 | `npm run check:emoji` | no emoji in `client/src` — strings, comments, the manifest (ITGAME-83): a `\p{Extended_Pictographic}` character or U+FE0F, except the glyphs our own fonts carry (`FONT_PICTOGRAPHS` in `client/scripts/lib/emoji-check.mjs`, the cmap of both woff2 by `fc-query`); an icon is a sprite next to a Text (`attachIcon`), a text symbol is a glyph of our fonts; last step of `npm run build` | — |
 | `npm run qa:meta` | stats/achievements modals; ITGAME-83 icons: the menu buttons (16) and modal titles (24) — `icon_trophy`, `icon_chart`, `icon_warning` on «Начать заново?» / «Партия в другой вкладке»; each achievement card's own `ach_*` (16) left of its title, dimmed while locked (alpha 0.6 and a grayscale `ColorMatrix` in `preFX`), `icon_lock` (12) left of every «Заблокировано», no emoji in the modal | :4173, `vite preview` — needs a Go server already on :8080 |
-| `npm run qa:buttons` | buy-button enabled/tooltip/alpha states (ITGAME-17); R1–R7 the room action column (ITGAME-94): `btn.pc`/`hire`/`boss` in the `office` scene at x 1142, 128×44, y 384/438/492, no overlap with any office object; the `room.tooltip` sits left of the column; a real mouse click at the `screen()` point buys a PC; under the router window `hit()` fails, `X`, no tooltip; in a locked office the column is hidden and `itd.click` answers `code: 'hidden'`; `btn.gateway` in `serverRoom` at x 1142 y 452 | :4180, self-serve |
+| `npm run qa:buttons` | buy-button enabled/tooltip/alpha states (ITGAME-17); R1–R7 the room action column (ITGAME-94): `btn.pc`/`hire`/`boss` in the `office` scene at x 1142, 128×44, y 384/438/492, no overlap with any office object; the `room.tooltip` sits left of the column; a real mouse click at the `screen()` point buys a PC; under the router window `hit()` fails, `X`, no tooltip; in a locked office the column is hidden and `itd.click` answers `code: 'hidden'`; `btn.gateway` in `serverRoom` at x 1142 y 452; AV1–AV8 the antivirus (ITGAME-137): `btn.antivirus` in `serverRoom` at x 1142 y 506 128×44, a real click opens «Антивирус» with three tiers and «Отключить» disabled (`D`, a click sends nothing), a real click on SOHO Edition sends `set_antivirus` slot 1 (button «Антивирус / SOHO Edition», first seats covered, billed $12), at $10 the current tier and the upgrades are `D` and «Отключить» sends slot 0 with the day still billed $12, a shield per covered seat in the office, the day report line «Антивирус: -$12» | :4180, self-serve |
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35); T0 the `Storage.prototype` probe; T1–T2 storage fully blocked (ITGAME-80): «Сохранить и выйти» → «Продолжить» resumes the same sid from tab memory, after a reload no «Продолжить» and a new sid | :4179, self-serve + temp saves dir |
 | `npm run qa:hud` | HUD layout column (left block right ≤ 832 since ITGAME-94, right column left ≥ 848), toast stack, no overlaps (ITGAME-16); goal/day bars G1–G3/D1–D3, tab locks L1–L3, event log E1–E3, onboarding coach O1–O6 (ITGAME-21); `virus_outbreak` V1 «☣ 2»/«☣ 1» under the office tabs, none under О3, V2 a live wave (`virusWaveIn` 1 by `itd.restore`, speed 3) grows the badges to the company total with no wave toast, V3 the day report line «Вирус:     k ПК (−$X)» (ITGAME-138) | :4174, self-serve |
 | `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72), the office's `btn:pc` under the report dim is `X` and `hit()` fails (S2b, ITGAME-94); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78); `itd.sandbox()`: the owner's shared key survives «Сдаться» and a second party, `fakeOwner()`, `restore()` puts back / keeps (ITGAME-77); `itd.stack()` under the day report: the dimmer wins over `btn.menu`, same as `hit().top` (ITGAME-74); `hit()` and the `X` flag follow the real hit area — a 1×1 hitArea on `btn.next_day` makes it covered (owner 10.10); S4 the exit window's ✕ over the event card stays out of `btn:event:1`'s `screen()` label, H3 a rectangle added in this frame: `stack()` and a same-instant canvas mousedown both miss it, after one `requestAnimationFrame` both get it (ITGAME-113); `itd.play()` on `fresh` (seed 7): hire → hire `FAIL no_free_pc` → day → buy_pc → hire `FAIL not_enough_money` → day with the balances 600>300>614>39>353, `itd.ledger()` books balanced, `adjust` after `itd.set` (ITGAME-73); K1 the office tooltip's text in its hidden container is `visible: false`, K2 «ТУПИК» and the day report give 0 overlaps entries from the dim (22 with the `dim` mark removed) (ITGAME-87); K3 `nodes().fill`, K4 `menuReady` false right after `sandbox.restore()` and the plate still for 1.5 s after it, `stale().shown` false/true/false (ITGAME-88); L1–L3 and L6 storage fully blocked — both getters and `Storage.prototype` throw `SecurityError` (ITGAME-80): the menu loads without «Продолжить», a party starts, the `hire` receipt is ok, «Первые кадры» toasts once, the report pause keeps 3× in tab memory; without `?debug=1` (no `window.itd`) no pageerror and the `2` key starts a party (the «Продолжить» round trip needs saves on disk — it is in `qa:tabs` T1–T2) | :4175, self-serve |

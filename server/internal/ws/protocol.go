@@ -94,6 +94,7 @@ type stateMessage struct {
 	CreditRatePct    int              `json:"creditRatePct"`  // процент за день на долг
 	BankruptInDays   int              `json:"bankruptInDays"` // обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)
 	VirusWaveAt      string           `json:"virusWaveAt"`    // «HH:MM», с которого видна следующая волна вируса; "" — заражённых нет (ITGAME-103)
+	Antivirus        antivirusInfo    `json:"antivirus"`      // подписка на антивирус (ITGAME-137)
 	ActiveEvent      *activeEventInfo `json:"activeEvent"`
 	Prices           prices           `json:"prices"`
 	OfflineReport    bool             `json:"offlineReport,omitempty"` // первый снапшот после resume: следом идёт offline_report (ITGAME-76)
@@ -144,6 +145,7 @@ type employeeInfo struct {
 	Infected    bool `json:"infected"`
 	VirusClicks int  `json:"virusClicks"` // клики чистки уже сделаны (k)
 	VirusNeeded int  `json:"virusNeeded"` // кликов на чистку (3); 0 — место здорово
+	AVCovered   bool `json:"avCovered"`   // место под подпиской на антивирус: не заражается (ITGAME-137)
 	// Unseen Forces (итерация 10).
 	Salary int `json:"salary"` // дневная зарплата этого сотрудника (с надбавками)
 	// Сотрудники 2.0 (итерация 15).
@@ -187,6 +189,21 @@ type coreLevelPrice struct {
 	Mult     float64 `json:"mult"`
 }
 
+// antivirusInfo — подписка на антивирус (ITGAME-137).
+type antivirusInfo struct {
+	Tier        int    `json:"tier"`        // 0 — нет, 1..3 — индекс в prices.antivirusTiers + 1
+	Name        string `json:"name"`        // "" — нет
+	Seats       int    `json:"seats"`       // мест в тарифе; 0 — все
+	Covered     int    `json:"covered"`     // мест под защитой сейчас
+	BilledToday int    `json:"billedToday"` // спишется вечером: самый дорогой тариф дня
+}
+
+type antivirusTierPrice struct {
+	Name  string `json:"name"`
+	Seats int    `json:"seats"` // 0 — все места
+	Price int    `json:"price"` // $/день
+}
+
 // activeEventInfo — висящее событие «Unseen Forces» (итерация 10).
 type activeEventInfo struct {
 	ID      string   `json:"id"`
@@ -196,16 +213,17 @@ type activeEventInfo struct {
 }
 
 type prices struct {
-	PC            int                `json:"pc"`
-	Hire          int                `json:"hire"`
-	Boss          int                `json:"boss"`
-	Gateway       int                `json:"gateway"`
-	Cooler        int                `json:"cooler"`
-	Fridge        int                `json:"fridge"`
-	CoffeeMachine int                `json:"coffeeMachine"`
-	Repair        int                `json:"repair"` // «вызвать мастера» для сломанного ПК
-	ServerLevels  []serverLevelPrice `json:"serverLevels"`
-	CoreLevels    []coreLevelPrice   `json:"coreLevels"`
+	PC             int                  `json:"pc"`
+	Hire           int                  `json:"hire"`
+	Boss           int                  `json:"boss"`
+	Gateway        int                  `json:"gateway"`
+	Cooler         int                  `json:"cooler"`
+	Fridge         int                  `json:"fridge"`
+	CoffeeMachine  int                  `json:"coffeeMachine"`
+	Repair         int                  `json:"repair"` // «вызвать мастера» для сломанного ПК
+	ServerLevels   []serverLevelPrice   `json:"serverLevels"`
+	CoreLevels     []coreLevelPrice     `json:"coreLevels"`
+	AntivirusTiers []antivirusTierPrice `json:"antivirusTiers"` // тарифы подписки по возрастанию цены (ITGAME-137)
 }
 
 // errorMessage — отказ команды; только отправителю. Re — id команды
@@ -225,6 +243,7 @@ type dayReportMessage struct {
 	Income      int      `json:"income"`
 	Payroll     int      `json:"payroll"`
 	GatewayOpex int      `json:"gatewayOpex"`
+	Antivirus   int      `json:"antivirus"`  // подписка на антивирус за день (ITGAME-137)
 	EventMoney  int      `json:"eventMoney"` // деньги исходов событий дня, со знаком (ITGAME-53)
 	Profit      int      `json:"profit"`
 	Balance     int      `json:"balance"`
@@ -273,6 +292,7 @@ type offlineReportMessage struct {
 func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessage {
 	cfg := g.Config()
 	net := g.Network()
+	cov := g.AVCovered()
 	offices := make([]officeInfo, len(g.Offices))
 	for oi := range g.Offices {
 		o := &g.Offices[oi]
@@ -323,7 +343,7 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 				Salary: cfg.SalaryPerDay + e.SalaryAdd, OfflineReason: reason,
 				Level: g.LevelFor(&o.Employees[i]), XP: e.XP, XPNext: g.XPNext(&o.Employees[i]),
 				Star: e.Star, FirePrice: g.FireCompensation(&o.Employees[i]), HiredToday: e.HireDay == g.Day,
-				Infected: e.Infected, VirusClicks: e.VirusClicks, VirusNeeded: virusNeeded}
+				Infected: e.Infected, VirusClicks: e.VirusClicks, VirusNeeded: virusNeeded, AVCovered: cov[oi][i]}
 		}
 		// Не nil: nil-срез маршалится в JSON null, а клиент ждёт массив.
 		servers := make([]serverInfo, 0, len(o.Servers))
@@ -367,6 +387,14 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 	for _, l := range cfg.CoreLevels {
 		coreLevels = append(coreLevels, coreLevelPrice{Capacity: l.Capacity, Price: l.Price, Mult: l.Mult})
 	}
+	avTiers := make([]antivirusTierPrice, 0, len(cfg.AntivirusTiers))
+	for _, t := range cfg.AntivirusTiers {
+		avTiers = append(avTiers, antivirusTierPrice{Name: t.Name, Seats: t.Seats, Price: t.PricePerDay})
+	}
+	av := antivirusInfo{Tier: g.AVTier, Name: g.AntivirusName(), Covered: g.AVCoveredCount(), BilledToday: g.AntivirusOpex()}
+	if g.AVTier > 0 {
+		av.Seats = cfg.AntivirusTiers[g.AVTier-1].Seats
+	}
 	var active *activeEventInfo
 	if info := g.ActiveEventInfo(); info != nil {
 		options := info.Options
@@ -387,12 +415,12 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 		WinStaff: cfg.WinStaff, WinCore: cfg.WinCore, WinDayLimit: cfg.WinDayLimit,
 		MarketToday: g.MarketToday, MarketTomorrow: g.MarketTomorrow,
 		CreditLimit: cfg.CreditLimit, CreditRatePct: int(cfg.CreditRate * 100),
-		BankruptInDays: g.BankruptInDays(), VirusWaveAt: g.VirusWaveClock(),
+		BankruptInDays: g.BankruptInDays(), VirusWaveAt: g.VirusWaveClock(), Antivirus: av,
 		ActiveEvent: active, Seed: g.SeedString(), Scenario: scenario,
 		TickInDay: g.TickInDay, DayIncome: g.DayIncome, DayProfit: g.DayProfit(),
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice,
 			Boss: cfg.BossPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,
 			Fridge: cfg.FridgePrice, CoffeeMachine: cfg.CoffeeMachinePrice, Repair: cfg.MasterCallPrice,
-			ServerLevels: serverLevels, CoreLevels: coreLevels},
+			ServerLevels: serverLevels, CoreLevels: coreLevels, AntivirusTiers: avTiers},
 	}
 }

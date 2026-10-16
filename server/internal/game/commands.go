@@ -31,6 +31,8 @@ const (
 	ErrNoEvent          = Err("no_event")
 	ErrBadOption        = Err("bad_option")
 	ErrNeedCooler       = Err("need_cooler")
+	ErrBadTier          = Err("bad_tier")          // set_antivirus: нет такого тарифа (ITGAME-137)
+	ErrAntivirusAlready = Err("antivirus_already") // set_antivirus: этот тариф уже включён
 )
 
 // office проверяет адресата офисной команды: индекс и открытость.
@@ -412,6 +414,7 @@ func (g *Game) NextDay() error {
 	// Сбрасываем флаги неполного дня для нанятых после обеда и баффы дня.
 	// Поломка ночь переживает (ITGAME-136): ПК ждёт кликов или мастера.
 	// Вирус и таймер его волны — тоже (ITGAME-103): само не проходит.
+	// Подписка новый день начинает со своего тарифа (ITGAME-137).
 	for i := range g.Offices {
 		o := &g.Offices[i]
 		for j := range o.Employees {
@@ -441,6 +444,7 @@ func (g *Game) NextDay() error {
 	g.DayLostIncome = 0
 	g.DayVirusPCs = 0
 	g.DayVirusLost = 0
+	g.AVTierBilled = g.AVTier
 	// Рынок: вчерашний «завтра» становится сегодня, роллится новый завтра —
 	// тренд всегда виден на день вперёд (Сложность 2.0).
 	g.MarketToday, g.MarketTomorrow = g.MarketTomorrow, g.rollMarket()
@@ -510,7 +514,8 @@ const (
 	CmdCallMaster    = Command("call_master")
 	CmdEventChoice   = Command("event_choice")
 	CmdFire          = Command("fire")
-	CmdVirusClick    = Command("virus_click") // клик чистки заражённого места (ITGAME-103)
+	CmdVirusClick    = Command("virus_click")   // клик чистки заражённого места (ITGAME-103)
+	CmdSetAntivirus  = Command("set_antivirus") // подписка на антивирус: тариф в slot, 0 — отключить (ITGAME-137)
 )
 
 // Apply выполняет команду игрока; офисные команды адресуются индексом office,
@@ -558,6 +563,8 @@ func (g *Game) Apply(cmd Command, office, slot int) error {
 		return g.CallMaster(office, slot)
 	case CmdVirusClick:
 		return g.VirusClick(office, slot)
+	case CmdSetAntivirus:
+		return g.SetAntivirus(slot)
 	case CmdFire:
 		return g.Fire(office, slot)
 	case CmdEventChoice:

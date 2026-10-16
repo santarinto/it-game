@@ -422,12 +422,12 @@ func TestVirusCardFlow(t *testing.T) {
 		t.Fatalf("вспышка: заражено %d, таймер %d", n, g.VirusWaveIn)
 	}
 	info := g.ActiveEventInfo()
-	if info.Title != "Вирус в сети" || !slices.Equal(info.Options, []string{"Чистить вручную"}) ||
+	if info.Title != "Вирус в сети" || !slices.Equal(info.Options, []string{"Чистить вручную", "Подписка SOHO Edition $12/день"}) ||
 		!strings.Contains(info.Text, "заражено 1 ПК") || !strings.Contains(info.Text, "3 клика") {
 		t.Fatalf("карточка: %+v", info)
 	}
-	if err := g.ChooseEvent(1); err != ErrBadOption {
-		t.Errorf("опция 1 до подписки: %v, хотим %v", err, ErrBadOption)
+	if err := g.ChooseEvent(2); err != ErrBadOption {
+		t.Errorf("опция 2: %v, хотим %v", err, ErrBadOption)
 	}
 	// Всё вычищено до ответа — карточка закрывается сама.
 	slot := infectedSlots(g, 0)[0]

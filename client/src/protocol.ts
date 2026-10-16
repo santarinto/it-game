@@ -48,6 +48,7 @@ export interface EmployeeInfo {
   infected: boolean
   virusClicks: number // клики чистки уже сделаны (k)
   virusNeeded: number // кликов на чистку (3); 0 — место здорово
+  avCovered: boolean // место под подпиской на антивирус: не заражается (ITGAME-137)
   // Unseen Forces (итерация 10).
   salary: number // дневная зарплата этого сотрудника с надбавками
   // Сотрудники 2.0 (итерация 15).
@@ -138,6 +139,7 @@ export interface StateMessage {
   creditRatePct: number // процент за день на долг
   bankruptInDays: number // обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)
   virusWaveAt: string // «HH:MM», с которого видна следующая волна вируса; '' — заражённых нет (ITGAME-103)
+  antivirus: AntivirusInfo // подписка на антивирус (ITGAME-137)
   activeEvent: ActiveEventInfo | null // висящее событие Unseen Forces
   prices: {
     pc: number
@@ -150,7 +152,18 @@ export interface StateMessage {
     repair: number // «вызвать мастера» для сломанного ПК
     serverLevels: { mult: number; price: number }[]
     coreLevels: { capacity: number; price: number; mult: number }[]
+    antivirusTiers: { name: string; seats: number; price: number }[] // по возрастанию цены; seats 0 — все места (ITGAME-137)
   }
+}
+
+// Подписка на антивирус (ITGAME-137): одна на компанию, защищает первые seats
+// мест в порядке core, вечером списывается самый дорогой тариф дня.
+export interface AntivirusInfo {
+  tier: number // 0 — нет, 1..3 — prices.antivirusTiers[tier - 1]
+  name: string // '' — нет
+  seats: number // мест в тарифе; 0 — все
+  covered: number // мест под защитой сейчас
+  billedToday: number // спишется вечером, $
 }
 
 // Коды отказа сервера (ITGAME-39): зеркало server/internal/game/commands.go
@@ -180,6 +193,8 @@ export const SERVER_ERROR_CODES = [
   'no_event',
   'bad_option',
   'need_cooler',
+  'bad_tier',
+  'antivirus_already',
   'unknown_command',
   'bad_speed',
 ] as const
@@ -202,6 +217,7 @@ export interface DayReportMessage {
   profit: number // доход + деньги событий − ФОТ − опекс
   balance: number
   gatewayOpex: number
+  antivirus: number // подписка на антивирус за день (ITGAME-137)
   incidents: number // поломок ПК за день
   lostIncome: number // упущено из-за поломок, $
   virusPCs: number // новых заражений за день (ITGAME-103)
@@ -266,7 +282,7 @@ export const COMMAND_TYPES = [
   'buy_cooler', 'buy_fridge', 'buy_coffee', 'set_speed',
   'upgrade_server', 'upgrade_core',
   'motivate', 'repair_click', 'call_master', 'event_choice', 'fire',
-  'virus_click',
+  'virus_click', 'set_antivirus',
   'abandon', 'exit',
 ] as const
 

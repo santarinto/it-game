@@ -5,7 +5,9 @@
 // room.tooltip.text сцены комнаты). Блок R в конце — раскладка ITGAME-94:
 // сцены кнопок, колонка x 1142..1270, тултип слева, закрытый офис без колонки
 // (itd.click → code hidden), хит-тест настоящего клика, окно роутера и отчёт
-// дня накрывают кнопки (hit не ok, флаг X).
+// дня накрывают кнопки (hit не ok, флаг X). Блок AV — подписка на антивирус
+// (ITGAME-137): btn.antivirus под «Шлюзом», окно тарифов настоящими кликами,
+// недоступные кнопки, щиты на местах, строка «Антивирус:» в отчёте дня.
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
 // :4180 — 4173…4179 заняты соседними скриптами) с ITGAME_DEBUG=1 (скрипт
@@ -425,7 +427,95 @@ try {
     !!r7 && r7.scene === 'serverRoom' && r7.x === 1142 && r7.y === 452 && r7.w === 128 && r7.h === 44 && r7.hit === true && r7.ov === 0,
     JSON.stringify(r7),
   )
+
+  // AV1–AV7 (ITGAME-137): подписка на антивирус — кнопка btn.antivirus под «Шлюзом»,
+  // окно тарифов настоящими кликами (точка из itd.screen()), недоступные кнопки
+  // (текущий тариф, повышение без денег, «Отключить» без подписки) — флаг D и
+  // клик ничего не шлёт, щиты на защищённых местах, строка «Антивирус:» в отчёте.
+  const row = (id) => page.evaluate((k) => window.itd.screen().items.find((i) => i.startsWith(k + '|'))?.split('|') ?? null, id.replace(/\./g, ':'))
+  const realClick = async (id) => {
+    const r = await row(id)
+    if (!r) throw new Error(`нет ${id} в itd.screen()`)
+    await page.mouse.click(Number(r[2]), Number(r[3]))
+    await delay(400)
+    return r
+  }
+  const sentSince = (at) => page.evaluate((t) => window.itd.net(50).last.filter((m) => m.dir === 'out' && m.at > t).map((m) => ({ type: m.type, slot: m.info?.slot })), at)
+  const lastAt = () => page.evaluate(() => window.itd.net(50).last.at(-1)?.at ?? 0)
+  await page.evaluate(() => window.itd.set({ money: 5000 }))
+  await delay(300)
+  const av1 = await page.evaluate(() => {
+    const n = window.itd.nodes().find((x) => x.id === 'btn.antivirus')
+    const lbl = window.itd.text().find((t) => (t.text ?? '').startsWith('Антивирус'))?.text ?? null
+    return n ? { scene: n.scene, x: n.x, y: n.y, w: n.w, h: n.h, hit: window.itd.hit('btn.antivirus').ok, lbl, ov: window.itd.overlaps().length } : null
+  })
+  check('AV1: btn.antivirus — serverRoom, x 1142 y 506 128×44, хит-тест ok, «Антивирус / нет», overlaps() пуст',
+    !!av1 && av1.scene === 'serverRoom' && av1.x === 1142 && av1.y === 506 && av1.w === 128 && av1.h === 44 && av1.hit && av1.lbl === 'Антивирус\nнет' && av1.ov === 0,
+    JSON.stringify(av1))
+  await realClick('btn.antivirus')
+  const av2 = await page.evaluate(() => ({
+    title: window.itd.text().some((t) => t.text === 'Антивирус'),
+    rows: ['modal:av:1', 'modal:av:2', 'modal:av:3', 'modal:av:off'].map((k) => window.itd.screen().items.find((i) => i.startsWith(k + '|'))?.split('|')[4] ?? null),
+    body: window.itd.text().find((t) => (t.text ?? '').startsWith('Подписки нет'))?.text ?? null,
+  }))
+  check('AV2: настоящий клик открывает «Антивирус»: три тарифа доступны, «Отключить» — D, строки «защитит k из n»',
+    av2.title && av2.rows.slice(0, 3).every((f) => f !== null && !f.includes('D')) && (av2.rows[3] ?? '').includes('D') &&
+      (av2.body ?? '').includes('SOHO Edition: 4 места · защитит') && (av2.body ?? '').includes('One Office: 15 мест') && (av2.body ?? '').includes('Enterprise: все места'),
+    JSON.stringify(av2))
+  let at = await lastAt()
+  await realClick('modal.av.off')
+  const offNoop = await sentSince(at)
+  const stillOpen = await page.evaluate(() => window.itd.text().some((t) => t.text === 'Антивирус'))
+  check('AV3: клик по недоступной «Отключить» ничего не шлёт, окно открыто', offNoop.length === 0 && stillOpen, JSON.stringify({ offNoop, stillOpen }))
+  at = await lastAt()
+  await realClick('modal.av.1')
+  const av4 = await page.evaluate(() => ({
+    tier: window.itd.state().antivirusTier,
+    av: window.itd.server().snapshot.antivirus,
+    covered: window.itd.server().snapshot.offices.flatMap((o) => o.employees.map((e) => e.avCovered)),
+    lbl: window.itd.text().find((t) => (t.text ?? '').startsWith('Антивирус\n'))?.text ?? null,
+  }))
+  const sent4 = await sentSince(at)
+  check('AV4: клик по SOHO Edition шлёт set_antivirus slot 1 — тариф 1, кнопка «Антивирус / SOHO Edition», защищены первые места',
+    sent4.length === 1 && sent4[0].type === 'set_antivirus' && sent4[0].slot === 1 && av4.tier === 1 && av4.lbl === 'Антивирус\nSOHO Edition' &&
+      av4.av.billedToday === 12 && av4.covered.filter(Boolean).length === Math.min(4, av4.covered.length) && av4.covered.slice(0, av4.av.covered).every(Boolean),
+    JSON.stringify({ sent4, ...av4 }))
+  await page.evaluate(() => window.itd.set({ money: 10 }))
+  await delay(300)
+  await realClick('btn.antivirus')
+  const av5 = await page.evaluate(() => ['modal:av:1', 'modal:av:2', 'modal:av:3', 'modal:av:off'].map((k) => {
+    const r = window.itd.screen().items.find((i) => i.startsWith(k + '|'))?.split('|')
+    return r ? { flags: r[4], label: r[1] } : null
+  }))
+  check('AV5: $10 — текущий SOHO «✓» и повышения недоступны (D), «Отключить» доступна',
+    (av5[0]?.flags ?? '').includes('D') && (av5[1]?.flags ?? '').includes('D') && (av5[2]?.flags ?? '').includes('D') && !(av5[3]?.flags ?? 'D').includes('D'),
+    JSON.stringify(av5))
+  at = await lastAt()
+  await realClick('modal.av.off')
+  const sent6 = await sentSince(at)
+  const av6 = await page.evaluate(() => ({ tier: window.itd.state().antivirusTier, billed: window.itd.server().snapshot.antivirus.billedToday }))
+  check('AV6: «Отключить» при $10 шлёт set_antivirus slot 0 — подписки нет, день всё равно платит $12',
+    sent6.length === 1 && sent6[0].type === 'set_antivirus' && sent6[0].slot === 0 && av6.tier === 0 && av6.billed === 12,
+    JSON.stringify({ sent6, ...av6 }))
+  // Щиты: в офисе фигура у каждого защищённого места (снова SOHO, денег хватает).
+  await page.evaluate(async () => {
+    await window.itd.set({ money: 5000 })
+    await window.itd.cmd('set_antivirus', 0, { slot: 1 })
+  })
   await goRoom(page, 'nav.office0')
+  const shields = await page.evaluate(() => ({
+    polys: window.__itd.scene.getScene('office').children.list.filter((o) => o.type === 'Polygon' && o.fillColor === 0x41a6f6).length,
+    covered: window.itd.server().snapshot.offices[0].employees.filter((e) => e.avCovered).length,
+  }))
+  check('AV7: в офисе щит у каждого защищённого места', shields.covered > 0 && shields.polys === shields.covered, JSON.stringify(shields))
+  // Отчёт дня: «Антивирус: -$12» рядом с «Интернет».
+  await page.evaluate(() => window.itd.set({ tickInDay: 53 }))
+  await page.evaluate(() => window.itd.speed(1))
+  await page.waitForFunction(() => window.itd.text().some((n) => /^День \d+ завершён$/.test(n.text ?? '')), { timeout: 8000 }).catch(() => {})
+  const body = await page.evaluate(() => (window.itd.text().find((n) => (n.text ?? '').startsWith('Доход:')) ?? {}).text ?? '')
+  check('AV8: отчёт дня — строка «Антивирус: -$12»', body.split('\n').includes('Антивирус: -$12'), JSON.stringify(body.split('\n').slice(0, 7)))
+  await page.evaluate(() => window.itd.key('enter'))
+  await delay(300)
 
   check('Ошибок на странице нет', pageErrors.length === 0, `errors=${pageErrors.length}`)
 

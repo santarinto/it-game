@@ -42,8 +42,10 @@ type DayEvent struct {
 	Dismissed bool // тост закрыт игроком (аудит ещё ждёт своего чека)
 	Resolved  bool // сыграло (выбор/авто/чек), в очереди не участвует
 	// Вирус (ITGAME-103): вспышке некуда сесть и в офисе нет заражённых —
-	// карточка «Вирус отбит» с одной опцией.
+	// карточка «Вирус отбит» с одной опцией. AVTier — тариф подписки на момент
+	// вспышки (ITGAME-137): отбила подписка, а не «все ПК сломаны».
 	Repelled bool
+	AVTier   int
 }
 
 // EventInfo — активное событие для снапшота протокола.
@@ -195,8 +197,12 @@ func (g *Game) activateEvents() {
 			if k := g.seedOutbreak(ev.Office); k > 0 {
 				g.logEvent(fmt.Sprintf("вирус в офисе %d: %d ПК", ev.Office+1, k))
 			} else if g.officeInfected(ev.Office) == 0 {
-				ev.Repelled = true
-				g.logEvent(fmt.Sprintf("вирус в офисе %d отбит", ev.Office+1))
+				ev.Repelled, ev.AVTier = true, g.AVTier
+				if name := g.AntivirusName(); name != "" {
+					g.logEvent(fmt.Sprintf("вирус в офисе %d отбит подпиской %s", ev.Office+1, name))
+				} else {
+					g.logEvent(fmt.Sprintf("вирус в офисе %d отбит", ev.Office+1))
+				}
 			}
 		}
 		return
@@ -336,12 +342,22 @@ func (g *Game) ChooseEvent(option int) error {
 	switch ev.ID {
 	case EventVirus:
 		// «Чистить вручную» (или «Принять к сведению» у отбитой вспышки) —
-		// только закрыть карточку: чистят клики по местам. Подписка — ITGAME-137.
-		if option != 0 {
+		// только закрыть карточку: чистят клики по местам. Опция 1 — подписка
+		// на самый дешёвый тариф, покрывающий весь штат (ITGAME-137): она не
+		// лечит, заражённые места всё равно чистят клики.
+		switch {
+		case option == 0:
+			if !ev.Repelled {
+				g.logEvent(fmt.Sprintf("вирус в офисе %d: чистим вручную", ev.Office+1))
+			}
+		case option == 1 && !ev.Repelled && g.fullCoverTier() > 0:
+			t := g.fullCoverTier()
+			if err := g.SetAntivirus(t); err != nil {
+				return err
+			}
+			g.logEvent(fmt.Sprintf("вирус: подписка %s ($%d/день)", g.AntivirusName(), g.antivirusPrice(t)))
+		default:
 			return ErrBadOption
-		}
-		if !ev.Repelled {
-			g.logEvent(fmt.Sprintf("вирус в офисе %d: чистим вручную", ev.Office+1))
 		}
 	case EventDeadline:
 		switch option {
@@ -442,15 +458,22 @@ func (g *Game) ActiveEventInfo() *EventInfo {
 	switch ev.ID {
 	case EventVirus:
 		if ev.Repelled {
-			return &EventInfo{ID: string(ev.ID), Title: "Вирус отбит",
-				Text:    fmt.Sprintf("Офис %d: вирус не нашёл ни одного исправного ПК — заражать нечего.", ev.Office+1),
+			text := fmt.Sprintf("Офис %d: вирус не нашёл ни одного исправного ПК — заражать нечего.", ev.Office+1)
+			if tier := g.antivirusTier(ev.AVTier); tier != nil {
+				text = fmt.Sprintf("Подписка %s защитила офис %d: ни одно место не заражено.", tier.Name, ev.Office+1)
+			}
+			return &EventInfo{ID: string(ev.ID), Title: "Вирус отбит", Text: text,
 				Options: []string{"Принять к сведению"}}
 		}
+		options := []string{"Чистить вручную"}
+		if t := g.fullCoverTier(); t > 0 {
+			options = append(options, fmt.Sprintf("Подписка %s $%d/день", g.antivirusTier(t).Name, g.antivirusPrice(t)))
+		}
 		return &EventInfo{ID: string(ev.ID), Title: "Вирус в сети",
-			Text: fmt.Sprintf("Офис %d: заражено %d ПК, −%d%% выработки каждого. Раз в %d часа каждый заражённый ПК заражает ещё один — соседа, а через сеть и дальше. Сам вирус не уйдёт: чистка — %d клика по месту.",
+			Text: fmt.Sprintf("Офис %d: заражено %d ПК, −%d%% выработки каждого. Раз в %d часа каждый заражённый ПК заражает ещё один — соседа, а через сеть и дальше. Сам вирус не уйдёт: чистка — %d клика по месту. Подписка защитит здоровые места, заражённые не лечит.",
 				ev.Office+1, g.officeInfected(ev.Office), virusDebuffPct(g.cfg.VirusMult),
 				g.cfg.VirusSpreadTicks/g.cfg.TicksPerHour, g.cfg.VirusCleanClicks),
-			Options: []string{"Чистить вручную"}}
+			Options: options}
 	case EventDeadline:
 		goal := g.deadlineGoalFor()
 		reward := int(deadlineRewardShare * float64(goal) / g.cfg.EventK)

@@ -92,6 +92,9 @@ const SLOT_LAYOUT_HD = {
   // не текст и не интерактив, линтер его не видит; важно лишь не вылезти
   // из кадра (visual only).
   networkDot: { x: 24, y: -8 },
+  // Щит подписки на антивирус (ITGAME-137) — под точкой сети, у правого края
+  // стола; фигура 8×9, не текст и не интерактив, целиком внутри бокса.
+  shield: { x: 24, y: 6 },
   // ЦЕЛИКОМ ВНУТРИ бокса сотрудника, над монитором (монитор начинается с
   // y −14, низ метки на y −19 — запас 5px). Самая широкая метка «без
   // стойки» — 58px, т.е. ±29 от центра: центрируем по x (не по
@@ -124,6 +127,7 @@ const SLOT_LAYOUT_HD = {
 // вид на случай отката на старые PNG.
 const SLOT_LAYOUT_LEGACY = {
   networkDot: { x: 30, y: -30 },
+  shield: { x: 30, y: -16 },
   offlineLabel: { x: 30, y: -44 },
   motivationBadge: { x: -28, y: -36 },
   star: { x: -28, y: -58 },
@@ -504,6 +508,12 @@ export class OfficeScene extends Phaser.Scene {
         if (e.connected && e.serverSlot > 0) {
           this.objects.push(this.add.circle(x + layout.networkDot.x, y + layout.networkDot.y, 4, 0x38b764))
         }
+        // Щит: место под подпиской на антивирус — вирус сюда не сядет (ITGAME-137).
+        if (e.avCovered) {
+          this.objects.push(
+            this.add.polygon(x + layout.shield.x, y + layout.shield.y, [0, 0, 8, 0, 8, 5, 4, 9, 0, 5], 0x41a6f6).setOrigin(0.5),
+          )
+        }
         // Видимость сети (итерация 11): метка-причина над проблемным
         // столом — точка 4px «почему я без бонуса» не объясняла.
         if (e.offlineReason) {
@@ -646,6 +656,10 @@ export class OfficeScene extends Phaser.Scene {
       lines.push('★ звезда: выработка ×1.5 при найме')
     }
     lines.push(e.serverSlot > 0 ? `сервер ${e.serverSlot} · ×${e.netMult.toFixed(1)}` : 'без сервера')
+    // Подписка (ITGAME-137): защищены первые места компании по тарифу.
+    lines.push(e.avCovered
+      ? `антивирус: ${s.antivirus.name}`
+      : s.antivirus.tier > 0 ? `антивирус: место вне тарифа ${s.antivirus.name}` : 'без антивируса')
     // Причина отсутствия сети — словами, не кодом.
     if (e.offlineReason === 'no_router') {
       lines.push('✗ ВНЕ СЕТИ: роутер офиса не подключает это место')

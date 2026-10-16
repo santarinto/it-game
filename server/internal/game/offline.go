@@ -59,7 +59,7 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	g.DayIncome += inc
 	g.Ledger.Income += inc
 	g.Ledger.Offline = true
-	g.chargeDay(expenses, g.gatewayOpex())
+	g.chargeDay(expenses, g.gatewayOpex(), g.antivirusOpex())
 	g.PrevDayIncome = g.DayIncome
 	s.Income, s.Payroll = inc, expenses
 	s.Days++ // текущий день закрывается — для игрока это прошедший день
@@ -76,7 +76,7 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	tpl.MarketToday = 0
 	dayInc := tpl.sumIncome(0, dayTicks)
 	dayExp := tpl.PayrollPerDay()
-	dayOpex := tpl.gatewayOpex()
+	dayOpex, dayAV := tpl.gatewayOpex(), tpl.antivirusOpex()
 	for miss >= dayTicks {
 		g.archiveLedger()
 		g.Day++
@@ -87,7 +87,7 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 		g.Money += dayInc
 		g.Ledger.Income += dayInc
 		g.Ledger.Offline = true
-		g.chargeDay(dayExp, dayOpex)
+		g.chargeDay(dayExp, dayOpex, dayAV)
 		s.Income += dayInc
 		g.PrevDayIncome = dayInc
 		s.Payroll += dayExp
@@ -157,6 +157,8 @@ func (g *Game) offlineTemplate() *Game {
 		cfg: g.cfg, Money: g.Money, Offices: append([]Office(nil), g.Offices...),
 		CoreLevel: g.CoreLevel, Gateway: g.Gateway, Phase: PhaseRunning,
 		Day: g.Day + 1,
+		// Полный день платит за тариф, включённый сейчас (ITGAME-137).
+		AVTier: g.AVTier, AVTierBilled: g.AVTier,
 	}
 	for i := range tpl.Offices {
 		o := &tpl.Offices[i]
@@ -194,6 +196,7 @@ func (g *Game) resetForNextDay() {
 	g.DayLostIncome = 0
 	g.DayVirusPCs = 0
 	g.DayVirusLost = 0
+	g.AVTierBilled = g.AVTier
 	g.DayEvents = nil
 	g.ActiveEvent = nil
 	g.EventLog = nil

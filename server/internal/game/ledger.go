@@ -36,7 +36,7 @@ type LedgerEvent struct {
 
 // DayLedger — книга одного дня. Инвариант:
 // BalanceStart + Income + EventMoney − Σpurchases − Payroll − GatewayOpex −
-// Interest + Adjust = BalanceEnd.
+// Antivirus − Interest + Adjust = BalanceEnd.
 type DayLedger struct {
 	Day          int              `json:"day"`
 	FromTick     int              `json:"fromTick"` // книга начата с этого тика: 0 — с утра; >0 — фикстура/старый сейв посреди дня
@@ -47,6 +47,7 @@ type DayLedger struct {
 	Purchases    []LedgerPurchase `json:"purchases"`
 	Payroll      int              `json:"payroll"`     // зарплаты людей вечером; у открытого дня 0
 	GatewayOpex  int              `json:"gatewayOpex"` // опекс шлюза вечером
+	Antivirus    int              `json:"antivirus"`   // подписка на антивирус вечером (ITGAME-137)
 	Interest     int              `json:"interest"`    // процент по долгу при закрытии дня (кредит)
 	Adjust       int              `json:"adjust"`      // debug-правка баланса (itd.set, restore); в игре 0
 	BalanceEnd   int              `json:"balanceEnd"`  // у текущего дня — живой баланс
@@ -66,13 +67,13 @@ func (l DayLedger) PurchasesTotal() int {
 // Sum — баланс, собранный из слагаемых; равен BalanceEnd.
 func (l DayLedger) Sum() int {
 	return l.BalanceStart + l.Income + l.EventMoney - l.PurchasesTotal() -
-		l.Payroll - l.GatewayOpex - l.Interest + l.Adjust
+		l.Payroll - l.GatewayOpex - l.Antivirus - l.Interest + l.Adjust
 }
 
-// Profit — «Прибыль» отчёта дня (доход + события − ФОТ − опекс): покупки и
-// процент в неё не входят — как в day_report.profit.
+// Profit — «Прибыль» отчёта дня (доход + события − ФОТ − опекс − подписка):
+// покупки и процент в неё не входят — как в day_report.profit.
 func (l DayLedger) Profit() int {
-	return l.Income + l.EventMoney - l.Payroll - l.GatewayOpex
+	return l.Income + l.EventMoney - l.Payroll - l.GatewayOpex - l.Antivirus
 }
 
 func (l DayLedger) clone() DayLedger {
@@ -114,11 +115,13 @@ func (g *Game) spend(kind Command, price int) {
 	g.Ledger.Purchases = append(ps, LedgerPurchase{Type: string(kind), Price: price, Clock: g.Clock()})
 }
 
-// chargeDay — вечернее списание ФОТ и опекса (живой тик и офлайн).
-func (g *Game) chargeDay(expenses, opex int) {
+// chargeDay — вечернее списание ФОТ, опекса шлюза и подписки на антивирус
+// (живой тик и офлайн): expenses — всё вместе, opex и av — его доли.
+func (g *Game) chargeDay(expenses, opex, av int) {
 	g.Money -= expenses
-	g.Ledger.Payroll += expenses - opex
+	g.Ledger.Payroll += expenses - opex - av
 	g.Ledger.GatewayOpex += opex
+	g.Ledger.Antivirus += av
 	g.Ledger.Closed = true
 }
 

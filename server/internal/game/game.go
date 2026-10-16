@@ -83,6 +83,12 @@ type Game struct {
 	DayVirusPCs  int // новых заражений за текущий день (вспышки и волны)
 	DayVirusLost int // упущено из-за вируса за текущий день: −30% заражённых мест
 
+	// Подписка на антивирус (ITGAME-137): AVTier — включённый тариф (0 — нет,
+	// 1..len(cfg.AntivirusTiers)); AVTierBilled — самый дорогой тариф,
+	// включённый за день хоть раз: вечером списывается его цена.
+	AVTier       int
+	AVTierBilled int
+
 	// Won-финал: причина проигрыша для протокола (bankrupt | time_up);
 	// живёт только в терминальной фазе, в сейвы не попадает.
 	LoseReason string
@@ -466,7 +472,8 @@ func (g *Game) incomeAtTickDetail(tick int) (total, lost, virusLost int) {
 }
 
 // PayrollPerDay — полные дневные расходы: зарплаты сотрудников и боссов
-// (кроме нанятых после обеда — им сегодня не платим) плюс опекс шлюза.
+// (кроме нанятых после обеда — им сегодня не платим) плюс опекс шлюза и
+// подписка на антивирус по самому дорогому тарифу дня (ITGAME-137).
 func (g *Game) PayrollPerDay() int {
 	total := 0
 	for i := range g.Offices {
@@ -486,7 +493,7 @@ func (g *Game) PayrollPerDay() int {
 	if g.Gateway {
 		total += g.cfg.GatewayOpexPerDay
 	}
-	return total
+	return total + g.antivirusOpex()
 }
 
 // gatewayOpex — дневной опекс шлюза (0, если шлюза нет).
@@ -525,8 +532,9 @@ type DayReport struct {
 	Income      int
 	Payroll     int // зарплаты людей (сотрудники + боссы)
 	GatewayOpex int // операционный расход шлюза
+	Antivirus   int // подписка на антивирус за день (ITGAME-137)
 	EventMoney  int // деньги исходов событий дня, со знаком (ITGAME-53)
-	Profit      int // доход + деньги событий − ФОТ − опекс
+	Profit      int // доход + деньги событий − ФОТ − опекс − подписка
 	Balance     int
 	Incidents   int      // поломок ПК за день
 	LostIncome  int      // упущено из-за поломок, $
@@ -587,12 +595,12 @@ func (g *Game) Tick() *DayReport {
 	g.autoResolveEvents()
 	g.logVirusEvening()
 	expenses := g.PayrollPerDay()
-	opex := g.gatewayOpex()
-	payroll := expenses - opex
-	g.chargeDay(expenses, opex)
+	opex, av := g.gatewayOpex(), g.antivirusOpex()
+	payroll := expenses - opex - av
+	g.chargeDay(expenses, opex, av)
 	g.closeDay()
 	return &DayReport{Day: g.Day, Income: g.DayIncome, Payroll: payroll,
-		GatewayOpex: opex, EventMoney: g.DayEventMoney,
+		GatewayOpex: opex, Antivirus: av, EventMoney: g.DayEventMoney,
 		Profit: g.DayIncome + g.DayEventMoney - expenses, Balance: g.Money,
 		Incidents: g.DayIncidents, LostIncome: g.DayLostIncome,
 		VirusPCs: g.DayVirusPCs, VirusLost: g.DayVirusLost, Events: g.EventLog}
