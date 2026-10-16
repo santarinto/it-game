@@ -14,6 +14,7 @@
     "qa:meta": "node scripts/qa-itgame10.mjs",
     "qa:buttons": "node scripts/qa-itgame17.mjs",
     "qa:tabs": "node scripts/qa-itgame35.mjs",
+    "qa:doom": "node scripts/qa-itgame118.mjs",
     "qa:hud": "node scripts/qa-itgame16.mjs",
     "qa:facade": "node scripts/qa-itgame38.mjs",
     "qa:slots": "node scripts/qa-office-slots.mjs",

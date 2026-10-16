@@ -496,6 +496,7 @@ export interface AgentState {
   debt: number | null // -balance, когда баланс ушёл в минус
   creditLimit: number | null
   creditRatePct: number | null
+  bankruptInDays: number | null // обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)
   winTarget: number | null
   winStaff: number | null
   winCore: number | null
@@ -1188,7 +1189,7 @@ export interface ItdApi {
   set(patch: { money?: number; day?: number; tickInDay?: number }): Promise<DebugState>
   /**
    * Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|
-   * soft_lock|pre_victory|spare_pcs|broken_pc. Сбрасывает клиентское состояние партии: активный
+   * soft_lock|pre_victory|spare_pcs|broken_pc|doomed_debt. Сбрасывает клиентское состояние партии: активный
    * офис → О1 (ITGAME-55), оверлеи HUD — отчёт дня, событие, «Пока вас не было», финал,
    * окно выхода — и учёт паузы отчёта (ITGAME-64), окна офиса и серверной — устройства,
    * увольнение (ITGAME-69). Скорость сессии не трогает: вызванный
@@ -1289,7 +1290,7 @@ function buildState(game: Phaser.Game): AgentState {
       staffConnected: null, staffLimit: null, officesUnlocked: null,
       officesTotal: null, servers: null, coreLevel: null, coreConnected: null,
       coreCapacity: null, gateway: null, debt: null, creditLimit: null,
-      creditRatePct: null,       winTarget: null, winStaff: null, winCore: null,
+      creditRatePct: null, bankruptInDays: null, winTarget: null, winStaff: null, winCore: null,
       winDayLimit: null, activeEvent: null,
       seed: null, scenario: null, tickInDay: null, dayIncome: null, dayProfit: null,
     }
@@ -1321,6 +1322,7 @@ function buildState(game: Phaser.Game): AgentState {
     debt: s.money < 0 ? -s.money : 0,
     creditLimit: s.creditLimit,
     creditRatePct: s.creditRatePct,
+    bankruptInDays: s.bankruptInDays,
     winTarget: s.winTarget,
     winStaff: s.winStaff,
     winCore: s.winCore,
@@ -1893,7 +1895,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   await itd.ledger(day?)            — бухгалтерия дня с сервера: {day, balanceStart, income, eventMoney, events[{what, money, clock}], purchases[{type, price, clock}], purchasesTotal, payroll, gatewayOpex, interest, adjust, balanceEnd, profit, delta, balanced, closed, offline, history}; слагаемые = balanceEnd − balanceStart ровно; profit = day_report.profit; без day — текущий (payroll 0 до вечера), иначе один из history (7 закрытых + текущий)
   await itd.journal({tail?, sid?})  — журнал партии (ITGAME-46, сервер с ITGAME_DEBUG=1): хвост входов (tail 1..500, по умолчанию 20) строками «#seq k что | dN tN $M фаза Nx revR +tk» и объектами без сейвов; kinds по всему журналу, total, dropped; url — полный JSONL для make replay ARGS="-url …"; cmd несёт id, как itd.trace().sent, и conn/src (ITGAME-91): «buy_pc c2 id1 ok» — соединение 2 партии, «c3 bridge» — мост агента; уникальна пара (conn, id), не id; end — evicted | read_timeout | debug_drop | disconnect (закрыл клиент)
   itd.set({money: 50000})           — читы живой сессии: {money, day, tickInDay}
-  itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs|broken_pc; сбрасывает клиентское состояние партии (офис → О1, оверлеи HUD, окна офиса/серверной, пауза отчёта); скорость не трогает — из отчёта или окна выхода партия остаётся на паузе: itd.resume(); работает и после финала
+  itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs|broken_pc|doomed_debt; сбрасывает клиентское состояние партии (офис → О1, оверлеи HUD, окна офиса/серверной, пауза отчёта); скорость не трогает — из отчёта или окна выхода партия остаётся на паузе: itd.resume(); работает и после финала
   itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы
   itd.restore(save)                 — вернуть состояние из snapshot().save (дельта над текущим); закрытый в новом состоянии активный офис → О1; окна офиса/серверной закрывает
   itd.quiet()                       — стоп твитов/миганий для стабильных скриншотов

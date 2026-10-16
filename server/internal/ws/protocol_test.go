@@ -198,3 +198,34 @@ func TestProtocolDayProfitAndEventMoney(t *testing.T) {
 		t.Errorf("state.dayProfit = %d, хотим %d", got, want)
 	}
 }
+
+// Прогноз обречённой партии (ITGAME-118) едет в снапшоте полем bankruptInDays:
+// фикстура doomed_debt на Hard обречена, на Normal (без кредита) — нет.
+func TestProtocolBankruptInDays(t *testing.T) {
+	g, err := game.NewFixture(game.ConfigForDifficulty(game.DiffHard), "doomed_debt", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := snapshot(g, 1, false, "doomed_debt")
+	if st.BankruptInDays < 1 || st.BankruptInDays != g.BankruptInDays() {
+		t.Fatalf("state.bankruptInDays = %d, игра считает %d", st.BankruptInDays, g.BankruptInDays())
+	}
+	data, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["bankruptInDays"] != float64(st.BankruptInDays) {
+		t.Errorf("JSON bankruptInDays = %v, хотим %d", raw["bankruptInDays"], st.BankruptInDays)
+	}
+	normal, err := game.NewFixture(game.ConfigForDifficulty(game.DiffNormal), "doomed_debt", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snapshot(normal, 1, false, "doomed_debt").BankruptInDays; got != 0 {
+		t.Errorf("Normal: bankruptInDays = %d, хотим 0", got)
+	}
+}

@@ -71,6 +71,23 @@ const PANEL_LEFT_MAX = 832
 const BAR_X = 884
 const BAR_W = 380
 
+// Плашка «До банкротства N дней» (ITGAME-118): низ — у якоря нижних тостов, над журналом.
+const DOOM_BOTTOM = 614
+const DOOM_H = 40
+const DOOM_PAD = 14
+const DOOM_GAP = 16
+const DOOM_BTN_W = 104
+
+function daysWord(n: number): string {
+  const m10 = n % 10
+  const m100 = n % 100
+  if (m10 === 1 && m100 !== 11) return 'день'
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return 'дня'
+  return 'дней'
+}
+
+const doomLine = (n: number) => `До банкротства ${n} ${daysWord(n)}`
+
 export class HUDScene extends Phaser.Scene {
   private moneyText!: Phaser.GameObjects.Text
   private incomeText!: Phaser.GameObjects.Text
@@ -108,6 +125,9 @@ export class HUDScene extends Phaser.Scene {
   private currentRoom!: 'office' | 'serverRoom'
   private reportUI!: Phaser.GameObjects.GameObject[]
   private eventUI!: Phaser.GameObjects.GameObject[]
+  private doomUI!: Phaser.GameObjects.GameObject[]
+  private doomN = 0 // N на показанной плашке «До банкротства N дней» (ITGAME-118)
+  private doomDay = 0 // день, когда плашка уже вставала: «×» снимает её до утра
   private gameOverUI!: Phaser.GameObjects.GameObject[]
   private victoryUI!: Phaser.GameObjects.GameObject[]
   private switching!: boolean
@@ -182,6 +202,9 @@ export class HUDScene extends Phaser.Scene {
     this.hudInteractive = []
     this.reportUI = []
     this.eventUI = []
+    this.doomUI = []
+    this.doomN = 0
+    this.doomDay = 0
     this.gameOverUI = []
     this.victoryUI = []
     this.offlineUI = []
@@ -871,6 +894,7 @@ export class HUDScene extends Phaser.Scene {
     } else {
       this.closeEvent() // отчёт дня/победа/банкротство глушат панель
     }
+    this.updateDoom(s)
     this.refreshCoach(s)
     this.checkHints(s)
     this.debugFrames.forEach((f) => f.destroy())
@@ -926,6 +950,86 @@ export class HUDScene extends Phaser.Scene {
   private closeEvent() {
     this.eventUI.forEach((o) => o.destroy())
     this.eventUI = []
+  }
+
+  // Плашка обречённой партии (ITGAME-118): сервер шлёт state.bankruptInDays > 0, когда на
+  // уровне с кредитом баланс в минусе (ни купить, ни уволить), а доход не покрывает ФОТ и
+  // проценты. Встаёт раз в день — с первым снапшотом дня, — висит до «×» или «Сдаться»;
+  // отчёт дня, финал и сброс партии её снимают. Не модальная: игра идёт. Стоит над журналом,
+  // а не сверху — там панель события; нижние тосты поднимаются над ней (layoutToasts).
+  private updateDoom(s: StateMessage) {
+    const n = s.phase === 'running' ? s.bankruptInDays : 0
+    if (n <= 0) {
+      this.closeDoom()
+      return
+    }
+    if (s.day !== this.doomDay) {
+      this.doomDay = s.day
+      this.logLine(doomLine(n))
+      this.showDoom(n)
+    } else if (this.doomUI.length > 0 && n !== this.doomN) {
+      this.showDoom(n)
+    }
+  }
+
+  private showDoom(n: number) {
+    this.closeDoom()
+    this.doomN = n
+    const y = DOOM_BOTTOM - DOOM_H / 2
+    const text = tag(
+      this.add.text(0, y, doomLine(n), { fontFamily: FONT, fontSize: '16px', color: '#f4f4f4' })
+        .setOrigin(0, 0.5).setDepth(46),
+      'hud.doom.text',
+    )
+    const w = DOOM_PAD + text.width + DOOM_GAP + DOOM_BTN_W + 8 + DOOM_H - 12 + DOOM_PAD
+    const left = CX - w / 2
+    text.setX(left + DOOM_PAD)
+    const panel = markTitle(
+      tag(this.add.rectangle(CX, y, w, DOOM_H, 0x14162b).setStrokeStyle(2, 0xb13e53).setDepth(45), 'hud.doom'),
+      'До банкротства',
+    )
+    const sx = left + DOOM_PAD + text.width + DOOM_GAP + DOOM_BTN_W / 2
+    const surrender = tag(
+      this.add.rectangle(sx, y, DOOM_BTN_W, DOOM_H - 12, 0xb13e53).setDepth(46).setInteractive({ useHandCursor: true }),
+      'hud.doom.surrender',
+    )
+    const surrenderLabel = this.add
+      .text(sx, y, 'Сдаться', { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4' })
+      .setOrigin(0.5).setDepth(47)
+    const cx = sx + DOOM_BTN_W / 2 + 8 + (DOOM_H - 12) / 2
+    const close = tag(
+      this.add.rectangle(cx, y, DOOM_H - 12, DOOM_H - 12, 0x333c57).setDepth(46).setInteractive({ useHandCursor: true }),
+      'hud.doom.close',
+    )
+    const closeLabel = this.add
+      .text(cx, y, '✕', { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4' })
+      .setOrigin(0.5).setDepth(47)
+    surrender.on('pointerover', () => surrender.setFillStyle(0xef7d57))
+    surrender.on('pointerout', () => surrender.setFillStyle(0xb13e53))
+    surrender.on('pointerdown', () => this.doomSurrender())
+    close.on('pointerover', () => close.setFillStyle(0x566c86))
+    close.on('pointerout', () => close.setFillStyle(0x333c57))
+    close.on('pointerdown', () => this.closeDoom())
+    this.doomUI = [panel, text, surrender, surrenderLabel, close, closeLabel]
+    this.doomUI.push(...drawDebugFrames(this, this.doomUI))
+    this.layoutToasts('bottom')
+  }
+
+  private closeDoom() {
+    if (this.doomUI.length === 0) return
+    this.doomUI.forEach((o) => o.destroy())
+    this.doomUI = []
+    this.doomN = 0
+    this.layoutToasts('bottom')
+  }
+
+  // «Сдаться» с плашки — тот же путь, что ⌂ → «Сдаться (удалить сейв)»: подтверждение
+  // «Удалить партию навсегда?» на паузе; «Отмена» возвращает скорость, плашка остаётся.
+  private doomSurrender() {
+    this.hideButtonTooltip()
+    if (this.exitModalClose) return
+    this.pauseForExitDialog()
+    this.confirmSurrender()
   }
 
   // Тултипы кнопок комнат (ITGAME-94: кнопки покупки переехали из шапки в
@@ -996,8 +1100,9 @@ export class HUDScene extends Phaser.Scene {
   // на каждое добавление/удаление — дрейфа не накапливается.
   private layoutToasts(where: 'top' | 'bottom') {
     const stack = this.toasts[where]
-    // Нижний якорь — над журналом событий (полоса с y 620, ITGAME-21).
-    let edge = where === 'top' ? 158 : 614
+    // Нижний якорь — над журналом событий (полоса с y 620, ITGAME-21); стоит плашка
+    // «До банкротства» (ITGAME-118) — над ней.
+    let edge = where === 'top' ? 158 : this.doomUI.length > 0 ? DOOM_BOTTOM - DOOM_H - 6 : 614
     for (let i = stack.length - 1; i >= 0; i--) {
       const h = stack[i].height
       if (where === 'top') {
@@ -1376,6 +1481,8 @@ export class HUDScene extends Phaser.Scene {
     this.closeOfflineReport()
     this.closeGameOver()
     this.closeVictory()
+    this.closeDoom()
+    this.doomDay = 0 // новая партия того же дня покажет плашку заново
     this.exitModalClose?.()
     this.exitModalClose = null
     this.exitModalKind = null
@@ -1396,9 +1503,18 @@ export class HUDScene extends Phaser.Scene {
   private confirmExitToMenu() {
     this.hideButtonTooltip()
     if (this.exitModalClose) return // уже открыт (itd.click мимо подложки)
-    // ITGAME-65: пока диалог открыт, партия на паузе. Пауза отчёта главнее: её
-    // set_speed 0 уже стоит, лишний сломал бы reportPauseSeq. Без связи паузу не шлём
-    // (ITGAME-90: тост «нет связи» тут лишний — о связи скажет «Сохранить и выйти»).
+    this.pauseForExitDialog()
+    this.openExitModal('exit', 'Выйти в меню?', ['Прогресс сохранится — продолжите', 'с главного меню в любое время.'], [
+      { label: 'Сохранить и выйти', onClick: () => this.saveAndExit() },
+      { label: 'Сдаться (удалить сейв)', onClick: () => this.confirmSurrender() },
+      { label: 'Отмена', onClick: () => { this.cancelExit() } },
+    ])
+  }
+
+  // ITGAME-65: пока диалог выхода открыт, партия на паузе (⌂ и «Сдаться» с плашки
+  // ITGAME-118). Пауза отчёта главнее: её set_speed 0 уже стоит, лишний сломал бы
+  // reportPauseSeq. Без связи паузу не шлём (ITGAME-90: тост «нет связи» тут лишний).
+  private pauseForExitDialog() {
     this.exitPauseFrom = 0
     const live = client.latest?.speed ?? 0
     if (this.speedBeforeReport === null && live > 0 && client.socketStatus() === 'open' &&
@@ -1406,11 +1522,6 @@ export class HUDScene extends Phaser.Scene {
       this.exitPauseFrom = live
       this.exitPauseSeq = client.speedSeq
     }
-    this.openExitModal('exit', 'Выйти в меню?', ['Прогресс сохранится — продолжите', 'с главного меню в любое время.'], [
-      { label: 'Сохранить и выйти', onClick: () => this.saveAndExit() },
-      { label: 'Сдаться (удалить сейв)', onClick: () => this.confirmSurrender() },
-      { label: 'Отмена', onClick: () => { this.cancelExit() } },
-    ])
   }
 
   // Окно цепочки выхода: прежнее закрывается молча, закрытие без выбора (✕, подложка)

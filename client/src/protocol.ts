@@ -132,6 +132,7 @@ export interface StateMessage {
   marketTomorrow: number // завтрашний рынок, виден заранее
   creditLimit: number // кредитный порог, $ (0 — кредита нет)
   creditRatePct: number // процент за день на долг
+  bankruptInDays: number // обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)
   activeEvent: ActiveEventInfo | null // висящее событие Unseen Forces
   prices: {
     pc: number

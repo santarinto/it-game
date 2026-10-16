@@ -527,11 +527,27 @@ party (ITGAME-69). The scenes open them through `partyModals()`
 
 Fixtures (`server/internal/game/fixtures/*.json`, `?scenario=X` or
 `itd.scenario(X)`): `fresh`, `broke_day3`, `mid_day10`, `full_office`,
-`soft_lock`, `pre_victory`, `spare_pcs`, `broken_pc`. `broken_pc`
+`soft_lock`, `pre_victory`, `spare_pcs`, `broken_pc`, `doomed_debt`. `broken_pc`
 (ITGAME-74): day 4, 11:00, three employees in office 1, all online, slot 0's
 PC broken (0/3 repair clicks: the fixture pins `RepairNeeded: 3`) — the only
 way to get a broken PC on demand (breakdowns roll at random; at most one per
-office, so no second one appears).
+office, so no second one appears). `doomed_debt` (ITGAME-118): morning of
+day 8, $2000 of debt, a boss and one weak employee — on Hard/Hardcore the
+party is doomed (`state.bankruptInDays` > 0, the «До банкротства N дней»
+plate), on Easy/Normal there is no credit and no signal.
+
+**Doomed party** (ITGAME-118): `Game.BankruptInDays()` is the number of day
+closes until bankruptcy, 0 when the party is not doomed, sent as
+`state.bankruptInDays`. Doomed means a level with credit, phase `running`,
+money below zero (nothing can be bought or fired) and income that does not
+cover payroll and interest before `CreditLimit`. Income comes from the
+offline engine's day template (PCs whole — repair clicks are free and PCs are
+fixed overnight —, no buffs, no events, neutral market); today counts from
+the current tick, so N does not drift during the day. A level deadline
+(`WinDayLimit`) that comes first gives 0: the party ends by `time_up`. The
+HUD shows the plate once per day while N > 0 (ids `hud.doom`,
+`hud.doom.surrender` → the «Удалить партию навсегда?» confirmation with the
+party paused, `hud.doom.close`).
 
 **Repair clicks k/N** (ITGAME-93): a breakdown rolls its own N — uniform
 `RepairClicksMin..RepairClicksMax` (3..15) from the server's seeded PCG, right

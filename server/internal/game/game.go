@@ -331,6 +331,43 @@ func (g *Game) IsDeadlocked() bool {
 	return g.Money < g.MinCostToEarn()
 }
 
+// doomHorizonDays — дальше прогноз банкротства не считаем: долг, который
+// растёт так медленно, сигналом «выхода нет» не является.
+const doomHorizonDays = 365
+
+// BankruptInDays — через сколько закрытий дня обречённая партия обанкротится
+// (ITGAME-118); 0 — не обречена. Обречена: уровень с кредитом, партия идёт,
+// баланс в минусе (ни покупки, ни увольнения: всё требует Money >= цена) и
+// доход штата не покрывает ФОТ и проценты до CreditLimit. Доход — по шаблону
+// офлайн-движка: ПК целы (ремонт кликами бесплатный, ночью чинятся сами), без
+// баффов и событий, рынок нейтрален. Сегодня — остаток дня от текущего тика,
+// поэтому прогноз не скачет в течение дня. Дедлайн уровня раньше банкротства
+// закроет партию по time_up — тогда 0: предупреждать о банкротстве незачем.
+func (g *Game) BankruptInDays() int {
+	if g.cfg.CreditLimit <= 0 || g.Phase != PhaseRunning || g.Money >= 0 {
+		return 0
+	}
+	tpl := g.offlineTemplate()
+	tpl.MarketToday = 0
+	dayTicks := g.cfg.DayTicks()
+	net := tpl.sumIncome(0, dayTicks) - tpl.PayrollPerDay()
+	money := g.Money + tpl.sumIncome(g.TickInDay, dayTicks) - g.PayrollPerDay()
+	for d := 1; d <= doomHorizonDays; d++ {
+		if g.cfg.WinDayLimit > 0 && g.Day+d-1 > g.cfg.WinDayLimit {
+			return 0
+		}
+		if money >= 0 {
+			return 0
+		}
+		money -= int(math.Ceil(float64(-money) * g.cfg.CreditRate))
+		if -money > g.cfg.CreditLimit {
+			return d
+		}
+		money += net
+	}
+	return 0
+}
+
 // closeDay — конец дня после списания ФОТ: кредит или банкротство,
 // затем дедлайн уровня (время вышло без победы), затем тупик. Переводит фазу.
 func (g *Game) closeDay() {

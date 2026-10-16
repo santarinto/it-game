@@ -92,6 +92,7 @@ type stateMessage struct {
 	MarketTomorrow   int              `json:"marketTomorrow"` // завтрашний рынок, виден заранее
 	CreditLimit      int              `json:"creditLimit"`    // кредитный порог, $ (0 — кредита нет)
 	CreditRatePct    int              `json:"creditRatePct"`  // процент за день на долг
+	BankruptInDays   int              `json:"bankruptInDays"` // обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)
 	ActiveEvent      *activeEventInfo `json:"activeEvent"`
 	Prices           prices           `json:"prices"`
 	OfflineReport    bool             `json:"offlineReport,omitempty"` // первый снапшот после resume: следом идёт offline_report (ITGAME-76)
@@ -378,7 +379,8 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 		WinStaff: cfg.WinStaff, WinCore: cfg.WinCore, WinDayLimit: cfg.WinDayLimit,
 		MarketToday: g.MarketToday, MarketTomorrow: g.MarketTomorrow,
 		CreditLimit: cfg.CreditLimit, CreditRatePct: int(cfg.CreditRate * 100),
-		ActiveEvent: active, Seed: g.SeedString(), Scenario: scenario,
+		BankruptInDays: g.BankruptInDays(),
+		ActiveEvent:    active, Seed: g.SeedString(), Scenario: scenario,
 		TickInDay: g.TickInDay, DayIncome: g.DayIncome, DayProfit: g.DayProfit(),
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice,
 			Boss: cfg.BossPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,
