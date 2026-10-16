@@ -673,7 +673,13 @@ documenting separately:
   next loop step, so the old menu (with the old save summary) answered ready and
   then rebuilt — a plate's `cy` moved 351 → 309 when the «Продолжить» card
   («загружаю сводку…») appeared and went. There is no entrance tween: once
-  `menuReady` is true the plates don't move (`qa:facade` K4).
+  `menuReady` is true the plates don't move (`qa:facade` K4). QA scripts wait
+  for it through `waitMenuReady()` in `client/scripts/lib/menu.mjs`
+  (ITGAME-133), not for `menu.diff.normal` in `ids()`: with a saved sid the
+  plates are drawn while the save summary is still in flight, and a difficulty
+  click then opens «Начать заново?» instead of starting the party (ITGAME-130).
+  Pages without `?debug=1` (`smoke-ui` with `OFFICE=1`, `qa:facade` L6) have no
+  `window.itd` and wait for `scene.isActive('menu')`; they run without a sid.
 - **`itd.hit(id)` / `itd.blocker()`** (acceptance 10.10) — `itd.click()`
   bypasses the hit test, so it can't tell a covered button from a live one.
   `hit(id)` runs the real Phaser hit test at the object's `cx`/`cy` — the

@@ -30,6 +30,7 @@
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
 // :4178 — свой порт задачи; 4179 у qa:tabs, 4173–4177 у соседних скриптов).
 import { selfServe } from './lib/selfserve.mjs'
+import { waitMenuReady } from './lib/menu.mjs'
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 
@@ -43,17 +44,8 @@ function check(name, pass, fact) {
   console.log(`${pass ? 'PASS' : 'FAIL'}: ${name}${fact ? ` — ${fact}` : ''}`)
 }
 
-// Готовность меню — state().menuReady (контракт itd.state, ITGAME-19), а не «плашка
-// уже в ids()»: sid выставлен явно (sessionStorage до документа), значит
-// hasSavedSession() true и меню ждёт сводку сейва (/ws?peek=1). Пока она в пути,
-// saveView() 'loading' → needsConfirm(), и клик по menu.diff.normal открывает
-// «Начать заново?» вместо старта (ITGAME-130; A14 ITGAME-131 стартует партию из меню).
-async function waitMenuReady(page) {
-  await page.waitForFunction(
-    () => window.itd != null && window.itd.state().menuReady === true && window.itd.ids().some((n) => n.id === 'menu.diff.normal'),
-    { timeout: 20000 },
-  )
-}
+// Готовность меню — waitMenuReady (lib/menu.mjs): sid выставлен до документа, меню ждёт
+// сводку сейва, и ранний клик открывал «Начать заново?» (ITGAME-130; A14 ITGAME-131 стартует партию из меню).
 
 async function run() {
   let stopServer = null

@@ -6,6 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
+import { waitMenuReady } from './lib/menu.mjs'
 
 const SELF_PORT = Number(process.env.QA_PORT || 4187)
 const BASE = process.env.QA_BASE || `http://127.0.0.1:${SELF_PORT}`
@@ -38,10 +39,7 @@ try {
   page.on('pageerror', (e) => pageErrors.push(String(e)))
 
   await page.goto(`${BASE}/?scenario=mid_day10&seed=1&debug=1`, { waitUntil: 'domcontentloaded' })
-  await page.waitForFunction(
-    () => window.itd != null && window.itd.ids().some((n) => n.id === 'menu.diff.normal'),
-    { timeout: 20000 },
-  )
+  await waitMenuReady(page)
   // T1: место icon_trophy в меню (ITGAME-83) — иконка 16px у «Достижений»; проба 64px
   // перевешивает её и сохраняет экранный размер, reset возвращает заглушку.
   const t1 = await page.evaluate(async () => {

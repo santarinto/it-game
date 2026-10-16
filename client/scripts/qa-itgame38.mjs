@@ -101,6 +101,7 @@ import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
+import { waitMenuReady } from './lib/menu.mjs'
 
 const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 const SELF_PORT = Number(process.env.QA_PORT) || 4175
@@ -113,13 +114,6 @@ const results = []
 function check(name, pass, fact) {
   results.push({ name, pass, fact })
   console.log(`${pass ? 'PASS' : 'FAIL'}: ${name}${fact ? ` — ${fact}` : ''}`)
-}
-
-async function waitMenuReady(page) {
-  await page.waitForFunction(
-    () => window.itd != null && window.itd.ids().some((n) => n.id === 'menu.diff.normal'),
-    { timeout: 20000 },
-  )
 }
 
 // ── Утилиты чтения сцены ────────────────────────────────────────────────

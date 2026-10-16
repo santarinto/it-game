@@ -17,6 +17,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
+import { waitMenuReady } from './lib/menu.mjs'
 
 const SELF_PORT = Number(process.env.QA_PORT) || 4180
 const BASE = process.env.QA_BASE || `http://127.0.0.1:${SELF_PORT}`
@@ -64,7 +65,7 @@ try {
   })
 
   await page.goto(`${BASE}/?debug=1`, { waitUntil: 'domcontentloaded' })
-  await page.waitForFunction('window.__itd && (window.__itd.scene.isActive("menu") || window.__itd.scene.isActive("hud"))', { timeout: 10000 })
+  await waitMenuReady(page)
 
   // 1. Старт новой игры: нажимаем '2' (норма)
   await page.evaluate(() => {

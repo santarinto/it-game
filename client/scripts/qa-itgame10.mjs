@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
+import { waitMenuReady } from './lib/menu.mjs'
 
 const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 const BASE = process.env.QA_BASE || 'http://localhost:4173'
@@ -52,7 +53,7 @@ try {
   })
 
   await page.goto(`${BASE}/?debug=1`, { waitUntil: 'domcontentloaded' })
-  await page.waitForFunction('window.__itd && window.__itd.scene.isActive("menu")', { timeout: 10000 })
+  await waitMenuReady(page)
 
   // 1. Проверяем itd.meta() и сброс мета-прогресса
   const metaInit = await page.evaluate(() => {
@@ -224,7 +225,7 @@ try {
 
   // 6. Проверка персистентности после перезагрузки страницы
   await page.reload({ waitUntil: 'domcontentloaded' })
-  await page.waitForFunction('window.__itd && window.__itd.scene.isActive("menu")', { timeout: 10000 })
+  await waitMenuReady(page)
   const metaAfterReload = await page.evaluate(() => window.itd.meta())
   check('Достижение сохранилось после перезагрузки', metaAfterReload.achievements.unlockedCount === 1, `unlocked=${metaAfterReload.achievements.unlockedCount}`)
   const achItem = metaAfterReload.achievements.list.find((a) => a.id === 'first_hire')

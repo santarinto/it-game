@@ -31,6 +31,7 @@ import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
+import { waitMenuReady } from './lib/menu.mjs'
 
 const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 const SELF_PORT = Number(process.env.QA_PORT || 4177)
@@ -56,13 +57,7 @@ function check(name, pass, fact) {
 }
 
 // ── Загрузка сцены (см. qa-itgame16.mjs): меню → сложность → коннект → пауза ──
-async function waitMenuReady(page) {
-  await page.waitForFunction(
-    () => window.itd != null && window.itd.ids().some((n) => n.id === 'menu.diff.normal'),
-    { timeout: 20000 },
-  )
-}
-
+// Готовность меню — lib/menu.mjs (ITGAME-133).
 async function loadScenario(page, scenario, sidTag) {
   await page.goto(`${BASE}/?scenario=${scenario}&seed=1&debug=1`, { waitUntil: 'domcontentloaded' })
   await waitMenuReady(page)

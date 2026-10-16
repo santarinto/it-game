@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
+import { waitMenuReady } from './lib/menu.mjs'
 
 const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 const DEFAULT_URL = 'http://localhost:4173'
@@ -184,10 +185,7 @@ try {
         localStorage.setItem('itd.uiScale', String(zz))
       }, z)
       await page.reload({ waitUntil: 'load' })
-      await page.waitForFunction(
-        `window.itd && window.itd.ids().some((n) => n.id === 'menu.diff.normal')`,
-        { timeout: 20_000 },
-      )
+      await waitMenuReady(page)
       await page.evaluate(() => localStorage.setItem('itd.sid', 'smoke-render2x-' + Date.now().toString(36)))
       let box = await canvasBox()
       await page.mouse.click(box.x + 640 * box.k, box.y + 336 * box.k)

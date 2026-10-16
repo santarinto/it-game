@@ -23,6 +23,7 @@ import pixelmatch from 'pixelmatch'
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
+import { waitMenuReady } from './lib/menu.mjs'
 
 const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 const VISREG_DIR = join(CLIENT_DIR, 'scripts', 'visreg')
@@ -36,14 +37,9 @@ const SCENARIOS = ['menu', 'fresh', 'broke_day3', 'mid_day10', 'full_office', 's
 
 // ── Загрузка сцены: детерминированное состояние для скриншота ─────────────
 // window.itd появляется раньше, чем меню создаст кнопки: клик в этот зазор
-// молча промахивался (id не найден), и прогон висел 20с на connected.
-async function waitMenuReady(page) {
-  await page.waitForFunction(
-    () => window.itd != null && window.itd.ids().some((n) => n.id === 'menu.diff.normal'),
-    { timeout: 20000 },
-  )
-}
-
+// молча промахивался (id не найден), и прогон висел 20с на connected. Ждём
+// state().menuReady — lib/menu.mjs (ITGAME-133); браузер на сценарий свежий,
+// sid нет, поэтому кадр меню от этого не меняется.
 async function loadScenario(page, base, name) {
   if (name === 'menu') {
     await page.goto(`${base}/?debug=1`)

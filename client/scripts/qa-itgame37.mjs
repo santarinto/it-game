@@ -69,6 +69,7 @@ import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
+import { waitMenuReady } from './lib/menu.mjs'
 
 const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 const SELF_PORT = Number(process.env.QA_PORT) || 4176
@@ -82,17 +83,8 @@ function check(name, pass, fact) {
   console.log(`${pass ? 'PASS' : 'FAIL'}: ${name}${fact ? ` — ${fact}` : ''}`)
 }
 
-// Готовность меню — state().menuReady (контракт itd.state, ITGAME-19), а не «плашка
-// уже в ids()»: sid выставлен явно (sessionStorage до документа), значит
-// hasSavedSession() true и меню ждёт сводку сейва (/ws?peek=1). Пока она в пути,
-// saveView() 'loading' → needsConfirm(), и клик по menu.diff.normal открывает
-// «Начать заново?» вместо старта — п.1 видел transitions [] (ITGAME-130).
-async function waitMenuReady(page) {
-  await page.waitForFunction(
-    () => window.itd != null && window.itd.state().menuReady === true && window.itd.ids().some((n) => n.id === 'menu.diff.normal'),
-    { timeout: 20000 },
-  )
-}
+// Готовность меню — waitMenuReady (lib/menu.mjs): sid выставлен до документа, меню ждёт
+// сводку сейва, и ранний клик открывал «Начать заново?» — п.1 видел transitions [] (ITGAME-130).
 
 // sent-запись командного типа type/speed — { t, type, office, speed? }.
 const speedSent = (list) => list.filter((e) => e.type === 'set_speed').map((e) => e.speed)
