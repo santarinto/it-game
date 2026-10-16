@@ -1,4 +1,4 @@
-.PHONY: help push dev dev-server dev-client test typecheck smoke-ui build sim replay
+.PHONY: help push dev dev-server dev-client stand test typecheck smoke-ui build sim replay
 .DEFAULT_GOAL := help
 
 # .env (DATABASE_URL) подхватывается автоматически; файла может не быть.
@@ -19,6 +19,9 @@ dev-server: ## Go-сервер :8080 с ITGAME_DEBUG=1
 
 dev-client: ## Vite :5173
 	cd client && npm run dev
+
+stand: ## пересобрать и перезапустить постоянный стенд :15555 (systemd --user, БД itdirector_dev)
+	tools/dev-stand/stand.sh
 
 test: ## Go-тесты (тестам БД нужен TEST_DATABASE_URL)
 	cd server && go test ./...

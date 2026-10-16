@@ -1,0 +1,23 @@
+# Постоянный локальный стенд игры (ITGAME-123): systemd --user, 127.0.0.1:15555.
+# Ставит и перезапускает tools/dev-stand/stand.sh (make stand) — руками не копировать.
+# Бинарь, client/dist и сейвы лежат в ~/.local/share/itgame-dev, а не в рабочем
+# дереве: QA-скрипты и visreg пересобирают client/dist постоянно, стенд от этого
+# не меняется до следующего make stand.
+[Unit]
+Description=IT Director — локальный стенд :15555 (ITGAME-123)
+After=network.target
+
+[Service]
+Environment=ITGAME_DEBUG=1
+# Peer-аутентификация через unix-сокет: роль = пользователь ОС, пароля нет.
+Environment="DATABASE_URL=postgres:///itdirector_dev?host=/run/postgresql"
+# Необязательный оверрайд (например, DSN с паролем): KEY=VALUE построчно.
+EnvironmentFile=-%h/.config/itgame-dev/env
+ExecStart=%h/.local/share/itgame-dev/bin/itdirector -addr 127.0.0.1:15555 -static %h/.local/share/itgame-dev/dist -saves %h/.local/share/itgame-dev/saves
+# Ошибка подключения к БД или миграции на старте фатальна — PostgreSQL мог
+# ещё не подняться после загрузки, systemd повторит.
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

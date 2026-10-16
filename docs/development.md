@@ -1164,6 +1164,39 @@ connection or migration error is fatal. Without it, the server starts
 normally and `/admin` shows a database-unavailable notice instead of the
 catalog.
 
+## Local stand (`:15555`)
+
+A permanent local copy of the game for the owner, browser agents and
+`itd.sprite.try`, independent of whether `make dev` or a QA script's
+self-serve port is up (ITGAME-123). It is the systemd user unit
+`itgame-dev.service` on `127.0.0.1:15555` with `ITGAME_DEBUG=1`, so
+`http://localhost:15555/?debug=1` gives `window.itd`.
+
+    make stand        # build client + server, deploy, restart, check
+
+`tools/dev-stand/stand.sh` builds from the working tree (it warns when the
+tree is dirty), puts the binary, `client/dist` and the saves into
+`~/.local/share/itgame-dev/{bin,dist,saves}`, installs
+`tools/dev-stand/itgame-dev.service` into `~/.config/systemd/user`, enables
+and restarts it, then fails unless `:15555` serves the `<meta name="build">`
+it has just built. The stand runs a copy, not the working tree: QA scripts
+and visreg rebuild `client/dist` all the time and the stand does not change
+until the next `make stand`. There is no rebuild on commit, by design.
+
+The database is `itdirector_dev` on the host's PostgreSQL, reached over the
+unix socket with peer auth (`postgres:///itdirector_dev?host=/run/postgresql`,
+no password). An optional `~/.config/itgame-dev/env` (`KEY=VALUE` lines)
+overrides the unit's environment, for example a `DATABASE_URL` with a
+password. The unit restarts on failure, which also covers PostgreSQL coming up
+after it at boot. Logs: `journalctl --user -u itgame-dev`.
+
+Agents read the same database through the MCP server `itd-db` (DBHub,
+`@bytebase/dbhub`, local scope of this project): config
+`~/.config/itgame-dev/dbhub.toml`, one tool `execute_sql`, read-only
+(`select`/`with`/`explain`/`show` per statement, inside `BEGIN READ ONLY`),
+500 rows max. It connects over TCP `127.0.0.1:5432` because DBHub ignores a
+socket path in the DSN.
+
 ## Rendering
 
 The world stays 1280×720 (`GAME_W`/`GAME_H`, `layout.ts`) and every
