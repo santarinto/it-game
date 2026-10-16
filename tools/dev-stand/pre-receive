@@ -1,0 +1,34 @@
+#!/bin/bash
+# Хук pre-receive bare-репо стенда (ITGAME-139): git push stand main = деплой
+# :15555. Ставит его tools/dev-stand/stand.sh init; правки хука — оттуда же.
+#
+# pre-, а не post-receive: сборка идёт до обновления ref, и сломанная сборка
+# отклоняет push — main стенда всегда то, что на нём реально крутится.
+# Выкладка — ровно запушенный sha в ~/.local/share/itgame-dev/src (своё дерево,
+# без .git, рабочий клон не участвует, WIP туда не попадает); собирает её
+# stand.sh deploy из этого же sha, так что правки деплоя едут вместе с кодом.
+set -euo pipefail
+
+STAND=${ITGAME_STAND:-$HOME/.local/share/itgame-dev}
+SRC=$STAND/src
+target=
+
+while read -r _old new ref; do
+  if [ "$ref" != refs/heads/main ]; then
+    echo "stand: $ref — не main, стенд не трогаю"
+    continue
+  fi
+  target=$new
+done
+[ -n "$target" ] || exit 0
+
+exec 9>"$STAND/deploy.lock"
+flock -n 9 || { echo "ОШИБКА (stand): идёт другой деплой" >&2; exit 1; }
+
+mkdir -p "$SRC"
+# Свой индекс выкладки: read-tree -u убирает файлы, которых в новом sha нет,
+# и не трогает неотслеживаемое (client/node_modules, client/dist).
+GIT_INDEX_FILE=$STAND/src.index git --work-tree="$SRC" read-tree --reset -u "$target"
+sha=$(git rev-parse --short=7 "$target")
+echo "stand: выкладка $sha → $SRC"
+exec "$SRC/tools/dev-stand/stand.sh" deploy "$SRC" "$sha"
