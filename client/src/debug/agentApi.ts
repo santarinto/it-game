@@ -143,7 +143,7 @@ export interface LedgerPurchase {
 
 // Деньги исхода события в itd.ledger(), со знаком.
 export interface LedgerEvent {
-  what: string // «аудит провален», «дедлайн выполнен», «вирус: антивирус», …
+  what: string // «аудит провален», «дедлайн выполнен», «дедлайн отклонён», …
   money: number // со знаком: штраф < 0, награда > 0
   clock: string // «HH:MM» игрового дня
 }

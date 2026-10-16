@@ -55,6 +55,7 @@ const ERROR_TEXTS: Record<ServerErrorCode, string> = {
   core_maxed: 'Стойка роутеров уже максимального уровня',
   motivate_cooldown: 'Мотивация ещё не готова',
   not_broken: 'ПК не сломан',
+  not_infected: 'На этом ПК нет вируса',
   no_event: 'Событие уже закрыто',
   bad_option: 'Нет такого варианта',
   need_cooler: 'Сначала купите кулер',

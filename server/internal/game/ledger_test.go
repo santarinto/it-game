@@ -35,7 +35,6 @@ func TestLedgerBalancesWithEventsAndPurchases(t *testing.T) {
 		{name: "дедлайн выполнен", id: EventDeadline, option: 0},
 		{name: "дедлайн провален", id: EventDeadline, option: 0, after: func(g *Game) { g.DeadlineGoal *= 20 }},
 		{name: "дедлайн отклонён", id: EventDeadline, option: 1},
-		{name: "антивирус", id: EventVirus, option: 0},
 		{name: "звезда нанята", id: EventStar, option: 0},
 	}
 	for _, tc := range cases {

@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "f9790240454c",
+  "hash": "c5b2a770ea05",
   "methods": {
     "version": {
       "kind": "prop",
@@ -111,7 +111,7 @@ export const CONTRACT = {
       "params": [
         {
           "name": "type",
-          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'abandon' | 'exit'",
+          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'abandon' | 'exit'",
           "optional": false
         },
         {
@@ -1300,7 +1300,7 @@ export const CONTRACT = {
           "doc": ""
         },
         "code": {
-          "type": "'not_enough_money' | 'no_free_office_slot' | 'no_free_pc' | 'no_free_rack_slot' | 'router_maxed' | 'wrong_phase' | 'staff_limit' | 'office_locked' | 'boss_already' | 'offices_maxed' | 'gateway_already' | 'bad_office' | 'equipment_already' | 'bad_slot' | 'server_maxed' | 'core_maxed' | 'motivate_cooldown' | 'not_broken' | 'no_event' | 'bad_option' | 'need_cooler' | 'unknown_command' | 'bad_speed' | 'not_connected' | 'receipt_timeout' | 'disconnected'",
+          "type": "'not_enough_money' | 'no_free_office_slot' | 'no_free_pc' | 'no_free_rack_slot' | 'router_maxed' | 'wrong_phase' | 'staff_limit' | 'office_locked' | 'boss_already' | 'offices_maxed' | 'gateway_already' | 'bad_office' | 'equipment_already' | 'bad_slot' | 'server_maxed' | 'core_maxed' | 'motivate_cooldown' | 'not_broken' | 'not_infected' | 'no_event' | 'bad_option' | 'need_cooler' | 'unknown_command' | 'bad_speed' | 'not_connected' | 'receipt_timeout' | 'disconnected'",
           "optional": true,
           "doc": ""
         },
@@ -1345,7 +1345,8 @@ export const CONTRACT = {
         "restart",
         "set_speed",
         "upgrade_core",
-        "upgrade_server"
+        "upgrade_server",
+        "virus_click"
       ]
     },
     "ContrastEntry": {
@@ -1699,6 +1700,21 @@ export const CONTRACT = {
           "type": "string",
           "optional": false,
           "doc": "«HH:MM» клика возможен; '' — уже можно"
+        },
+        "infected": {
+          "type": "boolean",
+          "optional": false,
+          "doc": ""
+        },
+        "virusClicks": {
+          "type": "number",
+          "optional": false,
+          "doc": "клики чистки уже сделаны (k)"
+        },
+        "virusNeeded": {
+          "type": "number",
+          "optional": false,
+          "doc": "кликов на чистку (3); 0 — место здорово"
         },
         "salary": {
           "type": "number",
@@ -2138,7 +2154,7 @@ export const CONTRACT = {
         "what": {
           "type": "string",
           "optional": false,
-          "doc": "«аудит провален», «дедлайн выполнен», «вирус: антивирус», …"
+          "doc": "«аудит провален», «дедлайн выполнен», «дедлайн отклонён», …"
         },
         "money": {
           "type": "number",
@@ -2307,10 +2323,10 @@ export const CONTRACT = {
           "optional": false,
           "doc": ""
         },
-        "virusUntil": {
-          "type": "string",
+        "virusPCs": {
+          "type": "number",
           "optional": false,
-          "doc": "вирус: «HH:MM»; '' — нет"
+          "doc": "заражённых мест офиса (ITGAME-103)"
         },
         "servers": {
           "type": "ServerInfo[]",
@@ -2446,7 +2462,7 @@ export const CONTRACT = {
       "kind": "object",
       "fields": {
         "cmd": {
-          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'abandon' | 'exit'",
+          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'abandon' | 'exit'",
           "optional": false,
           "doc": ""
         },
@@ -2713,6 +2729,7 @@ export const CONTRACT = {
         "no_free_rack_slot",
         "not_broken",
         "not_enough_money",
+        "not_infected",
         "office_locked",
         "offices_maxed",
         "router_maxed",
@@ -3199,6 +3216,11 @@ export const CONTRACT = {
           "type": "number",
           "optional": false,
           "doc": "обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)"
+        },
+        "virusWaveAt": {
+          "type": "string",
+          "optional": false,
+          "doc": "«HH:MM», с которого видна следующая волна вируса; '' — заражённых нет (ITGAME-103)"
         },
         "activeEvent": {
           "type": "ActiveEventInfo | null",

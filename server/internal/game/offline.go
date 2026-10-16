@@ -2,9 +2,11 @@ package game
 
 // Офлайн-прогресс (ITGAME-8): при восстановлении сессии пропущенные тики
 // досимулируются сводной формулой — как ForecastEndOfDay, консервативно:
-// без кофе-роллов, событий, поломок и XP; дебаффы жажды/голода и обед
-// учитываются (они детерминированы тиком дня). Сломанные за день ПК
-// чинятся ночим ИТ-шником — с полного дня работает как NextDay.
+// без кофе-роллов, событий, поломок, волн вируса и XP; дебаффы жажды/голода
+// и обед учитываются (они детерминированы тиком дня). Сломанные и
+// заражённые места остаются такими во всех днях (ITGAME-136, ITGAME-103):
+// ночь их не чинит, а роллов офлайн нет — уход из игры замораживает рост
+// вируса, но не лечит.
 
 // OfflineSummary — итог офлайн-догона для отчёта «пока вас не было».
 // Теги — для /api/debug/advance (ITGAME-26); offline_report собирает
@@ -149,7 +151,7 @@ func (g *Game) sumIncome(lo, hi int) int {
 
 // offlineTemplate — копия игры с дневными сбросами: точка отсчёта дохода
 // полного офлайн-дня (все оплачиваются, баффов нет). Сломанные ПК остаются
-// сломанными — ночь их не чинит (ITGAME-136).
+// сломанными, заражённые — заражёнными: ночь их не чинит (ITGAME-136, ITGAME-103).
 func (g *Game) offlineTemplate() *Game {
 	tpl := &Game{
 		cfg: g.cfg, Money: g.Money, Offices: append([]Office(nil), g.Offices...),
@@ -167,13 +169,12 @@ func (g *Game) offlineTemplate() *Game {
 			o.Employees[j].OffendedUntil = 0
 		}
 		o.BossUnpaidToday = false
-		o.VirusUntil = 0
 	}
 	return tpl
 }
 
 // resetForNextDay — дневные сбросы NextDay без роллов кофе и событий.
-// Поломки не трогает, как и NextDay (ITGAME-136).
+// Поломки и вирус не трогает, как и NextDay (ITGAME-136, ITGAME-103).
 func (g *Game) resetForNextDay() {
 	for i := range g.Offices {
 		o := &g.Offices[i]
@@ -185,13 +186,14 @@ func (g *Game) resetForNextDay() {
 			o.Employees[j].OffendedUntil = 0
 		}
 		o.BossUnpaidToday = false
-		o.VirusUntil = 0
 		o.CoffeeEventTicks = nil
 	}
 	g.DayIncome = 0
 	g.DayEventMoney = 0
 	g.DayIncidents = 0
 	g.DayLostIncome = 0
+	g.DayVirusPCs = 0
+	g.DayVirusLost = 0
 	g.DayEvents = nil
 	g.ActiveEvent = nil
 	g.EventLog = nil

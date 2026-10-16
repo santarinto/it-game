@@ -105,12 +105,11 @@ func ApplyDifficulty(c Config, d Difficulty) Config {
 	c.IncomeMax = scale(c.IncomeMax, s.IncomeK)
 	c.CoffeeChancePct = s.CoffeePct
 	c.ThirstMult, c.HungerMult = s.DebuffMult, s.DebuffMult
-	// Unseen Forces: частота и жёсткость событий. Абсолютные цены/штрафы
-	// скалируем здесь (VirusPrice ×K, AuditPenalty ×K, AuditReward ÷K);
+	// Unseen Forces: частота и жёсткость событий. Абсолютные штрафы и
+	// награды скалируем здесь (AuditPenalty ×K, AuditReward ÷K);
 	// динамические доли дедлайна и AuditFineShare умножаются на EventK
-	// в рантайме (auditFine).
+	// в рантайме (auditFine). Правила вируса (ITGAME-103) не скалируются.
 	c.EventChancePct, c.EventSecondPct, c.EventK = s.EventPct, s.Event2Pct, s.EventK
-	c.VirusPrice = scale(c.VirusPrice, s.EventK)
 	c.AuditPenalty = scale(c.AuditPenalty, s.EventK)
 	c.AuditReward = scale(c.AuditReward, 1/s.EventK)
 	// Сложность 2.0: кредит, комбо-цель, дедлайн дней, рынок и вес

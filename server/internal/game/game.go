@@ -41,6 +41,11 @@ type Employee struct {
 	Star    bool // звезда: выработка уже умножена при найме, бейдж ★
 	HireDay int  // день найма: компенсация увольнения в тот же день ниже
 	XP      int  // опыт за продуктивные тики; уровень — производный (LevelFor)
+
+	// Вирус (ITGAME-103): заражение живёт на месте, как поломка. Само не
+	// проходит — ни ночью, ни офлайн; чистят VirusCleanClicks кликов.
+	Infected    bool // место заражено: выработка ×VirusMult
+	VirusClicks int  // клики чистки накоплены (k из «k/3»)
 }
 
 // Game — состояние одной игры. НЕ потокобезопасен: им владеет
@@ -71,6 +76,12 @@ type Game struct {
 	PeakIncomePerTick int // максимум дохода за тик за игру (для итогов банкротства)
 	DayIncidents      int // поломок ПК за текущий день (для отчёта)
 	DayLostIncome     int // упущено из-за поломок за текущий день (для отчёта)
+
+	// Вирус (ITGAME-103). VirusWaveIn — тиков партии до волны: общий на
+	// компанию таймер, тикает и в обед, переходит через ночь; 0 — заражённых нет.
+	VirusWaveIn  int
+	DayVirusPCs  int // новых заражений за текущий день (вспышки и волны)
+	DayVirusLost int // упущено из-за вируса за текущий день: −30% заражённых мест
 
 	// Won-финал: причина проигрыша для протокола (bankrupt | time_up);
 	// живёт только в терминальной фазе, в сейвы не попадает.
@@ -339,8 +350,9 @@ const doomHorizonDays = 365
 // (ITGAME-118); 0 — не обречена. Обречена: уровень с кредитом, партия идёт,
 // баланс в минусе (ни покупки, ни увольнения: всё требует Money >= цена) и
 // доход штата не покрывает ФОТ и проценты до CreditLimit. Доход — по шаблону
-// офлайн-движка, но с целыми ПК: ремонт кликами бесплатный, сломанный ПК —
-// не тупик, хотя ночью он сам больше не чинится (ITGAME-136). Без баффов и
+// офлайн-движка, но с целыми и чистыми ПК: ремонт и чистка кликами бесплатны,
+// сломанный ПК — не тупик, хотя ночью он сам больше не чинится (ITGAME-136),
+// заражённое место — тоже, хотя вирус сам не проходит (ITGAME-103). Без баффов и
 // событий, рынок нейтрален. Сегодня — остаток дня от текущего тика,
 // поэтому прогноз не скачет в течение дня. Дедлайн уровня раньше банкротства
 // закроет партию по time_up — тогда 0: предупреждать о банкротстве незачем.
@@ -353,6 +365,7 @@ func (g *Game) BankruptInDays() int {
 	for i := range tpl.Offices {
 		for j := range tpl.Offices[i].Employees { // своя копия шаблона, живую игру не трогает
 			tpl.Offices[i].Employees[j].PCBroken = false
+			tpl.Offices[i].Employees[j].Infected = false
 		}
 	}
 	dayTicks := g.cfg.DayTicks()
@@ -406,15 +419,17 @@ func (g *Game) IncomePerTick() int {
 // личная выработка × эффекты × сетевой множитель из цепочки
 // «роутер → core → сервер» (см. Network).
 func (g *Game) incomeAtTick(tick int) int {
-	total, _ := g.incomeAtTickDetail(tick)
+	total, _, _ := g.incomeAtTickDetail(tick)
 	return total
 }
 
-// incomeAtTickDetail — доход тика и упущенное из-за сломанных ПК:
-// сколько заработал бы сотрудник сломанного места без поломки.
-func (g *Game) incomeAtTickDetail(tick int) (total, lost int) {
+// incomeAtTickDetail — доход тика, упущенное из-за сломанных ПК (сколько
+// заработал бы сотрудник сломанного места без поломки) и упущенное из-за
+// вируса (−30% заражённых мест с исправным ПК; у сломанного заражённого
+// упущенное целиком — в поломке).
+func (g *Game) incomeAtTickDetail(tick int) (total, lost, virusLost int) {
 	if g.cfg.isLunchTick(tick) {
-		return 0, 0
+		return 0, 0, 0
 	}
 	net := g.Network()
 	for oi := range g.Offices {
@@ -426,11 +441,17 @@ func (g *Game) incomeAtTickDetail(tick int) (total, lost int) {
 			e := &o.Employees[i]
 			// Прибавка уровня входит в личную выработку до эффектов и сети:
 			// тенюра масштабируется инфраструктурой (итерация 15).
-			v := int(math.Round(float64(e.IncomePerTick+g.levelBonus(e)) * g.effectMult(o, e, tick) * net.Mults[oi][i]))
+			clean := float64(e.IncomePerTick+g.levelBonus(e)) * g.dayEffectMult(o, e, tick)
+			v := int(math.Round(clean * net.Mults[oi][i]))
+			healthy := v
+			if e.Infected {
+				v = int(math.Round(clean * g.cfg.VirusMult * net.Mults[oi][i]))
+			}
 			if e.PCBroken {
 				lost += v
 				continue
 			}
+			virusLost += healthy - v
 			total += v
 		}
 	}
@@ -439,8 +460,9 @@ func (g *Game) incomeAtTickDetail(tick int) (total, lost int) {
 	if m := g.marketMult(); m != 1 {
 		total = int(math.Round(float64(total) * m))
 		lost = int(math.Round(float64(lost) * m))
+		virusLost = int(math.Round(float64(virusLost) * m))
 	}
-	return total, lost
+	return total, lost, virusLost
 }
 
 // PayrollPerDay — полные дневные расходы: зарплаты сотрудников и боссов
@@ -508,6 +530,8 @@ type DayReport struct {
 	Balance     int
 	Incidents   int      // поломок ПК за день
 	LostIncome  int      // упущено из-за поломок, $
+	VirusPCs    int      // новых заражений за день (ITGAME-103)
+	VirusLost   int      // упущено из-за вируса, $
 	Events      []string // события дня: по строке на итог
 }
 
@@ -534,8 +558,11 @@ func (g *Game) Tick() *DayReport {
 		}
 	}
 	g.rollBreakdowns()
+	// Волна до активации событий: вспышка этого тика заводит таймер с
+	// полного интервала, и первая волна приходит ровно через VirusSpreadTicks.
+	g.tickVirus()
 	g.activateEvents()
-	income, lost := g.incomeAtTickDetail(g.TickInDay)
+	income, lost, virusLost := g.incomeAtTickDetail(g.TickInDay)
 	if !g.cfg.isLunchTick(g.TickInDay) {
 		g.accrueXP()
 	}
@@ -543,6 +570,7 @@ func (g *Game) Tick() *DayReport {
 	g.DayIncome += income
 	g.Ledger.Income += income
 	g.DayLostIncome += lost
+	g.DayVirusLost += virusLost
 	g.tickEvents(income)
 	g.PeakIncomePerTick = max(g.PeakIncomePerTick, income)
 	// Победа проверяется до конца дня: достиг цели днём — победа сразу,
@@ -557,6 +585,7 @@ func (g *Game) Tick() *DayReport {
 	}
 	g.PrevDayIncome = g.DayIncome
 	g.autoResolveEvents()
+	g.logVirusEvening()
 	expenses := g.PayrollPerDay()
 	opex := g.gatewayOpex()
 	payroll := expenses - opex
@@ -565,7 +594,8 @@ func (g *Game) Tick() *DayReport {
 	return &DayReport{Day: g.Day, Income: g.DayIncome, Payroll: payroll,
 		GatewayOpex: opex, EventMoney: g.DayEventMoney,
 		Profit: g.DayIncome + g.DayEventMoney - expenses, Balance: g.Money,
-		Incidents: g.DayIncidents, LostIncome: g.DayLostIncome, Events: g.EventLog}
+		Incidents: g.DayIncidents, LostIncome: g.DayLostIncome,
+		VirusPCs: g.DayVirusPCs, VirusLost: g.DayVirusLost, Events: g.EventLog}
 }
 
 // LegacyRepairClicks — N поломки без своего N: сейв до ITGAME-93, ручная

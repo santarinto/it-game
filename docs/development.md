@@ -167,7 +167,8 @@ the TTL (default 24 h, `-save-ttl`):
 
 - the game resumes; a short drop (e.g. a deploy) continues silently;
 - missed time is simulated offline with a summary formula (no coffee rolls,
-  events, breakdowns or XP; lunch and amenity debuffs apply; session speed
+  events, breakdowns, virus waves or XP; lunch and amenity debuffs apply,
+  broken and infected seats stay so; session speed
   applies, pause freezes). A day or more away produces a "while you were
   away" report; bankruptcy or victory can happen offline. While that window
   is open the HUD pauses the party (`set_speed 0`) and «Продолжить →»
@@ -270,6 +271,17 @@ overwrites a live one.
 Save directory: `-saves` flag → `ITGAME_SAVES_DIR` →
 `/opt/itgame/shared/saves` (if it exists) → `./saves`. `-saves off` runs
 stateless. Expired saves are purged on start and on access.
+
+**Save format** (ITGAME-103): `Save.Format` (`format` in the JSON) is
+`game.SaveFormat`, written by `Export`; `Restore` rejects anything older with
+`ErrBadSave` and there is no migration (owner decision 16.10, not production).
+Format 1 is the virus on seats — a save from before it has no `format` and a
+config without `VirusSpreadTicks`/`OfficeCols`, which would restore as zeros and
+break the wave. Such a save behaves like a broken one: the menu peek says there
+is no save, a connect with the same sid starts a new party, and its first save
+overwrites the file. Fixtures, `itd.restore` and the journal checkpoints are
+built over `Export`, so they carry the format; a party journal recorded before
+ITGAME-103 no longer replays.
 
 ## Command ids, `rev` and `cause`
 
@@ -573,14 +585,21 @@ party (ITGAME-69). The scenes open them through `partyModals()`
 
 Fixtures (`server/internal/game/fixtures/*.json`, `?scenario=X` or
 `itd.scenario(X)`): `fresh`, `broke_day3`, `mid_day10`, `full_office`,
-`soft_lock`, `pre_victory`, `spare_pcs`, `broken_pc`, `doomed_debt`. `broken_pc`
+`soft_lock`, `pre_victory`, `spare_pcs`, `broken_pc`, `doomed_debt`,
+`virus_outbreak`. `broken_pc`
 (ITGAME-74): day 4, 11:00, three employees in office 1, all online, slot 0's
 PC broken (0/3 repair clicks: the fixture pins `RepairNeeded: 3`) — the only
 way to get a broken PC on demand (breakdowns roll at random; at most one per
 office, so no second one appears). `doomed_debt` (ITGAME-118): morning of
 day 8, $2000 of debt, a boss and one weak employee — on Hard/Hardcore the
 party is doomed (`state.bankruptInDays` > 0, the «До банкротства N дней»
-plate), on Easy/Normal there is no credit and no signal.
+plate), on Easy/Normal there is no credit and no signal. `virus_outbreak`
+(ITGAME-103): day 4, 11:00, office 1 with 9 employees on a tier-1 router
+(seats 1–4 on the router, 5–9 neighbours only), office 2 with 4, core level 1
+(both offices' seats 1–4 in core); seats 1 and 6 of office 1 and seat 2 of
+office 2 infected (0/3), the «Вирус в сети» card open, the wave at 12:00
+(`virusWaveIn` 6) — one wave shows all three channels and an office-to-office
+jump.
 
 **Doomed party** (ITGAME-118): `Game.BankruptInDays()` is the number of day
 closes until bankruptcy, 0 when the party is not doomed, sent as
@@ -614,6 +633,50 @@ and the 3..15 range. `make sim` models clicks as free (greedy clicks until
 repaired), so N does not move its economics — what it changes is the player's
 choice between clicking 3..15 times (≈ 9 on average, was 3) and the $150
 master.
+
+**Virus on seats** (ITGAME-103, design in the GDD «Вирус (ITGAME-103)»): the
+infection lives on the occupied seat like a breakdown — `Employee.Infected`
+and `VirusClicks` (k of `VirusCleanClicks` = 3), sent as `employeeInfo.infected`,
+`virusClicks`, `virusNeeded` (3 while infected, else 0), with the effect
+`virus` −30% (`VirusMult` 0.7, `until` empty). An outbreak (`seedOutbreak`, when
+the `virus` event activates) infects ⌈staff / `VirusSeedStaff`⌉ random seats of
+its office that are healthy with a whole PC; none — the card is «Вирус отбит»
+(`DayEvent.Repelled`, one option). `Game.VirusWaveIn` is one company timer in
+party ticks: the first outbreak sets `VirusSpreadTicks` (18), a second one on a
+live infection leaves it; `tickVirus` runs in `Tick` after `rollBreakdowns` and
+before `activateEvents`, so the first wave comes exactly 18 ticks after the
+outbreak, at lunch too and across the night. At 0 every infected seat with a
+whole PC (a snapshot taken before the wave) infects one random eligible seat
+of its reach — grid neighbours by row and column (`Config.OfficeCols` 4,
+mirrored by `GRID.cols` in `OfficeScene.ts`, `TestOfficeColsMirrorsClientGrid`
+compares them) ∪ the office's router seats if the seat is on a port ∪ every
+core seat of the company if the seat is in core (`NetworkState.CoreLinked`);
+targets are checked live, so two sources never share one. Rolls come from the
+server PCG — the journal and `make replay` reproduce them. `virus_click`
+(office, slot; `bad_office`, `office_locked`, `bad_slot`, `not_infected`) counts
+k, the third click calls `cleanPC` — the one cleaning function the admins
+(ITGAME-101) and security (ITGAME-100) will call too: no infected seats left in
+the company stops the timer, a clean office closes its open card and logs
+«вычищен вручную к HH:MM». Firing an infected employee takes the infection
+along (timer and card the same, no log line). Breakdowns and the virus are
+independent: a broken seat is neither target nor source, repair and the master
+leave the virus. Nothing cleans it by itself — `next_day`, `resetForNextDay`
+and the offline day template keep it, the forecast and the offline catch-up
+count infected seats at −30% and roll no waves (the timer stands still while
+away); `BankruptInDays` cleans its own copy of the template, like it repairs
+broken PCs — three free clicks are not a dead end. `state.virusWaveAt` is the
+clock from which the next wave is visible («HH:MM», tomorrow's morning across
+the night, empty with no infected seats), `officeInfo.virusPCs` the infected
+seats of an office (replaces `virusUntil`), `dayReport.virusPCs`/`virusLost`
+the day's new infections and the income they cost (a broken infected seat's
+loss stays in `lostIncome`); the day log gets «вирус в офисе N: k ПК», «вирус в
+офисе N отбит», «…: чистим вручную» and at the evening «к вечеру заражено k ПК —
+само не пройдёт». The card «Вирус в сети» has one option «Чистить вручную»
+until the subscription (ITGAME-137); the client's label, click routing,
+navigation badge and report line are ITGAME-138 — until then the office plate
+reads «☣ вирус: k из n мест · волна в HH:MM» and a left click on an infected
+seat still motivates. `make sim`'s greedy policy cleans every infected seat
+on its hourly turn, like it repairs.
 
 **One click zone per workstation** (ITGAME-92): every occupied desk has a
 single interactive zone `office.slot.N` — the union of the worker frame and

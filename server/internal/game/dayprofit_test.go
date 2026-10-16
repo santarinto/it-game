@@ -15,7 +15,7 @@ func finishDay(t *testing.T, g *Game) *DayReport {
 }
 
 // «Прибыль» дня — с деньгами событий (решение владельца, ITGAME-53):
-// исходы дедлайна и аудита, отказ от дедлайна, антивирус входят в отчёт,
+// исходы дедлайна и аудита, отказ от дедлайна входят в отчёт,
 // и в дни событий без покупок прибыль сходится с изменением баланса. Найм
 // звезды — покупка, как обычный найм: в прибыль не входит.
 func TestReportProfitIncludesEventMoney(t *testing.T) {
@@ -35,8 +35,6 @@ func TestReportProfitIncludesEventMoney(t *testing.T) {
 			event: func(g *Game) int { return g.cfg.AuditReward }},
 		{name: "дедлайн отклонён", id: EventDeadline, option: 1,
 			event: nil},
-		{name: "антивирус", id: EventVirus, option: 0,
-			event: func(g *Game) int { return -g.cfg.VirusPrice }},
 		{name: "звезда нанята", id: EventStar, option: 0,
 			event:   func(g *Game) int { return 0 },
 			buyCost: func(g *Game) int { return 2 * g.cfg.HirePrice }},
@@ -145,13 +143,13 @@ func TestDayProfitFlatThroughAuditCheck(t *testing.T) {
 // Деньги событий — дневной счётчик: переживают сейв, обнуляются новым днём.
 func TestDayEventMoneySaveAndReset(t *testing.T) {
 	g := eventGame()
-	forceEvent(g, EventVirus)
+	forceEvent(g, EventDeadline)
 	g.Tick()
-	if err := g.ChooseEvent(0); err != nil {
+	if err := g.ChooseEvent(1); err != nil {
 		t.Fatal(err)
 	}
-	if g.DayEventMoney != -g.cfg.VirusPrice {
-		t.Fatalf("антивирус: DayEventMoney %d", g.DayEventMoney)
+	if g.DayEventMoney >= 0 {
+		t.Fatalf("отказ от дедлайна: DayEventMoney %d, хотим штраф", g.DayEventMoney)
 	}
 	if r := saveRoundtrip(t, g); r.DayEventMoney != g.DayEventMoney {
 		t.Errorf("после сейва DayEventMoney %d, хотим %d", r.DayEventMoney, g.DayEventMoney)

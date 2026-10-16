@@ -208,7 +208,7 @@ func TestDebugScenarioSoftLock(t *testing.T) {
 	}
 
 	code, out = httpDebug(t, base, "GET", "/api/debug/fixtures", "")
-	if code != 200 || len(out["fixtures"].([]any)) != 9 { // + broken_pc (ITGAME-74), doomed_debt (ITGAME-118)
+	if code != 200 || len(out["fixtures"].([]any)) != 10 { // + broken_pc (ITGAME-74), doomed_debt (ITGAME-118), virus_outbreak (ITGAME-103)
 		t.Fatalf("fixtures: %d %v", code, out)
 	}
 

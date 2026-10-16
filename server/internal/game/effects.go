@@ -9,6 +9,7 @@ const (
 	EffectCoffee    = "coffee"
 	EffectMotivated = "motivated"
 	EffectOffended  = "offended" // отказ в повышении (итерация 10)
+	EffectVirus     = "virus"    // заражённое место (ITGAME-103), до чистки
 )
 
 // Effect — активный эффект сотрудника (для снапшота и тултипа).
@@ -20,6 +21,16 @@ type Effect struct {
 
 // effectMult — множитель эффектов сотрудника офиса на данном тике.
 func (g *Game) effectMult(o *Office, e *Employee, tick int) float64 {
+	m := g.dayEffectMult(o, e, tick)
+	if e.Infected {
+		m *= g.cfg.VirusMult
+	}
+	return m
+}
+
+// dayEffectMult — множитель эффектов без вируса: доход и упущенное из-за
+// вируса считаются от одной базы (incomeAtTickDetail).
+func (g *Game) dayEffectMult(o *Office, e *Employee, tick int) float64 {
 	m := 1.0
 	if !o.Cooler && tick >= g.cfg.thirstTick() {
 		m *= g.cfg.ThirstMult
@@ -32,9 +43,6 @@ func (g *Game) effectMult(o *Office, e *Employee, tick int) float64 {
 	}
 	if e.MotivatedUntil > tick {
 		m *= g.cfg.MotivateMult
-	}
-	if o.VirusUntil > tick {
-		m *= g.cfg.VirusMult
 	}
 	if e.OffendedUntil > tick {
 		m *= g.cfg.RaiseOffendMult
@@ -70,6 +78,9 @@ func (g *Game) Effects(o *Office, e *Employee) []Effect {
 	}
 	if e.OffendedUntil > tick {
 		out = append(out, Effect{Token: EffectOffended, Percent: pct(g.cfg.RaiseOffendMult), Until: e.OffendedUntil})
+	}
+	if e.Infected {
+		out = append(out, Effect{Token: EffectVirus, Percent: pct(g.cfg.VirusMult), Until: -1})
 	}
 	return out
 }

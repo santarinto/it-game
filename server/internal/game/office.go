@@ -14,7 +14,6 @@ type Office struct {
 	Fridge           bool
 	CoffeeMachine    bool
 	CoffeeEventTicks []int // тики кофе-событий текущего дня; роллятся в NextDay
-	VirusUntil       int   // вирус: доход офиса ×VirusMult пока тик < VirusUntil; 0 — нет
 }
 
 // Ports — сколько рабочих мест офиса роутер подключает к сети.

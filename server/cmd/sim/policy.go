@@ -34,8 +34,8 @@ func greedyPolicy(g *game.Game, _ *rand.Rand, _ int) {
 		if !o.Unlocked {
 			continue
 		}
-		// активный день: чиним сломанные ПК (клики бесплатны), мотивируем
-		// по кулдауну — жадная политика забирает и активный слой тоже
+		// активный день: чиним сломанные ПК и чистим вирус (клики бесплатны),
+		// мотивируем по кулдауну — жадная политика забирает и активный слой тоже
 		for j := range o.Employees {
 			if o.Employees[j].PCBroken {
 				// N кликов роллится при поломке (ITGAME-93): кликаем, пока
@@ -44,6 +44,13 @@ func greedyPolicy(g *game.Game, _ *rand.Rand, _ int) {
 					if g.Apply(game.CmdRepairClick, i, j) != nil {
 						break
 					}
+				}
+			}
+			// вирус (ITGAME-103): чистим заражённое место — 3 клика, бесплатно,
+			// как ремонт; сломанное заражённое чистится тем же кликом
+			for o.Employees[j].Infected {
+				if g.Apply(game.CmdVirusClick, i, j) != nil {
+					break
 				}
 			}
 			_ = g.Apply(game.CmdMotivate, i, j) // кулдаун → ошибка → мимо

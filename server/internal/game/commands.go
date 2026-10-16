@@ -27,6 +27,7 @@ const (
 	ErrCoreMaxed        = Err("core_maxed")
 	ErrMotivateCooldown = Err("motivate_cooldown")
 	ErrNotBroken        = Err("not_broken")
+	ErrNotInfected      = Err("not_infected") // virus_click по здоровому месту (ITGAME-103)
 	ErrNoEvent          = Err("no_event")
 	ErrBadOption        = Err("bad_option")
 	ErrNeedCooler       = Err("need_cooler")
@@ -142,7 +143,11 @@ func (g *Game) Fire(office, slot int) error {
 	}
 	g.spend(CmdFire, comp)
 	g.retargetRaiseEvents(office, slot)
+	infected := o.Employees[slot].Infected
 	o.Employees = append(o.Employees[:slot], o.Employees[slot+1:]...)
+	if infected { // уволенный уходит вместе с заражением (ITGAME-103)
+		g.virusSettled(office, false)
+	}
 	return nil
 }
 
@@ -406,6 +411,7 @@ func (g *Game) NextDay() error {
 	}
 	// Сбрасываем флаги неполного дня для нанятых после обеда и баффы дня.
 	// Поломка ночь переживает (ITGAME-136): ПК ждёт кликов или мастера.
+	// Вирус и таймер его волны — тоже (ITGAME-103): само не проходит.
 	for i := range g.Offices {
 		o := &g.Offices[i]
 		for j := range o.Employees {
@@ -416,7 +422,6 @@ func (g *Game) NextDay() error {
 			o.Employees[j].OffendedUntil = 0
 		}
 		o.BossUnpaidToday = false
-		o.VirusUntil = 0
 		// Роллим кофе-события следующего дня: одно до обеда, одно после.
 		if o.CoffeeMachine {
 			o.CoffeeEventTicks = []int{
@@ -434,6 +439,8 @@ func (g *Game) NextDay() error {
 	g.DayEventMoney = 0
 	g.DayIncidents = 0
 	g.DayLostIncome = 0
+	g.DayVirusPCs = 0
+	g.DayVirusLost = 0
 	// Рынок: вчерашний «завтра» становится сегодня, роллится новый завтра —
 	// тренд всегда виден на день вперёд (Сложность 2.0).
 	g.MarketToday, g.MarketTomorrow = g.MarketTomorrow, g.rollMarket()
@@ -503,6 +510,7 @@ const (
 	CmdCallMaster    = Command("call_master")
 	CmdEventChoice   = Command("event_choice")
 	CmdFire          = Command("fire")
+	CmdVirusClick    = Command("virus_click") // клик чистки заражённого места (ITGAME-103)
 )
 
 // Apply выполняет команду игрока; офисные команды адресуются индексом office,
@@ -548,6 +556,8 @@ func (g *Game) Apply(cmd Command, office, slot int) error {
 		return g.RepairClick(office, slot)
 	case CmdCallMaster:
 		return g.CallMaster(office, slot)
+	case CmdVirusClick:
+		return g.VirusClick(office, slot)
 	case CmdFire:
 		return g.Fire(office, slot)
 	case CmdEventChoice:

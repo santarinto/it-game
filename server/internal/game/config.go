@@ -59,9 +59,7 @@ type Config struct {
 	EventChancePct  int     // шанс события в дне, %
 	EventSecondPct  int     // шанс второго события в дне, %
 	EventK          float64 // жёсткость от сложности: динамические штрафы ×K, премии ÷K
-	VirusMult       float64 // вирус: множитель дохода офиса
-	VirusTicks      int     // вирус: длительность, тиков
-	VirusPrice      int     // антивирус (ApplyDifficulty уже умножает на EventK)
+	VirusMult       float64 // вирус: множитель выработки заражённого места (ITGAME-103)
 	AuditReward     int     // аудит: субсидия за топ-конфиг (÷EventK в ApplyDifficulty)
 	AuditPenalty    int     // аудит: потолок штрафа без топ-конфига (×EventK в ApplyDifficulty)
 	AuditMinCore    int     // аудит: минимальный уровень core для субсидии
@@ -82,6 +80,16 @@ type Config struct {
 	MarketSwingPct    int     // рынок: амплитуда качелей выработки, % (0 — рынка нет)
 	VirusWeightK      float64 // вес «вируса» в пуле событий (хардкор — чаще)
 	DeadlineGoalShare float64 // доля цели дедлайна от ожидаемого дохода окна
+
+	// Вирус (ITGAME-103): заражение мест, волны по сети, чистка кликами.
+	// Числа — GDD «Вирус (ITGAME-103)»; сложность их не скалирует.
+	VirusSpreadTicks int // волна: раз в столько тиков каждый заражённый заражает ещё одно место
+	VirusSeedStaff   int // вспышка: ⌈штат офиса / VirusSeedStaff⌉ заражённых мест
+	VirusCleanClicks int // кликов по месту, чтобы вычистить вирус
+	// OfficeCols — колонок в сетке мест офиса: соседи места для вируса.
+	// Зеркало GRID.cols в client/src/scenes/OfficeScene.ts — место i
+	// стоит в колонке i%OfficeCols, ряду i/OfficeCols.
+	OfficeCols int
 
 	// Сотрудники 2.0 (итерация 15): увольнение, опыт/уровни, звёзды.
 	// Числа — GDD «Сотрудники 2.0».
@@ -180,8 +188,6 @@ func DefaultConfig() Config {
 		EventSecondPct:  30,
 		EventK:          1,
 		VirusMult:       0.7,
-		VirusTicks:      18,
-		VirusPrice:      250,
 		AuditReward:     2000,
 		AuditPenalty:    1200,
 		AuditMinCore:    2,
@@ -194,6 +200,11 @@ func DefaultConfig() Config {
 
 		VirusWeightK:      1,
 		DeadlineGoalShare: 0.7,
+
+		VirusSpreadTicks: 18,
+		VirusSeedStaff:   4,
+		VirusCleanClicks: 3,
+		OfficeCols:       4,
 
 		XPPerTick:          2,
 		XPMentorPerTick:    3,

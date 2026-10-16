@@ -44,6 +44,10 @@ export interface EmployeeInfo {
   repairClicks: number // клики починки уже сделаны (k из «k/N»)
   repairNeeded: number // N кликов этой поломки, 3..15 (ITGAME-93); 0 — ПК цел
   motivateReadyAt: string // «HH:MM» клика возможен; '' — уже можно
+  // Вирус (ITGAME-103): заражение места и чистка «k/3».
+  infected: boolean
+  virusClicks: number // клики чистки уже сделаны (k)
+  virusNeeded: number // кликов на чистку (3); 0 — место здорово
   // Unseen Forces (итерация 10).
   salary: number // дневная зарплата этого сотрудника с надбавками
   // Сотрудники 2.0 (итерация 15).
@@ -70,7 +74,7 @@ export interface OfficeInfo {
   cooler: boolean
   fridge: boolean
   coffeeMachine: boolean
-  virusUntil: string // вирус: «HH:MM»; '' — нет
+  virusPCs: number // заражённых мест офиса (ITGAME-103)
   servers: ServerInfo[]
   serverSlots: number
 }
@@ -133,6 +137,7 @@ export interface StateMessage {
   creditLimit: number // кредитный порог, $ (0 — кредита нет)
   creditRatePct: number // процент за день на долг
   bankruptInDays: number // обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)
+  virusWaveAt: string // «HH:MM», с которого видна следующая волна вируса; '' — заражённых нет (ITGAME-103)
   activeEvent: ActiveEventInfo | null // висящее событие Unseen Forces
   prices: {
     pc: number
@@ -171,6 +176,7 @@ export const SERVER_ERROR_CODES = [
   'core_maxed',
   'motivate_cooldown',
   'not_broken',
+  'not_infected',
   'no_event',
   'bad_option',
   'need_cooler',
@@ -198,6 +204,8 @@ export interface DayReportMessage {
   gatewayOpex: number
   incidents: number // поломок ПК за день
   lostIncome: number // упущено из-за поломок, $
+  virusPCs: number // новых заражений за день (ITGAME-103)
+  virusLost: number // упущено из-за вируса, $
   events: string[] // события дня: по строке на итог
 }
 
@@ -258,6 +266,7 @@ export const COMMAND_TYPES = [
   'buy_cooler', 'buy_fridge', 'buy_coffee', 'set_speed',
   'upgrade_server', 'upgrade_core',
   'motivate', 'repair_click', 'call_master', 'event_choice', 'fire',
+  'virus_click',
   'abandon', 'exit',
 ] as const
 

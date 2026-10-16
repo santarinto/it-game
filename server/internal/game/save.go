@@ -17,10 +17,17 @@ import (
 // сессия начинается заново.
 var ErrBadSave = errors.New("bad_save")
 
+// SaveFormat — версия формата сейва, её пишет Export. Сейв младше не
+// читается (ErrBadSave), без миграции — решение владельца 16.10 (не прод):
+// 1 — ITGAME-103, вирус живёт на местах, а конфиг без VirusSpreadTicks и
+// OfficeCols встал бы нулями и сломал волну. Сейв без поля — формат 0.
+const SaveFormat = 1
+
 // Save — сериализуемый слепок Game: конфиг плюс все поля состояния.
 // Поле в день отчёта (Phase=day_report) валидно: TickInDay при этом равен
 // длине дня, отчёт дошлёт ws-слой из LastReport.
 type Save struct {
+	Format            int        `json:"format"` // SaveFormat; 0 — сейв до ITGAME-103
 	Config            Config     `json:"config"`
 	Seed              uint64     `json:"seed"` // сид RNG: восстанавливается при load (ITGAME-26)
 	Money             int        `json:"money"`
@@ -36,6 +43,9 @@ type Save struct {
 	PeakIncomePerTick int        `json:"peakIncomePerTick"`
 	DayIncidents      int        `json:"dayIncidents"`
 	DayLostIncome     int        `json:"dayLostIncome"`
+	VirusWaveIn       int        `json:"virusWaveIn"`  // тиков до волны вируса, 0 — заражённых нет (ITGAME-103)
+	DayVirusPCs       int        `json:"dayVirusPCs"`  // новых заражений за день
+	DayVirusLost      int        `json:"dayVirusLost"` // упущено из-за вируса за день
 	DayEvents         []DayEvent `json:"dayEvents"`
 	ActiveEvent       *DayEvent  `json:"activeEvent"`
 	EventLog          []string   `json:"eventLog"`
@@ -53,10 +63,11 @@ type Save struct {
 // Export — слепок текущего состояния для сейва.
 func (g *Game) Export() Save {
 	s := Save{
-		Config: cloneConfig(g.cfg), Seed: g.Seed, Money: g.Money, Offices: cloneOffices(g.Offices), CoreLevel: g.CoreLevel,
+		Format: SaveFormat, Config: cloneConfig(g.cfg), Seed: g.Seed, Money: g.Money, Offices: cloneOffices(g.Offices), CoreLevel: g.CoreLevel,
 		Gateway: g.Gateway, Phase: g.Phase, Day: g.Day, TickInDay: g.TickInDay,
 		DayIncome: g.DayIncome, DayEventMoney: g.DayEventMoney, PrevDayIncome: g.PrevDayIncome, PeakIncomePerTick: g.PeakIncomePerTick,
 		DayIncidents: g.DayIncidents, DayLostIncome: g.DayLostIncome,
+		VirusWaveIn: g.VirusWaveIn, DayVirusPCs: g.DayVirusPCs, DayVirusLost: g.DayVirusLost,
 		EventLog:   slices.Clone(g.EventLog),
 		DeadlineOn: g.DeadlineOn, DeadlineGot: g.DeadlineGot, DeadlineGoal: g.DeadlineGoal,
 		MarketToday: g.MarketToday, MarketTomorrow: g.MarketTomorrow,
@@ -134,6 +145,9 @@ func bindActiveEvent(events []DayEvent, active *DayEvent) ([]DayEvent, *DayEvent
 // Restore — игра из сейва. Ошибку возвращает ErrBadSave: битые сейвы
 // молча заменяются новой игрой, это не авария сервера.
 func Restore(s Save) (*Game, error) {
+	if s.Format < SaveFormat {
+		return nil, fmt.Errorf("%w: формат %d < %d — сейв до ITGAME-103", ErrBadSave, s.Format, SaveFormat)
+	}
 	if s.Day < 1 || len(s.Offices) == 0 || !s.Offices[0].Unlocked {
 		return nil, fmt.Errorf("%w: day=%d offices=%d", ErrBadSave, s.Day, len(s.Offices))
 	}
@@ -184,6 +198,7 @@ func Restore(s Save) (*Game, error) {
 		Phase: s.Phase, Day: s.Day, TickInDay: s.TickInDay,
 		DayIncome: s.DayIncome, DayEventMoney: s.DayEventMoney, PrevDayIncome: s.PrevDayIncome, PeakIncomePerTick: s.PeakIncomePerTick,
 		DayIncidents: s.DayIncidents, DayLostIncome: s.DayLostIncome,
+		VirusWaveIn: s.VirusWaveIn, DayVirusPCs: s.DayVirusPCs, DayVirusLost: s.DayVirusLost,
 		EventLog:   s.EventLog,
 		DeadlineOn: s.DeadlineOn, DeadlineGot: s.DeadlineGot, DeadlineGoal: s.DeadlineGoal,
 		MarketToday: s.MarketToday, MarketTomorrow: s.MarketTomorrow,

@@ -1,0 +1,44 @@
+{
+  "_описание": "вирус (ITGAME-103): день 4, 11:00, $5000. Офис 1 — 9 сотрудников, роутер т1 (места 1–4 в сети офиса, 5–9 — только соседи по сетке 4×3), офис 2 — 4 сотрудника, роутер т1, core ур.1 (ёмкость 8: места 1–4 обоих офисов — одна сеть компании). Заражены места 1 и 6 офиса 1 (вспышка в 10:50, карточка «Вирус в сети» висит) и место 2 офиса 2 (со вчера: таймер волны идёт от того заражения, вспышка его не трогала) — VirusClicks 0, волна в 12:00 (virusWaveIn 6). За одну волну видны все три канала: место 6 — только соседи 2/5/7, место 1 — сеть офиса и core, место 2 офиса 2 — core в офис 1. Для qa:slots (три состояния места, клики 0/3 → 3/3), qa:hud (☣ k на значках, рост после itd.step до волны), qa:journal и visreg",
+  "day": 4,
+  "money": 5000,
+  "tickInDay": 6,
+  "coreLevel": 1,
+  "virusWaveIn": 6,
+  "dayVirusPCs": 2,
+  "offices": [
+    {
+      "Unlocked": true,
+      "PCs": 9,
+      "RouterTier": 1,
+      "Employees": [
+        { "Name": "Артём Соколов", "IncomePerTick": 10, "XP": 60, "Infected": true },
+        { "Name": "Мария Кузнецова", "IncomePerTick": 11, "XP": 150 },
+        { "Name": "Дмитрий Орлов", "IncomePerTick": 12, "XP": 300 },
+        { "Name": "Анна Петрова", "IncomePerTick": 13, "XP": 120 },
+        { "Name": "Сергей Лебедев", "IncomePerTick": 9, "XP": 40 },
+        { "Name": "Ольга Морозова", "IncomePerTick": 14, "XP": 200, "Infected": true },
+        { "Name": "Игорь Волков", "IncomePerTick": 10, "XP": 90 },
+        { "Name": "Елена Зайцева", "IncomePerTick": 11, "XP": 30 },
+        { "Name": "Павел Новиков", "IncomePerTick": 12, "XP": 10 }
+      ]
+    },
+    {
+      "Unlocked": true,
+      "PCs": 4,
+      "RouterTier": 1,
+      "Employees": [
+        { "Name": "Ирина Белова", "IncomePerTick": 12, "XP": 80 },
+        { "Name": "Николай Попов", "IncomePerTick": 13, "XP": 70, "Infected": true },
+        { "Name": "Татьяна Киселёва", "IncomePerTick": 9, "XP": 20 },
+        { "Name": "Виктор Егоров", "IncomePerTick": 11, "XP": 5 }
+      ]
+    },
+    { "Unlocked": false }
+  ],
+  "dayEvents": [
+    { "ID": "virus", "Tick": 5, "Office": 0 }
+  ],
+  "activeEvent": { "ID": "virus", "Tick": 5, "Office": 0 },
+  "eventLog": ["10:50 вирус в офисе 1: 2 ПК"]
+}

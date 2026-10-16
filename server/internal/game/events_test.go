@@ -98,66 +98,8 @@ func TestActivateEventsOneAtATime(t *testing.T) {
 	}
 	// Пока первое висит, второе не активируется — даже после его тика.
 	g.Tick()
-	if slices.ContainsFunc(g.DayEvents, func(e DayEvent) bool { return e.ID == EventVirus && g.Offices[0].VirusUntil > 0 }) {
+	if g.infectedCount() > 0 {
 		t.Fatal("второе событие активировалось поверх висящего")
-	}
-}
-
-func TestVirusDebuffAndCure(t *testing.T) {
-	g := eventGame()
-	forceEvent(g, EventVirus)
-	g.Tick() // активация: вирус стартовал
-	if g.Offices[0].VirusUntil == 0 {
-		t.Fatal("вирус не стартовал при активации")
-	}
-	if inc := g.IncomePerTick(); inc != 14 { // 20 × 0.7 = 14
-		t.Errorf("доход под вирусом = %d, хотим 14", inc)
-	}
-	if info := g.ActiveEventInfo(); info == nil || len(info.Options) != 2 {
-		t.Fatalf("снапшот события вируса: %+v", info)
-	}
-	if err := g.ChooseEvent(0); err != nil {
-		t.Fatalf("лечение: %v", err)
-	}
-	if g.Offices[0].VirusUntil != 0 {
-		t.Error("антивирус не вылечил офис")
-	}
-	if g.Money != 10000-250+14 {
-		t.Errorf("деньги после лечения = %d, хотим %d", g.Money, 10000-250+14)
-	}
-	if !strings.Contains(strings.Join(g.EventLog, "; "), "антивирус") {
-		t.Errorf("лог без лечения: %v", g.EventLog)
-	}
-}
-
-func TestVirusTolerate(t *testing.T) {
-	g := eventGame()
-	forceEvent(g, EventVirus)
-	g.Tick()
-	if err := g.ChooseEvent(1); err != nil {
-		t.Fatal(err)
-	}
-	if g.Offices[0].VirusUntil == 0 {
-		t.Error("«терпеть» не должно лечить вирус")
-	}
-	for g.TickInDay < g.Offices[0].VirusUntil {
-		g.Tick()
-	}
-	if inc := g.IncomePerTick(); inc != 20 {
-		t.Errorf("вирус не истёк: доход = %d, хотим 20", inc)
-	}
-}
-
-func TestVirusCureWithoutMoney(t *testing.T) {
-	g := eventGame()
-	g.Money = 0
-	forceEvent(g, EventVirus)
-	g.Tick()
-	if err := g.ChooseEvent(0); err != ErrNotEnoughMoney {
-		t.Errorf("лечение без денег: %v, хотим %v", err, ErrNotEnoughMoney)
-	}
-	if g.ActiveEvent == nil {
-		t.Error("событие должно висеть при нехватке денег")
 	}
 }
 
@@ -502,8 +444,11 @@ func TestNextDayResetsEventState(t *testing.T) {
 	if err := g.NextDay(); err != nil {
 		t.Fatal(err)
 	}
-	if g.Offices[0].VirusUntil != 0 || g.Offices[0].Employees[0].OffendedUntil != 0 {
-		t.Error("ночной ресет не очистил вирус и обиду")
+	if g.Offices[0].Employees[0].OffendedUntil != 0 {
+		t.Error("ночной ресет не очистил обиду")
+	}
+	if g.infectedCount() == 0 {
+		t.Error("ночь вычистила вирус, а он сам не проходит (ITGAME-103)")
 	}
 	if g.DeadlineOn || g.ActiveEvent != nil || g.EventLog != nil {
 		t.Error("ночной ресет не очистил состояние событий")

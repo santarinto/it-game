@@ -14,6 +14,8 @@ import { addSprite } from '../pixelart'
 import { SPRITES } from '../assets/manifest'
 import { FONT, HIRES_CAMERA } from '../render'
 
+// cols — зеркало Config.OfficeCols сервера: по этой сетке вирус ищет соседей
+// места (ITGAME-103); TestOfficeColsMirrorsClientGrid сверяет их.
 const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
 // ITGAME-92: у занятого рабочего места ОДНА зона клика office.slot.i —
 // прямоугольник объединения bounds сотрудника и стола, а пока ПК сломан — ещё
@@ -210,9 +212,10 @@ export class OfficeScene extends Phaser.Scene {
       }).setOrigin(0.5),
     )
 
-    // Вирус: доход офиса проседает — плашка, пока лечат или терпят.
-    if (office.virusUntil) {
-      const plate = this.add.text(GAME_W / 2, HUD_H + 44, `☣ вирус −30% до ${office.virusUntil}`, {
+    // Вирус (ITGAME-103): заражённые места офиса и время следующей волны.
+    if (office.virusPCs > 0) {
+      const wave = s.virusWaveAt ? ` · волна в ${s.virusWaveAt}` : ''
+      const plate = this.add.text(GAME_W / 2, HUD_H + 44, `☣ вирус: ${office.virusPCs} из ${office.employees.length} мест${wave}`, {
         fontFamily: FONT, fontSize: '13px', color: '#b13e53',
         backgroundColor: '#14162b', padding: { x: 8, y: 4 },
       }).setOrigin(0.5)

@@ -93,6 +93,7 @@ type stateMessage struct {
 	CreditLimit      int              `json:"creditLimit"`    // кредитный порог, $ (0 — кредита нет)
 	CreditRatePct    int              `json:"creditRatePct"`  // процент за день на долг
 	BankruptInDays   int              `json:"bankruptInDays"` // обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)
+	VirusWaveAt      string           `json:"virusWaveAt"`    // «HH:MM», с которого видна следующая волна вируса; "" — заражённых нет (ITGAME-103)
 	ActiveEvent      *activeEventInfo `json:"activeEvent"`
 	Prices           prices           `json:"prices"`
 	OfflineReport    bool             `json:"offlineReport,omitempty"` // первый снапшот после resume: следом идёт offline_report (ITGAME-76)
@@ -115,8 +116,8 @@ type officeInfo struct {
 	Cooler          bool           `json:"cooler"`
 	Fridge          bool           `json:"fridge"`
 	CoffeeMachine   bool           `json:"coffeeMachine"`
-	VirusUntil      string         `json:"virusUntil"` // вирус: «HH:MM»; "" — нет
-	Employees       []employeeInfo `json:"employees"`  // порядок = порядок найма
+	VirusPCs        int            `json:"virusPCs"`  // заражённых мест офиса (ITGAME-103)
+	Employees       []employeeInfo `json:"employees"` // порядок = порядок найма
 }
 
 // employeeInfo — сотрудник в снапшоте: всё, что нужно тултипу.
@@ -139,6 +140,10 @@ type employeeInfo struct {
 	RepairClicks    int    `json:"repairClicks"`    // клики починки уже сделаны (k из «k/N»)
 	RepairNeeded    int    `json:"repairNeeded"`    // N кликов этой поломки, 3..15 (ITGAME-93); 0 — ПК цел
 	MotivateReadyAt string `json:"motivateReadyAt"` // «HH:MM» клика возможен; "" — уже можно
+	// Вирус (ITGAME-103): заражение места и чистка «k/3».
+	Infected    bool `json:"infected"`
+	VirusClicks int  `json:"virusClicks"` // клики чистки уже сделаны (k)
+	VirusNeeded int  `json:"virusNeeded"` // кликов на чистку (3); 0 — место здорово
 	// Unseen Forces (итерация 10).
 	Salary int `json:"salary"` // дневная зарплата этого сотрудника (с надбавками)
 	// Сотрудники 2.0 (итерация 15).
@@ -225,6 +230,8 @@ type dayReportMessage struct {
 	Balance     int      `json:"balance"`
 	Incidents   int      `json:"incidents"`  // поломок ПК за день
 	LostIncome  int      `json:"lostIncome"` // упущено из-за поломок, $
+	VirusPCs    int      `json:"virusPCs"`   // новых заражений за день (ITGAME-103)
+	VirusLost   int      `json:"virusLost"`  // упущено из-за вируса, $
 	Events      []string `json:"events"`     // события дня: по строке на итог
 }
 
@@ -304,6 +311,10 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 			if e.PCBroken {
 				repairNeeded = o.Employees[i].RepairTarget()
 			}
+			virusNeeded := 0
+			if e.Infected {
+				virusNeeded = cfg.VirusCleanClicks
+			}
 			employees[i] = employeeInfo{Name: e.Name, IncomePerTick: e.IncomePerTick,
 				EffectiveIncomePerTick: g.EffectiveIncomePerTick(o, &o.Employees[i]),
 				Connected:              net.CoreLinked[oi][i], UnpaidToday: e.UnpaidToday, Effects: effects,
@@ -311,7 +322,8 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 				PCBroken: e.PCBroken, RepairClicks: e.RepairClicks, RepairNeeded: repairNeeded, MotivateReadyAt: readyAt,
 				Salary: cfg.SalaryPerDay + e.SalaryAdd, OfflineReason: reason,
 				Level: g.LevelFor(&o.Employees[i]), XP: e.XP, XPNext: g.XPNext(&o.Employees[i]),
-				Star: e.Star, FirePrice: g.FireCompensation(&o.Employees[i]), HiredToday: e.HireDay == g.Day}
+				Star: e.Star, FirePrice: g.FireCompensation(&o.Employees[i]), HiredToday: e.HireDay == g.Day,
+				Infected: e.Infected, VirusClicks: e.VirusClicks, VirusNeeded: virusNeeded}
 		}
 		// Не nil: nil-срез маршалится в JSON null, а клиент ждёт массив.
 		servers := make([]serverInfo, 0, len(o.Servers))
@@ -327,10 +339,6 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 				ServedTo:   (si + 1) * cfg.EmployeesPerServer,
 			})
 		}
-		virusUntil := ""
-		if o.VirusUntil > g.TickInDay {
-			virusUntil = g.ClockAt(o.VirusUntil)
-		}
 		offices[oi] = officeInfo{
 			Unlocked: o.Unlocked, Price: price, PCs: o.PCs, NextPC: g.NextPCPrice(oi),
 			RouterTier: o.RouterTier, Ports: o.Ports(cfg),
@@ -338,7 +346,7 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 			Servers: servers, ServerSlots: cfg.ServerSlotsPerOffice(),
 			Boss: o.Boss, BossUnpaidToday: o.BossUnpaidToday, Cooler: o.Cooler,
 			Fridge: o.Fridge, CoffeeMachine: o.CoffeeMachine, Employees: employees,
-			VirusUntil: virusUntil,
+			VirusPCs: g.OfficeInfected(oi),
 		}
 	}
 	core := coreInfo{Level: g.CoreLevel, Connected: net.CoreUsed, Mult: 1.0}
@@ -379,8 +387,8 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 		WinStaff: cfg.WinStaff, WinCore: cfg.WinCore, WinDayLimit: cfg.WinDayLimit,
 		MarketToday: g.MarketToday, MarketTomorrow: g.MarketTomorrow,
 		CreditLimit: cfg.CreditLimit, CreditRatePct: int(cfg.CreditRate * 100),
-		BankruptInDays: g.BankruptInDays(),
-		ActiveEvent:    active, Seed: g.SeedString(), Scenario: scenario,
+		BankruptInDays: g.BankruptInDays(), VirusWaveAt: g.VirusWaveClock(),
+		ActiveEvent: active, Seed: g.SeedString(), Scenario: scenario,
 		TickInDay: g.TickInDay, DayIncome: g.DayIncome, DayProfit: g.DayProfit(),
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice,
 			Boss: cfg.BossPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,

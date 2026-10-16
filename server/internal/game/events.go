@@ -41,6 +41,9 @@ type DayEvent struct {
 	Slot      int  // повышение: индекс сотрудника
 	Dismissed bool // тост закрыт игроком (аудит ещё ждёт своего чека)
 	Resolved  bool // сыграло (выбор/авто/чек), в очереди не участвует
+	// Вирус (ITGAME-103): вспышке некуда сесть и в офисе нет заражённых —
+	// карточка «Вирус отбит» с одной опцией.
+	Repelled bool
 }
 
 // EventInfo — активное событие для снапшота протокола.
@@ -189,8 +192,12 @@ func (g *Game) activateEvents() {
 		}
 		g.ActiveEvent = ev
 		if ev.ID == EventVirus {
-			o := &g.Offices[ev.Office]
-			o.VirusUntil = g.TickInDay + g.cfg.VirusTicks
+			if k := g.seedOutbreak(ev.Office); k > 0 {
+				g.logEvent(fmt.Sprintf("вирус в офисе %d: %d ПК", ev.Office+1, k))
+			} else if g.officeInfected(ev.Office) == 0 {
+				ev.Repelled = true
+				g.logEvent(fmt.Sprintf("вирус в офисе %d отбит", ev.Office+1))
+			}
 		}
 		return
 	}
@@ -290,7 +297,7 @@ func (g *Game) autoResolveEvents() {
 	}
 	switch ev.ID {
 	case EventVirus:
-		g.logEvent("вирус: дотерпели до конца дня")
+		// Итог вируса — строка logVirusEvening: заражение переживает ночь.
 	case EventDeadline:
 		g.logEvent("дедлайн проигнорирован")
 	case EventRaise:
@@ -328,17 +335,13 @@ func (g *Game) ChooseEvent(option int) error {
 	}
 	switch ev.ID {
 	case EventVirus:
-		if option == 0 {
-			if g.Money < g.cfg.VirusPrice {
-				return ErrNotEnoughMoney
-			}
-			g.eventMoney(-g.cfg.VirusPrice, "вирус: антивирус")
-			g.Offices[ev.Office].VirusUntil = 0
-			g.logEvent(fmt.Sprintf("вирус: куплен антивирус (−$%d)", g.cfg.VirusPrice))
-		} else if option == 1 {
-			g.logEvent(fmt.Sprintf("вирус: −%d%% до %s", virusDebuffPct(g.cfg.VirusMult), g.ClockAt(g.Offices[ev.Office].VirusUntil)))
-		} else {
+		// «Чистить вручную» (или «Принять к сведению» у отбитой вспышки) —
+		// только закрыть карточку: чистят клики по местам. Подписка — ITGAME-137.
+		if option != 0 {
 			return ErrBadOption
+		}
+		if !ev.Repelled {
+			g.logEvent(fmt.Sprintf("вирус в офисе %d: чистим вручную", ev.Office+1))
 		}
 	case EventDeadline:
 		switch option {
@@ -438,14 +441,16 @@ func (g *Game) ActiveEventInfo() *EventInfo {
 	}
 	switch ev.ID {
 	case EventVirus:
-		until := g.ClockAt(g.Offices[ev.Office].VirusUntil)
+		if ev.Repelled {
+			return &EventInfo{ID: string(ev.ID), Title: "Вирус отбит",
+				Text:    fmt.Sprintf("Офис %d: вирус не нашёл ни одного исправного ПК — заражать нечего.", ev.Office+1),
+				Options: []string{"Принять к сведению"}}
+		}
 		return &EventInfo{ID: string(ev.ID), Title: "Вирус в сети",
-			Text: fmt.Sprintf("Офис %d: доход офиса −%d%% до %s.",
-				ev.Office+1, virusDebuffPct(g.cfg.VirusMult), until),
-			Options: []string{
-				fmt.Sprintf("Купить антивирус $%d", g.cfg.VirusPrice),
-				"Терпеть",
-			}}
+			Text: fmt.Sprintf("Офис %d: заражено %d ПК, −%d%% выработки каждого. Раз в %d часа каждый заражённый ПК заражает ещё один — соседа, а через сеть и дальше. Сам вирус не уйдёт: чистка — %d клика по месту.",
+				ev.Office+1, g.officeInfected(ev.Office), virusDebuffPct(g.cfg.VirusMult),
+				g.cfg.VirusSpreadTicks/g.cfg.TicksPerHour, g.cfg.VirusCleanClicks),
+			Options: []string{"Чистить вручную"}}
 	case EventDeadline:
 		goal := g.deadlineGoalFor()
 		reward := int(deadlineRewardShare * float64(goal) / g.cfg.EventK)
