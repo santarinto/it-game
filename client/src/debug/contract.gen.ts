@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "146a341cc736",
+  "hash": "f9790240454c",
   "methods": {
     "version": {
       "kind": "prop",
@@ -27,7 +27,7 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "AgentServer",
-      "doc": "Снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rev/cause\nпоследнего снапшота (ITGAME-45), rtt, reconnects, sid (куда уходят команды\nи debug-вызовы: liveSid ?? sid хранилища), liveSid (sid живой партии вкладки\nили null), sidSwitches.",
+      "doc": "Снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rev/cause\nпоследнего снапшота (ITGAME-45), rtt, reconnects, sid (куда уходят команды\nи itd.journal(): liveSid ?? sid хранилища), liveSid (sid живой партии вкладки\nили null — тогда прочие debug-вызовы отказывают not_in_party, ITGAME-131),\nsidSwitches.",
       "examples": [
         "itd.server()",
         "itd.wait((s, srv) => srv.rev >= 42)"
@@ -485,7 +485,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<DebugAdvanceResult>",
-      "doc": "Пауза (set_speed 0 — так и остаётся) + промотка тиков ОФЛАЙН-движком через\n/api/debug/advance. Две формы: step(ms) — мс, 1 тик = 1000 мс, округление до\nцелых, 500..10000 мс (1..10 тиков); step({ticks}) — целое 1..10000 тиков за\nвызов. Офлайн-движок — сводная формула: без кофе-роллов, событий, поломок и\nXP; конец дня закрывается без day_report и без роллов next_day (ни\nday_report, ни offline_report не приходят). Из фазы day_report сервер\nсначала делает обычный next_day. Сводка {ticks, days, income, payroll,\nbalance, gameOver, victory, reason?} — в ответе .advance (+ .state) и строкой\n«debug · advance» в itd.snapshot().events; в itd.log() — только переходы\nснапшота (day/phase/speed — пауза step на идущей игре тоже даёт speed) и\ngame_over/victory при финале. Вне фазы running (например game_over) сервер\nотвечает 200 с advance.ticks 0 — ничего не промотано. Настоящий отчёт дня —\nпромотать до последнего тика и дать ему пройти вживую.",
+      "doc": "Пауза (set_speed 0 — так и остаётся) + промотка тиков ОФЛАЙН-движком через\n/api/debug/advance. Две формы: step(ms) — мс, 1 тик = 1000 мс, округление до\nцелых, 500..10000 мс (1..10 тиков); step({ticks}) — целое 1..10000 тиков за\nвызов. Офлайн-движок — сводная формула: без кофе-роллов, событий, поломок и\nXP; конец дня закрывается без day_report и без роллов next_day (ни\nday_report, ни offline_report не приходят). Из фазы day_report сервер\nсначала делает обычный next_day. Сводка {ticks, days, income, payroll,\nbalance, gameOver, victory, reason?} — в ответе .advance (+ .state) и строкой\n«debug · advance» в itd.snapshot().events; в itd.log() — только переходы\nснапшота (day/phase/speed — пауза step на идущей игре тоже даёт speed) и\ngame_over/victory при финале. Вне фазы running (например game_over) сервер\nотвечает 200 с advance.ticks 0 — ничего не промотано. Настоящий отчёт дня —\nпромотать до последнего тика и дать ему пройти вживую.\nВне партии вкладки — reject «not_in_party: …» без запроса и без паузы (ITGAME-131, см. scenario).",
       "examples": [
         "itd.step(2000)",
         "itd.step({ticks: 60})"
@@ -501,7 +501,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<DebugAdvanceResult>",
-      "doc": "Промотка n целых дней (1..90) ОФЛАЙН-движком через /api/debug/advance:\nдень N → N+n, тик дня тот же; set_speed сама не шлёт. Из фазы day_report\nсервер сначала делает обычный next_day (итог — день N+1+n, тик 0), а HUD,\nувидев running, закрывает отчёт и возвращает скорость до отчёта, как кнопка\n«Дальше» (никто другой set_speed не слал) — партия побежит живьём, тик 0 не\nгарантирован. Нужна пауза — itd.pause() ДО вызова (его set_speed сдвигает\nсчётчик, и HUD скорость не вернёт) или itd.step(): он сам ставит паузу.\nОфлайн-движок: без кофе-роллов, событий, поломок и XP; дни закрываются\nбез day_report и offline_report — отчётов дней в itd.log() НЕТ, там только\nсмена дня (type 'day') и game_over/victory при финале. Сводка {ticks,\ndays, income, payroll, balance, …} — в ответе .advance и строкой\n«debug · advance» в itd.snapshot().events. Вне фазы running (например\ngame_over) сервер отвечает 200 с advance.ticks 0 — ничего не промотано.",
+      "doc": "Промотка n целых дней (1..90) ОФЛАЙН-движком через /api/debug/advance:\nдень N → N+n, тик дня тот же; set_speed сама не шлёт. Из фазы day_report\nсервер сначала делает обычный next_day (итог — день N+1+n, тик 0), а HUD,\nувидев running, закрывает отчёт и возвращает скорость до отчёта, как кнопка\n«Дальше» (никто другой set_speed не слал) — партия побежит живьём, тик 0 не\nгарантирован. Нужна пауза — itd.pause() ДО вызова (его set_speed сдвигает\nсчётчик, и HUD скорость не вернёт) или itd.step(): он сам ставит паузу.\nОфлайн-движок: без кофе-роллов, событий, поломок и XP; дни закрываются\nбез day_report и offline_report — отчётов дней в itd.log() НЕТ, там только\nсмена дня (type 'day') и game_over/victory при финале. Сводка {ticks,\ndays, income, payroll, balance, …} — в ответе .advance и строкой\n«debug · advance» в itd.snapshot().events. Вне фазы running (например\ngame_over) сервер отвечает 200 с advance.ticks 0 — ничего не промотано.\nВне партии вкладки — reject «not_in_party: …» без запроса (ITGAME-131, см. scenario).",
       "examples": [
         "itd.advanceDays(3)"
       ]
@@ -531,7 +531,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<DayLedger>",
-      "doc": "Бухгалтерия дня с сервера (ITGAME-73, GET /api/debug/ledger): из чего\nсложилась разница баланса — {day, balanceStart, income, eventMoney,\nevents[{what, money, clock}], purchases[{type, price, clock}], payroll,\ngatewayOpex, interest, adjust, balanceEnd, profit, delta, balanced, closed,\noffline, history}. balanceStart + income + eventMoney − purchasesTotal −\npayroll − gatewayOpex − interest + adjust = balanceEnd ровно (balanced).\nprofit = day_report.profit (покупки и процент в него не входят). Без day —\nтекущий день (balanceEnd — живой баланс, payroll 0 до вечера); иначе один из\nhistory: 7 последних закрытых дней + текущий, хранятся в сейве. Дня нет —\nошибка «нет книги дня N: есть [...]».",
+      "doc": "Бухгалтерия дня с сервера (ITGAME-73, GET /api/debug/ledger): из чего\nсложилась разница баланса — {day, balanceStart, income, eventMoney,\nevents[{what, money, clock}], purchases[{type, price, clock}], payroll,\ngatewayOpex, interest, adjust, balanceEnd, profit, delta, balanced, closed,\noffline, history}. balanceStart + income + eventMoney − purchasesTotal −\npayroll − gatewayOpex − interest + adjust = balanceEnd ровно (balanced).\nprofit = day_report.profit (покупки и процент в него не входят). Без day —\nтекущий день (balanceEnd — живой баланс, payroll 0 до вечера); иначе один из\nhistory: 7 последних закрытых дней + текущий, хранятся в сейве. Дня нет —\nошибка «нет книги дня N: есть [...]».\nВне партии вкладки — reject «not_in_party: …» без запроса (ITGAME-131, см. scenario).",
       "examples": [
         "await itd.ledger()",
         "await itd.ledger(1)"
@@ -547,7 +547,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<JournalView>",
-      "doc": "Журнал партии (ITGAME-46, GET /api/debug/journal; сервер с ITGAME_DEBUG=1):\nхвост входов своей партии — команды с id и отказами, debug-правки, вехи\nдней, resume с офлайн-догоном, end — строками и объектами (без сейвов).\ntail — сколько последних записей (1..500, по умолчанию 20); sid — чужая\nпартия (по умолчанию — своя, как у debug-вызовов). Строка:\n«#seq k что | dДЕНЬ tТИК $ДЕНЬГИ фаза Nx revR +tk», tk — тики с прошлой\nзаписи. cmd — «тип cN idN ok|FAIL код»: cN — номер соединения в партии\n(ITGAME-91: id — счётчик страницы, после F5 снова с 1, у моста агента свой;\nуникальна пара (conn, id)), « bridge» — команда моста /ws/agent. start/resume\n— «cN»: соединение, с которого партия началась/продолжилась. end — evicted\n(сессию забрал другой актор) | read_timeout (сторож чтения: вкладка молчала\nдольше ITGAME_READ_TIMEOUT) | debug_drop (сторож после /api/debug/drop, itd.away\nnet) | disconnect (соединение закрыл клиент: закрытие, F5, away close).\nПолный журнал для реплея — по url (make replay ARGS=\"-url …\").\nНет журнала — ошибка journal_off / no_journal.",
+      "doc": "Журнал партии (ITGAME-46, GET /api/debug/journal; сервер с ITGAME_DEBUG=1):\nхвост входов своей партии — команды с id и отказами, debug-правки, вехи\nдней, resume с офлайн-догоном, end — строками и объектами (без сейвов).\ntail — сколько последних записей (1..500, по умолчанию 20); sid — чужая\nпартия (по умолчанию — своя: liveSid ?? sid хранилища, как itd.server().sid). Строка:\n«#seq k что | dДЕНЬ tТИК $ДЕНЬГИ фаза Nx revR +tk», tk — тики с прошлой\nзаписи. cmd — «тип cN idN ok|FAIL код»: cN — номер соединения в партии\n(ITGAME-91: id — счётчик страницы, после F5 снова с 1, у моста агента свой;\nуникальна пара (conn, id)), « bridge» — команда моста /ws/agent. start/resume\n— «cN»: соединение, с которого партия началась/продолжилась. end — evicted\n(сессию забрал другой актор) | read_timeout (сторож чтения: вкладка молчала\nдольше ITGAME_READ_TIMEOUT) | debug_drop (сторож после /api/debug/drop, itd.away\nnet) | disconnect (соединение закрыл клиент: закрытие, F5, away close).\nПолный журнал для реплея — по url (make replay ARGS=\"-url …\").\nНет журнала — ошибка journal_off / no_journal.\nПартии во вкладке не требует (ITGAME-131): журнал живёт на сервере и после конца партии. Без sid\nчитается журнал sid вкладки: он цел после «Сохранить и выйти»/«Выйти без сохранения», а после\n«Сдаться» и после финала → «В меню» sid вкладки стёрт — вызов идёт под свежий sid и отвечает\nno_journal; тогда возьмите sid из itd.server().sid до выхода и читайте itd.journal({sid}).",
       "examples": [
         "(await itd.journal({tail: 5})).lines",
         "(await itd.journal({tail: 500})).records.filter(r => r.k === 'cmd').map(r => `c${r.conn}:${r.id}`)"
@@ -563,7 +563,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<DebugState>",
-      "doc": "Читы живой сессии: {money, day, tickInDay}.",
+      "doc": "Читы живой сессии: {money, day, tickInDay}.\nВне партии вкладки — reject «not_in_party: …» без запроса (ITGAME-131, см. scenario).",
       "examples": [
         "itd.set({money: 50000})"
       ]
@@ -578,7 +578,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<DebugState>",
-      "doc": "Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|\nsoft_lock|pre_victory|spare_pcs|broken_pc|doomed_debt. Сбрасывает клиентское состояние партии: активный\nофис → О1 (ITGAME-55), оверлеи HUD — отчёт дня, событие, «Пока вас не было», финал,\nокно выхода — и учёт паузы отчёта (ITGAME-64), окна офиса и серверной — устройства,\nувольнение (ITGAME-69). Скорость сессии не трогает: вызванный\nиз открытого отчёта или окна выхода, оставляет новую партию на паузе — itd.resume(). Работает и после\nфинала (сессия жива до «В меню»). Ошибка (неизвестная фикстура) партию не трогает.",
+      "doc": "Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|\nsoft_lock|pre_victory|spare_pcs|broken_pc|doomed_debt. Сбрасывает клиентское состояние партии: активный\nофис → О1 (ITGAME-55), оверлеи HUD — отчёт дня, событие, «Пока вас не было», финал,\nокно выхода — и учёт паузы отчёта (ITGAME-64), окна офиса и серверной — устройства,\nувольнение (ITGAME-69). Скорость сессии не трогает: вызванный\nиз открытого отчёта или окна выхода, оставляет новую партию на паузе — itd.resume(). Работает и после\nфинала (сессия жива до «В меню»). Ошибка (неизвестная фикстура) партию не трогает.\nТолько в партии вкладки (ITGAME-131): из меню — до первой партии, после «В меню»/«Сдаться» — и\nпосле перехвата сессии другой вкладкой отказ сразу, без запроса: reject «not_in_party: …».\nИз меню — itd.click('menu.diff.normal') (при живом сейве меню спросит «Начать заново?» —\nitd.click('modal.btn.confirm'); или itd.click('menu.continue')), затем await itd.wait(s => s.connected);\nпосле перехвата меню нет — обновите страницу (F5). Так же set, step, advanceDays, ledger,\nsnapshot, restore; itd.journal() — без этого правила.",
       "examples": [
         "itd.scenario('soft_lock')"
       ]
@@ -587,7 +587,7 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "Promise<DebugState>",
-      "doc": "Полный стейт с сервера: {sid, state, save, events}.",
+      "doc": "Полный стейт с сервера: {sid, state, save, events}.\nВне партии вкладки — reject «not_in_party: …» без запроса (ITGAME-131, см. scenario).",
       "examples": [
         "await itd.snapshot()"
       ]
@@ -602,7 +602,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<DebugState>",
-      "doc": "Вернуть состояние из snapshot().save (дельта над текущим). Партию не сбрасывает;\nесли активный офис в новом состоянии закрыт — вкладка переходит в О1 (ITGAME-63).\nОкна офиса и серверной (устройства, увольнение) закрывает: они собраны по прошлому\nстейту (ITGAME-69); оверлеи HUD не трогает.",
+      "doc": "Вернуть состояние из snapshot().save (дельта над текущим). Партию не сбрасывает;\nесли активный офис в новом состоянии закрыт — вкладка переходит в О1 (ITGAME-63).\nОкна офиса и серверной (устройства, увольнение) закрывает: они собраны по прошлому\nстейту (ITGAME-69); оверлеи HUD не трогает.\nВне партии вкладки — reject «not_in_party: …» без запроса (ITGAME-131, см. scenario).",
       "examples": [
         "itd.restore(save)"
       ]
@@ -935,12 +935,12 @@ export const CONTRACT = {
         "sid": {
           "type": "string",
           "optional": false,
-          "doc": "ITGAME-30/68: sid, в чью партию уходят команды и debug-вызовы: liveSid ?? sid хранилища (как debugFetch)"
+          "doc": "ITGAME-30/68: sid, в чью партию уходят команды и itd.journal(): liveSid ?? sid хранилища; прочие debug-вызовы — только liveSid (ITGAME-131)"
         },
         "liveSid": {
           "type": "string | null",
           "optional": false,
-          "doc": "ITGAME-68: sid живой партии вкладки (сокет); null — до первой партии, после «В меню»/«Сдаться»/перехвата"
+          "doc": "ITGAME-68: sid живой партии вкладки (сокет); null — до первой партии, после «В меню»/«Сдаться»/перехвата: debug-вызовы, кроме journal, тогда отказывают not_in_party (ITGAME-131)"
         },
         "sidSwitches": {
           "type": "number",

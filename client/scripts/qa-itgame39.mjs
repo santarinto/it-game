@@ -17,6 +17,14 @@
 //       StaleInfo.shown; AgentOffline.seq/awayId; AwayResult.awayId; JournalRecord.conn/src;
 //       JournalView.lines расшифровывает end (evicted/read_timeout/debug_drop/disconnect);
 //       SandboxApi тоже с call; itd.trace.start/stop — функции
+//   A12 (ITGAME-131) из меню (liveSid null, socket closed): set/step/advanceDays/ledger/scenario/
+//       snapshot/restore → reject «not_in_party: …» с подсказкой itd.click('menu.diff.normal'),
+//       play([{days:1}]) → «FAIL not_in_party»; ни одного запроса /api/debug/*
+//   A13 itd.journal() из меню без гарда: ушёл ровно GET /api/debug/journal, отказ сервера no_journal
+//   A14 menu.diff.normal → liveSid = sid вкладки сразу (сокет ещё открывается); после
+//       wait(connected) snapshot()/scenario('fresh') проходят под ним — 2 запроса /api/debug/state
+//   A15 «Сохранить и выйти» → меню: liveSid null, snapshot() снова not_in_party без запроса;
+//       itd.journal() отдаёт журнал ушедшей партии (sid вкладки, total ≥ 1)
 //   + на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
@@ -35,9 +43,14 @@ function check(name, pass, fact) {
   console.log(`${pass ? 'PASS' : 'FAIL'}: ${name}${fact ? ` — ${fact}` : ''}`)
 }
 
+// Готовность меню — state().menuReady (контракт itd.state, ITGAME-19), а не «плашка
+// уже в ids()»: sid выставлен явно (sessionStorage до документа), значит
+// hasSavedSession() true и меню ждёт сводку сейва (/ws?peek=1). Пока она в пути,
+// saveView() 'loading' → needsConfirm(), и клик по menu.diff.normal открывает
+// «Начать заново?» вместо старта (ITGAME-130; A14 ITGAME-131 стартует партию из меню).
 async function waitMenuReady(page) {
   await page.waitForFunction(
-    () => window.itd != null && window.itd.ids().some((n) => n.id === 'menu.diff.normal'),
+    () => window.itd != null && window.itd.state().menuReady === true && window.itd.ids().some((n) => n.id === 'menu.diff.normal'),
     { timeout: 20000 },
   )
 }
@@ -64,6 +77,12 @@ async function run() {
     })
     const page = await browser.newPage()
     page.on('pageerror', (e) => pageErrors.push(String(e)))
+    // ITGAME-131: запросы к /api/debug/* — гард not_in_party не должен их слать
+    const debugReqs = []
+    page.on('request', (r) => {
+      const u = new URL(r.url())
+      if (u.pathname.startsWith('/api/debug/')) debugReqs.push(`${r.method()} ${u.pathname}`)
+    })
     await page.setViewport({ width: 1920, height: 1080 })
 
     const sid = 'qa39-' + Date.now().toString(36)
@@ -196,6 +215,91 @@ async function run() {
         Array.isArray(a11.sandboxCall) && a11.sandboxCall.length === 1 &&
         Object.values(a11.fields).every(Boolean) && a11.endDoc && a11.fns === 'function,function,function',
       JSON.stringify(a11),
+    )
+
+    // ── A12 (ITGAME-131): из меню debug-вызовы отказывают на клиенте, без запроса
+    const reqsA12 = debugReqs.length
+    const a12 = await page.evaluate(async () => {
+      const itd = window.itd
+      const msg = (p) => p.then(() => 'resolved', (e) => String(e?.message ?? e))
+      return {
+        liveSid: itd.server().liveSid,
+        socket: itd.server().socket,
+        calls: {
+          set: await msg(itd.set({ money: 1 })),
+          step: await msg(itd.step({ ticks: 1 })),
+          advanceDays: await msg(itd.advanceDays(1)),
+          ledger: await msg(itd.ledger()),
+          scenario: await msg(itd.scenario('fresh')),
+          snapshot: await msg(itd.snapshot()),
+          restore: await msg(itd.restore({})),
+        },
+        play: await itd.play([{ days: 1 }]),
+      }
+    })
+    const a12Reqs = debugReqs.slice(reqsA12)
+    check(
+      'A12: из меню (liveSid null) set/step/advanceDays/ledger/scenario/snapshot/restore → reject not_in_party с подсказкой menu.diff.normal, play {days} → FAIL not_in_party; ни одного запроса /api/debug/* (ITGAME-131)',
+      a12.liveSid === null && a12.socket === 'closed' &&
+        Object.values(a12.calls).every((m) => m.startsWith('not_in_party: ') && m.includes("itd.click('menu.diff.normal')")) &&
+        a12.play.length === 1 && a12.play[0].includes('FAIL not_in_party') &&
+        a12Reqs.length === 0,
+      JSON.stringify({ ...a12, reqs: a12Reqs }),
+    )
+
+    // ── A13: itd.journal() не под гардом — запрос уходит, отказ серверный (партии с этим sid ещё не было)
+    const reqsA13 = debugReqs.length
+    const a13 = await page.evaluate(() =>
+      window.itd.journal({ tail: 1 }).then(() => 'resolved', (e) => String(e?.message ?? e)),
+    )
+    const a13Reqs = debugReqs.slice(reqsA13)
+    check(
+      'A13: itd.journal() из меню — без гарда: ушёл GET /api/debug/journal, ответ no_journal (ITGAME-131)',
+      a13.startsWith('no_journal') && a13Reqs.length === 1 && a13Reqs[0] === 'GET /api/debug/journal',
+      JSON.stringify({ a13, reqs: a13Reqs }),
+    )
+
+    // ── A14: после клика по сложности те же вызовы идут в партию вкладки
+    const reqsA14 = debugReqs.length
+    const a14 = await page.evaluate(async () => {
+      const itd = window.itd
+      await itd.wait((s) => s.menuReady === true, 10000) // сводка сейва устоялась: клик не спросит «Начать заново?»
+      const click = itd.click('menu.diff.normal')
+      const liveAtClick = itd.server().liveSid // connect() ставит его синхронно — сокет ещё открывается
+      await itd.wait((s) => s.connected === true, 10000)
+      const snap = await itd.snapshot()
+      const sc = await itd.scenario('fresh')
+      return { click: click.ok, liveAtClick, liveSid: itd.server().liveSid, snapSid: snap.sid, scSid: sc.sid, scenario: sc.state.scenario }
+    })
+    const a14Reqs = debugReqs.slice(reqsA14)
+    check(
+      'A14: menu.diff.normal → liveSid сразу = sid вкладки; после wait(connected) snapshot()/scenario("fresh") проходят под ним, 2 запроса /api/debug/state (ITGAME-131)',
+      a14.click && a14.liveAtClick === sid && a14.liveSid === sid && a14.snapSid === sid && a14.scSid === sid &&
+        a14.scenario === 'fresh' && a14Reqs.length === 2 && a14Reqs.every((r) => r.endsWith(' /api/debug/state')),
+      JSON.stringify({ ...a14, reqs: a14Reqs }),
+    )
+
+    // ── A15: «Сохранить и выйти» → меню: liveSid снова null, отказ без запроса; журнал ушедшей партии читается
+    await page.evaluate(async () => {
+      const itd = window.itd
+      await itd.wait(() => itd.ids().some((n) => n.id === 'btn.menu'), 10000)
+      itd.click('btn.menu')
+      itd.click('modal.btn.0') // «Сохранить и выйти»
+      await itd.wait((s) => s.menuReady === true, 15000)
+    })
+    const reqsA15 = debugReqs.length
+    const a15 = await page.evaluate(async () => ({
+      liveSid: window.itd.server().liveSid,
+      snapshot: await window.itd.snapshot().then(() => 'resolved', (e) => String(e?.message ?? e)),
+    }))
+    const a15Reqs = debugReqs.slice(reqsA15)
+    const a15j = await page.evaluate(() =>
+      window.itd.journal({ tail: 1 }).then((j) => ({ sid: j.sid, total: j.total }), (e) => ({ error: String(e?.message ?? e) })),
+    )
+    check(
+      'A15: «Сохранить и выйти» → liveSid null, snapshot() — not_in_party без запроса; itd.journal() отдаёт журнал ушедшей партии (ITGAME-131)',
+      a15.liveSid === null && a15.snapshot.startsWith('not_in_party: ') && a15Reqs.length === 0 && a15j.sid === sid && a15j.total >= 1,
+      JSON.stringify({ ...a15, reqs: a15Reqs, journal: a15j }),
     )
 
     // ── нет ошибок на странице за весь прогон

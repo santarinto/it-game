@@ -346,10 +346,31 @@ function sameSource(game: Phaser.Game, a: string, b: string): boolean {
   return game.textures.get(a).getSourceImage() === game.textures.get(b).getSourceImage()
 }
 
+// ITGAME-131: debug-ручки сервера (/api/debug/state, /advance, /ledger) говорят с ЖИВОЙ сессией,
+// а её у вкладки нет без своей партии: главное меню до первой партии и после «В меню»/«Сдаться»
+// (disconnect/abandon обнуляют liveSid), перехват сессии другой вкладкой. Раньше запрос уходил
+// под sid хранилища, и сервер отвечал 404 session_not_live «откройте страницу игры с этим sid» —
+// при открытой странице. Клик по сложности ставит liveSid синхронно (connect → openSocket):
+// открывающийся сокет, отчёт дня, финал, реконнект и itd.away сюда не попадают. Журнал
+// (fetchJournal) партии не требует: он живёт на сервере и после её конца.
+const NOT_IN_PARTY =
+  'not_in_party: вкладка не в партии — debug-вызовы идут только в живую партию вкладки; ' +
+  "сначала выберите сложность: itd.click('menu.diff.normal'), затем await itd.wait(s => s.connected); " +
+  "при живом сейве меню спросит «Начать заново?» — itd.click('modal.btn.confirm'), или продолжите его: itd.click('menu.continue'); " +
+  'если сессию забрала другая вкладка — меню нет, обновите страницу (F5)'
+
+// sid живой партии вкладки или отказ not_in_party без запроса — единственный источник sid
+// для debugFetch (и для itd.step до его паузы).
+function partySid(): string {
+  const sid = client.liveSid()
+  if (sid === null) throw new Error(NOT_IN_PARTY)
+  return sid
+}
+
 async function debugFetch<T>(method: 'GET' | 'POST', path: string, body?: Record<string, unknown>): Promise<T> {
-  // Debug-вызовы идут в партию, которую показывает вкладка (ITGAME-64): после финала
-  // net.ts стирает sid из хранилищ, и sessionId() выдал бы свежий — чужую партию.
-  const sid = client.liveSid() ?? sessionId()
+  // Debug-вызовы идут в партию, которую показывает вкладка (ITGAME-64): после финала net.ts
+  // стирает sid из хранилищ, но liveSid сокета жив до «В меню». Без партии — отказ (ITGAME-131).
+  const sid = partySid()
   let url = `/api/debug${path}`
   if (method === 'GET') {
     // sid — query-параметр: GET без тела
@@ -519,8 +540,8 @@ export interface AgentServer {
   rtt: number | null // мс от последней команды до ближайшего ответа
   reconnects: number
   lastMessageAt: number | null // epoch ms
-  sid: string // ITGAME-30/68: sid, в чью партию уходят команды и debug-вызовы: liveSid ?? sid хранилища (как debugFetch)
-  liveSid: string | null // ITGAME-68: sid живой партии вкладки (сокет); null — до первой партии, после «В меню»/«Сдаться»/перехвата
+  sid: string // ITGAME-30/68: sid, в чью партию уходят команды и itd.journal(): liveSid ?? sid хранилища; прочие debug-вызовы — только liveSid (ITGAME-131)
+  liveSid: string | null // ITGAME-68: sid живой партии вкладки (сокет); null — до первой партии, после «В меню»/«Сдаться»/перехвата: debug-вызовы, кроме journal, тогда отказывают not_in_party (ITGAME-131)
   sidSwitches: number // ITGAME-30: сколько раз sid сменился между соединениями (гарда вкладок)
   snapshot: StateMessage | null
 }
@@ -754,8 +775,9 @@ export interface ItdApi {
   /**
    * Снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rev/cause
    * последнего снапшота (ITGAME-45), rtt, reconnects, sid (куда уходят команды
-   * и debug-вызовы: liveSid ?? sid хранилища), liveSid (sid живой партии вкладки
-   * или null), sidSwitches.
+   * и itd.journal(): liveSid ?? sid хранилища), liveSid (sid живой партии вкладки
+   * или null — тогда прочие debug-вызовы отказывают not_in_party, ITGAME-131),
+   * sidSwitches.
    * @example itd.server()
    * @example itd.wait((s, srv) => srv.rev >= 42)
    */
@@ -1112,6 +1134,7 @@ export interface ItdApi {
    * game_over/victory при финале. Вне фазы running (например game_over) сервер
    * отвечает 200 с advance.ticks 0 — ничего не промотано. Настоящий отчёт дня —
    * промотать до последнего тика и дать ему пройти вживую.
+   * Вне партии вкладки — reject «not_in_party: …» без запроса и без паузы (ITGAME-131, см. scenario).
    * @example itd.step(2000)
    * @example itd.step({ticks: 60})
    */
@@ -1130,6 +1153,7 @@ export interface ItdApi {
    * days, income, payroll, balance, …} — в ответе .advance и строкой
    * «debug · advance» в itd.snapshot().events. Вне фазы running (например
    * game_over) сервер отвечает 200 с advance.ticks 0 — ничего не промотано.
+   * Вне партии вкладки — reject «not_in_party: …» без запроса (ITGAME-131, см. scenario).
    * @example itd.advanceDays(3)
    */
   advanceDays(n: number): Promise<DebugAdvanceResult>
@@ -1158,6 +1182,7 @@ export interface ItdApi {
    * текущий день (balanceEnd — живой баланс, payroll 0 до вечера); иначе один из
    * history: 7 последних закрытых дней + текущий, хранятся в сейве. Дня нет —
    * ошибка «нет книги дня N: есть [...]».
+   * Вне партии вкладки — reject «not_in_party: …» без запроса (ITGAME-131, см. scenario).
    * @example await itd.ledger()
    * @example await itd.ledger(1)
    */
@@ -1167,7 +1192,7 @@ export interface ItdApi {
    * хвост входов своей партии — команды с id и отказами, debug-правки, вехи
    * дней, resume с офлайн-догоном, end — строками и объектами (без сейвов).
    * tail — сколько последних записей (1..500, по умолчанию 20); sid — чужая
-   * партия (по умолчанию — своя, как у debug-вызовов). Строка:
+   * партия (по умолчанию — своя: liveSid ?? sid хранилища, как itd.server().sid). Строка:
    * «#seq k что | dДЕНЬ tТИК $ДЕНЬГИ фаза Nx revR +tk», tk — тики с прошлой
    * записи. cmd — «тип cN idN ok|FAIL код»: cN — номер соединения в партии
    * (ITGAME-91: id — счётчик страницы, после F5 снова с 1, у моста агента свой;
@@ -1178,12 +1203,17 @@ export interface ItdApi {
    * net) | disconnect (соединение закрыл клиент: закрытие, F5, away close).
    * Полный журнал для реплея — по url (make replay ARGS="-url …").
    * Нет журнала — ошибка journal_off / no_journal.
+   * Партии во вкладке не требует (ITGAME-131): журнал живёт на сервере и после конца партии. Без sid
+   * читается журнал sid вкладки: он цел после «Сохранить и выйти»/«Выйти без сохранения», а после
+   * «Сдаться» и после финала → «В меню» sid вкладки стёрт — вызов идёт под свежий sid и отвечает
+   * no_journal; тогда возьмите sid из itd.server().sid до выхода и читайте itd.journal({sid}).
    * @example (await itd.journal({tail: 5})).lines
    * @example (await itd.journal({tail: 500})).records.filter(r => r.k === 'cmd').map(r => `c${r.conn}:${r.id}`)
    */
   journal(opts?: { tail?: number; sid?: string }): Promise<JournalView>
   /**
    * Читы живой сессии: {money, day, tickInDay}.
+   * Вне партии вкладки — reject «not_in_party: …» без запроса (ITGAME-131, см. scenario).
    * @example itd.set({money: 50000})
    */
   set(patch: { money?: number; day?: number; tickInDay?: number }): Promise<DebugState>
@@ -1195,11 +1225,18 @@ export interface ItdApi {
    * увольнение (ITGAME-69). Скорость сессии не трогает: вызванный
    * из открытого отчёта или окна выхода, оставляет новую партию на паузе — itd.resume(). Работает и после
    * финала (сессия жива до «В меню»). Ошибка (неизвестная фикстура) партию не трогает.
+   * Только в партии вкладки (ITGAME-131): из меню — до первой партии, после «В меню»/«Сдаться» — и
+   * после перехвата сессии другой вкладкой отказ сразу, без запроса: reject «not_in_party: …».
+   * Из меню — itd.click('menu.diff.normal') (при живом сейве меню спросит «Начать заново?» —
+   * itd.click('modal.btn.confirm'); или itd.click('menu.continue')), затем await itd.wait(s => s.connected);
+   * после перехвата меню нет — обновите страницу (F5). Так же set, step, advanceDays, ledger,
+   * snapshot, restore; itd.journal() — без этого правила.
    * @example itd.scenario('soft_lock')
    */
   scenario(name: string): Promise<DebugState>
   /**
    * Полный стейт с сервера: {sid, state, save, events}.
+   * Вне партии вкладки — reject «not_in_party: …» без запроса (ITGAME-131, см. scenario).
    * @example await itd.snapshot()
    */
   snapshot(): Promise<DebugState>
@@ -1208,6 +1245,7 @@ export interface ItdApi {
    * если активный офис в новом состоянии закрыт — вкладка переходит в О1 (ITGAME-63).
    * Окна офиса и серверной (устройства, увольнение) закрывает: они собраны по прошлому
    * стейту (ITGAME-69); оверлеи HUD не трогает.
+   * Вне партии вкладки — reject «not_in_party: …» без запроса (ITGAME-131, см. scenario).
    * @example itd.restore(save)
    */
   restore(save: Record<string, unknown>): Promise<DebugState>
@@ -1345,7 +1383,7 @@ function buildServer(): AgentServer {
     rtt: client.stats.rtt,
     reconnects: client.stats.reconnects,
     lastMessageAt: client.stats.lastMessageAt || null,
-    // ITGAME-68: тот же sid, что у debugFetch. После финала net.ts стирает sid из хранилищ,
+    // ITGAME-68: тот же sid, что у itd.journal() (debugFetch с ITGAME-131 — только liveSid). После финала net.ts стирает sid из хранилищ,
     // и sessionId() выдал бы свежий, которого у живой партии никогда не было.
     sid: client.liveSid() ?? sessionId(),
     liveSid: client.liveSid(),
@@ -1895,7 +1933,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   await itd.ledger(day?)            — бухгалтерия дня с сервера: {day, balanceStart, income, eventMoney, events[{what, money, clock}], purchases[{type, price, clock}], purchasesTotal, payroll, gatewayOpex, interest, adjust, balanceEnd, profit, delta, balanced, closed, offline, history}; слагаемые = balanceEnd − balanceStart ровно; profit = day_report.profit; без day — текущий (payroll 0 до вечера), иначе один из history (7 закрытых + текущий)
   await itd.journal({tail?, sid?})  — журнал партии (ITGAME-46, сервер с ITGAME_DEBUG=1): хвост входов (tail 1..500, по умолчанию 20) строками «#seq k что | dN tN $M фаза Nx revR +tk» и объектами без сейвов; kinds по всему журналу, total, dropped; url — полный JSONL для make replay ARGS="-url …"; cmd несёт id, как itd.trace().sent, и conn/src (ITGAME-91): «buy_pc c2 id1 ok» — соединение 2 партии, «c3 bridge» — мост агента; уникальна пара (conn, id), не id; end — evicted | read_timeout | debug_drop | disconnect (закрыл клиент)
   itd.set({money: 50000})           — читы живой сессии: {money, day, tickInDay}
-  itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs|broken_pc|doomed_debt; сбрасывает клиентское состояние партии (офис → О1, оверлеи HUD, окна офиса/серверной, пауза отчёта); скорость не трогает — из отчёта или окна выхода партия остаётся на паузе: itd.resume(); работает и после финала
+  itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs|broken_pc|doomed_debt; сбрасывает клиентское состояние партии (офис → О1, оверлеи HUD, окна офиса/серверной, пауза отчёта); скорость не трогает — из отчёта или окна выхода партия остаётся на паузе: itd.resume(); работает и после финала; из меню — сразу not_in_party (ниже)
   itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы
   itd.restore(save)                 — вернуть состояние из snapshot().save (дельта над текущим); закрытый в новом состоянии активный офис → О1; окна офиса/серверной закрывает
   itd.quiet()                       — стоп твитов/миганий для стабильных скриншотов
@@ -1905,6 +1943,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.contract()                    — машинный контракт API (методы, типы, коды ошибок); version.hash — цитировать в отчётах, а не пересказ help()
 Фоновая вкладка: RAF стоит, но itd сам ведёт луп (пульс 300мс + прогрев в каждом вызове) — ids()/nodes()/click() живут без скриншотов и без «принудительного кадра».
 Параллельные вкладки: sid берётся из sessionStorage РАНЬШЕ localStorage; в хранилища ключ попадает ТОЛЬКО с реальной партиёй (чтение его не пишет — «ПРОДОЛЖИТЬ» не врёт). Одна партия = один sid: агрессивным прогонам — itd.sandbox('<имя>') (или вручную sessionStorage.setItem('itd.sid', 'a-<имя>-'+Date.now()): виден только вкладке, общий ключ не трогает; ЯВНО выставленный sid чтится и для новой партии), игроку достаётся localStorage + зеркало вкладки. Кнопка сложности/1-4 = НОВАЯ партия: без явного sessionStorage-sid берётся свежий sid, чужой сейв из общего ключа НЕ продолжается молча; «ПРОДОЛЖИТЬ»/Enter = восстановление текущего sid. server().sidSwitches > 0 — общий ключ перезаписала соседняя вкладка, реконнект ушёл бы в её партию.
+Вне партии: debug-вызовы (set, step, advanceDays, play {days}, ledger, scenario, snapshot, restore) идут только в живую партию вкладки (server().liveSid) — из меню (до первой партии, после «В меню»/«Сдаться») и после перехвата сессии другой вкладкой они сразу отказывают «not_in_party: …», без запроса на сервер (ITGAME-131). Из меню — itd.click('menu.diff.normal') (при живом сейве меню спросит «Начать заново?» — itd.click('modal.btn.confirm'); или itd.click('menu.continue')), затем await itd.wait(s => s.connected); после перехвата меню нет — обновите страницу (F5). itd.journal() — без этого правила: журнал живёт на сервере; без sid он читается после «Сохранить и выйти»/«Выйти без сохранения», а после «Сдаться» и финала → «В меню» sid вкладки стёрт (no_journal) — берите sid из server().sid до выхода и читайте itd.journal({sid}).
 Пример: await itd.scenario('soft_lock'); itd.state().day
 Пример: itd.set({money: 50000}); await itd.wait(s => s.balance === 50000)
 Пример: await itd.cmd('hire') → {ok:false, code:'no_free_pc'} — сервер отказал, ПК заняты`
@@ -2292,6 +2331,7 @@ function makeApi(game: Phaser.Game): ItdApi {
           throw new Error('step: {ticks} — целое 1..10000')
         }
       }
+      partySid() // ITGAME-131: вне партии — отказ до паузы, без set_speed в закрытый сокет (HUD дал бы тост «нет связи»)
       client.send('set_speed', 0, { speed: 0 }) // степпинг только на паузе
       return debugFetch<DebugAdvanceResult>('POST', '/advance', { ticks })
     },
