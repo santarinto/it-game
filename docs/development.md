@@ -38,8 +38,12 @@ is a forced command of the platform loader (`deploy-project itgame-stage`,
 `deploy-project itgame`) on the box, outside this repo: it fetches and
 checks out the SHA and runs `tools/deploy` from that SHA's own tree, so
 every commit ships its own recipe. `DEPLOY_ENABLED` in `ci.yaml` is the
-latch: `"1"` since e3ea574 (08.10); `"0"` makes the job report a skip and
-finish green with both targets untouched.
+latch: `"0"` makes the job report a skip and finish green with both targets
+untouched. It was `"1"` from e3ea574 (08.10) and is `"0"` again since 16.10:
+the game-box stopped answering (ssh `10.8.1.33:49222` timed out in runs
+15–18, the last good deploy is 5e741bd of 13.10) and production moves to a
+new host (ITGAME-128). Until the latch is back on, a push to `main` only
+tests.
 
 `tools/deploy <deploy|rollback> <sha40> [--dry-run]` (contract v1) picks the
 target by the checkout's basename (`itgame` or `itgame-stage`) and builds

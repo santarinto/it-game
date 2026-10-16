@@ -42,8 +42,10 @@
 #
 # DEPLOY_ENABLED is the CT1 latch, "0" until the owner's word: the deploy
 # job then reports the skip and finishes GREEN (tests prove themselves, both
-# targets stay untouched). The first live deploy flips it to 1 — owner's
-# call, not a CI change.
+# targets stay untouched). The first live deploy flipped it to 1 (e3ea574,
+# 08.10). Back to 0 since 16.10 by the owner's word: the game-box is
+# unreachable (ssh 10.8.1.33:49222 times out, runs 15–18 red), prod moves to
+# a new host (ITGAME-128) — flip it back when CI deploys there.
 name: ci
 on:
   push:
@@ -64,7 +66,7 @@ concurrency:
 
 env:
   OBS_TOKEN: ${{ secrets.OBS_TOKEN }}
-  DEPLOY_ENABLED: "1"
+  DEPLOY_ENABLED: "0"
 
 jobs:
   test-server:
