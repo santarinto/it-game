@@ -1,0 +1,43 @@
+{
+  "_описание": "отдел админов (ITGAME-101/145): день 5, 11:00, $8000, отдел куплен. Офис 1 — 8 сотрудников, роутер т2, core ур.1, админ Олег Смирнов (нанят вчера): заражены места 2 и 7, место 4 сломано (N=9, 2 клика уже есть) — очередь админа: место 2 → 7 → ремонт 4, строка в отделе меняется на глазах («чистит место 2» → «чистит место 7» → «чинит место 4» → «свободен»), волна в 12:00. Офис 2 — 4 сотрудника без админа, место 3 сломано (N=5) — его чинит только игрок. Офис 3 закрыт. Для qa:admins и visreg",
+  "day": 5,
+  "money": 8000,
+  "tickInDay": 6,
+  "coreLevel": 1,
+  "adminDept": true,
+  "virusWaveIn": 6,
+  "offices": [
+    {
+      "Unlocked": true,
+      "PCs": 8,
+      "RouterTier": 2,
+      "Cooler": true,
+      "Fridge": true,
+      "Admin": "Олег Смирнов",
+      "AdminHireDay": 4,
+      "Employees": [
+        { "Name": "Артём Соколов", "IncomePerTick": 10, "XP": 160 },
+        { "Name": "Мария Кузнецова", "IncomePerTick": 11, "XP": 150, "Infected": true },
+        { "Name": "Дмитрий Орлов", "IncomePerTick": 12, "XP": 300 },
+        { "Name": "Анна Петрова", "IncomePerTick": 13, "XP": 120, "PCBroken": true, "RepairClicks": 2, "RepairNeeded": 9 },
+        { "Name": "Сергей Лебедев", "IncomePerTick": 9, "XP": 40 },
+        { "Name": "Ольга Морозова", "IncomePerTick": 14, "XP": 200 },
+        { "Name": "Игорь Волков", "IncomePerTick": 10, "XP": 90, "Infected": true },
+        { "Name": "Елена Зайцева", "IncomePerTick": 11, "XP": 30 }
+      ]
+    },
+    {
+      "Unlocked": true,
+      "PCs": 4,
+      "RouterTier": 1,
+      "Employees": [
+        { "Name": "Ирина Белова", "IncomePerTick": 12, "XP": 80 },
+        { "Name": "Николай Попов", "IncomePerTick": 13, "XP": 70 },
+        { "Name": "Татьяна Киселёва", "IncomePerTick": 9, "XP": 20, "PCBroken": true, "RepairNeeded": 5 },
+        { "Name": "Виктор Егоров", "IncomePerTick": 11, "XP": 5 }
+      ]
+    },
+    { "Unlocked": false }
+  ],
+  "eventLog": ["10:30 вирус в офисе 1: 2 ПК"]
+}

@@ -480,7 +480,7 @@ export class OfficeScene extends Phaser.Scene {
         zone.on('pointerover', () => {
           if (this.windowOpen()) return // ITGAME-89: под окном тултипа нет
           this.hoveredSlot = i
-          this.showTooltip(e, s, wx, wy)
+          this.showTooltip(e, i, s, wx, wy)
         })
         zone.on('pointerout', () => {
           this.hoveredSlot = -1
@@ -500,7 +500,7 @@ export class OfficeScene extends Phaser.Scene {
         if (this.hoveredSlot === i) {
           const p = this.input.activePointer
           if (zone.getBounds().contains(p.worldX, p.worldY) && !this.windowOpen()) {
-            this.showTooltip(e, s, wx, wy)
+            this.showTooltip(e, i, s, wx, wy)
           } else {
             this.hoveredSlot = -1
           }
@@ -636,7 +636,7 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
-  private showTooltip(e: EmployeeInfo, s: StateMessage, x: number, y: number) {
+  private showTooltip(e: EmployeeInfo, slot: number, s: StateMessage, x: number, y: number) {
     if (this.windowOpen()) return // ITGAME-89: тултип не просвечивает рядом с окном
     // Выработка — эффективная (с прибавкой уровня и дебаффами/баффами);
     // база в скобках, когда эффекты её меняют.
@@ -676,6 +676,11 @@ export class OfficeScene extends Phaser.Scene {
       lines.push(e.pcBroken
         ? 'ЗАРАЖЁН — после ремонта вирус останется'
         : `ЗАРАЖЁН — выработка −30%; кликайте по месту: ${e.virusClicks}/${e.virusNeeded > 0 ? e.virusNeeded : 3}`)
+    }
+    // Админ офиса (ITGAME-145) кликает это место сам — его клики растут в той же «k/N».
+    const office = s.offices[nav.activeOffice]
+    if (office.admin !== '' && office.adminSlot === slot) {
+      lines.push(office.adminKind === 'repair' ? 'чинит админ' : 'чистит админ')
     }
     // ITGAME-75: пока ПК сломан, ЛКМ по месту — ремонт, мотивации кликом нет;
     // пока заражён — чистка (ITGAME-103).

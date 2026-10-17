@@ -6,6 +6,7 @@ import { MenuScene } from './scenes/MenuScene'
 import { HUDScene } from './scenes/HUDScene'
 import { OfficeScene } from './scenes/OfficeScene'
 import { ServerRoomScene } from './scenes/ServerRoomScene'
+import { AdminDeptScene } from './scenes/AdminDeptScene'
 import { installAgentApi } from './debug/agentApi'
 import { debug } from './debug'
 import { client } from './net'
@@ -60,7 +61,7 @@ const game = new Phaser.Game({
     mode: Phaser.Scale.NONE,
     zoom: zoomNumber() / RENDER_SCALE,
   },
-  scene: [BootScene, MenuScene, OfficeScene, ServerRoomScene, HUDScene],
+  scene: [BootScene, MenuScene, OfficeScene, ServerRoomScene, AdminDeptScene, HUDScene],
 })
 watchFit(game)
 applyCanvasFilter(game, zoomNumber())

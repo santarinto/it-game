@@ -810,6 +810,37 @@ and hires one into every office that grows to 4 as soon as the money allows
 $135,061, handsoff $37,680 (19 bankrupt), delegate $125,018; hard $35,994 /
 $1,196 / $27,794.
 
+The department room (ITGAME-145, `AdminDeptScene`, scene key `adminDept`): the
+fifth nav tab «АДМ» (`nav.adminDept`) under «СРВ» — while not bought a lock
+(`hud.lock.adminDept`) and the price, green when affordable, like a closed
+office; bought — «k/3», admins hired. A closed room reads «Отдел админов
+закрыт» with `dept.buy` «Купить отдел — $X» (sends `buy_admin_dept`, the server
+refuses without money) and one line on what it gives. An open room has three
+seats in a row by office (x 330/560/790, y 300, boxes 92×92): «офис N» above;
+inside the admin figure `dept.admin.N` (the `worker` sprite until its own) or
+«нет админа», a locked office's box dimmed with «офис не куплен» under it; under
+the figure the name (`dept.name.N`) and the target line `dept.status.N` —
+«чинит место 5» (red), «чистит место 3» (lime) or «свободен» (grey), from
+`adminSlot`/`adminKind`. Hover — a tooltip (name, «Админ офиса N: чинит и
+чистит его места сам», «2 клика в тик, сначала вирус, потом поломка» — the 2
+is a client mirror `ADMIN_CLICKS`, the salary, «Сейчас: …» with k/N, the fire
+price); a left click does nothing, a right click opens «Уволить админа?» with
+the compensation and sends `fire_admin`. The room's action column (from y 170)
+holds `btn.admin.0..2` «Админ ОN / $600»: hired — «Админ ОN ✓» disabled with
+«Нанят: <name>», a locked office or no money — disabled with «Офис N не куплен»
+/ «не хватает $X»; hidden while the room is closed. The lower half of the room
+is left empty for the cabinets and workbenches to come. Elsewhere: the office
+seat tooltip adds «чинит админ» / «чистит админ» on the seat the admin clicks
+next; the day report adds «Админы:    k ПК, m мест» under «Вирус» (`seatsLabel`
+from `format.ts`, also the antivirus window's); `not_infected` / `not_broken`
+from a command while the active office has an admin raise no toast and no sound
+— the player's finishing click there regularly loses the race to the admin's
+tick; `itd.state()` gives `adminDept` and `admins` (count). Fixture
+`admin_dept`: day 5, 11:00, $8,000, the department bought, office 1 (8 staff,
+router t2, core 1) with an admin whose queue runs seat 2 → 7 → repair 4 and
+then he is free, office 2 (4 staff) without an admin and a broken seat 3,
+office 3 closed.
+
 **One click zone per workstation** (ITGAME-92): every occupied desk has a
 single interactive zone `office.slot.N` — the union of the worker frame and
 the desk (64×64), plus the «✖ чинить k/N» label while the PC is broken
@@ -1311,6 +1342,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63); explicit exit freezes the party: the exit dialog pauses, Отмена/Esc/✕ restore the speed, «Сохранить и выйти» → «Продолжить» keeps tick/day/money and the speed, also from an open day report (ITGAME-65); on the victory screen (storage sid cleared) `itd.server().sid`/`liveSid` stay the live party's sid (ITGAME-68); office/server-room windows (router, fire dialog via a real right click on `broken_pc`, core, rack) close on `itd.scenario()`/`itd.restore()`, a click where «Уволить» was sends nothing (ITGAME-69); A1–A7 `itd.away` (ITGAME-76): `close` — while away the socket is `reconnecting`, commands `not_connected`, the server session is gone at once, the return resumes the same sid with `droppedAt` ≈ `leftAt`; `net` with `timeout: 1500` — the server session lives (200) until its read timeout and is gone (404) after, `droppedAt − drop.at` ≈ 1.5 s, `liveTicks` ≈ 3 at 2x, catch-up from `droppedAt`; `net` shorter than the timeout — no catch-up, ticks ran live; the owner key untouched; inside `itd.sandbox` the return lands in the sandbox party; N1–N6 with the socket dropped (`itd.away` net) and real mouse clicks: «Купить ПК» twice — one «Нет связи» toast, `error` sound each, no `buy_pc` (ITGAME-90); «Сохранить и выйти» → «Нет связи — сохранение не дойдёт», no `exit`, Esc back; «Подождать» → «Ждём связь…» → after the return `exit {speed:2}` and the menu, «Продолжить» 3 s later on the same day/clock; «Подождать» → ✕ sends nothing; «Выйти без сохранения» → menu, the party ran on; open socket unchanged (ITGAME-85); D1–D3 «Сдаться» → «Удалить партию навсегда?»: Enter/«Отмена» keep the sid and the save, «Удалить» sends `abandon`, 404 (ITGAME-86); A8 the catch-up key: `awayId` 1, 2, 3, `offline.awayId === awayId`, `seq` grows, after an away without a catch-up `itd.offline()` is the previous one (its `awayId`, same `seq`) (ITGAME-87) | :4181, self-serve + temp saves dir |
 | `npm run qa:report-pause` | the day report pauses the party (speed 0, time and balance stand still); Enter/Space/`btn.next_day`/`itd.cmd('next_day')` restore the pre-report speed; F5 with the report open keeps `itd.speedBeforeReport`, «Продолжить» reopens it paused and closing restores 3×; an outside `itd.speed(0)` over the report survives; `itd.set({tickInDay})` refused in `day_report`; `skipReports` changes the day without a modal or a stuck 0 (ITGAME-18, self-serve since ITGAME-70); R1–R2 a long journal (ITGAME-141, `eventLog` by `itd.restore`, viewport 1920×1080): lines wider than the panel wrap with a hanging indent `  ` under «·» and glue back to the server's lines, 30 two-line events give «· … раньше: ещё k» on top with the evening line kept, the text stays ≥ 16 px inside the panel frame, the panel inside 16..704, `itd.overlaps()`/`offscreen()` empty | :4182, self-serve + temp saves dir |
 | `npm run qa:journal` | the journal of a live browser party (HUD clicks, `itd.cmd`, a rejection, `itd.set`/`itd.step`, F5 → «Продолжить» with offline catch-up) from `/api/debug/journal` replays with `cmd/replay -json` without divergence or warnings, and the replayed save equals the live one; `itd.journal({tail, sid})` gives the same journal from the tab — tail lines, kinds/total, ids, saves stripped (ITGAME-46); a `/ws/agent` command with its own id 1 after the F5: `conn`/`src` on every command, `start c1`, `resume c2`, the bridge on its own conn, ids repeat but (conn, id) pairs don't, replay `conns`; lines `end disconnect`, `c3 bridge id1` (ITGAME-91); J3b/J6b `itd.restore` infects seat 1 of two with the wave in 2 ticks, a live wave infects seat 2, six `virus_click` clean both and a seventh is `not_infected` — all in the journal and the replay (ITGAME-138) | :4186, self-serve + temp saves dir |
+| `npm run qa:admins` | the admin department (ITGAME-145), real mouse clicks at `itd.screen()` points: D1 the «АДМ» tab with its lock and $3,000, the closed room «Отдел админов закрыт» with `dept.buy` and no hire column; D2 `dept.buy` at $600 — sent, refused, still closed; D3 bought — `buy_admin_dept`, −$3,000, three seats, the tab «0/3» without a lock; D4 `btn.admin.0` enabled «Админ О1 / $600», О2/О3 disabled with «Офис 2 не куплен»; D5 a click on a disabled button sends nothing; D6 `hire_admin 0`, «Админ О1 ✓», the admin seated, «свободен», «1/3»; D7 `admin_dept` with live ticks — the target line goes «чистит место 2» → «чистит место 7» → «чинит место 4» → «свободен»; D8 the admin's tooltip, D8b it survives a snapshot under the cursor and does not stick once the cursor left in one move (no `pointerout` reaches the re-created sprite — the bounds check `OfficeScene` has since ITGAME-89); D9 a right click — «Уволить админа?» with «Компенсация: $300», the confirm sends `fire_admin 0`, the seat is empty; D10 the office seat tooltip «чистит админ» on the admin's target and not on a clean seat; D11 `not_infected` in an office with an admin raises no toast, `not_broken` in an office without one does; D12 the day report line «Админы:    k ПК, m мест» with a Russian plural; D13 three admins with long names — overlaps/offscreen empty at both zooms; no pageerror | :4192, self-serve |
 | `npm run qa:version` | the build version (ITGAME-140): V1 `/api/version` → `version` год.мес.день.час.мин = `itd.version.version` = the menu's «версия X» (`menu.version`, inside the field); V2 a party → «Сохранить и выйти»: the save file carries the server's version, the menu shows «ПРОДОЛЖИТЬ»; V3 the server restarted on the same saves dir with the file's version set to 2000.01.01.00.00 (a deploy of a new build): no `menu.continue`, the card `menu.stale` «СЕЙВ НЕСОВМЕСТИМ» / «от версии 2000.01.01.00.00, игра X», «начните новую партию:», overlaps/offscreen empty; V4 a real mouse click on «НОРМА»: no «Начать заново?», a new sid, day 1, its save carries the server's version, the old file untouched; V5 a save without `version` (before ITGAME-140) — «от старой версии, игра X»; no pageerror | :4189, self-serve on its own saves dir (restarted between steps: the store keeps saves in memory) |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |
 | `npm run visreg` | screenshot diff + layout linter per fixture scenario | :4173, self-serve, `VISREG_PORT` overrides |
@@ -1385,12 +1417,15 @@ Departure Mono 1.500 plus ITD Symbols, an 8-glyph OFL subset of Unifont for
 `FONT` in `client/src/render.ts`, `BootScene` waits for both before the
 menu). No emoji are drawn since ITGAME-83: icons are sprites next to a Text
 (`client/src/ui/iconText.ts`), `npm run check:emoji` keeps `client/src` free of
-them. The committed baseline (10 scenarios, `broken_pc` and, since ITGAME-138,
-`virus_outbreak` included — its shot was added on 2026-10-17 without touching
-the other nine) was
-regenerated **2026-10-12** (last time for ITGAME-21: header bars, tab locks,
-the coach plate on fresh/soft_lock/pre_victory, the log strip; lint counts not
-worse, contrast down by one on some scenarios) on the pinned Chrome for Testing 152.0.7977.54
+them. The committed baseline (11 scenarios, `broken_pc`, since ITGAME-138
+`virus_outbreak` and since ITGAME-145 `admin_dept` included — the last one is a
+shot of the department room: `ROOM` in `visreg.mjs` clicks its tab after
+the load) was regenerated **2026-10-17** for ITGAME-145: the fifth nav tab
+«АДМ» changes every party shot, and its 8px grey price/«k/3» line adds one
+`tiny` and on some scenarios one `contrast` — the same as the closed «О2»/«О3»
+tabs already in the baseline, accepted to keep the tabs alike; the menu shot
+took the version line drift it carried since ITGAME-140 (before that:
+**2026-10-12** for ITGAME-21) on the pinned Chrome for Testing 152.0.7977.54
 (headless, SwiftShader software GL, Arch Linux, Noto Color Emoji); two
 consecutive runs without `--update` gave 0 differing pixels on every scenario.
 The layout-linter counts in `baseline.json` did not change with the font.

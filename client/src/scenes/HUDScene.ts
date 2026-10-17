@@ -3,7 +3,7 @@ import { GAME_H, GAME_W, HUD_H, NAV_W, layoutColumn, layoutRow } from '../layout
 import { client, offlineShown } from '../net'
 import { localStore, sessionStore } from '../storage'
 import type { DayReportMessage, GameOverMessage, OfflineReportMessage, ServerErrorCode, StateMessage, VictoryMessage } from '../protocol'
-import { fmtMoney } from '../format'
+import { fmtMoney, seatsLabel } from '../format'
 import { nav } from '../rooms'
 import { onPartyReset, partyChange } from '../party'
 import { debug, drawDebugFrames, setDebug } from '../debug'
@@ -27,6 +27,8 @@ import {
 } from '../meta'
 import type { AchievementDef } from '../meta'
 
+// Комнаты партии — сцены за панелью навигации.
+type Room = 'office' | 'serverRoom' | 'adminDept'
 const CX = GAME_W / 2 // центр поля — якорь модалок и тостов
 const SPEED_BEFORE_REPORT_KEY = 'itd.speedBeforeReport'
 const REPORT_KEYS = [Phaser.Input.Keyboard.KeyCodes.ENTER, Phaser.Input.Keyboard.KeyCodes.SPACE]
@@ -132,7 +134,7 @@ export class HUDScene extends Phaser.Scene {
   private marketText!: Phaser.GameObjects.Text
   private debtText!: Phaser.GameObjects.Text
   private navItems!: { bg: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; sub: Phaser.GameObjects.Text; lock?: { body: Phaser.GameObjects.Rectangle; shackle: Phaser.GameObjects.Arc }; virus?: Phaser.GameObjects.Text }[]
-  private currentRoom!: 'office' | 'serverRoom'
+  private currentRoom!: Room
   private reportUI!: Phaser.GameObjects.GameObject[]
   private eventUI!: Phaser.GameObjects.GameObject[]
   private doomUI!: Phaser.GameObjects.GameObject[]
@@ -391,6 +393,10 @@ export class HUDScene extends Phaser.Scene {
         if (this.exitWaitResume !== null) this.trySendExit(this.exitWaitResume)
       },
       onError: (code) => {
+        // Офис с админом (ITGAME-145): последний клик игрока по месту часто
+        // проигрывает тику админа — место уже дочищено или починено, и сервер
+        // отвечает not_infected / not_broken. Это не ошибка игрока — молчим.
+        if ((code === 'not_infected' || code === 'not_broken') && client.latest?.offices[nav.activeOffice]?.admin) return
         playSfx(this, 'error')
         this.toast((ERROR_TEXTS as Record<string, string>)[code] ?? code)
       },
@@ -654,21 +660,23 @@ export class HUDScene extends Phaser.Scene {
     this.deadlineX = BAR_X + Math.min(BAR_W - 2, Math.round(BAR_W * dayShare))
   }
 
-  // Панель навигации: значки офисов и серверной в колонке слева.
+  // Панель навигации: значки офисов, серверной и отдела админов в колонке слева.
   private createNavPanel() {
     this.add.rectangle(0, HUD_H, NAV_W, GAME_H - HUD_H, 0x14162b).setOrigin(0)
-    const rooms: { key: 'office' | 'serverRoom'; office: number; label: string }[] = [
+    const rooms: { key: Room; office: number; label: string }[] = [
       { key: 'office', office: 0, label: 'О1' },
       { key: 'office', office: 1, label: 'О2' },
       { key: 'office', office: 2, label: 'О3' },
       { key: 'serverRoom', office: -1, label: 'СРВ' },
+      // Отдел админов (ITGAME-145): закрыт и покупается, как офис.
+      { key: 'adminDept', office: -1, label: 'АДМ' },
     ]
     rooms.forEach((r, idx) => {
       const y = HUD_H + 24 + idx * 76
       const bg = tag(
         this.add.rectangle(8, y, NAV_W - 16, 48, 0x232640)
           .setOrigin(0).setStrokeStyle(2, 0x3a3f5c).setInteractive({ useHandCursor: true }),
-        r.key === 'office' ? `nav.office${r.office}` : 'nav.serverRoom',
+        r.key === 'office' ? `nav.office${r.office}` : `nav.${r.key}`,
       )
       const label = this.add
         .text(NAV_W / 2, y + 18, r.label, { fontFamily: FONT, fontSize: '13px', color: '#f4f4f4' })
@@ -679,8 +687,9 @@ export class HUDScene extends Phaser.Scene {
       // Замок закрытого офиса (ITGAME-21) — фигурами, без эмодзи (системный шрифт
       // ломает пиксели): корпус + дужка-полукруг без заливки.
       let lock: { body: Phaser.GameObjects.Rectangle; shackle: Phaser.GameObjects.Arc } | undefined
-      if (r.key === 'office' && r.office > 0) {
-        const body = tag(this.add.rectangle(44, y + 6, 10, 8, 0x5d7275).setOrigin(0), 'hud.lock.office' + r.office)
+      if ((r.key === 'office' && r.office > 0) || r.key === 'adminDept') {
+        const body = tag(this.add.rectangle(44, y + 6, 10, 8, 0x5d7275).setOrigin(0),
+          r.key === 'office' ? 'hud.lock.office' + r.office : 'hud.lock.adminDept')
         const shackle = this.add.arc(49, y + 6, 4, 180, 360, false).setStrokeStyle(2, 0x5d7275)
         lock = { body, shackle }
       }
@@ -699,7 +708,7 @@ export class HUDScene extends Phaser.Scene {
     })
   }
 
-  private switchRoom(key: 'office' | 'serverRoom', office: number) {
+  private switchRoom(key: Room, office: number) {
     // Дребезг: два быстрых клика до завершения stop/launch дублируют сцену.
     if (this.switching) {
       rejectClick('debounced')
@@ -759,9 +768,27 @@ export class HUDScene extends Phaser.Scene {
     this.updateCoachFrame()
   }
 
+  // Значок отдела админов (ITGAME-145): закрыт — замок и цена, зелёный, если
+  // хватает денег; открыт — «k/3», нанято админов.
+  private refreshDeptNav(item: (typeof this.navItems)[number], s: StateMessage) {
+    const locked = !s.adminDept
+    const affordable = locked && s.money >= s.prices.adminDept
+    const admins = s.offices.filter((o) => o.admin !== '').length
+    item.sub.setText(locked ? fmtMoney(s.prices.adminDept) : `${admins}/${s.offices.length}`)
+    item.bg.setFillStyle(affordable ? 0x2a6b3f : 0x232640)
+    item.sub.setColor(affordable ? '#f4f4f4' : '#5d7275')
+    if (item.lock) {
+      const c = affordable ? 0x38b764 : 0x5d7275
+      item.lock.body.setVisible(locked).setFillStyle(c)
+      item.lock.shackle.setVisible(locked).setStrokeStyle(2, c)
+    }
+  }
+
   private highlightNav() {
     this.navItems.forEach((item, idx) => {
-      const active = this.currentRoom === 'serverRoom' ? idx === 3 : idx === nav.activeOffice
+      const active = this.currentRoom === 'serverRoom' ? idx === 3
+        : this.currentRoom === 'adminDept' ? idx === 4
+          : idx === nav.activeOffice
       item.bg.setStrokeStyle(2, active ? 0x41a6f6 : 0x3a3f5c)
       markActive(item.bg, active)
     })
@@ -882,6 +909,10 @@ export class HUDScene extends Phaser.Scene {
 
     this.navItems.forEach((item, idx) => {
       if (idx === 3) return
+      if (idx === 4) {
+        this.refreshDeptNav(item, s)
+        return
+      }
       const o = s.offices[idx]
       item.sub.setText(o.unlocked ? `${o.employees.length}/${s.officeSlots}` : fmtMoney(o.price))
       // Офис, который можно купить сейчас (по порядку — правило OfficeScene — и хватает
@@ -1259,6 +1290,8 @@ export class HUDScene extends Phaser.Scene {
       ...(r.incidents > 0 ? [`Поломки:   ${r.incidents} (−${fmtMoney(r.lostIncome)})`] : []),
       // Вирус (ITGAME-103): новых заражений за день и упущенное из-за −30%.
       ...(r.virusPCs > 0 || r.virusLost > 0 ? [`Вирус:     ${r.virusPCs} ПК (−${fmtMoney(r.virusLost)})`] : []),
+      // Админы (ITGAME-101): сколько починили и вычистили за день.
+      ...(r.adminRepairs > 0 || r.adminCleaned > 0 ? [`Админы:    ${r.adminRepairs} ПК, ${seatsLabel(r.adminCleaned)}`] : []),
     ]
 
     // Подложка interactive: глушит клики по кнопкам HUD под модалкой (depth 50).
@@ -1517,6 +1550,7 @@ export class HUDScene extends Phaser.Scene {
     client.disconnect()
     this.scene.stop('office')
     this.scene.stop('serverRoom')
+    this.scene.stop('adminDept')
     this.scene.start('menu') // start глушит hud
   }
 

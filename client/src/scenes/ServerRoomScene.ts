@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { fmtMoney } from '../format'
+import { fmtMoney, seatsLabel } from '../format'
 import { GAME_H, GAME_W, HUD_H, NAV_W } from '../layout'
 import { client } from '../net'
 import { drawDebugFrames } from '../debug'
@@ -11,14 +11,6 @@ import { coreGain, serverGain } from '../network-preview'
 import { addSprite } from '../pixelart'
 import { FONT, HIRES_CAMERA } from '../render'
 import type { StateMessage } from '../protocol'
-
-// «4 места», «15 мест», «21 место» — подпись тарифа в окне антивируса.
-function seatsLabel(n: number): string {
-  const d = n % 10
-  const dd = n % 100
-  const word = d === 1 && dd !== 11 ? 'место' : d >= 2 && d <= 4 && (dd < 12 || dd > 14) ? 'места' : 'мест'
-  return `${n} ${word}`
-}
 
 export class ServerRoomScene extends Phaser.Scene {
   private objects!: Phaser.GameObjects.GameObject[]

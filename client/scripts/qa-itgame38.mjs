@@ -820,8 +820,8 @@ async function run() {
       JSON.stringify({ speedA7, clicks: [menuClickA7, saveClickA7, contClickA7] }),
     )
     check(
-      'A7: после рестарта партии — 4 nav.*, nav.office0 active',
-      navA7.length === 4 && navA7.find((n) => n.id === 'nav.office0')?.active === true,
+      'A7: после рестарта партии — 5 nav.* (О1–О3, СРВ, АДМ с ITGAME-145), nav.office0 active',
+      navA7.length === 5 && navA7.find((n) => n.id === 'nav.office0')?.active === true,
       JSON.stringify(navA7),
     )
 

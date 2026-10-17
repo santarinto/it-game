@@ -33,8 +33,11 @@ const SELF_PORT = Number(process.env.VISREG_PORT) || 4173
 const UPDATE = process.argv.includes('--update')
 
 // Сценарии = фикстуры ITGAME-26 + меню без сценария; broken_pc (ITGAME-74) — с ITGAME-48,
-// virus_outbreak (ITGAME-103) — с ITGAME-138: метки «☣ вирус», плашка, значки, карточка.
-const SCENARIOS = ['menu', 'fresh', 'broke_day3', 'mid_day10', 'full_office', 'soft_lock', 'pre_victory', 'spare_pcs', 'broken_pc', 'virus_outbreak']
+// virus_outbreak (ITGAME-103) — с ITGAME-138: метки «☣ вирус», плашка, значки, карточка;
+// admin_dept (ITGAME-145) — комната отдела админов с админом за работой.
+const SCENARIOS = ['menu', 'fresh', 'broke_day3', 'mid_day10', 'full_office', 'soft_lock', 'pre_victory', 'spare_pcs', 'broken_pc', 'virus_outbreak', 'admin_dept']
+// Кадр не офиса: после загрузки — клик по вкладке комнаты.
+const ROOM = { admin_dept: 'nav.adminDept' }
 
 // ── Загрузка сцены: детерминированное состояние для скриншота ─────────────
 // window.itd появляется раньше, чем меню создаст кнопки: клик в этот зазор
@@ -56,6 +59,10 @@ async function loadScenario(page, base, name) {
   if (!clicked.ok) throw new Error(`${name}: клик menu.diff.normal не прошёл — ${clicked.error}`)
   await page.waitForFunction(() => window.itd.state().connected === true, { timeout: 20000 })
   await page.evaluate(() => window.itd.pause()) // время не меняет кадр
+  if (ROOM[name]) {
+    const r = await page.evaluate((n) => window.itd.click(n), ROOM[name])
+    if (!r.ok) throw new Error(`${name}: клик ${ROOM[name]} не прошёл — ${r.error}`)
+  }
   await delay(500) // перерисовки после снапшота
   await page.evaluate(() => window.itd.quiet()) // твиины/мигания замерли
   await delay(200)

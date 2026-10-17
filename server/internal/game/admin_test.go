@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -581,5 +582,28 @@ func TestAdminOfflineBacklogSeveralDays(t *testing.T) {
 	}
 	if got, want := g.officeInfected(0), live.officeInfected(0); got != want {
 		t.Errorf("заражено офлайн %d, вживую %d", got, want)
+	}
+}
+
+// Фикстура admin_dept (qa:admins, visreg): отдел куплен, админ офиса 1 идёт
+// по очереди «место 2 → 7 → ремонт 4», офис 2 без админа.
+func TestAdminDeptFixture(t *testing.T) {
+	g, err := NewFixture(DefaultConfig(), "admin_dept", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !g.AdminDept || g.Offices[0].Admin == "" || g.Offices[1].Admin != "" || g.Offices[2].Unlocked {
+		t.Fatalf("фикстура: отдел %v, админы %q / %q, офис 3 открыт %v", g.AdminDept, g.Offices[0].Admin, g.Offices[1].Admin, g.Offices[2].Unlocked)
+	}
+	want := []struct {
+		slot int
+		kind string
+	}{{1, "virus"}, {1, "virus"}, {6, "virus"}, {3, "repair"}, {3, "repair"}, {3, "repair"}, {3, "repair"}, {-1, ""}}
+	for i, w := range want {
+		wantTarget(t, g, 0, w.slot, w.kind, fmt.Sprintf("тик %d", i))
+		g.Tick()
+	}
+	if s, _ := g.Offices[1].AdminTarget(); s != 2 || !g.Offices[1].Employees[2].PCBroken {
+		t.Error("офис 2 без админа: сломанное место 3 должно остаться сломанным")
 	}
 }
