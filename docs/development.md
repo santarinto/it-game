@@ -5,13 +5,18 @@ the README; game design — `docs/design/gdd.md`.
 
 ## Deploy
 
-Two instances run on one box (ci-cd-srv, the game-box), each behind nginx
-(TLS, static files, `/ws`) → Go binary: production on `127.0.0.1:8080`,
-systemd unit `itgame`, root `/opt/itgame`; stage on `127.0.0.1:8081`, unit
-`itgame-stage`, root `/opt/itgame-stage`. The box has docker but no Go or
-Node toolchain. `/admin` is not exposed on the public domain: the proxy in
-front (outside this repo) answers `404 {"detail":"not_exposed"}` with or
-without credentials (checked 2026-10-09); the Go handler itself has no auth.
+Two instances run on one box (the game box `90.156.129.221` since 18.10,
+MINIPC-256 / ITGAME-128 — Arch, 1 core, 869 MB RAM + 2 GB swap; the first
+box ci-cd-srv died on 16.10), each behind nginx (TLS, static files, `/ws`)
+→ Go binary: production on `127.0.0.1:8080`, systemd unit `itgame`, root
+`/opt/itgame`, `https://itgame.santarinto.ru`; stage on `127.0.0.1:8081`,
+unit `itgame-stage`, root `/opt/itgame-stage`,
+`https://stage.itgame.santarinto.ru`. The box has docker but no Go or Node
+toolchain. nginx, TLS and the box itself are the minipc repo's
+(`deploy/itgame/`: vhosts, one Let's Encrypt certificate for both names,
+certbot renewal, port 80 → ACME + 301 to https). `/admin` sits behind nginx
+basic auth (`401` without credentials, checked 2026-10-18); the Go handler
+itself has no auth.
 
 A push to `main` deploys (since 08.10, MINIPC-206). The repo lives on
 Forgejo (`git.lan.santarinto.com`; `make push` — it first deploys `main` to
@@ -21,13 +26,24 @@ the local stand with `git push stand main`, stops if that build fails, see
 branch runs `.forgejo/workflows/ci.yaml`: the `test-server` and
 `test-client` jobs (see [CI](#ci)), then — on `main` or a manual dispatch
 only, and only when both are green — the `deploy` job on the host runner
-`minipc-deploy`: `ssh deploy-itgame-stage <mode> <sha40>`, then
-`ssh deploy-itgame <mode> <sha40>` (`mode` is `deploy` on a push). All three
-jobs check out the sha the deploy ships — the dispatch's `ref`, else the
-pushed commit — by `git fetch --depth 1 origin <sha>` (ITGAME-105; before
-it the tests cloned the branch head by name, and a quick second push could
-ship an untested commit). Stage goes first; on a deploy a failed stage stops
-the job before production.
+`minipc-deploy`. The game box cannot reach `git.lan` (the home perimeter
+admits no public inbound), so the job fetches the whole `main` and ships it
+as a git bundle: per target, `ssh deploy-itgame-stage-feed < bundle` (the
+forced command `deploy-feed-bundle` fetches `+refs/heads/main` from it into
+the checkout's `refs/remotes/origin/main` — the bundle must carry the named
+ref `main` and the full history) and then `ssh deploy-itgame-stage <mode>
+<sha40>`; then the same for `deploy-itgame-feed` / `deploy-itgame` (`mode`
+is `deploy` on a push). The loader's own `git fetch` fails as a WARNING and
+its checks run against the fed refs; it only needs the sha to be reachable
+from `origin/main`, so a bundle whose `main` ran ahead of the shipped sha
+(a later push) is fine. The test jobs check out the sha the deploy ships —
+the dispatch's `ref`, else the pushed commit — by `git fetch --depth 1
+origin <sha>`, the deploy job checks it out of the full `main` it bundles
+(ITGAME-105; before it the tests cloned the branch head by name, and a
+quick second push could ship an untested commit). Stage goes first, fed and
+deployed before production is fed; on a deploy a failed stage stops the job
+before production. The job has `timeout-minutes: 40`: a full deploy is about
+5 minutes per target on this box.
 
 Runs are serialized per ref (`concurrency: ci-<ref>`, ITGAME-105). On
 `main` `cancel-in-progress` is false: a second push waits for the first run,
@@ -42,11 +58,10 @@ is a forced command of the platform loader (`deploy-project itgame-stage`,
 checks out the SHA and runs `tools/deploy` from that SHA's own tree, so
 every commit ships its own recipe. `DEPLOY_ENABLED` in `ci.yaml` is the
 latch: `"0"` makes the job report a skip and finish green with both targets
-untouched. It was `"1"` from e3ea574 (08.10) and is `"0"` again since 16.10:
-the game-box stopped answering (ssh `10.8.1.33:49222` timed out in runs
-15–18, the last good deploy is 5e741bd of 13.10) and production moves to a
-new host (ITGAME-128). Until the latch is back on, a push to `main` only
-tests.
+untouched. It was `"1"` from e3ea574 (08.10), `"0"` from 16.10 (the old
+game-box stopped answering: ssh `10.8.1.33:49222` timed out in runs 15–18,
+the last good deploy there is 5e741bd of 13.10) and `"1"` again since 18.10
+on the new box (ITGAME-128).
 
 `tools/deploy <deploy|rollback> <sha40> [--dry-run]` (contract v1) picks the
 target by the checkout's basename (`itgame` or `itgame-stage`) and builds
@@ -93,7 +108,10 @@ keeps the last `KEEP=3` releases and never prunes `current`.
   `tools/ci-notify.sh` (Vector `http://10.8.1.12:9880` → ClickHouse
   `logs.entries`, project `itgame`); without `OBS_TOKEN` (a Forgejo secret;
   a manual run on the box reads `$ROOT/shared/obs.env`) it is a silent no-op
-  and never fails a job.
+  and never fails a job. On the new box `tools/deploy` is always that no-op:
+  `10.8.1.12` is not reachable from it, so there is no `shared/obs.env`
+  there and the pipeline events come from the CI jobs on the runners
+  (minipc `deploy/itgame/README.md`).
 
 **Retired chain (since 08.10; the files stay in the repo — do not run
 them):** `bin/trigger-deploy.sh` (HMAC `X-Hub-Signature-256` POST to the

@@ -5,13 +5,13 @@
 # home to them since LM-200; the first home ci-cd-srv is gone since 15.10,
 # MINIPC-255) on EVERY push (any branch). The deploy job runs on the minipc
 # HOST runner (label minipc-deploy): git.lan is unreachable from the game
-# box (the home perimeter admits no public inbound), so the job FEEDS the
-# commit to the box as a git bundle (forced command deploy-feed-bundle on
-# each checkout) and then is ONE ssh line per target — stage first, prod
-# after — to the loader on the game box 90.156.129.221 (MINIPC-256, the
-# re-home after ci-cd-srv died): forced command deploy-project itgame-stage
-# / itgame, transient user unit, recipe tools/deploy (contract v1) from the
-# deployed SHA.
+# box (the home perimeter admits no public inbound), so per target the job
+# FEEDS the commit to the box as a git bundle (forced command
+# deploy-feed-bundle on its checkout) and then makes ONE ssh call to the
+# loader on the game box 90.156.129.221 (MINIPC-256, the re-home after
+# ci-cd-srv died) — stage fed and deployed first, prod after: forced command
+# deploy-project itgame-stage / itgame, transient user unit, recipe
+# tools/deploy (contract v1) from the deployed SHA.
 #
 # Checkout is a plain git fetch with the job token, NOT actions/checkout:
 # node-free where possible, and this runner serves no v4 artifact API
@@ -48,11 +48,11 @@
 # DEPLOY_ENABLED is the CT1 latch, "0" until the owner's word: the deploy
 # job then reports the skip and finishes GREEN (tests prove themselves, both
 # targets stay untouched). The first live deploy flipped it to 1 (e3ea574,
-# 08.10). Back to 0 since 16.10 (ci-cd-srv died, MINIPC-255 / ITGAME-128).
-# The new chain (box 90.156.129.221, bundle feed, MINIPC-256) is built and
-# a live stage build has run on the box; the flip back to 1 waits for DNS —
-# the recipe's health check hits the public vhost URL, red until
-# itgame.santarinto.ru points at the new box and LE certs are issued.
+# 08.10). Back to 0 on 16.10 (ci-cd-srv died, MINIPC-255 / ITGAME-128),
+# back to 1 on 18.10 (ITGAME-128): the new chain (box 90.156.129.221, bundle
+# feed, MINIPC-256) is live — DNS of both names points at the box, one LE
+# certificate covers both (SAN), both vhosts answered 200 on 25d3958
+# (minipc's first end-to-end deploy, MINIPC-260).
 name: ci
 on:
   push:
@@ -73,7 +73,7 @@ concurrency:
 
 env:
   OBS_TOKEN: ${{ secrets.OBS_TOKEN }}
-  DEPLOY_ENABLED: "0"
+  DEPLOY_ENABLED: "1"
 
 jobs:
   test-server:
@@ -128,6 +128,10 @@ jobs:
   deploy:
     runs-on: minipc-deploy
     needs: [test-server, test-client]
+    # A full deploy is ~5 minutes per target on the 1-core / 869 MB box
+    # (MINIPC-257, peak 1.8 GB with swap), two targets in a row 10+; a cold
+    # npm/go cache makes the first one longer.
+    timeout-minutes: 40
     if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
     steps:
       - env:
@@ -155,18 +159,25 @@ jobs:
           fi
           printf '%s' "$REF"  | grep -Eq '^[0-9a-f]{40}$' || { echo "bad ref"; exit 1; }
           printf '%s' "$MODE" | grep -Eq '^(deploy|rollback)$' || { echo "bad mode"; exit 1; }
-          # Feed the box first (MINIPC-256): the game box cannot fetch git.lan
-          # (the home perimeter admits no public inbound), so the commit ships
-          # as a bundle into each checkout's refs/remotes/origin/main — the
-          # loader's own fetch then fails as a WARNING and its safety checks
-          # run against these refs (the native emergency-bundle path,
-          # MINIPC-157 F4). Both modes need it: a rollback sha must be known
-          # to the checkout too. ssh eats the bundle from stdin; the forced
-          # command deploy-feed-bundle on the box refuses anything that does
-          # not chain onto the local history.
-          git bundle create /tmp/itg.bndl main
-          ssh -o BatchMode=yes deploy-itgame-stage-feed < /tmp/itg.bndl
-          ssh -o BatchMode=yes deploy-itgame-feed < /tmp/itg.bndl
+          # Each target is fed right before its own loader call (MINIPC-256):
+          # the game box cannot fetch git.lan (the home perimeter admits no
+          # public inbound), so the commit ships as a bundle into the
+          # checkout's refs/remotes/origin/main — the loader's own fetch then
+          # fails as a WARNING and its safety checks run against these refs
+          # (the native emergency-bundle path, MINIPC-157 F4). Both modes need
+          # it: a rollback sha must be known to the checkout too. ssh eats the
+          # bundle from stdin; the forced command deploy-feed-bundle fetches
+          # +refs/heads/main from it, so the bundle carries the NAMED ref
+          # main (a bare sha does not resolve) and the full history (a thin
+          # bundle does not chain onto the checkout). main is the branch head
+          # at fetch time, the shipped sha is it or its ancestor — the loader
+          # only checks `merge-base --is-ancestor sha origin/main` (minipc
+          # deploy/itgame/deploy-project, krit 16). Stage is fed and deployed
+          # before prod is fed at all: a red stage leaves prod's checkout as
+          # it was.
+          bndl=$(mktemp /tmp/itg-bndl.XXXXXX)
+          trap 'rm -f "$bndl"' EXIT
+          git bundle create "$bndl" main
           if [ "$MODE" = rollback ]; then
             # Откат на голову ветки бессмыслен — sha отката называют явно.
             [ -n "$INPUT_REF" ] || { echo "rollback требует ref (sha40 релиза, который есть на цели)"; exit 1; }
@@ -174,11 +185,21 @@ jobs:
             # должен оставить прод на сломанном релизе. Оба отката — всегда,
             # джоб красный, если не удался хоть один.
             rc=0
-            ssh -o BatchMode=yes deploy-itgame-stage rollback "$REF" || { echo "стейдж НЕ откатился на $REF — откатываю прод всё равно"; rc=1; }
-            ssh -o BatchMode=yes deploy-itgame rollback "$REF" || { echo "прод НЕ откатился на $REF"; rc=1; }
+            if ssh -o BatchMode=yes deploy-itgame-stage-feed < "$bndl"; then
+              ssh -o BatchMode=yes deploy-itgame-stage rollback "$REF" || { echo "стейдж НЕ откатился на $REF — откатываю прод всё равно"; rc=1; }
+            else
+              echo "стейдж НЕ накормлен — откатываю прод всё равно"; rc=1
+            fi
+            if ssh -o BatchMode=yes deploy-itgame-feed < "$bndl"; then
+              ssh -o BatchMode=yes deploy-itgame rollback "$REF" || { echo "прод НЕ откатился на $REF"; rc=1; }
+            else
+              echo "прод НЕ накормлен — не откатился на $REF"; rc=1
+            fi
             [ "$rc" = 0 ] || exit 1
           else
+            ssh -o BatchMode=yes deploy-itgame-stage-feed < "$bndl"
             ssh -o BatchMode=yes deploy-itgame-stage deploy "$REF"
+            ssh -o BatchMode=yes deploy-itgame-feed < "$bndl"
             ssh -o BatchMode=yes deploy-itgame deploy "$REF"
           fi
           sh tools/ci-notify.sh deploy-job finish success || true
