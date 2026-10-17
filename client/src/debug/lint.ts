@@ -130,6 +130,14 @@ function isDim(o: Node0): boolean {
   return o.getData?.('dim') === true
 }
 
+// ITGAME-141: под видимым затемнением — фон модалки, над ним — сама модалка. Пара через
+// затемнение (один объект под ним, другой над ним) — не находка: панель отчёта дня закрывает
+// журнал HUD, её кнопка стоит над ним, так и задумано. Пары по одну сторону — как раньше.
+function acrossDim(pos: Map<Phaser.GameObjects.GameObject, number>, flat: FlatNode[]): (a: Phaser.GameObjects.GameObject, b: Phaser.GameObjects.GameObject) => boolean {
+  const dimAt = flat.reduce((m, n) => (n.visible && isDim(n.obj as unknown as Node0) ? Math.max(m, pos.get(n.obj) ?? -1) : m), -1)
+  return (a, b) => dimAt >= 0 && ((pos.get(a) ?? 0) < dimAt) !== ((pos.get(b) ?? 0) < dimAt)
+}
+
 // Пересечения видимых текстов одной сцены на одном depth, а также закрытие
 // текста непрозрачным узлом (Rectangle/Image), отрисованным выше по depth или display list.
 export function findOverlaps(game: Phaser.Game, rawOpts?: OverlapOptions | null): OverlapEntry[] {
@@ -142,6 +150,7 @@ export function findOverlaps(game: Phaser.Game, rawOpts?: OverlapOptions | null)
     const pos = new Map<Phaser.GameObjects.GameObject, number>()
     flatRender(scene).forEach((n, i) => pos.set(n.obj, i))
     const flat = flatRender(scene, false)
+    const across = acrossDim(pos, flat)
     const texts = flat.filter(
       (n) => (n.obj as unknown as Node0).type === 'Text' && n.visible && n.alpha > 0.5,
     )
@@ -180,6 +189,7 @@ export function findOverlaps(game: Phaser.Game, rawOpts?: OverlapOptions | null)
         const o = fn.obj as unknown as Node0 & { fillAlpha?: number; isFilled?: boolean }
         if (o === t || !fn.visible || fn.alpha < 0.9) continue
         if (isDim(o)) continue // ITGAME-87: затемнение модалки — не находка, при любой альфе
+        if (across(t as unknown as Phaser.GameObjects.GameObject, fn.obj)) continue // ITGAME-141: текст фона под плашкой модалки
         if (o.type !== 'Rectangle' && o.type !== 'Image') continue
         if (o.type === 'Rectangle' && (o.isFilled === false || (o.fillAlpha ?? 1) < 0.9)) continue
 
@@ -210,7 +220,7 @@ export function findOverlaps(game: Phaser.Game, rawOpts?: OverlapOptions | null)
       }
     }
 
-    out.push(...findInteractiveOverlaps(scene, opts))
+    out.push(...findInteractiveOverlaps(scene, opts, across))
   }
   return out
 }
@@ -298,7 +308,10 @@ function sameTextPair(a: WalkNode, b: WalkNode): boolean {
   return a.type === 'Text' && b.type === 'Text' && layerOf(a) === layerOf(b)
 }
 
-function findInteractiveOverlaps(scene: Phaser.Scene, opts: OverlapOptions): OverlapEntry[] {
+function findInteractiveOverlaps(
+  scene: Phaser.Scene, opts: OverlapOptions,
+  across: (a: Phaser.GameObjects.GameObject, b: Phaser.GameObjects.GameObject) => boolean,
+): OverlapEntry[] {
   const out: OverlapEntry[] = []
   const all: Phaser.GameObjects.GameObject[] = []
   collectAll(scene.children.list, all)
@@ -330,7 +343,7 @@ function findInteractiveOverlaps(scene: Phaser.Scene, opts: OverlapOptions): Ove
       if (!ra || !rb) continue
       const na = a as unknown as WalkNode
       const nb = b as unknown as WalkNode
-      if (sameTextPair(na, nb)) continue
+      if (sameTextPair(na, nb) || across(a, b)) continue
       const { w, h } = overlapWH(ra, rb)
       if (w <= 1 || h <= 1) continue
       if (insideRect(ra, rb) || insideRect(rb, ra)) continue
@@ -354,7 +367,7 @@ function findInteractiveOverlaps(scene: Phaser.Scene, opts: OverlapOptions): Ove
     const na = a as unknown as WalkNode
     for (const t of plainTexts) {
       const nt = t as unknown as WalkNode
-      if (sameTextPair(na, nt)) continue
+      if (sameTextPair(na, nt) || across(a, t)) continue
       const ra = safeBounds(a)
       const rt = safeBounds(t)
       if (!ra || !rt || rt.width <= 0 || rt.height <= 0) continue

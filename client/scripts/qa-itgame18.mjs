@@ -4,7 +4,9 @@
 //   F5 при открытом отчёте: sessionStorage itd.speedBeforeReport переживает перезагрузку,
 //   «Продолжить» поднимает отчёт на паузе, закрытие возвращает 3×; внешняя пауза
 //   (itd.speed(0) поверх отчёта) не снимается; itd.set({tickInDay}) в day_report отклонён;
-//   skipReports — день меняется без модалки и без залипания скорости в 0; нет pageerror.
+//   skipReports — день меняется без модалки и без залипания скорости в 0; нет pageerror;
+//   R1–R2 длинный журнал (ITGAME-141): перенос с висячим отступом, обрезка сверху строкой
+//   «… раньше: ещё k», текст в рамке, панель в поле, itd.overlaps()/offscreen() пусты.
 //
 // Self-serve (ITGAME-70, по образцу qa-itgame47): без QA_BASE поднимает Go-сервер на QA_PORT
 // (по умолчанию :4182) с временным каталогом сейвов — F5 → «Продолжить» восстанавливает партию
@@ -53,6 +55,9 @@ try {
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   })
   const page = await browser.newPage()
+  // 1920×1080, как qa:hud: в окне 800×600 канвас 1.4× вылезает, и itd.offscreen() в R1–R2
+  // ловил бы окно, а не отчёт (ITGAME-141)
+  await page.setViewport({ width: 1920, height: 1080 })
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e)))
   page.on('console', (msg) => {
@@ -322,6 +327,88 @@ try {
   })
   check('skipReports: день перешел на 7 без модала', skipResult.day === 7 && !skipResult.hasModal, `day=${skipResult.day}, modal=${skipResult.hasModal}`)
   check('skipReports: скорость не залипла на 0 (осталась 2)', skipResult.speed === 2, `speed=${skipResult.speed}`)
+
+  // 13. Длинные строки журнала в отчёте (ITGAME-141): itd.restore подкладывает eventLog, день
+  // доходит до отчёта живым тиком. R1 — строки шире панели переносятся с висячим отступом «  » и
+  // склеиваются обратно без потерь; R2 — журнал выше поля режется сверху строкой «… раньше: ещё k»,
+  // вечерняя строка остаётся. В обоих: текст внутри рамки панели, панель внутри поля, линтер пуст.
+  const LONG = [
+    '12:00 вирус в офисе 2 отбит подпиской Enterprise — подписка покрыла всех сотрудников офиса',
+    '14:30 Константин Константинопольский: повышение (+$125/день) — просьба удовлетворена',
+    '17:50 вирус: к вечеру заражено 12 ПК — само не пройдёт, кликайте по местам или берите подписку',
+  ]
+  const MANY = Array.from({ length: 30 }, (_, i) =>
+    `${String(10 + Math.floor(i / 4)).padStart(2, '0')}:${String((i % 4) * 15).padStart(2, '0')} вирус: офис ${i % 3 + 1} вычищен вручную к ${String(10 + Math.floor(i / 4)).padStart(2, '0')}:${String((i % 4) * 15 + 5).padStart(2, '0')} — строка ${i + 1}`)
+  const reportWith = async (eventLog) => {
+    await page.evaluate(async (log) => {
+      localStorage.removeItem('itd.skipReports')
+      window.itd.speed(0)
+      await window.itd.wait((s, srv) => srv.snapshot?.speed === 0, 5000).catch(() => null)
+      const sn = await window.itd.snapshot()
+      sn.save.eventLog = log
+      await window.itd.restore(sn.save)
+      await window.itd.set({ tickInDay: 53 })
+      window.itd.speed(1)
+      await window.itd.wait(() => window.itd.ids().some((x) => x.id === 'btn.next_day'), 8000)
+    }, eventLog)
+    return page.evaluate(() => {
+      const box = (n) => n && { left: n.cx - n.w / 2, right: n.cx + n.w / 2, top: n.cy - n.h / 2, bottom: n.cy + n.h / 2 }
+      const body = window.itd.text().find((n) => n.scene === 'hud' && (n.text ?? '').startsWith('Доход:'))
+      const panel = window.itd.nodes().find((n) => n.scene === 'hud' && n.type === 'Rectangle' && n.depth === 51 && n.fill === '#14162b')
+      const btn = window.itd.nodes().find((n) => n.id === 'btn.next_day')
+      return {
+        lines: (body?.text ?? '').split('\n'),
+        body: box(body), panel: box(panel), btn: box(btn),
+        overlaps: window.itd.overlaps(), offscreen: window.itd.offscreen(),
+      }
+    })
+  }
+  // Строки журнала из тела отчёта: продолжение «  …» приклеивается к своей строке «· …».
+  const logOf = (lines) => {
+    const i = lines.indexOf('Журнал событий:')
+    const out = []
+    for (const l of i < 0 ? [] : lines.slice(i + 1)) {
+      if (l.startsWith('  ') && out.length) out[out.length - 1] += ' ' + l.trimStart()
+      else out.push(l)
+    }
+    return out
+  }
+  const inside = (b, p) => !!b && !!p && b.left >= p.left + 16 && b.right <= p.right - 16 && b.top >= p.top && b.bottom <= p.bottom
+  const closeReport = async (day) => {
+    await page.keyboard.press('Enter')
+    await page.evaluate(async (d) => {
+      await window.itd.wait((s) => s.day === d && s.phase === 'running', 5000).catch(() => null)
+    }, day)
+  }
+
+  const r1 = await reportWith(LONG)
+  const log1 = logOf(r1.lines)
+  const wrapped = r1.lines.filter((l) => l.startsWith('  '))
+  check('R1 длинные строки: перенос с висячим отступом «  »', wrapped.length >= LONG.length,
+    `продолжений ${wrapped.length}: ${JSON.stringify(r1.lines.slice(-8))}`)
+  check('R1 строки журнала склеиваются в исходные без потерь',
+    LONG.every((e) => log1.includes(`· ${e}`)), JSON.stringify(log1))
+  check('R1 текст отчёта внутри рамки панели (поля ≥ 16 px)', inside(r1.body, r1.panel),
+    JSON.stringify({ body: r1.body, panel: r1.panel }))
+  check('R1 itd.overlaps() и itd.offscreen() пусты', r1.overlaps.length === 0 && r1.offscreen.length === 0,
+    JSON.stringify({ overlaps: r1.overlaps, offscreen: r1.offscreen }).slice(0, 300))
+  await closeReport(8)
+
+  const r2 = await reportWith(MANY)
+  const log2 = logOf(r2.lines)
+  const more = /^· … раньше: ещё (\d+)$/.exec(log2[0] ?? '')
+  const shown = log2.slice(1)
+  check('R2 журнал выше поля: сверху «· … раньше: ещё k», вечерняя строка на месте',
+    !!more && Number(more[1]) > 0 && shown.includes(`· ${MANY[MANY.length - 1]}`)
+      && Number(more[1]) + shown.length >= MANY.length,
+    JSON.stringify({ first: log2[0], shown: shown.length, last: shown[shown.length - 1] }))
+  check('R2 панель внутри поля 16..704, текст и кнопка внутри рамки',
+    !!r2.panel && r2.panel.top >= 16 - 0.5 && r2.panel.bottom <= 720 - 16 + 0.5 && inside(r2.body, r2.panel)
+      && !!r2.btn && r2.btn.bottom <= r2.panel.bottom,
+    JSON.stringify({ panel: r2.panel, body: r2.body, btn: r2.btn }))
+  check('R2 itd.overlaps() и itd.offscreen() пусты', r2.overlaps.length === 0 && r2.offscreen.length === 0,
+    JSON.stringify({ overlaps: r2.overlaps, offscreen: r2.offscreen }).slice(0, 300))
+  await closeReport(9)
 
   check('Ошибок на странице нет', pageErrors.length === 0, `errors=${pageErrors.length} ${pageErrors.join(' | ')}`)
   await page.close()

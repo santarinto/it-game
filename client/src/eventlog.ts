@@ -41,3 +41,28 @@ export function diffEvents(prev: StateMessage, next: StateMessage): string[] {
   if (next.activeEvent && next.activeEvent.id !== prev.activeEvent?.id) out.push(`Событие: ${next.activeEvent.title}`)
   return out
 }
+
+// Перенос строки журнала по ширине maxW (ITGAME-141): по словам, слово шире строки режется по
+// знакам; строки продолжения начинаются с indent — висячий отступ под текстом после «· ».
+// measure — ширина строки в шрифте, где она будет нарисована (context.measureText Text-объекта).
+export function wrapHanging(line: string, maxW: number, measure: (s: string) => number, indent: string): string[] {
+  const out: string[] = []
+  let cur = ''
+  const lead = () => (out.length > 0 ? indent : '')
+  const push = () => { out.push(lead() + cur); cur = '' }
+  for (let word of line.split(' ')) {
+    const cand = cur ? `${cur} ${word}` : word
+    if (measure(lead() + cand) <= maxW) { cur = cand; continue }
+    if (cur) push()
+    while (word.length > 1 && measure(lead() + word) > maxW) {
+      let n = word.length - 1
+      while (n > 1 && measure(lead() + word.slice(0, n)) > maxW) n--
+      cur = word.slice(0, n)
+      push()
+      word = word.slice(n)
+    }
+    cur = word
+  }
+  if (cur || out.length === 0) push()
+  return out
+}

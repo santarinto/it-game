@@ -16,7 +16,7 @@ import { emitUi } from '../uibus'
 import { activeZoom, applyZoom, ZOOM_OPTIONS, zoomLabel } from '../uiscale'
 import { FONT, HIRES_CAMERA } from '../render'
 import { ONBOARD_STEPS, onboardStep } from '../onboarding'
-import { LOG_LINES, diffEvents } from '../eventlog'
+import { LOG_LINES, diffEvents, wrapHanging } from '../eventlog'
 import { WORKDAY, dayShare, hourShare } from '../workday'
 import {
   checkAchievements,
@@ -30,6 +30,9 @@ import type { AchievementDef } from '../meta'
 const CX = GAME_W / 2 // центр поля — якорь модалок и тостов
 const SPEED_BEFORE_REPORT_KEY = 'itd.speedBeforeReport'
 const REPORT_KEYS = [Phaser.Input.Keyboard.KeyCodes.ENTER, Phaser.Input.Keyboard.KeyCodes.SPACE]
+// Отчёт дня (ITGAME-141): поля текста внутри рамки по x и зазор панели до края поля по y.
+const REPORT_PAD_X = 24
+const REPORT_MARGIN_Y = 16
 
 // Record<ServerErrorCode, string> — tsc требует запись под каждый код
 // (ITGAME-39): забытый код в этом словаре ловится сборкой, а не молчаливым
@@ -1238,7 +1241,7 @@ export class HUDScene extends Phaser.Scene {
     if (this.input.keyboard) {
       this.input.keyboard.addCapture(REPORT_KEYS)
     }
-    const body = [
+    const head = [
       `Доход:     ${fmtMoney(r.income)}`,
       `Зарплата: -${fmtMoney(r.payroll)}`,
       ...(r.gatewayOpex > 0 ? [`Интернет: -${fmtMoney(r.gatewayOpex)}`] : []),
@@ -1252,8 +1255,7 @@ export class HUDScene extends Phaser.Scene {
       ...(r.incidents > 0 ? [`Поломки:   ${r.incidents} (−${fmtMoney(r.lostIncome)})`] : []),
       // Вирус (ITGAME-103): новых заражений за день и упущенное из-за −30%.
       ...(r.virusPCs > 0 || r.virusLost > 0 ? [`Вирус:     ${r.virusPCs} ПК (−${fmtMoney(r.virusLost)})`] : []),
-      ...(r.events?.length ? ['', 'Журнал событий:', ...r.events.map((e) => `· ${e}`)] : []),
-    ].join('\n')
+    ]
 
     // Подложка interactive: глушит клики по кнопкам HUD под модалкой (depth 50).
     const overlay = markDim(this.add.rectangle(0, 0, GAME_W, GAME_H, 0x1a1c2c, 0.75).setOrigin(0).setDepth(50).setInteractive(), `День ${r.day} завершён`)
@@ -1265,7 +1267,7 @@ export class HUDScene extends Phaser.Scene {
       .text(CX, 0, `День ${r.day} завершён`, { fontFamily: FONT, fontSize: '22px', color: '#ffcd75' })
       .setOrigin(0.5, 0).setDepth(52)
     const bodyText = this.add
-      .text(CX, 0, body, { fontFamily: FONT, fontSize: '16px', color: '#f4f4f4', lineSpacing: 8 })
+      .text(CX, 0, head.join('\n'), { fontFamily: FONT, fontSize: '16px', color: '#f4f4f4', lineSpacing: 8 })
       .setOrigin(0.5, 0).setDepth(52)
     const checkbox = markActive(
       tag(
@@ -1300,9 +1302,25 @@ export class HUDScene extends Phaser.Scene {
     const gapBody = 18
     const gapCheck = 16
     const btnH = 34
+    const panelW = 440
+
+    // Журнал событий (ITGAME-141): строки сервера бывают шире панели («вирус: к вечеру заражено
+    // k ПК — само не пройдёт»), поэтому каждая переносится по ширине панели с висячим отступом
+    // под «·» (шрифт моноширинный — «  » шириной с «· »). Не влезает по высоте — ранние события
+    // уступают место строке «… раньше: ещё k»: вечерние итоги важнее утренних.
+    const events = (r.events ?? []).map((e) =>
+      wrapHanging(`· ${e}`, panelW - REPORT_PAD_X * 2, (s) => bodyText.context.measureText(s).width, '  '))
+    const compose = (skip: number) => [
+      ...head,
+      ...(events.length ? ['', 'Журнал событий:', ...(skip ? [`· … раньше: ещё ${skip}`] : []), ...events.slice(skip).flat()] : []),
+    ].join('\n')
+    const maxBodyH = GAME_H - REPORT_MARGIN_Y * 2 - padY * 2 - title.height - gapTitle - gapBody - checkbox.height - gapCheck - btnH
+    let skip = 0
+    bodyText.setText(compose(skip))
+    while (bodyText.height > maxBodyH && skip < events.length) bodyText.setText(compose(++skip))
+
     const contentH = title.height + gapTitle + bodyText.height + gapBody + checkbox.height + gapCheck + btnH
     const panelH = padY * 2 + contentH
-    const panelW = 440
     const panelY = Math.round((GAME_H - panelH) / 2)
 
     panel.setSize(panelW, panelH)
