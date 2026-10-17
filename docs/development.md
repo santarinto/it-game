@@ -122,6 +122,18 @@ Notes:
   sha (ITGAME-98, same as the retired `bin/deploy-local.sh`); releases built
   before that read `dev` / `unknown`. Check a release:
   `curl -s https://<host>/ | grep -o '<meta name="build"[^>]*'`.
+- The **build version** (ITGAME-140) is stamped the same way: `BUILD_VERSION`
+  for the client (`itd.version.version`, the menu's «версия …») and `-X
+  itdirector/internal/ws.buildVersion` for the server (`/api/version` →
+  `version`, the session save, the journal header's `build`). It is the
+  commit time in Moscow time, `год.мес.день.час.мин`
+  (`TZ=MSK-3 git log -1 --format=%cd --date=format-local:%Y.%m.%d.%H.%M <sha>`;
+  `MSK-3` is a POSIX zone, UTC+3 with no tzdata) — the commit's, not the
+  build's, so rebuilding the same commit keeps parties alive. `tools/deploy`
+  computes it from `$CHECKOUT` before the build; unstamped, Vite falls back to
+  the same `git log`, then `dev`, and the server to `vcs.time` converted to
+  Moscow time, then `""` (`go run`, `go test`: no version, saves are not
+  checked).
 - Production nginx answers `/api/*` with the SPA's `index.html`; the one
   exception is `/api/version`, proxied to Go by a block on the box (both
   vhosts, installed 13.10.2026; nginx config is not in this repo). An
@@ -282,6 +294,25 @@ is no save, a connect with the same sid starts a new party, and its first save
 overwrites the file. Fixtures, `itd.restore` and the journal checkpoints are
 built over `Export`, so they carry the format; a party journal recorded before
 ITGAME-103 no longer replays.
+
+**Build version** (ITGAME-140, owner decision 17.10): the session save
+(`sessionSave.version`, next to `game`) records the server's build version
+(see [Deploy](#deploy)), and a save of any other version — or without one,
+written before ITGAME-140 — does not continue: the owner chose the build, not
+the save format, so **every deploy** (`git push stand main`, a green `main`)
+starts every party anew, the stand's included. The menu peek answers
+`exists: false, incompatible: true, saveVersion, version` and the menu shows
+a card without a click or focus — «СЕЙВ НЕСОВМЕСТИМ» / «от версии X, игра Y»
+(«от старой версии» for a save without one) — with «начните новую партию:»
+over the levels; a level starts a new party with no «Начать заново?» (the save
+is not alive) under a new sid, as any new party from the menu, and the old file
+lives out its TTL. A `/ws` connect with that sid (an agent tab's explicit sid)
+starts a new party under it and its first save overwrites the file, as with a
+broken save. A server without a version (`go run`, `go test`) accepts any save.
+Only the session save is checked: `itd.restore`, fixtures and `make replay`
+take a save or a journal of any build — replay exists to take a stand's or
+production's party apart on your own build; the journal header carries `build`
+for people. `save_summary.version` is sent always (`""` without one).
 
 ## Command ids, `rev` and `cause`
 
@@ -763,7 +794,8 @@ linger in the URL). Cosmetic only: `/admin` is not exposed on the public
 domain regardless (see [Deploy](#deploy)).
 
 **Build stamp and «устарело, обнови»** (ITGAME-78): the same `#topbar` shows
-the tab's own build sha (`#build`, = `itd.version.sha`) left of «Админка».
+the tab's own build sha (`#build`, = `itd.version.sha`; its title also carries
+the build version, `itd.version.version`, ITGAME-140) left of «Админка».
 `client/src/buildstamp.ts` compares it with the build the stand would serve on
 reload — the sha in `<meta name="build">` of a fresh `GET /` — and, if that is
 missing, with the server binary's sha (`GET /api/version` → `{sha}`, public,
@@ -1226,11 +1258,12 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63); explicit exit freezes the party: the exit dialog pauses, Отмена/Esc/✕ restore the speed, «Сохранить и выйти» → «Продолжить» keeps tick/day/money and the speed, also from an open day report (ITGAME-65); on the victory screen (storage sid cleared) `itd.server().sid`/`liveSid` stay the live party's sid (ITGAME-68); office/server-room windows (router, fire dialog via a real right click on `broken_pc`, core, rack) close on `itd.scenario()`/`itd.restore()`, a click where «Уволить» was sends nothing (ITGAME-69); A1–A7 `itd.away` (ITGAME-76): `close` — while away the socket is `reconnecting`, commands `not_connected`, the server session is gone at once, the return resumes the same sid with `droppedAt` ≈ `leftAt`; `net` with `timeout: 1500` — the server session lives (200) until its read timeout and is gone (404) after, `droppedAt − drop.at` ≈ 1.5 s, `liveTicks` ≈ 3 at 2x, catch-up from `droppedAt`; `net` shorter than the timeout — no catch-up, ticks ran live; the owner key untouched; inside `itd.sandbox` the return lands in the sandbox party; N1–N6 with the socket dropped (`itd.away` net) and real mouse clicks: «Купить ПК» twice — one «Нет связи» toast, `error` sound each, no `buy_pc` (ITGAME-90); «Сохранить и выйти» → «Нет связи — сохранение не дойдёт», no `exit`, Esc back; «Подождать» → «Ждём связь…» → after the return `exit {speed:2}` and the menu, «Продолжить» 3 s later on the same day/clock; «Подождать» → ✕ sends nothing; «Выйти без сохранения» → menu, the party ran on; open socket unchanged (ITGAME-85); D1–D3 «Сдаться» → «Удалить партию навсегда?»: Enter/«Отмена» keep the sid and the save, «Удалить» sends `abandon`, 404 (ITGAME-86); A8 the catch-up key: `awayId` 1, 2, 3, `offline.awayId === awayId`, `seq` grows, after an away without a catch-up `itd.offline()` is the previous one (its `awayId`, same `seq`) (ITGAME-87) | :4181, self-serve + temp saves dir |
 | `npm run qa:report-pause` | the day report pauses the party (speed 0, time and balance stand still); Enter/Space/`btn.next_day`/`itd.cmd('next_day')` restore the pre-report speed; F5 with the report open keeps `itd.speedBeforeReport`, «Продолжить» reopens it paused and closing restores 3×; an outside `itd.speed(0)` over the report survives; `itd.set({tickInDay})` refused in `day_report`; `skipReports` changes the day without a modal or a stuck 0 (ITGAME-18, self-serve since ITGAME-70); R1–R2 a long journal (ITGAME-141, `eventLog` by `itd.restore`, viewport 1920×1080): lines wider than the panel wrap with a hanging indent `  ` under «·» and glue back to the server's lines, 30 two-line events give «· … раньше: ещё k» on top with the evening line kept, the text stays ≥ 16 px inside the panel frame, the panel inside 16..704, `itd.overlaps()`/`offscreen()` empty | :4182, self-serve + temp saves dir |
 | `npm run qa:journal` | the journal of a live browser party (HUD clicks, `itd.cmd`, a rejection, `itd.set`/`itd.step`, F5 → «Продолжить» with offline catch-up) from `/api/debug/journal` replays with `cmd/replay -json` without divergence or warnings, and the replayed save equals the live one; `itd.journal({tail, sid})` gives the same journal from the tab — tail lines, kinds/total, ids, saves stripped (ITGAME-46); a `/ws/agent` command with its own id 1 after the F5: `conn`/`src` on every command, `start c1`, `resume c2`, the bridge on its own conn, ids repeat but (conn, id) pairs don't, replay `conns`; lines `end disconnect`, `c3 bridge id1` (ITGAME-91); J3b/J6b `itd.restore` infects seat 1 of two with the wave in 2 ticks, a live wave infects seat 2, six `virus_click` clean both and a seventh is `not_infected` — all in the journal and the replay (ITGAME-138) | :4186, self-serve + temp saves dir |
+| `npm run qa:version` | the build version (ITGAME-140): V1 `/api/version` → `version` год.мес.день.час.мин = `itd.version.version` = the menu's «версия X» (`menu.version`, inside the field); V2 a party → «Сохранить и выйти»: the save file carries the server's version, the menu shows «ПРОДОЛЖИТЬ»; V3 the server restarted on the same saves dir with the file's version set to 2000.01.01.00.00 (a deploy of a new build): no `menu.continue`, the card `menu.stale` «СЕЙВ НЕСОВМЕСТИМ» / «от версии 2000.01.01.00.00, игра X», «начните новую партию:», overlaps/offscreen empty; V4 a real mouse click on «НОРМА»: no «Начать заново?», a new sid, day 1, its save carries the server's version, the old file untouched; V5 a save without `version` (before ITGAME-140) — «от старой версии, игра X»; no pageerror | :4189, self-serve on its own saves dir (restarted between steps: the store keeps saves in memory) |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |
 | `npm run visreg` | screenshot diff + layout linter per fixture scenario | :4173, self-serve, `VISREG_PORT` overrides |
 
 `qa:buttons`/`qa:hud`/`qa:facade`/`qa:slots`/`qa:sprite-try`/`qa:trace`/`qa:contract`/`qa:tabs`/
-`qa:party`/`qa:report-pause`/`qa:journal`/`visreg` share `client/scripts/lib/selfserve.mjs`: it rebuilds `bin/itdirector` on every
+`qa:party`/`qa:report-pause`/`qa:journal`/`qa:version`/`visreg` share `client/scripts/lib/selfserve.mjs`: it rebuilds `bin/itdirector` on every
 run (`go build` into a temp file, then an atomic rename — a no-op relink takes
 under 1 s, so QA never runs against a binary older than `server/`) and runs it
 over `client/dist`, refuses WHATWG bad ports (e.g. 4190, 6000 — fetch and
@@ -1383,7 +1416,9 @@ the working clone takes no part, so a dirty tree ships nothing) and runs that
 tree's own `tools/dev-stand/stand.sh deploy` — changes to the deploy script
 ship with the code. The build is stamped like `tools/deploy` does it:
 `BUILD_SHA` for the client, `-ldflags -X itdirector/internal/ws.buildSHA` for
-the server; `npm ci` runs only when `client/package-lock.json` changed
+the server, and the build version (`BUILD_VERSION`, `-X ws.buildVersion`,
+ITGAME-140) read with `git log` while `stand.sh` still runs in the hook's bare
+repo (an empty one is announced: saves are then not checked); `npm ci` runs only when `client/package-lock.json` changed
 (`node_modules` lives in `src` between deploys). It is `pre-`, not
 `post-receive`: a failed build rejects the push, so the stand's `main` is
 always what really runs. Other branches are accepted and ignored («не main,
@@ -1398,9 +1433,12 @@ and restart it, then fail unless `:15555` serves the `<meta name="build">`
 just built; if it does not come up, the previous binary and `dist`
 (`bin/itdirector.prev`, `dist.prev`) are put back and restarted. The stand
 runs a copy: QA scripts and visreg rebuild `client/dist` all the time and the
-stand does not change until the next deploy. A deploy keeps saves and the
-database, so a party continues after the reconnect — except across a save
-format break (ITGAME-103's `Save.Format`): then the menu has no «Продолжить».
+stand does not change until the next deploy. A deploy keeps the database and
+the save files, but since ITGAME-140 a party does not survive it: the new
+build's version differs, and the menu shows «СЕЙВ НЕСОВМЕСТИМ» instead of
+«Продолжить» (owner decision 17.10, see [Sessions and saves](#sessions-and-saves)).
+A reconnect to the same build (a restart, `make stand` of the same commit)
+continues as before.
 A browser agent's acceptance pins the stand's sha: do not push to `stand`
 while one runs.
 

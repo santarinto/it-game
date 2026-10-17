@@ -3,7 +3,9 @@ package ws
 import (
 	"context"
 	"net/http"
+	"regexp"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -230,6 +232,54 @@ func pickVersion(stamp string, bi *debug.BuildInfo) string {
 		}
 	}
 	return "unknown"
+}
+
+// buildVersion — версия сборки год.мес.день.час.мин (ITGAME-140): время коммита по Москве,
+// вшитое линкером рядом с buildSHA (tools/deploy, tools/dev-stand/stand.sh):
+//
+//	go build -ldflags "-X itdirector/internal/ws.buildVersion=2026.10.17.01.25"
+//
+// Время коммита, а не сборки: пересборка того же коммита (рестарт стенда) — та же версия,
+// партии живут. Пусто (make build, selfServe QA) — vcs.time из чекаута.
+var buildVersion string
+
+var buildVersionRe = regexp.MustCompile(`^\d{4}\.\d{2}\.\d{2}\.\d{2}\.\d{2}$`)
+
+// msk — время версии: зона владельца, без перехода на летнее время (UTC+3 с 2014).
+var msk = time.FixedZone("MSK", 3*60*60)
+
+// BuildVersion — версия сборки сервера; "" — сверить не с чем (go run, go test, архив без
+// штампа): сейвы тогда принимаются любые. Зовётся на каждый сейв (тик) — build info
+// разбирается один раз; штамп читается каждый раз (тесты его подменяют).
+func BuildVersion() string {
+	if buildVersionRe.MatchString(buildVersion) {
+		return buildVersion
+	}
+	return vcsBuildVersion()
+}
+
+var vcsBuildVersion = sync.OnceValue(func() string {
+	bi, _ := debug.ReadBuildInfo()
+	return pickBuildVersion("", bi)
+})
+
+// pickBuildVersion — выбор без глобалов (тестируется напрямую): штамп линкера, иначе
+// vcs.time по Москве, иначе "".
+func pickBuildVersion(stamp string, bi *debug.BuildInfo) string {
+	if buildVersionRe.MatchString(stamp) {
+		return stamp
+	}
+	if bi != nil {
+		for _, s := range bi.Settings {
+			if s.Key != "vcs.time" {
+				continue
+			}
+			if t, err := time.Parse(time.RFC3339, s.Value); err == nil {
+				return t.In(msk).Format("2006.01.02.15.04")
+			}
+		}
+	}
+	return ""
 }
 
 // isHexSHA — sha git: 7..40 hex в нижнем регистре. То же правило, что у

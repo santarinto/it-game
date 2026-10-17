@@ -121,11 +121,12 @@ func newMux(cfg game.Config, database *db.DB, saves *store.Store, staticDir stri
 	}
 	mux.Handle("GET /admin", &admin.Handler{Config: cfg, DB: database})
 	// Штамп сборки (ITGAME-78): sha бинаря сервера для itd.stale() и метки
-	// «устарело» у владельца. Без гейта: sha открытого репо — не секрет.
+	// «устарело» у владельца; version — версия сборки год.мес.день.час.мин, с которой
+	// сверяются сейвы (ITGAME-140), "" — без версии. Без гейта: sha открытого репо — не секрет.
 	mux.Handle("GET /api/version", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(map[string]string{"sha": ws.ServerVersion()})
+		_ = json.NewEncoder(w).Encode(map[string]string{"sha": ws.ServerVersion(), "version": ws.BuildVersion()})
 	}))
 	if staticDir != "" {
 		files := http.FileServer(http.Dir(staticDir))

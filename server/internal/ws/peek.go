@@ -25,6 +25,11 @@ type saveSummaryMessage struct {
 	Difficulty string `json:"difficulty"` // easy | normal | hard | hardcore
 	Outcome    string `json:"outcome"`    // "" — жива; won | lost — финал случился офлайн
 	Reason     string `json:"reason"`     // причина поражения: bankrupt | time_up | deadlock
+	// Версии (ITGAME-140): Version — сборка сервера ("" — без версии); сейв другой сборки —
+	// Exists false, Incompatible true и SaveVersion писавшей его сборки ("" — сейв до ITGAME-140).
+	Version      string `json:"version"`
+	Incompatible bool   `json:"incompatible"`
+	SaveVersion  string `json:"saveVersion"`
 }
 
 // summarize — факты сейва sid без захвата сессии и без записи: офлайн
@@ -32,7 +37,7 @@ type saveSummaryMessage struct {
 // показывает то, что игрок увидит после «Продолжить». Протухший или битый
 // сейв Load/Restore отбрасывают — сводка говорит «сейва нет».
 func (h *Handler) summarize(sid string) saveSummaryMessage {
-	msg := saveSummaryMessage{Type: "save_summary"}
+	msg := saveSummaryMessage{Type: "save_summary", Version: BuildVersion()}
 	if h.Saves == nil || !store.ValidSID(sid) {
 		return msg
 	}
@@ -42,6 +47,10 @@ func (h *Handler) summarize(sid string) saveSummaryMessage {
 	}
 	var ss sessionSave
 	if json.Unmarshal(raw, &ss) != nil || ss.SID != sid {
+		return msg
+	}
+	if staleSave(ss) {
+		msg.Incompatible, msg.SaveVersion = true, ss.Version
 		return msg
 	}
 	g, err := game.Restore(ss.Game)

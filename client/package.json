@@ -24,6 +24,7 @@
     "qa:party": "node scripts/qa-itgame47.mjs",
     "qa:report-pause": "node scripts/qa-itgame18.mjs",
     "qa:journal": "node scripts/qa-itgame46.mjs",
+    "qa:version": "node scripts/qa-itgame140.mjs",
     "check:sprites": "node scripts/check-sprites.mjs",
     "check:emoji": "node scripts/check-emoji.mjs",
     "gen:contract": "node scripts/gen-contract.mjs",

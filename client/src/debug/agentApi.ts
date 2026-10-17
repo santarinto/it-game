@@ -240,7 +240,7 @@ export interface JournalView {
 
 // Версия сборки: sha коммита и время билда (vite define; dev — HEAD на
 // момент старта vite). Плюс <meta name="build"> в index.html.
-export const BUILD = { sha: __BUILD_SHA__, builtAt: __BUILD_AT__ }
+export const BUILD = { sha: __BUILD_SHA__, builtAt: __BUILD_AT__, version: __BUILD_VERSION__ }
 
 // Палитра «вне палитры» — по манифесту ключа (manifest.palettes[spec.palette]),
 // а не жёстко Sweetie-16: HD-спрайты (desk_pc, worker, …) заявлены с
@@ -755,17 +755,18 @@ export type TypeSpec =
 // version.hash — то, что цитирует отчёт волны приёмки, а не пересказ help().
 export interface ItdContract {
   schema: 1
-  version: { sha: string; builtAt: string; hash: string }
+  version: { sha: string; builtAt: string; version: string; hash: string }
   methods: Record<string, MemberSpec>
   types: Record<string, TypeSpec>
 }
 
 export interface ItdApi {
   /**
-   * Штамп сборки: {sha, builtAt} + `<meta name="build">` в html.
+   * Штамп сборки: {sha, builtAt, version} + `<meta name="build">` в html; version —
+   * год.мес.день.час.мин коммита (ITGAME-140): с ней сервер сверяет сейв, она же в меню.
    * @example itd.version
    */
-  readonly version: { sha: string; builtAt: string }
+  readonly version: { sha: string; builtAt: string; version: string }
   /**
    * Баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий
    * (null до первого снапшота); menuReady — меню создано, активно, его перезапуск
@@ -1925,7 +1926,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
                                        Пример: itd.log(200).filter(e => e.type === 'sound').map(e => e.key)
   itd.errors()                      — ошибки страницы (window.onerror + unhandledrejection), переживают перезагрузку вкладки: load — номер загрузки
   itd.net(20)                       — последние сообщения WS в обе стороны + сокет/rtt/реконнекты/rev; info: out — id, state — rev/cause/re, error — code/re/rev
-  itd.version                       — {sha, builtAt} сборки (+ <meta name="build"> в html)
+  itd.version                       — {sha, builtAt, version} сборки (+ <meta name="build"> в html); version — год.мес.день.час.мин коммита, с ней сервер сверяет сейв (ITGAME-140)
   itd.sandbox('acc3')               — своя партия вкладки: sid a-acc3-<время> во вкладку, ключи владельца (localStorage itd.sid/itd.diff/itd.onboard, sessionStorage вкладки) запомнены → {ok, sid, owner:{sid, diff}}; новая партия и «Сдаться» берут новый sid песочницы, общий ключ не трогают; из меню (в партии — in_party)
   itd.sandbox.fakeOwner()           — «чужой» общий ключ itd.sid/itd.diff вызовом игры (проверить гард «Сдаться») → {sid, diff}; restore() вернёт настоящий
   itd.sandbox.restore()             — выйти из песочницы (из меню): {sidSame, diffSame, fake, restored, kept, removed} — sidSame/diffSame: общий ключ тот, что при входе (или fake); itd.sid/itd.diff: наше/стёртое значение возвращено, чужое (kept) не перетёрто; itd.onboard возвращается к значению при входе при любом отличии

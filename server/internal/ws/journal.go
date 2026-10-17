@@ -69,9 +69,10 @@ type journalHeader struct {
 	Difficulty string      `json:"difficulty"`
 	Scenario   string      `json:"scenario"` // фикстура старта; "" — обычная партия
 	CfgHash    string      `json:"cfgHash"`
-	Version    string      `json:"version"` // sha сервера, писавшего журнал
-	Started    string      `json:"started"` // для людей; реплей не читает
-	Dropped    int         `json:"dropped"` // записей срезано кольцом с головы
+	Version    string      `json:"version"`         // sha сервера, писавшего журнал
+	Build      string      `json:"build,omitempty"` // версия сборки (ITGAME-140); реплей её не сверяет — разбирает чужие сборки
+	Started    string      `json:"started"`         // для людей; реплей не читает
+	Dropped    int         `json:"dropped"`         // записей срезано кольцом с головы
 	Overflow   bool        `json:"overflow,omitempty"`
 	Config     game.Config `json:"config"`
 }
@@ -383,7 +384,7 @@ func (h *Handler) openJournal(sid string, g **game.Game, speed, resumeSpeed *int
 		j = &journal{header: journalHeader{
 			K: "header", V: journalVersion, SID: sid, Seed: cur.SeedString(),
 			Difficulty: string(cur.Config().Difficulty), Scenario: *scenario,
-			CfgHash: configHash(cur.Config()), Version: serverVersion(),
+			CfgHash: configHash(cur.Config()), Version: serverVersion(), Build: BuildVersion(),
 			Started: time.Now().UTC().Format(time.RFC3339), Config: cur.Config(),
 		}}
 		st.put(sid, j)

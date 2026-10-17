@@ -122,10 +122,10 @@ func TestSaveBeforeVirusStartsNewParty(t *testing.T) {
 	old.Format = 0
 	gen, _ := saves.Begin(sid)
 	raw, _ := json.Marshal(sessionSave{SID: sid, Speed: 1, SavedAt: time.Now(), Game: old})
+	// Без saves.Finish: он удаляет сейв, и тест проверял бы пустой стор (ITGAME-140).
 	if !saves.Put(sid, gen, raw, time.Now()) {
 		t.Fatal("не удалось записать тестовый сейв")
 	}
-	saves.Finish(sid, gen)
 
 	if s := peek(t, saves, savesTestConfig(), "?peek=1&sid="+sid); s.Exists || s.Alive {
 		t.Fatalf("сейв до ITGAME-103 в меню: %+v, хотим «сейва нет»", s)

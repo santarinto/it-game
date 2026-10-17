@@ -217,6 +217,16 @@ type sessionSave struct {
 	Scenario    string          `json:"scenario"`      // фикстура старта (ITGAME-26)
 	Events      []string        `json:"events"`        // журнал событий сессии (ITGAME-26)
 	Rev         uint64          `json:"rev,omitempty"` // версия состояния (ITGAME-45); 0 — сейв до неё
+	// Version — версия сборки, писавшей сейв (ITGAME-140); "" — сейв до неё или сервер без версии.
+	Version string `json:"version,omitempty"`
+}
+
+// staleSave — сейв написан другой сборкой (ITGAME-140, решение владельца 17.10): сверяется
+// версия сборки, а не формат сейва, так что любой деплой (git push stand main, зелёный main)
+// начинает партии заново. Сервер без версии (go run, go test) не сверяет.
+func staleSave(ss sessionSave) bool {
+	cur := BuildVersion()
+	return cur != "" && ss.Version != cur
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -313,7 +323,7 @@ func (h *Handler) persist(sid string, gen uint64, g *game.Game, speed, resumeSpe
 	at := time.Now()
 	data, err := json.Marshal(sessionSave{
 		SID: sid, Speed: speed, ResumeSpeed: resumeSpeed, SavedAt: at, Game: g.Export(), LastReport: last,
-		Scenario: scenario, Events: events, Rev: rev,
+		Scenario: scenario, Events: events, Rev: rev, Version: BuildVersion(),
 	})
 	if err != nil {
 		// сериализация падает только на баге — игру не рвём
@@ -603,7 +613,9 @@ func (h *Handler) resume(sid string, gen uint64, rt *resumeTrace) (g *game.Game,
 		return nil, 1, nil, nil, false, "", journal, time.Time{}, 0
 	}
 	var ss sessionSave
-	if json.Unmarshal(raw, &ss) != nil || ss.SID != sid {
+	// Сейв другой сборки — как битый (ITGAME-140): новая партия под тем же sid, её первый
+	// сейв перезапишет файл; меню об этом уже сказало (save_summary.incompatible).
+	if json.Unmarshal(raw, &ss) != nil || ss.SID != sid || staleSave(ss) {
 		h.Saves.Finish(sid, gen) // не Delete: тот закрыл бы kick — наш же (владеем с Begin)
 		return nil, 1, nil, nil, false, "", journal, time.Time{}, 0
 	}

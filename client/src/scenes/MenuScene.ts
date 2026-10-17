@@ -41,7 +41,7 @@ const LOSE_REASON: Record<string, string> = {
 // none — сейва нет (или сервер сказал, что его нет: истёк, -saves off);
 // loading — ключ есть, сводка ещё едет; unknown — сервер не ответил;
 // alive — партию можно продолжить; ended — партия кончилась офлайн.
-type SaveView = 'none' | 'loading' | 'unknown' | 'alive' | 'ended'
+type SaveView = 'none' | 'loading' | 'unknown' | 'alive' | 'ended' | 'stale'
 
 type MenuObject = Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible
 
@@ -197,6 +197,13 @@ export class MenuScene extends Phaser.Scene {
       this.menuUI.push(zBg, zTxt)
     })
 
+    // Версия сборки (ITGAME-140): с ней сервер сверяет сейв — игрок видит, на какой он версии.
+    this.menuUI.push(tag(
+      this.add.text(GAME_W - 16, GAME_H - 12, `версия ${__BUILD_VERSION__}`, { fontFamily: FONT, fontSize: '12px', color: DIM })
+        .setOrigin(1, 1),
+      'menu.version',
+    ))
+
     // Мета-прогресс (ITGAME-10): Достижения справа
     const { unlockedCount, totalCount } = getAchievementsSummary()
     const achBg = tag(
@@ -224,7 +231,7 @@ export class MenuScene extends Phaser.Scene {
     const s = this.summary
     if (s === undefined) return 'loading'
     if (s === null) return 'unknown'
-    if (!s.exists) return 'none'
+    if (!s.exists) return s.incompatible ? 'stale' : 'none'
     return s.alive ? 'alive' : 'ended'
   }
 
@@ -255,10 +262,24 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5))
     y += TITLE_H + 28
 
+    // Сейв другой сборки (ITGAME-140, решение владельца 17.10): продолжать нечего — карточка
+    // без клика и фокуса говорит почему, уровни ниже начинают новую партию без вопроса (сейв
+    // не живой) под новым sid; старый файл доживает до TTL.
+    if (view === 'stale' && this.summary) {
+      const s = this.summary
+      const from = s.saveVersion ? `от версии ${s.saveVersion}` : 'от старой версии'
+      ui.push(
+        tag(this.add.rectangle(CX - 260, y, 520, CARD_H, 0x333c57).setOrigin(0).setStrokeStyle(2, 0x566c86), 'menu.stale'),
+        this.add.text(CX - 240, y + 12, 'СЕЙВ НЕСОВМЕСТИМ', { fontFamily: FONT, fontSize: '20px', color: '#ef7d57' }),
+        this.add.text(CX - 240, y + 40, `${from}, игра ${s.version}`, { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4' }),
+      )
+      y += CARD_H + 20
+    }
+
     // «Продолжить» (ITGAME-8): на сервере живёт сейв сессии — возвращаем
     // игрока в его партию (сложность игнорируется, конфиг в сейве).
     // Партия, кончившаяся офлайн, — не «продолжить», а её итог (ITGAME-19).
-    if (withCard) {
+    if (withCard && view !== 'stale') {
       const s = this.summary
       const ended = view === 'ended' && s
       const color = ended ? 0xffcd75 : 0x38b764
@@ -295,7 +316,7 @@ export class MenuScene extends Phaser.Scene {
     }
 
     ui.push(this.add
-      .text(CX, y + SUB_H / 2, withCard ? 'или начните новую:' : 'Выберите сложность', {
+      .text(CX, y + SUB_H / 2, view === 'stale' ? 'начните новую партию:' : withCard ? 'или начните новую:' : 'Выберите сложность', {
         fontFamily: FONT, fontSize: withCard ? '14px' : '16px', color: withCard ? DIM : '#f4f4f4',
       })
       .setOrigin(0.5))
@@ -336,7 +357,7 @@ export class MenuScene extends Phaser.Scene {
     // Фокус по умолчанию: «Продолжить», если есть, иначе НОРМА; пережил
     // перестройку — остаётся где был.
     const keep = this.focusItems.some((f) => f.id === this.focusId)
-    this.setFocus(keep ? this.focusId : withCard ? 'menu.continue' : 'menu.diff.normal')
+    this.setFocus(keep ? this.focusId : withCard && view !== 'stale' ? 'menu.continue' : 'menu.diff.normal')
 
     this.pinPointer()
 

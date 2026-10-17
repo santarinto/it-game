@@ -14,6 +14,28 @@ import { execSync } from 'node:child_process'
 // должно ронять make build и QA, а рецепты передают sha из git.
 const SHA_RE = /^[0-9a-f]{7,40}$/
 
+// Версия сборки год.мес.день.час.мин (ITGAME-140): время коммита по Москве (MSK-3 — POSIX TZ,
+// UTC+3 без tzdata), как -X ws.buildVersion сервера. Релиз (архив без .git) передаёт её в
+// BUILD_VERSION; иначе git; не git-чекаут — 'dev'.
+const VERSION_RE = /^\d{4}\.\d{2}\.\d{2}\.\d{2}\.\d{2}$/
+
+function buildVersion(): string {
+  const fromEnv = process.env.BUILD_VERSION ?? ''
+  if (VERSION_RE.test(fromEnv)) return fromEnv
+  if (fromEnv !== '') {
+    console.warn(`[itd-build-meta] BUILD_VERSION=${JSON.stringify(fromEnv.slice(0, 64))} — не год.мес.день.час.мин, беру git`)
+  }
+  try {
+    const v = execSync('git log -1 --format=%cd --date=format-local:%Y.%m.%d.%H.%M', {
+      stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, TZ: 'MSK-3' },
+    }).toString().trim()
+    if (VERSION_RE.test(v)) return v
+  } catch {
+    // не git-чекаут и без BUILD_VERSION — честный 'dev'
+  }
+  return 'dev'
+}
+
 function buildStamp() {
   const builtAt = new Date().toISOString()
   const fromEnv = process.env.BUILD_SHA ?? ''
@@ -34,7 +56,7 @@ function buildStamp() {
   return { sha, builtAt }
 }
 
-const stamp = buildStamp()
+const stamp = { ...buildStamp(), version: buildVersion() }
 
 // <meta name="build" content="5026a2d 2026-09-09T…"> в <head> index.html.
 function buildMeta(): Plugin {
@@ -54,6 +76,7 @@ export default defineConfig({
   define: {
     __BUILD_SHA__: JSON.stringify(stamp.sha),
     __BUILD_AT__: JSON.stringify(stamp.builtAt),
+    __BUILD_VERSION__: JSON.stringify(stamp.version),
   },
   plugins: [buildMeta()],
   build: {

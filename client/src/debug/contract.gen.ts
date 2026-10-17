@@ -2,13 +2,13 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "4cb86ed0341e",
+  "hash": "bb1af0e87702",
   "methods": {
     "version": {
       "kind": "prop",
-      "type": "{ sha: string; builtAt: string; }",
+      "type": "{ sha: string; builtAt: string; version: string; }",
       "readonly": true,
-      "doc": "Штамп сборки: {sha, builtAt} + `<meta name=\"build\">` в html.",
+      "doc": "Штамп сборки: {sha, builtAt, version} + `<meta name=\"build\">` в html; version —\nгод.мес.день.час.мин коммита (ITGAME-140): с ней сервер сверяет сейв, она же в меню.",
       "examples": [
         "itd.version"
       ]
@@ -1963,7 +1963,7 @@ export const CONTRACT = {
           "doc": ""
         },
         "version": {
-          "type": "{ sha: string; builtAt: string; hash: string; }",
+          "type": "{ sha: string; builtAt: string; version: string; hash: string; }",
           "optional": false,
           "doc": ""
         },

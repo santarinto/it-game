@@ -86,9 +86,15 @@ worktree() {
 }
 
 # deploy <src> <sha7> — сборка выкладки без .git, штамп как у tools/deploy
-# (ITGAME-81/98): клиенту BUILD_SHA, серверу -ldflags buildSHA.
+# (ITGAME-81/98): клиенту BUILD_SHA, серверу -ldflags buildSHA; версия сборки
+# (ITGAME-140) — BUILD_VERSION и -ldflags buildVersion.
 deploy() {
-  local src=$1 sha=$2 lock
+  local src=$1 sha=$2 lock ver
+  # Версия — время коммита по Москве (MSK-3: POSIX TZ, UTC+3 без tzdata); читается, пока мы
+  # ещё в bare-репо хука (его GIT_DIR и карантин объектов), в выкладке .git нет. Пусто —
+  # сервер не сверяет сейвы, и об этом надо сказать.
+  ver=$(TZ=MSK-3 git log -1 --format=%cd --date=format-local:%Y.%m.%d.%H.%M "$sha" 2>/dev/null || true)
+  [ -n "$ver" ] || say "ВНИМАНИЕ: версия сборки не определилась (не из хука?) — сейвы сверяться не будут"
   # Хук git отдаёт свои GIT_* (bare-репо, карантин объектов) — сборке они чужие.
   unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_QUARANTINE_PATH \
     GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PUSH_OPTION_COUNT
@@ -99,12 +105,12 @@ deploy() {
     out=$(cd client && npm ci --no-audit --no-fund 2>&1) || { printf '%s\n' "$out" >&2; fail "npm ci"; }
     printf '%s\n' "$lock" > "$STAND/lock.sha256"
   fi
-  say "клиент: npm run build (BUILD_SHA=$sha)"
-  out=$(cd client && BUILD_SHA=$sha npm run build 2>&1) || { printf '%s\n' "$out" >&2; fail "сборка клиента"; }
-  say "сервер: go build ($sha)"
+  say "клиент: npm run build (BUILD_SHA=$sha BUILD_VERSION=$ver)"
+  out=$(cd client && BUILD_SHA=$sha BUILD_VERSION=$ver npm run build 2>&1) || { printf '%s\n' "$out" >&2; fail "сборка клиента"; }
+  say "сервер: go build ($sha, версия $ver)"
   mkdir -p "$STAND/bin"
   (cd server && go build -trimpath -buildvcs=false \
-    -ldflags "-X itdirector/internal/ws.buildSHA=$sha" -o "$STAND/bin/itdirector.new" ./cmd/server) ||
+    -ldflags "-X itdirector/internal/ws.buildSHA=$sha -X itdirector/internal/ws.buildVersion=$ver" -o "$STAND/bin/itdirector.new" ./cmd/server) ||
     fail "сборка сервера"
   serve "$src"
 }

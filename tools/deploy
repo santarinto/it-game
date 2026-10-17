@@ -142,6 +142,10 @@ fi
 say "релиз $ID: $(git -C "$CHECKOUT" log -1 --pretty=%s "$sha")"
 mkdir -p "$REL" "$CACHE/go" "$CACHE/npm" "$CACHE/go/pkg" "$CACHE/go/build"
 git -C "$CHECKOUT" archive "$sha" | tar -x -C "$REL"
+# Версия сборки (ITGAME-140): время коммита по Москве (MSK-3 — POSIX TZ, UTC+3 без tzdata);
+# с ней сервер сверяет сейвы, клиент показывает её в меню. В архиве .git нет — считаем здесь.
+ver=$(TZ=MSK-3 git -C "$CHECKOUT" log -1 --format=%cd --date=format-local:%Y.%m.%d.%H.%M "$sha")
+say "версия сборки $ver"
 
 uid=$(id -u); gid=$(id -g)
 
@@ -153,7 +157,7 @@ say "1/4 сборка клиента (docker $NODE_IMAGE, кэш $CACHE/npm)"
 # BUILD_SHA (ITGAME-81/98): в архиве нет .git — без него штамп сборки
 # (<meta name="build">, itd.version) читался бы 'dev'. Тот же короткий sha,
 # что штампует bin/deploy-local.sh (vite принимает hex 7..40).
-docker run --rm --user "$uid:$gid" -e HOME=/tmp -e BUILD_SHA="$sha7" \
+docker run --rm --user "$uid:$gid" -e HOME=/tmp -e BUILD_SHA="$sha7" -e BUILD_VERSION="$ver" \
     -v "$CACHE/npm:/tmp/.npm" -v "$REL:/work" -w /work/client "$NODE_IMAGE" \
     sh -c 'npm ci --no-audit --no-fund && npm run build'
 rm -rf "$REL/client/node_modules"
@@ -164,7 +168,7 @@ say "2/4 сборка сервера (docker $GO_IMAGE, кэш $CACHE/go)"
 docker run --rm --user "$uid:$gid" -e HOME=/tmp \
     -e GOMODCACHE=/tmp/go/pkg/mod -e GOCACHE=/tmp/go/build -e GOFLAGS=-mod=readonly \
     -v "$CACHE/go:/tmp/go" -v "$REL:/src" -w /src/server "$GO_IMAGE" \
-    go build -trimpath -ldflags "-X itdirector/internal/ws.buildSHA=$sha7" -o /src/bin/itdirector ./cmd/server
+    go build -trimpath -ldflags "-X itdirector/internal/ws.buildSHA=$sha7 -X itdirector/internal/ws.buildVersion=$ver" -o /src/bin/itdirector ./cmd/server
 [ -x "$REL/bin/itdirector" ] || fail "bin/itdirector не собрался"
 
 say "3/4 атомарный своп current -> $ID + рестарт $UNIT"

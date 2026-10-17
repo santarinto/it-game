@@ -28,7 +28,7 @@ if (adminLinkWanted()) {
   // Штамп сборки (ITGAME-78): sha JS вкладки; красная метка — стенд отдаёт уже
   // другую сборку, вкладка на старом JS. Клик по метке перезагружает вкладку.
   const stamp = document.createElement('span'); stamp.id = 'build'; stamp.textContent = CLIENT_SHA
-  stamp.title = `сборка вкладки ${CLIENT_SHA} · ${__BUILD_AT__}`
+  stamp.title = `сборка вкладки ${CLIENT_SHA} · версия ${__BUILD_VERSION__} · ${__BUILD_AT__}`
   const warn = document.createElement('button'); warn.id = 'stale'; warn.type = 'button'; warn.hidden = true
   warn.textContent = 'устарело, обнови'
   warn.addEventListener('click', () => location.reload())
