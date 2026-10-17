@@ -66,6 +66,8 @@ const ERROR_TEXTS: Record<ServerErrorCode, string> = {
   antivirus_already: 'Этот тариф уже подключён',
   admin_already: 'Админ в этом офисе уже есть',
   no_admin: 'В этом офисе нет админа',
+  admin_dept_already: 'Отдел админов уже куплен',
+  admin_dept_locked: 'Сначала купите отдел админов',
 }
 
 // Правый край левого блока панели (ITGAME-16): правая колонка (цель/день/рынок)

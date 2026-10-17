@@ -9,8 +9,37 @@ import (
 // офисе, как начальник: $600 найм, $300/день, не производит, в штат не
 // входит; 2 клика ремонта/чистки в тик по своему офису, сначала вирус.
 
-func TestHireAdmin(t *testing.T) {
+// deptGame — партия с купленным отделом админов: найм админа требует его.
+func deptGame(money int) *Game {
+	g := unlockedGame(money)
+	g.AdminDept = true
+	return g
+}
+
+func TestBuyAdminDept(t *testing.T) {
 	g := unlockedGame(100000)
+	if err := g.HireAdmin(0); err != ErrAdminDeptLocked {
+		t.Errorf("найм без отдела: %v, хотим %v", err, ErrAdminDeptLocked)
+	}
+	if err := unlockedGame(2999).BuyAdminDept(); err != ErrNotEnoughMoney {
+		t.Errorf("отдел без денег: %v, хотим %v", err, ErrNotEnoughMoney)
+	}
+	if err := g.Apply(CmdBuyAdminDept, 0, 0); err != nil {
+		t.Fatalf("Apply(buy_admin_dept): %v", err)
+	}
+	if !g.AdminDept || g.Money != 100000-3000 {
+		t.Errorf("после покупки: отдел %v, деньги %d; хотим true и 97000", g.AdminDept, g.Money)
+	}
+	if err := g.BuyAdminDept(); err != ErrAdminDeptAlready {
+		t.Errorf("второй отдел: %v, хотим %v", err, ErrAdminDeptAlready)
+	}
+	if err := g.HireAdmin(0); err != nil {
+		t.Errorf("найм после покупки отдела: %v", err)
+	}
+}
+
+func TestHireAdmin(t *testing.T) {
+	g := deptGame(100000)
 	g.Offices[0].PCs = 2
 	g.Offices[0].Employees = testStaff(2)
 	staff, connected := g.TotalEmployees(), g.Network().CoreUsed
@@ -35,16 +64,16 @@ func TestHireAdmin(t *testing.T) {
 	if err := g.HireAdmin(1); err != ErrOfficeLocked {
 		t.Errorf("админ в закрытом офисе: %v, хотим %v", err, ErrOfficeLocked)
 	}
-	if err := unlockedGame(599).HireAdmin(0); err != ErrNotEnoughMoney {
+	if err := deptGame(599).HireAdmin(0); err != ErrNotEnoughMoney {
 		t.Errorf("админ без денег: %v, хотим %v", err, ErrNotEnoughMoney)
 	}
-	if err := unlockedGame(100000).Apply(CmdHireAdmin, 0, 0); err != nil {
+	if err := deptGame(100000).Apply(CmdHireAdmin, 0, 0); err != nil {
 		t.Errorf("Apply(hire_admin): %v", err)
 	}
 }
 
 func TestAdminPayroll(t *testing.T) {
-	g := unlockedGame(100000)
+	g := deptGame(100000)
 	base := g.PayrollPerDay()
 	if err := g.HireAdmin(0); err != nil {
 		t.Fatal(err)
@@ -53,7 +82,7 @@ func TestAdminPayroll(t *testing.T) {
 		t.Errorf("зарплата админа в ФОТ = %d, хотим 300", got)
 	}
 
-	late := unlockedGame(100000)
+	late := deptGame(100000)
 	late.TickInDay = late.cfg.lunchEndTick() // 15:00
 	if err := late.HireAdmin(0); err != nil {
 		t.Fatal(err)
@@ -71,7 +100,7 @@ func TestAdminPayroll(t *testing.T) {
 }
 
 func TestFireAdmin(t *testing.T) {
-	g := unlockedGame(100000)
+	g := deptGame(100000)
 	if err := g.FireAdmin(0); err != ErrNoAdmin {
 		t.Errorf("увольнение без админа: %v, хотим %v", err, ErrNoAdmin)
 	}
@@ -92,7 +121,7 @@ func TestFireAdmin(t *testing.T) {
 			g.Offices[0].Admin, money, g.Money, g.PayrollPerDay(), base)
 	}
 
-	poor := unlockedGame(100000)
+	poor := deptGame(100000)
 	if err := poor.HireAdmin(0); err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +133,7 @@ func TestFireAdmin(t *testing.T) {
 }
 
 func TestFireAdminSameDayAfterLunch(t *testing.T) {
-	g := unlockedGame(100000)
+	g := deptGame(100000)
 	g.TickInDay = g.cfg.lunchEndTick()
 	base := g.PayrollPerDay()
 	if err := g.HireAdmin(0); err != nil {
@@ -124,13 +153,13 @@ func TestFireAdminSameDayAfterLunch(t *testing.T) {
 
 func TestAdminDifficultyScaling(t *testing.T) {
 	for _, c := range []struct {
-		d             Difficulty
-		price, salary int
-	}{{DiffEasy, 480, 240}, {DiffNormal, 600, 300}, {DiffHard, 750, 375}, {DiffHardcore, 900, 450}} {
+		d                   Difficulty
+		price, salary, dept int
+	}{{DiffEasy, 480, 240, 2400}, {DiffNormal, 600, 300, 3000}, {DiffHard, 750, 375, 3750}, {DiffHardcore, 900, 450, 4500}} {
 		cfg := ConfigForDifficulty(c.d)
-		if cfg.AdminPrice != c.price || cfg.AdminSalaryPerDay != c.salary || cfg.AdminClicksPerTick != 2 {
-			t.Errorf("%s: цена %d, зарплата %d, клики %d; хотим %d, %d, 2",
-				c.d, cfg.AdminPrice, cfg.AdminSalaryPerDay, cfg.AdminClicksPerTick, c.price, c.salary)
+		if cfg.AdminPrice != c.price || cfg.AdminSalaryPerDay != c.salary || cfg.AdminClicksPerTick != 2 || cfg.AdminDeptPrice != c.dept {
+			t.Errorf("%s: цена %d, зарплата %d, клики %d, отдел %d; хотим %d, %d, 2, %d",
+				c.d, cfg.AdminPrice, cfg.AdminSalaryPerDay, cfg.AdminClicksPerTick, cfg.AdminDeptPrice, c.price, c.salary, c.dept)
 		}
 	}
 }
@@ -138,6 +167,7 @@ func TestAdminDifficultyScaling(t *testing.T) {
 func TestAdminSaveRoundtrip(t *testing.T) {
 	g := New(ConfigForDifficulty(DiffHard))
 	g.Money = 100000
+	g.AdminDept = true
 	g.TickInDay = g.cfg.lunchEndTick()
 	if err := g.HireAdmin(0); err != nil {
 		t.Fatal(err)
@@ -147,18 +177,21 @@ func TestAdminSaveRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !r.AdminDept {
+		t.Error("после Restore отдел админов закрыт")
+	}
 	if o := r.Offices[0]; o.Admin != g.Offices[0].Admin || !o.AdminUnpaidToday || o.AdminHireDay != g.Day {
 		t.Errorf("после Restore: %q unpaid=%v hireDay=%d, хотим %q true %d", o.Admin, o.AdminUnpaidToday, o.AdminHireDay, g.Offices[0].Admin, g.Day)
 	}
 
 	// Сейв без полей админа в конфиге (до ITGAME-101) — цены уровня сейва.
-	s.Config.AdminPrice, s.Config.AdminSalaryPerDay, s.Config.AdminClicksPerTick = 0, 0, 0
+	s.Config.AdminPrice, s.Config.AdminSalaryPerDay, s.Config.AdminClicksPerTick, s.Config.AdminDeptPrice = 0, 0, 0, 0
 	r, err = Restore(s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := r.Config(); c.AdminPrice != 750 || c.AdminSalaryPerDay != 375 || c.AdminClicksPerTick != 2 {
-		t.Errorf("бэкфилл: %d / %d / %d, хотим 750 / 375 / 2", c.AdminPrice, c.AdminSalaryPerDay, c.AdminClicksPerTick)
+	if c := r.Config(); c.AdminPrice != 750 || c.AdminSalaryPerDay != 375 || c.AdminClicksPerTick != 2 || c.AdminDeptPrice != 3750 {
+		t.Errorf("бэкфилл: %d / %d / %d / отдел %d, хотим 750 / 375 / 2 / 3750", c.AdminPrice, c.AdminSalaryPerDay, c.AdminClicksPerTick, c.AdminDeptPrice)
 	}
 }
 
@@ -171,6 +204,7 @@ func adminGame(t *testing.T, n int) *Game {
 	cfg.EventChancePct = 0
 	g := NewWithSeed(cfg, 7, 8)
 	g.Money = 100000
+	g.AdminDept = true
 	o := &g.Offices[0]
 	o.PCs = n
 	o.Employees = testStaff(n)

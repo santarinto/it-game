@@ -75,6 +75,7 @@ func ApplyDifficulty(c Config, d Difficulty) Config {
 	c.PCPrice = scale(c.PCPrice, s.PriceK)
 	c.HirePrice = scale(c.HirePrice, s.PriceK)
 	c.BossPrice = scale(c.BossPrice, s.PriceK)
+	c.AdminDeptPrice = scale(c.AdminDeptPrice, s.PriceK)
 	c.AdminPrice = scale(c.AdminPrice, s.PriceK)
 	c.GatewayPrice = scale(c.GatewayPrice, s.PriceK)
 	c.CoolerPrice = scale(c.CoolerPrice, s.PriceK)

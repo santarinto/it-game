@@ -63,6 +63,7 @@ type stateMessage struct {
 	Money             int              `json:"money"`
 	Offices           []officeInfo     `json:"offices"`
 	Gateway           bool             `json:"gateway"`
+	AdminDept         bool             `json:"adminDept"` // отдел админов куплен (ITGAME-101): без него админов не нанять
 	Core              coreInfo         `json:"core"`
 	IncomePerTick     int              `json:"incomePerTick"`
 	Day               int              `json:"day"`
@@ -223,7 +224,8 @@ type prices struct {
 	PC             int                  `json:"pc"`
 	Hire           int                  `json:"hire"`
 	Boss           int                  `json:"boss"`
-	Admin          int                  `json:"admin"` // найм админа офиса (ITGAME-101)
+	Admin          int                  `json:"admin"`     // найм админа офиса (ITGAME-101)
+	AdminDept      int                  `json:"adminDept"` // покупка отдела админов
 	Gateway        int                  `json:"gateway"`
 	Cooler         int                  `json:"cooler"`
 	Fridge         int                  `json:"fridge"`
@@ -422,7 +424,7 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 	}
 	return stateMessage{
 		Type: "state", Money: g.Money, Offices: offices,
-		Gateway: g.Gateway, Core: core, IncomePerTick: g.IncomePerTick(),
+		Gateway: g.Gateway, AdminDept: g.AdminDept, Core: core, IncomePerTick: g.IncomePerTick(),
 		Day: g.Day, Clock: g.Clock(), IsLunch: g.IsLunch(),
 		TicksPerHour: cfg.TicksPerHour, PayrollPerDay: g.PayrollPerDay(),
 		SalaryPerDay: cfg.SalaryPerDay, BossSalaryPerDay: cfg.BossSalaryPerDay, AdminSalaryPerDay: cfg.AdminSalaryPerDay,
@@ -436,7 +438,7 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 		ActiveEvent: active, Seed: g.SeedString(), Scenario: scenario,
 		TickInDay: g.TickInDay, DayIncome: g.DayIncome, DayProfit: g.DayProfit(),
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice,
-			Boss: cfg.BossPrice, Admin: cfg.AdminPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,
+			Boss: cfg.BossPrice, Admin: cfg.AdminPrice, AdminDept: cfg.AdminDeptPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,
 			Fridge: cfg.FridgePrice, CoffeeMachine: cfg.CoffeeMachinePrice, Repair: cfg.MasterCallPrice,
 			ServerLevels: serverLevels, CoreLevels: coreLevels, AntivirusTiers: avTiers},
 	}

@@ -31,10 +31,12 @@ const (
 	ErrNoEvent          = Err("no_event")
 	ErrBadOption        = Err("bad_option")
 	ErrNeedCooler       = Err("need_cooler")
-	ErrBadTier          = Err("bad_tier")          // set_antivirus: нет такого тарифа (ITGAME-137)
-	ErrAntivirusAlready = Err("antivirus_already") // set_antivirus: этот тариф уже включён
-	ErrAdminAlready     = Err("admin_already")     // hire_admin: в офисе уже есть админ (ITGAME-101)
-	ErrNoAdmin          = Err("no_admin")          // fire_admin: админа в офисе нет
+	ErrBadTier          = Err("bad_tier")           // set_antivirus: нет такого тарифа (ITGAME-137)
+	ErrAntivirusAlready = Err("antivirus_already")  // set_antivirus: этот тариф уже включён
+	ErrAdminAlready     = Err("admin_already")      // hire_admin: в офисе уже есть админ (ITGAME-101)
+	ErrNoAdmin          = Err("no_admin")           // fire_admin: админа в офисе нет
+	ErrAdminDeptAlready = Err("admin_dept_already") // buy_admin_dept: отдел уже куплен
+	ErrAdminDeptLocked  = Err("admin_dept_locked")  // hire_admin: отдел админов не куплен
 )
 
 // office проверяет адресата офисной команды: индекс и открытость.
@@ -527,10 +529,11 @@ const (
 	CmdCallMaster    = Command("call_master")
 	CmdEventChoice   = Command("event_choice")
 	CmdFire          = Command("fire")
-	CmdVirusClick    = Command("virus_click")   // клик чистки заражённого места (ITGAME-103)
-	CmdSetAntivirus  = Command("set_antivirus") // подписка на антивирус: тариф в slot, 0 — отключить (ITGAME-137)
-	CmdHireAdmin     = Command("hire_admin")    // найм админа офиса (ITGAME-101)
-	CmdFireAdmin     = Command("fire_admin")    // увольнение админа офиса
+	CmdVirusClick    = Command("virus_click")    // клик чистки заражённого места (ITGAME-103)
+	CmdSetAntivirus  = Command("set_antivirus")  // подписка на антивирус: тариф в slot, 0 — отключить (ITGAME-137)
+	CmdHireAdmin     = Command("hire_admin")     // найм админа офиса (ITGAME-101)
+	CmdFireAdmin     = Command("fire_admin")     // увольнение админа офиса
+	CmdBuyAdminDept  = Command("buy_admin_dept") // покупка отдела админов — комнаты, где они сидят
 )
 
 // Apply выполняет команду игрока; офисные команды адресуются индексом office,
@@ -554,6 +557,8 @@ func (g *Game) Apply(cmd Command, office, slot int) error {
 		return g.BuyRouter(office)
 	case CmdHireBoss:
 		return g.HireBoss(office)
+	case CmdBuyAdminDept:
+		return g.BuyAdminDept()
 	case CmdHireAdmin:
 		return g.HireAdmin(office)
 	case CmdFireAdmin:

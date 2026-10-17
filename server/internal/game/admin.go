@@ -10,11 +10,29 @@ import (
 // не входит. Каждый тик делает AdminClicksPerTick кликов ремонта и чистки по
 // местам своего офиса — те же клики, что игрок мышью.
 
-// HireAdmin нанимает админа офиса.
+// BuyAdminDept покупает отдел админов — комнату, где сидят админы офисов
+// (решение владельца 17.10: у админов свой отдел, потом там шкафы и
+// верстаки). Один на компанию.
+func (g *Game) BuyAdminDept() error {
+	if g.AdminDept {
+		return ErrAdminDeptAlready
+	}
+	if g.Money < g.cfg.AdminDeptPrice {
+		return ErrNotEnoughMoney
+	}
+	g.spend(CmdBuyAdminDept, g.cfg.AdminDeptPrice)
+	g.AdminDept = true
+	return nil
+}
+
+// HireAdmin нанимает админа офиса: сидит в отделе, работает на свой офис.
 func (g *Game) HireAdmin(office int) error {
 	o, err := g.office(office)
 	if err != nil {
 		return err
+	}
+	if !g.AdminDept {
+		return ErrAdminDeptLocked
 	}
 	if o.Admin != "" {
 		return ErrAdminAlready

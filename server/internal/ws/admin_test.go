@@ -20,7 +20,13 @@ func TestSnapshotAdmin(t *testing.T) {
 	if s := snapshot(g, 1, false, ""); s.Offices[0].Admin != "" || s.Offices[0].AdminSlot != -1 || s.Offices[0].AdminKind != "" {
 		t.Errorf("без админа: %q слот %d цель %q, хотим \"\", -1, \"\"", s.Offices[0].Admin, s.Offices[0].AdminSlot, s.Offices[0].AdminKind)
 	}
+	if s := snapshot(g, 1, false, ""); s.AdminDept || s.Prices.AdminDept != 3000 {
+		t.Errorf("до покупки: adminDept %v, цена %d; хотим false и 3000", s.AdminDept, s.Prices.AdminDept)
+	}
 	if err := g.Apply(game.CmdHire, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Apply(game.CmdBuyAdminDept, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := g.Apply(game.CmdHireAdmin, 0, 0); err != nil {
@@ -28,6 +34,9 @@ func TestSnapshotAdmin(t *testing.T) {
 	}
 	g.Offices[0].Employees[0].PCBroken, g.Offices[0].Employees[0].RepairNeeded = true, 9
 	s := snapshot(g, 1, false, "")
+	if !s.AdminDept {
+		t.Error("после покупки отдела adminDept = false")
+	}
 	o := s.Offices[0]
 	if o.Admin == "" || o.AdminSlot != 0 || o.AdminKind != "repair" || o.AdminFirePrice != 100 || o.AdminUnpaidToday {
 		t.Errorf("офис с админом: %q слот %d цель %q увольнение %d unpaid %v; хотим имя, 0, repair, 100, false",
@@ -42,7 +51,7 @@ func TestSnapshotAdmin(t *testing.T) {
 		t.Errorf("заражённое место: цель %q, хотим virus", s.Offices[0].AdminKind)
 	}
 	raw, _ := json.Marshal(s)
-	for _, key := range []string{`"admin":`, `"adminUnpaidToday":`, `"adminSlot":`, `"adminKind":`, `"adminFirePrice":`, `"adminSalaryPerDay":`} {
+	for _, key := range []string{`"admin":`, `"adminUnpaidToday":`, `"adminSlot":`, `"adminKind":`, `"adminFirePrice":`, `"adminSalaryPerDay":`, `"adminDept":`} {
 		if !strings.Contains(string(raw), key) {
 			t.Errorf("в снапшоте нет %s", key)
 		}
@@ -68,13 +77,16 @@ func TestJournalReplayAdminParty(t *testing.T) {
 	_, srv := journalServer(t, game.DefaultConfig(), 3*time.Millisecond, journalLimits{})
 	rng := rand.New(rand.NewPCG(101, 101))
 	tb := dialTab(t, srv, "?sid="+sid+"&seed=101&scenario=virus_outbreak")
+	tb.do(t, map[string]any{"type": "buy_admin_dept"})
 	tb.do(t, map[string]any{"type": "hire_admin", "office": 0})
 	tb.do(t, map[string]any{"type": "hire_admin", "office": 1})
 	for step := range 300 {
 		if step%50 == 0 {
 			ensureAlive(t, srv, tb, sid)
 		}
-		switch rng.IntN(10) {
+		switch rng.IntN(11) {
+		case 10:
+			tb.send(t, map[string]any{"type": "buy_admin_dept"}) // после партии с рестарта — покупка, иначе admin_dept_already
 		case 0:
 			tb.send(t, map[string]any{"type": "fire_admin", "office": rng.IntN(2)}) // повтор — no_admin
 		case 1:

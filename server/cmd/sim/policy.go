@@ -1,7 +1,6 @@
 package main
 
 import (
-	"math"
 	"math/rand/v2"
 
 	"itdirector/internal/game"
@@ -16,12 +15,14 @@ import (
 //     между жадным и пассивным.
 //
 // Админы (ITGAME-101) — две политики для цены делегирования, в --policy all
-// не входят (исходы all сравнимы с прежними байт в байт). Обе кликают ремонт
-// и чистку, пока в офисе меньше 4 сотрудников, и перестают, когда он вырос:
-// внимание игрока делится на офисы. Совсем без кликов sim не меряет ничего —
-// компания с одним ПК ломается в первый день и банкротится на второй.
-//   • handsoff — выросший офис никто не чинит и не чистит;
-//   • delegate — в выросший офис первым делом нанимается админ.
+// не входят (исходы all сравнимы с прежними байт в байт). Совсем без кликов
+// sim не меряет ничего — компания с одним ПК ломается в первый день и
+// банкротится на второй.
+//   • handsoff — кликает ремонт и чистку, пока в офисе меньше 4 сотрудников,
+//     выросший офис никто не чинит и не чистит: цена отсутствия игрока;
+//   • delegate — кликает, пока у офиса нет админа; в выросший офис нанимает
+//     его, как только хватает денег (перед первым — отдел админов), и больше
+//     там не кликает: цена делегирования.
 //
 // Политика вызывается раз в игровой час; резерв зарплаты оставляем, чтобы
 // политика не убивала партию покупкой в последний час дня.
@@ -36,29 +37,40 @@ func buy(g *game.Game, cmd game.Command, office, slot int) bool {
 }
 
 // greedyPolicy — приоритет: заполнить места → сеть под штат → быт.
-func greedyPolicy(g *game.Game, _ *rand.Rand, _ int) { buildPolicy(g, math.MaxInt) }
+func greedyPolicy(g *game.Game, _ *rand.Rand, _ int) {
+	buildPolicy(g, func(*game.Office) bool { return true })
+}
 
-// grownOffice — штат, с которого handsoff и delegate перестают кликать в офисе.
+// grownOffice — штат, с которого handsoff бросает офис, а delegate нанимает админа.
 const grownOffice = 4
 
 // handsoffPolicy — greedy, который не чинит и не чистит выросшие офисы.
-func handsoffPolicy(g *game.Game, _ *rand.Rand, _ int) { buildPolicy(g, grownOffice) }
+func handsoffPolicy(g *game.Game, _ *rand.Rand, _ int) {
+	buildPolicy(g, func(o *game.Office) bool { return len(o.Employees) < grownOffice })
+}
 
-// delegatePolicy — handsoff, который отдаёт выросшие офисы админам: админ
-// нанимается первым делом, как только хватает денег.
+// delegatePolicy — greedy, который отдаёт выросшие офисы админам: админ
+// нанимается первым делом, как только хватает денег; до него игрок кликает сам.
 func delegatePolicy(g *game.Game, _ *rand.Rand, _ int) {
 	cfg := g.Config()
 	for i := range g.Offices {
-		if o := &g.Offices[i]; o.Unlocked && o.Admin == "" && len(o.Employees) >= grownOffice && affordable(g, cfg.AdminPrice) {
+		o := &g.Offices[i]
+		if !o.Unlocked || o.Admin != "" || len(o.Employees) < grownOffice {
+			continue
+		}
+		// Админы сидят в своём отделе: комната покупается раз, перед первым.
+		if !g.AdminDept && affordable(g, cfg.AdminDeptPrice) {
+			buy(g, game.CmdBuyAdminDept, 0, 0)
+		}
+		if g.AdminDept && affordable(g, cfg.AdminPrice) {
 			buy(g, game.CmdHireAdmin, i, 0)
 		}
 	}
-	buildPolicy(g, grownOffice)
+	buildPolicy(g, func(o *game.Office) bool { return o.Admin == "" })
 }
 
-// buildPolicy — ход greedy; руками чинит и чистит офисы, где сотрудников
-// меньше clickBelow.
-func buildPolicy(g *game.Game, clickBelow int) {
+// buildPolicy — ход greedy; руками чинит и чистит офисы, где clicks(o).
+func buildPolicy(g *game.Game, clicks func(o *game.Office) bool) {
 	cfg := g.Config()
 	for i := range g.Offices {
 		o := &g.Offices[i]
@@ -67,9 +79,9 @@ func buildPolicy(g *game.Game, clickBelow int) {
 		}
 		// активный день: чиним сломанные ПК и чистим вирус (клики бесплатны),
 		// мотивируем по кулдауну — жадная политика забирает и активный слой тоже
-		clicks := len(o.Employees) < clickBelow
+		byHand := clicks(o)
 		for j := range o.Employees {
-			if !clicks {
+			if !byHand {
 				_ = g.Apply(game.CmdMotivate, i, j)
 				continue
 			}

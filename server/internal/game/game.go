@@ -66,6 +66,7 @@ type Game struct {
 	Offices   []Office
 	CoreLevel int  // core-коммутатор: 0 — не куплен, 1..len(cfg.CoreLevels)
 	Gateway   bool // шлюз в интернет: ×GatewayBonus подключённым, опекс $/день
+	AdminDept bool // отдел админов куплен (ITGAME-101): комната, где сидят админы офисов
 
 	Phase             Phase
 	Day               int // номер игрового дня, с 1

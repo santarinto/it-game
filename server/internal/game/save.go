@@ -34,6 +34,7 @@ type Save struct {
 	Offices           []Office   `json:"offices"`
 	CoreLevel         int        `json:"coreLevel"`
 	Gateway           bool       `json:"gateway"`
+	AdminDept         bool       `json:"adminDept"` // отдел админов куплен (ITGAME-101)
 	Phase             Phase      `json:"phase"`
 	Day               int        `json:"day"`
 	TickInDay         int        `json:"tickInDay"`
@@ -68,7 +69,7 @@ type Save struct {
 func (g *Game) Export() Save {
 	s := Save{
 		Format: SaveFormat, Config: cloneConfig(g.cfg), Seed: g.Seed, Money: g.Money, Offices: cloneOffices(g.Offices), CoreLevel: g.CoreLevel,
-		Gateway: g.Gateway, Phase: g.Phase, Day: g.Day, TickInDay: g.TickInDay,
+		Gateway: g.Gateway, AdminDept: g.AdminDept, Phase: g.Phase, Day: g.Day, TickInDay: g.TickInDay,
 		DayIncome: g.DayIncome, DayEventMoney: g.DayEventMoney, PrevDayIncome: g.PrevDayIncome, PeakIncomePerTick: g.PeakIncomePerTick,
 		DayIncidents: g.DayIncidents, DayLostIncome: g.DayLostIncome,
 		VirusWaveIn: g.VirusWaveIn, DayVirusPCs: g.DayVirusPCs, DayVirusLost: g.DayVirusLost,
@@ -195,10 +196,10 @@ func Restore(s Save) (*Game, error) {
 		s.Config.AntivirusTiers = ApplyDifficulty(def, ParseDifficulty(string(s.Config.Difficulty))).AntivirusTiers
 	}
 	// Конфиг до ITGAME-101: полей админа нет — цены уровня сейва.
-	if s.Config.AdminPrice == 0 || s.Config.AdminSalaryPerDay == 0 || s.Config.AdminClicksPerTick == 0 {
+	if s.Config.AdminPrice == 0 || s.Config.AdminSalaryPerDay == 0 || s.Config.AdminClicksPerTick == 0 || s.Config.AdminDeptPrice == 0 {
 		lvl := ApplyDifficulty(def, ParseDifficulty(string(s.Config.Difficulty)))
-		s.Config.AdminPrice, s.Config.AdminSalaryPerDay, s.Config.AdminClicksPerTick =
-			lvl.AdminPrice, lvl.AdminSalaryPerDay, lvl.AdminClicksPerTick
+		s.Config.AdminPrice, s.Config.AdminSalaryPerDay, s.Config.AdminClicksPerTick, s.Config.AdminDeptPrice =
+			lvl.AdminPrice, lvl.AdminSalaryPerDay, lvl.AdminClicksPerTick, lvl.AdminDeptPrice
 	}
 	if s.AVTier < 0 || s.AVTier > len(s.Config.AntivirusTiers) || s.AVTierBilled < 0 || s.AVTierBilled > len(s.Config.AntivirusTiers) {
 		return nil, fmt.Errorf("%w: avTier=%d avTierBilled=%d", ErrBadSave, s.AVTier, s.AVTierBilled)
@@ -215,7 +216,7 @@ func Restore(s Save) (*Game, error) {
 	}
 	g := &Game{
 		cfg: s.Config, Seed: s.Seed,
-		Money: s.Money, Offices: s.Offices, CoreLevel: s.CoreLevel, Gateway: s.Gateway,
+		Money: s.Money, Offices: s.Offices, CoreLevel: s.CoreLevel, Gateway: s.Gateway, AdminDept: s.AdminDept,
 		Phase: s.Phase, Day: s.Day, TickInDay: s.TickInDay,
 		DayIncome: s.DayIncome, DayEventMoney: s.DayEventMoney, PrevDayIncome: s.PrevDayIncome, PeakIncomePerTick: s.PeakIncomePerTick,
 		DayIncidents: s.DayIncidents, DayLostIncome: s.DayLostIncome,

@@ -30,6 +30,7 @@ type Config struct {
 	// Админ офиса (ITGAME-101): свой в каждом офисе, не производит — делает
 	// AdminClicksPerTick кликов ремонта/чистки в тик по местам своего офиса.
 	// Числа — GDD «Админы (ITGAME-101)».
+	AdminDeptPrice     int     // отдел админов: комната, без неё админов не нанять
 	AdminPrice         int     // найм админа
 	AdminSalaryPerDay  int     // зарплата админа; она же компенсация увольнения
 	AdminClicksPerTick int     // кликов админа за тик
@@ -176,6 +177,7 @@ func DefaultConfig() Config {
 		},
 		BossPrice:          1000,
 		BossSalaryPerDay:   500,
+		AdminDeptPrice:     3000,
 		AdminPrice:         600,
 		AdminSalaryPerDay:  300,
 		AdminClicksPerTick: 2,

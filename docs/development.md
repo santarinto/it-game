@@ -762,9 +762,13 @@ the network dot; the tooltip says «антивирус: <tier>», «антиви
 <tier>» or «без антивируса»; the day report «Антивирус: -$X» under «Интернет»;
 `itd.state().antivirusTier`. `make sim` policies never subscribe.
 
-**Admins** (ITGAME-101, design in the GDD «Админы (ITGAME-101)»): one per
-office like the boss, fields of `Office`, not an `Employee` — `Admin` (name, ""
-— none), `AdminUnpaidToday`, `AdminHireDay`; no seat, PC, port, core capacity or
+**Admins** (ITGAME-101, design in the GDD «Админы (ITGAME-101)»): admins sit in
+their own department — `Game.AdminDept`, bought once by `buy_admin_dept`
+(`Config.AdminDeptPrice` $3,000 ×PriceK; `admin_dept_already`,
+`not_enough_money`), `state.adminDept`, `prices.adminDept`; without it
+`hire_admin` answers `admin_dept_locked`. Each admin is bound to an office like
+the boss, fields of `Office`, not an `Employee` — `Admin` (name, "" — none),
+`AdminUnpaidToday`, `AdminHireDay`; no seat, PC, port, core capacity or
 subscription, outside `staffCount`/`TotalEmployees`, `WinStaff` and
 `IsDeadlocked`. `hire_admin` / `fire_admin` (office; `admin_already`,
 `no_admin`, `not_enough_money`, `office_locked`): `Config.AdminPrice` $600
@@ -796,14 +800,15 @@ queue, across the night — tomorrow's morning). Protocol: `officeInfo.admin`,
 `adminUnpaidToday`, `adminSlot` (−1 — idle or none) and `adminKind`
 (`repair` | `virus` | ""), `adminFirePrice`; `state.adminSalaryPerDay`,
 `prices.admin`; `dayReport.adminRepairs`/`adminCleaned`. A config without the
-admin fields restores with its difficulty's. The client — button, slot, labels,
-tooltips, report line — is ITGAME-145; until then only `itd.cmd('hire_admin',
-0)`. `make sim` (300 × 30): `--policy all` stays greedy/idle/random, byte for
-byte; `handsoff` clicks only offices under 4 staff (with no clicks at all a
-one-PC company breaks on day 1 and is bankrupt on day 2) and `delegate` hires an
-admin into every office that grows past it — normal greedy median $135,061,
-handsoff $37,680 (19 bankrupt), delegate $121,254 (1); hard $35,994 / $1,196 /
-$18,792.
+admin fields restores with its difficulty's. The client is ITGAME-145 (see the
+department room below). `make sim` (300 × 30): `--policy all` stays
+greedy/idle/random, byte for byte; `handsoff` clicks only offices under 4 staff
+(with no clicks at all a one-PC company breaks on day 1 and is bankrupt on day
+2) — the price of being away; `delegate` clicks an office until it has an admin
+and hires one into every office that grows to 4 as soon as the money allows
+(the department first) — the price of delegating: normal greedy median
+$135,061, handsoff $37,680 (19 bankrupt), delegate $125,018; hard $35,994 /
+$1,196 / $27,794.
 
 **One click zone per workstation** (ITGAME-92): every occupied desk has a
 single interactive zone `office.slot.N` — the union of the worker frame and

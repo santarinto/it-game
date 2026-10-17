@@ -113,6 +113,7 @@ export interface StateMessage {
   money: number
   offices: OfficeInfo[]
   gateway: boolean
+  adminDept: boolean // отдел админов куплен (ITGAME-101): без него админов не нанять
   core: CoreInfo
   incomePerTick: number
   day: number
@@ -153,6 +154,7 @@ export interface StateMessage {
     hire: number
     boss: number
     admin: number // найм админа офиса (ITGAME-101)
+    adminDept: number // покупка отдела админов
     gateway: number
     cooler: number
     fridge: number
@@ -205,6 +207,8 @@ export const SERVER_ERROR_CODES = [
   'antivirus_already',
   'admin_already',
   'no_admin',
+  'admin_dept_already',
+  'admin_dept_locked',
   'unknown_command',
   'bad_speed',
 ] as const
@@ -299,7 +303,7 @@ export const COMMAND_TYPES = [
   'buy_cooler', 'buy_fridge', 'buy_coffee', 'set_speed',
   'upgrade_server', 'upgrade_core',
   'motivate', 'repair_click', 'call_master', 'event_choice', 'fire',
-  'virus_click', 'set_antivirus', 'hire_admin', 'fire_admin',
+  'virus_click', 'set_antivirus', 'hire_admin', 'fire_admin', 'buy_admin_dept',
   'abandon', 'exit',
 ] as const
 

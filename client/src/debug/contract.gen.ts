@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "0398dfc0bec3",
+  "hash": "9d7cfd25c89d",
   "methods": {
     "version": {
       "kind": "prop",
@@ -111,7 +111,7 @@ export const CONTRACT = {
       "params": [
         {
           "name": "type",
-          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'set_antivirus' | 'hire_admin' | 'fire_admin' | 'abandon' | 'exit'",
+          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'set_antivirus' | 'hire_admin' | 'fire_admin' | 'buy_admin_dept' | 'abandon' | 'exit'",
           "optional": false
         },
         {
@@ -1345,7 +1345,7 @@ export const CONTRACT = {
           "doc": ""
         },
         "code": {
-          "type": "'not_enough_money' | 'no_free_office_slot' | 'no_free_pc' | 'no_free_rack_slot' | 'router_maxed' | 'wrong_phase' | 'staff_limit' | 'office_locked' | 'boss_already' | 'offices_maxed' | 'gateway_already' | 'bad_office' | 'equipment_already' | 'bad_slot' | 'server_maxed' | 'core_maxed' | 'motivate_cooldown' | 'not_broken' | 'not_infected' | 'no_event' | 'bad_option' | 'need_cooler' | 'bad_tier' | 'antivirus_already' | 'admin_already' | 'no_admin' | 'unknown_command' | 'bad_speed' | 'not_connected' | 'receipt_timeout' | 'disconnected'",
+          "type": "'not_enough_money' | 'no_free_office_slot' | 'no_free_pc' | 'no_free_rack_slot' | 'router_maxed' | 'wrong_phase' | 'staff_limit' | 'office_locked' | 'boss_already' | 'offices_maxed' | 'gateway_already' | 'bad_office' | 'equipment_already' | 'bad_slot' | 'server_maxed' | 'core_maxed' | 'motivate_cooldown' | 'not_broken' | 'not_infected' | 'no_event' | 'bad_option' | 'need_cooler' | 'bad_tier' | 'antivirus_already' | 'admin_already' | 'no_admin' | 'admin_dept_already' | 'admin_dept_locked' | 'unknown_command' | 'bad_speed' | 'not_connected' | 'receipt_timeout' | 'disconnected'",
           "optional": true,
           "doc": ""
         },
@@ -1370,6 +1370,7 @@ export const CONTRACT = {
       "kind": "enum",
       "values": [
         "abandon",
+        "buy_admin_dept",
         "buy_coffee",
         "buy_cooler",
         "buy_fridge",
@@ -2545,7 +2546,7 @@ export const CONTRACT = {
       "kind": "object",
       "fields": {
         "cmd": {
-          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'set_antivirus' | 'hire_admin' | 'fire_admin' | 'abandon' | 'exit'",
+          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'set_antivirus' | 'hire_admin' | 'fire_admin' | 'buy_admin_dept' | 'abandon' | 'exit'",
           "optional": false,
           "doc": ""
         },
@@ -2797,6 +2798,8 @@ export const CONTRACT = {
       "kind": "enum",
       "values": [
         "admin_already",
+        "admin_dept_already",
+        "admin_dept_locked",
         "antivirus_already",
         "bad_office",
         "bad_option",
@@ -3149,6 +3152,11 @@ export const CONTRACT = {
           "optional": false,
           "doc": ""
         },
+        "adminDept": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "отдел админов куплен (ITGAME-101): без него админов не нанять"
+        },
         "core": {
           "type": "CoreInfo",
           "optional": false,
@@ -3325,7 +3333,7 @@ export const CONTRACT = {
           "doc": "висящее событие Unseen Forces"
         },
         "prices": {
-          "type": "{ pc: number; hire: number; boss: number; admin: number; gateway: number; cooler: number; fridge: number; coffeeMachine: number; repair: number; serverLevels: { mult: number; price: number; }[]; coreLevels: { capacity: number; price: number; mult: number; }[]; antivirusTiers: { name: string; seats: number; price: number; }[]; }",
+          "type": "{ pc: number; hire: number; boss: number; admin: number; adminDept: number; gateway: number; cooler: number; fridge: number; coffeeMachine: number; repair: number; serverLevels: { mult: number; price: number; }[]; coreLevels: { capacity: number; price: number; mult: number; }[]; antivirusTiers: { name: string; seats: number; price: number; }[]; }",
           "optional": false,
           "doc": ""
         }
