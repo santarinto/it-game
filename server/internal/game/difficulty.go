@@ -75,6 +75,7 @@ func ApplyDifficulty(c Config, d Difficulty) Config {
 	c.PCPrice = scale(c.PCPrice, s.PriceK)
 	c.HirePrice = scale(c.HirePrice, s.PriceK)
 	c.BossPrice = scale(c.BossPrice, s.PriceK)
+	c.AdminPrice = scale(c.AdminPrice, s.PriceK)
 	c.GatewayPrice = scale(c.GatewayPrice, s.PriceK)
 	c.CoolerPrice = scale(c.CoolerPrice, s.PriceK)
 	c.FridgePrice = scale(c.FridgePrice, s.PriceK)
@@ -100,6 +101,7 @@ func ApplyDifficulty(c Config, d Difficulty) Config {
 	c.EmployeeLevelBonus = append([]int(nil), c.EmployeeLevelBonus...)
 	c.SalaryPerDay = scale(c.SalaryPerDay, s.WageK)
 	c.BossSalaryPerDay = scale(c.BossSalaryPerDay, s.WageK)
+	c.AdminSalaryPerDay = scale(c.AdminSalaryPerDay, s.WageK)
 	c.GatewayOpexPerDay = scale(c.GatewayOpexPerDay, s.WageK)
 	// Подписка на антивирус — опекс, как шлюз (ITGAME-137): легко $10/$32/$72,
 	// сложно $15/$50/$113, хардкор $18/$60/$135.

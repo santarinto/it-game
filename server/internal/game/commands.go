@@ -33,6 +33,8 @@ const (
 	ErrNeedCooler       = Err("need_cooler")
 	ErrBadTier          = Err("bad_tier")          // set_antivirus: нет такого тарифа (ITGAME-137)
 	ErrAntivirusAlready = Err("antivirus_already") // set_antivirus: этот тариф уже включён
+	ErrAdminAlready     = Err("admin_already")     // hire_admin: в офисе уже есть админ (ITGAME-101)
+	ErrNoAdmin          = Err("no_admin")          // fire_admin: админа в офисе нет
 )
 
 // office проверяет адресата офисной команды: индекс и открытость.
@@ -148,7 +150,7 @@ func (g *Game) Fire(office, slot int) error {
 	infected := o.Employees[slot].Infected
 	o.Employees = append(o.Employees[:slot], o.Employees[slot+1:]...)
 	if infected { // уволенный уходит вместе с заражением (ITGAME-103)
-		g.virusSettled(office, false)
+		g.virusSettled(office, cleanedSilent)
 	}
 	return nil
 }
@@ -374,13 +376,21 @@ func (g *Game) RepairClick(office, slot int) error {
 	if !e.PCBroken {
 		return ErrNotBroken
 	}
-	e.RepairClicks++
-	if e.RepairClicks >= e.RepairTarget() {
-		e.PCBroken = false
-		e.RepairClicks = 0
-		e.RepairNeeded = 0
-	}
+	e.repairClick()
 	return nil
+}
+
+// repairClick — один клик починки по месту: на RepairTarget()-й ПК цел
+// (true). Один клик на всех, кто чинит: игрок и админ (ITGAME-101).
+func (e *Employee) repairClick() bool {
+	e.RepairClicks++
+	if e.RepairClicks < e.RepairTarget() {
+		return false
+	}
+	e.PCBroken = false
+	e.RepairClicks = 0
+	e.RepairNeeded = 0
+	return true
 }
 
 // CallMaster — «вызвать мастера»: мгновенная починка за деньги.
@@ -425,6 +435,7 @@ func (g *Game) NextDay() error {
 			o.Employees[j].OffendedUntil = 0
 		}
 		o.BossUnpaidToday = false
+		o.AdminUnpaidToday = false
 		// Роллим кофе-события следующего дня: одно до обеда, одно после.
 		if o.CoffeeMachine {
 			o.CoffeeEventTicks = []int{
@@ -444,6 +455,8 @@ func (g *Game) NextDay() error {
 	g.DayLostIncome = 0
 	g.DayVirusPCs = 0
 	g.DayVirusLost = 0
+	g.DayAdminRepairs = 0
+	g.DayAdminCleaned = 0
 	g.AVTierBilled = g.AVTier
 	// Рынок: вчерашний «завтра» становится сегодня, роллится новый завтра —
 	// тренд всегда виден на день вперёд (Сложность 2.0).
@@ -516,6 +529,8 @@ const (
 	CmdFire          = Command("fire")
 	CmdVirusClick    = Command("virus_click")   // клик чистки заражённого места (ITGAME-103)
 	CmdSetAntivirus  = Command("set_antivirus") // подписка на антивирус: тариф в slot, 0 — отключить (ITGAME-137)
+	CmdHireAdmin     = Command("hire_admin")    // найм админа офиса (ITGAME-101)
+	CmdFireAdmin     = Command("fire_admin")    // увольнение админа офиса
 )
 
 // Apply выполняет команду игрока; офисные команды адресуются индексом office,
@@ -539,6 +554,10 @@ func (g *Game) Apply(cmd Command, office, slot int) error {
 		return g.BuyRouter(office)
 	case CmdHireBoss:
 		return g.HireBoss(office)
+	case CmdHireAdmin:
+		return g.HireAdmin(office)
+	case CmdFireAdmin:
+		return g.FireAdmin(office)
 	case CmdBuyOffice:
 		return g.BuyOffice(office)
 	case CmdBuyServer:

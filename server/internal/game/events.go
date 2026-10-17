@@ -472,7 +472,7 @@ func (g *Game) ActiveEventInfo() *EventInfo {
 		return &EventInfo{ID: string(ev.ID), Title: "Вирус в сети",
 			Text: fmt.Sprintf("Офис %d: заражено %d ПК, −%d%% выработки каждого. Раз в %d часа каждый заражённый ПК заражает ещё один — соседа, а через сеть и дальше. Сам вирус не уйдёт: чистка — %d клика по месту. Подписка защитит здоровые места, заражённые не лечит.",
 				ev.Office+1, g.officeInfected(ev.Office), virusDebuffPct(g.cfg.VirusMult),
-				g.cfg.VirusSpreadTicks/g.cfg.TicksPerHour, g.cfg.VirusCleanClicks),
+				g.cfg.VirusSpreadTicks/g.cfg.TicksPerHour, g.cfg.VirusCleanClicks) + g.adminCardLine(ev.Office),
 			Options: options}
 	case EventDeadline:
 		goal := g.deadlineGoalFor()

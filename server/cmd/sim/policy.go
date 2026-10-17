@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"math/rand/v2"
 
 	"itdirector/internal/game"
@@ -13,6 +14,14 @@ import (
 //     живёт партия без решений);
 //   • random — случайное доступное действие с шансом: разброс исходов
 //     между жадным и пассивным.
+//
+// Админы (ITGAME-101) — две политики для цены делегирования, в --policy all
+// не входят (исходы all сравнимы с прежними байт в байт). Обе кликают ремонт
+// и чистку, пока в офисе меньше 4 сотрудников, и перестают, когда он вырос:
+// внимание игрока делится на офисы. Совсем без кликов sim не меряет ничего —
+// компания с одним ПК ломается в первый день и банкротится на второй.
+//   • handsoff — выросший офис никто не чинит и не чистит;
+//   • delegate — в выросший офис первым делом нанимается админ.
 //
 // Политика вызывается раз в игровой час; резерв зарплаты оставляем, чтобы
 // политика не убивала партию покупкой в последний час дня.
@@ -27,7 +36,29 @@ func buy(g *game.Game, cmd game.Command, office, slot int) bool {
 }
 
 // greedyPolicy — приоритет: заполнить места → сеть под штат → быт.
-func greedyPolicy(g *game.Game, _ *rand.Rand, _ int) {
+func greedyPolicy(g *game.Game, _ *rand.Rand, _ int) { buildPolicy(g, math.MaxInt) }
+
+// grownOffice — штат, с которого handsoff и delegate перестают кликать в офисе.
+const grownOffice = 4
+
+// handsoffPolicy — greedy, который не чинит и не чистит выросшие офисы.
+func handsoffPolicy(g *game.Game, _ *rand.Rand, _ int) { buildPolicy(g, grownOffice) }
+
+// delegatePolicy — handsoff, который отдаёт выросшие офисы админам: админ
+// нанимается первым делом, как только хватает денег.
+func delegatePolicy(g *game.Game, _ *rand.Rand, _ int) {
+	cfg := g.Config()
+	for i := range g.Offices {
+		if o := &g.Offices[i]; o.Unlocked && o.Admin == "" && len(o.Employees) >= grownOffice && affordable(g, cfg.AdminPrice) {
+			buy(g, game.CmdHireAdmin, i, 0)
+		}
+	}
+	buildPolicy(g, grownOffice)
+}
+
+// buildPolicy — ход greedy; руками чинит и чистит офисы, где сотрудников
+// меньше clickBelow.
+func buildPolicy(g *game.Game, clickBelow int) {
 	cfg := g.Config()
 	for i := range g.Offices {
 		o := &g.Offices[i]
@@ -36,7 +67,12 @@ func greedyPolicy(g *game.Game, _ *rand.Rand, _ int) {
 		}
 		// активный день: чиним сломанные ПК и чистим вирус (клики бесплатны),
 		// мотивируем по кулдауну — жадная политика забирает и активный слой тоже
+		clicks := len(o.Employees) < clickBelow
 		for j := range o.Employees {
+			if !clicks {
+				_ = g.Apply(game.CmdMotivate, i, j)
+				continue
+			}
 			if o.Employees[j].PCBroken {
 				// N кликов роллится при поломке (ITGAME-93): кликаем, пока
 				// не починится — клики в sim бесплатны, N на экономику не влияет

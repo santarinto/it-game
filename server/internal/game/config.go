@@ -25,12 +25,18 @@ type Config struct {
 	ServerLevels       []ServerLevel // уровни сервера; покупка = уровень 1
 	CoreLevels         []CoreLevel   // уровни core-коммутатора; CoreLevel 0 — не куплен
 
-	BossPrice         int     // найм начальника
-	BossSalaryPerDay  int     // зарплата начальника (не производит)
-	OfficePrices      []int   // цены офисов 2 и 3 (покупаются последовательно, пустыми)
-	GatewayPrice      int     // шлюз в интернет, один на компанию
-	GatewayOpexPerDay int     // операционный расход шлюза, $/день
-	GatewayBonus      float64 // множитель шлюза подключённым (поверх серверов)
+	BossPrice        int // найм начальника
+	BossSalaryPerDay int // зарплата начальника (не производит)
+	// Админ офиса (ITGAME-101): свой в каждом офисе, не производит — делает
+	// AdminClicksPerTick кликов ремонта/чистки в тик по местам своего офиса.
+	// Числа — GDD «Админы (ITGAME-101)».
+	AdminPrice         int     // найм админа
+	AdminSalaryPerDay  int     // зарплата админа; она же компенсация увольнения
+	AdminClicksPerTick int     // кликов админа за тик
+	OfficePrices       []int   // цены офисов 2 и 3 (покупаются последовательно, пустыми)
+	GatewayPrice       int     // шлюз в интернет, один на компанию
+	GatewayOpexPerDay  int     // операционный расход шлюза, $/день
+	GatewayBonus       float64 // множитель шлюза подключённым (поверх серверов)
 
 	CoolerPrice        int // кулер: без него жажда −10% с 2 часов работы
 	FridgePrice        int // холодильник: без него голод −10% после обеда
@@ -170,6 +176,9 @@ func DefaultConfig() Config {
 		},
 		BossPrice:          1000,
 		BossSalaryPerDay:   500,
+		AdminPrice:         600,
+		AdminSalaryPerDay:  300,
+		AdminClicksPerTick: 2,
 		OfficePrices:       []int{15000, 40000},
 		GatewayPrice:       3000,
 		GatewayOpexPerDay:  1,

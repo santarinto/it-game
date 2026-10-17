@@ -172,19 +172,31 @@ func (g *Game) tickVirus() {
 	}
 }
 
+// cleaner — кто снял вирус с места: от него зависит строка журнала.
+type cleaner int
+
+const (
+	cleanedSilent  cleaner = iota // увольнение заражённого, офлайн-догон: журнал молчит
+	cleanedByHand                 // клик игрока
+	cleanedByAdmin                // клик админа офиса (ITGAME-101)
+)
+
 // virusSettled — после чистки или увольнения заражённого: заражённых по
 // компании нет — таймер волны стоит; офис висящей карточки вируса чист —
-// карточка закрывается сама. cleaned — место вычищено (не уволено): офис,
-// ставший чистым, пишет строку в журнал дня.
-func (g *Game) virusSettled(oi int, cleaned bool) {
+// карточка закрывается сама. Офис, ставший чистым от клика игрока или
+// админа, пишет строку в журнал дня.
+func (g *Game) virusSettled(oi int, by cleaner) {
 	if g.infectedCount() == 0 {
 		g.VirusWaveIn = 0
 	}
 	if g.officeInfected(oi) > 0 {
 		return
 	}
-	if cleaned {
+	switch by {
+	case cleanedByHand:
 		g.logEvent(fmt.Sprintf("вирус: офис %d вычищен вручную к %s", oi+1, g.Clock()))
+	case cleanedByAdmin:
+		g.logEvent(fmt.Sprintf("вирус: офис %d вычищен админом к %s", oi+1, g.Clock()))
 	}
 	if ev := g.ActiveEvent; ev != nil && ev.ID == EventVirus && ev.Office == oi && !ev.Repelled {
 		ev.Resolved = true
@@ -192,13 +204,17 @@ func (g *Game) virusSettled(oi int, cleaned bool) {
 	}
 }
 
-// cleanPC — снять вирус с места. Одна функция на всех, кто чистит: клик
-// игрока, потом админы (ITGAME-101) и ИБ (ITGAME-100).
-func (g *Game) cleanPC(oi, i int) {
-	e := &g.Offices[oi].Employees[i]
+// virusClick — один клик чистки по месту: на cleanClicks-й место чисто
+// (true). Только место: таймер, карточку и журнал оседает virusSettled.
+// Один клик на всех, кто чистит: игрок, админ (ITGAME-101), потом ИБ (ITGAME-100).
+func (e *Employee) virusClick(cleanClicks int) bool {
+	e.VirusClicks++
+	if e.VirusClicks < cleanClicks {
+		return false
+	}
 	e.Infected = false
 	e.VirusClicks = 0
-	g.virusSettled(oi, true)
+	return true
 }
 
 // VirusClick — один клик чистки заражённого места: на VirusCleanClicks-й
@@ -215,9 +231,8 @@ func (g *Game) VirusClick(office, slot int) error {
 	if !e.Infected {
 		return ErrNotInfected
 	}
-	e.VirusClicks++
-	if e.VirusClicks >= g.cfg.VirusCleanClicks {
-		g.cleanPC(office, slot)
+	if e.virusClick(g.cfg.VirusCleanClicks) {
+		g.virusSettled(office, cleanedByHand)
 	}
 	return nil
 }

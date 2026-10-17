@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "bb1af0e87702",
+  "hash": "0398dfc0bec3",
   "methods": {
     "version": {
       "kind": "prop",
@@ -111,7 +111,7 @@ export const CONTRACT = {
       "params": [
         {
           "name": "type",
-          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'set_antivirus' | 'abandon' | 'exit'",
+          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'set_antivirus' | 'hire_admin' | 'fire_admin' | 'abandon' | 'exit'",
           "optional": false
         },
         {
@@ -1345,7 +1345,7 @@ export const CONTRACT = {
           "doc": ""
         },
         "code": {
-          "type": "'not_enough_money' | 'no_free_office_slot' | 'no_free_pc' | 'no_free_rack_slot' | 'router_maxed' | 'wrong_phase' | 'staff_limit' | 'office_locked' | 'boss_already' | 'offices_maxed' | 'gateway_already' | 'bad_office' | 'equipment_already' | 'bad_slot' | 'server_maxed' | 'core_maxed' | 'motivate_cooldown' | 'not_broken' | 'not_infected' | 'no_event' | 'bad_option' | 'need_cooler' | 'bad_tier' | 'antivirus_already' | 'unknown_command' | 'bad_speed' | 'not_connected' | 'receipt_timeout' | 'disconnected'",
+          "type": "'not_enough_money' | 'no_free_office_slot' | 'no_free_pc' | 'no_free_rack_slot' | 'router_maxed' | 'wrong_phase' | 'staff_limit' | 'office_locked' | 'boss_already' | 'offices_maxed' | 'gateway_already' | 'bad_office' | 'equipment_already' | 'bad_slot' | 'server_maxed' | 'core_maxed' | 'motivate_cooldown' | 'not_broken' | 'not_infected' | 'no_event' | 'bad_option' | 'need_cooler' | 'bad_tier' | 'antivirus_already' | 'admin_already' | 'no_admin' | 'unknown_command' | 'bad_speed' | 'not_connected' | 'receipt_timeout' | 'disconnected'",
           "optional": true,
           "doc": ""
         },
@@ -1382,7 +1382,9 @@ export const CONTRACT = {
         "event_choice",
         "exit",
         "fire",
+        "fire_admin",
         "hire",
+        "hire_admin",
         "hire_boss",
         "motivate",
         "next_day",
@@ -2359,6 +2361,31 @@ export const CONTRACT = {
           "optional": false,
           "doc": ""
         },
+        "admin": {
+          "type": "string",
+          "optional": false,
+          "doc": "'' — админа нет"
+        },
+        "adminUnpaidToday": {
+          "type": "boolean",
+          "optional": false,
+          "doc": ""
+        },
+        "adminSlot": {
+          "type": "number",
+          "optional": false,
+          "doc": "место, по которому его следующий клик; -1 — свободен или админа нет"
+        },
+        "adminKind": {
+          "type": "'' | 'repair' | 'virus'",
+          "optional": false,
+          "doc": "что он там делает"
+        },
+        "adminFirePrice": {
+          "type": "number",
+          "optional": false,
+          "doc": "компенсация увольнения; 0 — админа нет"
+        },
         "employees": {
           "type": "EmployeeInfo[]",
           "optional": false,
@@ -2518,7 +2545,7 @@ export const CONTRACT = {
       "kind": "object",
       "fields": {
         "cmd": {
-          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'set_antivirus' | 'abandon' | 'exit'",
+          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'set_antivirus' | 'hire_admin' | 'fire_admin' | 'abandon' | 'exit'",
           "optional": false,
           "doc": ""
         },
@@ -2769,6 +2796,7 @@ export const CONTRACT = {
     "ServerErrorCode": {
       "kind": "enum",
       "values": [
+        "admin_already",
         "antivirus_already",
         "bad_office",
         "bad_option",
@@ -2781,6 +2809,7 @@ export const CONTRACT = {
         "gateway_already",
         "motivate_cooldown",
         "need_cooler",
+        "no_admin",
         "no_event",
         "no_free_office_slot",
         "no_free_pc",
@@ -3165,6 +3194,11 @@ export const CONTRACT = {
           "optional": false,
           "doc": ""
         },
+        "adminSalaryPerDay": {
+          "type": "number",
+          "optional": false,
+          "doc": "зарплата админа офиса (ITGAME-101)"
+        },
         "forecastEndOfDay": {
           "type": "number",
           "optional": false,
@@ -3291,7 +3325,7 @@ export const CONTRACT = {
           "doc": "висящее событие Unseen Forces"
         },
         "prices": {
-          "type": "{ pc: number; hire: number; boss: number; gateway: number; cooler: number; fridge: number; coffeeMachine: number; repair: number; serverLevels: { mult: number; price: number; }[]; coreLevels: { capacity: number; price: number; mult: number; }[]; antivirusTiers: { name: string; seats: number; price: number; }[]; }",
+          "type": "{ pc: number; hire: number; boss: number; admin: number; gateway: number; cooler: number; fridge: number; coffeeMachine: number; repair: number; serverLevels: { mult: number; price: number; }[]; coreLevels: { capacity: number; price: number; mult: number; }[]; antivirusTiers: { name: string; seats: number; price: number; }[]; }",
           "optional": false,
           "doc": ""
         }

@@ -52,7 +52,7 @@ func main() {
 	diff := flag.String("diff", "normal", "easy | normal | hard | hardcore")
 	seedRange := flag.String("seed", "1..20", "сиды: N, N..M, N..M шагом 1")
 	days := flag.Int("days", 30, "сколько дней на партию")
-	policyFlag := flag.String("policy", "all", "greedy | idle | random | all")
+	policyFlag := flag.String("policy", "all", "greedy | idle | random | all (эти три) | handsoff | delegate")
 	out := flag.String("out", "", "путь CSV (пусто — stdout)")
 	eventsTextFlag := flag.Bool("events-text", false, "в колонке events — имена событий через \" | \" вместо их числа")
 	auditShare := flag.Float64("audit-share", -1, "доля дохода прошлого дня в штрафе аудита (перекрывает конфиг; −1 — из конфига)")
@@ -65,7 +65,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "sim: %v\n", err)
 		os.Exit(1)
 	}
-	policies := map[string]policyFunc{"greedy": greedyPolicy, "idle": idlePolicy, "random": randomPolicy}
+	policies := map[string]policyFunc{"greedy": greedyPolicy, "idle": idlePolicy, "random": randomPolicy,
+		"handsoff": handsoffPolicy, "delegate": delegatePolicy}
 	wanted := []string{*policyFlag}
 	if *policyFlag == "all" {
 		wanted = []string{"greedy", "idle", "random"}

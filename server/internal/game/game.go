@@ -76,6 +76,8 @@ type Game struct {
 	PeakIncomePerTick int // максимум дохода за тик за игру (для итогов банкротства)
 	DayIncidents      int // поломок ПК за текущий день (для отчёта)
 	DayLostIncome     int // упущено из-за поломок за текущий день (для отчёта)
+	DayAdminRepairs   int // ПК, починенных админами за день (ITGAME-101)
+	DayAdminCleaned   int // мест, вычищенных админами за день
 
 	// Вирус (ITGAME-103). VirusWaveIn — тиков партии до волны: общий на
 	// компанию таймер, тикает и в обед, переходит через ночь; 0 — заражённых нет.
@@ -471,7 +473,7 @@ func (g *Game) incomeAtTickDetail(tick int) (total, lost, virusLost int) {
 	return total, lost, virusLost
 }
 
-// PayrollPerDay — полные дневные расходы: зарплаты сотрудников и боссов
+// PayrollPerDay — полные дневные расходы: зарплаты сотрудников, боссов и админов
 // (кроме нанятых после обеда — им сегодня не платим) плюс опекс шлюза и
 // подписка на антивирус по самому дорогому тарифу дня (ITGAME-137).
 func (g *Game) PayrollPerDay() int {
@@ -488,6 +490,9 @@ func (g *Game) PayrollPerDay() int {
 		}
 		if o.Boss != "" && !o.BossUnpaidToday {
 			total += g.cfg.BossSalaryPerDay
+		}
+		if o.Admin != "" && !o.AdminUnpaidToday {
+			total += g.cfg.AdminSalaryPerDay
 		}
 	}
 	if g.Gateway {
@@ -506,12 +511,22 @@ func (g *Game) gatewayOpex() int {
 
 // ForecastEndOfDay — баланс на конец дня. Считает по-тиково: дебаффы
 // будущих тиков предсказуемы, будущий кофе не угадываем (консервативно).
-// Объявленный штраф аудита вычитается, субсидия — нет.
+// Админы (ITGAME-101) чинят и чистят по очереди на копии мест — место
+// считается целым с того тика, к которому до него дойдёт админ; новых
+// поломок и волн прогноз не знает. Объявленный штраф аудита вычитается,
+// субсидия — нет.
 func (g *Game) ForecastEndOfDay() int {
 	total := g.Money
+	sim, admins := g, g.hasAdmins()
+	if admins {
+		sim = g.seatsCopy()
+	}
 	for t := g.TickInDay; t < g.cfg.DayTicks(); t++ {
+		if admins {
+			sim.adminsWork()
+		}
 		if !g.cfg.isLunchTick(t) {
-			total += g.incomeAtTick(t)
+			total += sim.incomeAtTick(t)
 		}
 	}
 	return total - g.PayrollPerDay() - g.pendingAuditFine()
@@ -530,17 +545,20 @@ func (g *Game) DayProfit() int {
 type DayReport struct {
 	Day         int
 	Income      int
-	Payroll     int // зарплаты людей (сотрудники + боссы)
+	Payroll     int // зарплаты людей (сотрудники, боссы и админы)
 	GatewayOpex int // операционный расход шлюза
 	Antivirus   int // подписка на антивирус за день (ITGAME-137)
 	EventMoney  int // деньги исходов событий дня, со знаком (ITGAME-53)
 	Profit      int // доход + деньги событий − ФОТ − опекс − подписка
 	Balance     int
-	Incidents   int      // поломок ПК за день
-	LostIncome  int      // упущено из-за поломок, $
-	VirusPCs    int      // новых заражений за день (ITGAME-103)
-	VirusLost   int      // упущено из-за вируса, $
-	Events      []string // события дня: по строке на итог
+	Incidents   int // поломок ПК за день
+	LostIncome  int // упущено из-за поломок, $
+	VirusPCs    int // новых заражений за день (ITGAME-103)
+	VirusLost   int // упущено из-за вируса, $
+	// Админы (ITGAME-101): сколько ПК починили и мест вычистили за день.
+	AdminRepairs int
+	AdminCleaned int
+	Events       []string // события дня: по строке на итог
 }
 
 // Tick — один шаг симуляции (1 секунда). Вне фазы running — no-op.
@@ -570,6 +588,8 @@ func (g *Game) Tick() *DayReport {
 	// полного интервала, и первая волна приходит ровно через VirusSpreadTicks.
 	g.tickVirus()
 	g.activateEvents()
+	// Админы после событий: вспышка этого тика получает первые клики сразу.
+	g.adminTick(cleanedByAdmin)
 	income, lost, virusLost := g.incomeAtTickDetail(g.TickInDay)
 	if !g.cfg.isLunchTick(g.TickInDay) {
 		g.accrueXP()
@@ -603,7 +623,8 @@ func (g *Game) Tick() *DayReport {
 		GatewayOpex: opex, Antivirus: av, EventMoney: g.DayEventMoney,
 		Profit: g.DayIncome + g.DayEventMoney - expenses, Balance: g.Money,
 		Incidents: g.DayIncidents, LostIncome: g.DayLostIncome,
-		VirusPCs: g.DayVirusPCs, VirusLost: g.DayVirusLost, Events: g.EventLog}
+		VirusPCs: g.DayVirusPCs, VirusLost: g.DayVirusLost,
+		AdminRepairs: g.DayAdminRepairs, AdminCleaned: g.DayAdminCleaned, Events: g.EventLog}
 }
 
 // LegacyRepairClicks — N поломки без своего N: сейв до ITGAME-93, ручная

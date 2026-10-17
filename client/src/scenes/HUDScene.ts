@@ -64,6 +64,8 @@ const ERROR_TEXTS: Record<ServerErrorCode, string> = {
   need_cooler: 'Сначала купите кулер',
   bad_tier: 'Нет такого тарифа',
   antivirus_already: 'Этот тариф уже подключён',
+  admin_already: 'Админ в этом офисе уже есть',
+  no_admin: 'В этом офисе нет админа',
 }
 
 // Правый край левого блока панели (ITGAME-16): правая колонка (цель/день/рынок)

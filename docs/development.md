@@ -640,7 +640,8 @@ cover payroll and interest before `CreditLimit`. Income comes from the
 offline engine's day template with every PC whole — repair clicks are free,
 so a broken PC is not a dead end even though the night no longer fixes it
 (ITGAME-136); `BankruptInDays` repairs its own copy of the template, while
-the offline catch-up keeps broken PCs broken —, no buffs, no events, neutral
+the offline catch-up keeps broken PCs broken (except in an office with an
+admin, ITGAME-101) —, no buffs, no events, neutral
 market; today counts from
 the current tick, so N does not drift during the day. A level deadline
 (`WinDayLimit`) that comes first gives 0: the party ends by `time_up`. The
@@ -656,7 +657,9 @@ N lives on the employee (`Employee.RepairNeeded` in the save,
 reads «✖ чинить k/N»; the N-th `repair_click` repairs and `call_master`
 clears it. The night does not: since ITGAME-136 a breakdown, with its k and
 N, survives `next_day`, the offline catch-up (`resetForNextDay`, the day
-template) and the forecast, until it is clicked away or the master comes —
+template) and the forecast, until it is clicked away, the master comes or the
+office's admin gets to it (ITGAME-101: then the forecast and the catch-up
+repair it on his schedule, see «Admins») —
 `make sim`'s `random` policy never repairs, so its parties now end bankrupt
 (normal 300×30: 39 survivors → 0). Saves from before ITGAME-93 (a broken PC without
 `RepairNeeded`, a config with the old `RepairClicksNeeded`) restore as N = 3
@@ -685,16 +688,18 @@ core seat of the company if the seat is in core (`NetworkState.CoreLinked`);
 targets are checked live, so two sources never share one. Rolls come from the
 server PCG — the journal and `make replay` reproduce them. `virus_click`
 (office, slot; `bad_office`, `office_locked`, `bad_slot`, `not_infected`) counts
-k, the third click calls `cleanPC` — the one cleaning function the admins
-(ITGAME-101) and security (ITGAME-100) will call too: no infected seats left in
-the company stops the timer, a clean office closes its open card and logs
-«вычищен вручную к HH:MM». Firing an infected employee takes the infection
+k through `Employee.virusClick` — the one cleaning click the admins (ITGAME-101)
+make too and security (ITGAME-100) will: the third one cleans the seat, and
+`virusSettled` settles the rest — no infected seats left in the company stops
+the timer, a clean office closes its open card and logs «вычищен вручную к
+HH:MM» (an admin's click — «вычищен админом»). Firing an infected employee takes the infection
 along (timer and card the same, no log line). Breakdowns and the virus are
 independent: a broken seat is neither target nor source, repair and the master
 leave the virus. Nothing cleans it by itself — `next_day`, `resetForNextDay`
 and the offline day template keep it, the forecast and the offline catch-up
 count infected seats at −30% and roll no waves (the timer stands still while
-away); `BankruptInDays` cleans its own copy of the template, like it repairs
+away) — except in an office with an admin, whom the forecast and the
+catch-up let clean on his schedule (ITGAME-101, «Admins»); `BankruptInDays` cleans its own copy of the template, like it repairs
 broken PCs — three free clicks are not a dead end. `state.virusWaveAt` is the
 clock from which the next wave is visible («HH:MM», tomorrow's morning across
 the night, empty with no infected seats), `officeInfo.virusPCs` the infected
@@ -756,6 +761,49 @@ click sends nothing and keeps the window). A covered seat draws a blue shield un
 the network dot; the tooltip says «антивирус: <tier>», «антивирус: место вне тарифа
 <tier>» or «без антивируса»; the day report «Антивирус: -$X» under «Интернет»;
 `itd.state().antivirusTier`. `make sim` policies never subscribe.
+
+**Admins** (ITGAME-101, design in the GDD «Админы (ITGAME-101)»): one per
+office like the boss, fields of `Office`, not an `Employee` — `Admin` (name, ""
+— none), `AdminUnpaidToday`, `AdminHireDay`; no seat, PC, port, core capacity or
+subscription, outside `staffCount`/`TotalEmployees`, `WinStaff` and
+`IsDeadlocked`. `hire_admin` / `fire_admin` (office; `admin_already`,
+`no_admin`, `not_enough_money`, `office_locked`): `Config.AdminPrice` $600
+×PriceK, `AdminSalaryPerDay` $300 ×WageK in `PayrollPerDay` (hired from 15:00 —
+unpaid today, reset with the boss's flag), fired for a day's salary or
+`FireCompSameDay` on the hire day (`AdminFireCompensation`). Every tick, lunch
+included, `adminTick` runs in `Tick` after `activateEvents` and before the
+income: `Office.adminWork` makes `AdminClicksPerTick` (2) clicks with the same
+`repairClick` / `virusClick` as the player's, the target recomputed per click by
+`Office.AdminTarget` — the first infected seat with a whole PC, else the broken
+one — so a spare click goes on, a new infection preempts a repair (its clicks
+stay), and a broken infected seat is repaired first and cleaned next. The work
+touches seats only; `adminTick` adds `DayAdminRepairs` / `DayAdminCleaned` and
+calls `virusSettled(oi, cleanedByAdmin)`. No rolls — the journal records
+`hire_admin`/`fire_admin` only and replays byte for byte (`ws`
+`TestJournalReplayAdminParty`). The forecast runs `adminsWork` on
+`seatsCopy()` tick by tick, so `forecastEndOfDay`/`dayProfit` see a seat whole
+from the tick the admin gets to it; the offline catch-up runs the admins in
+the tail and the partial day (`offlineIncome`, log silent) and, when a backlog
+is left for the first full day, counts that day tick by tick on the template and
+`adoptSeats` it into the live game, day after day while a backlog is left (on
+the default config it is gone within a day: 15 + 12 × 3 clicks against 2 × 54;
+a config delta can stretch it). The catch-up's admin work logs nothing —
+a card closed by an admin while away has no «вычищен админом» line, and
+`itd.step` / `itd.advanceDays` go through this engine, so to see the line
+in QA let live ticks run. The virus card adds « Админ офиса вычистит
+сам к HH:MM.» (`adminCardLine`: the tick of the admin's last click by his
+queue, across the night — tomorrow's morning). Protocol: `officeInfo.admin`,
+`adminUnpaidToday`, `adminSlot` (−1 — idle or none) and `adminKind`
+(`repair` | `virus` | ""), `adminFirePrice`; `state.adminSalaryPerDay`,
+`prices.admin`; `dayReport.adminRepairs`/`adminCleaned`. A config without the
+admin fields restores with its difficulty's. The client — button, slot, labels,
+tooltips, report line — is ITGAME-145; until then only `itd.cmd('hire_admin',
+0)`. `make sim` (300 × 30): `--policy all` stays greedy/idle/random, byte for
+byte; `handsoff` clicks only offices under 4 staff (with no clicks at all a
+one-PC company breaks on day 1 and is bankrupt on day 2) and `delegate` hires an
+admin into every office that grows past it — normal greedy median $135,061,
+handsoff $37,680 (19 bankrupt), delegate $121,254 (1); hard $35,994 / $1,196 /
+$18,792.
 
 **One click zone per workstation** (ITGAME-92): every occupied desk has a
 single interactive zone `office.slot.N` — the union of the worker frame and

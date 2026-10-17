@@ -71,6 +71,12 @@ export interface OfficeInfo {
   nextPorts: number // порты следующего тира; 0 — тир максимальный
   boss: string
   bossUnpaidToday: boolean
+  // Админ офиса (ITGAME-101): не сотрудник — места не занимает.
+  admin: string // '' — админа нет
+  adminUnpaidToday: boolean
+  adminSlot: number // место, по которому его следующий клик; -1 — свободен или админа нет
+  adminKind: 'repair' | 'virus' | '' // что он там делает
+  adminFirePrice: number // компенсация увольнения; 0 — админа нет
   employees: EmployeeInfo[]
   cooler: boolean
   fridge: boolean
@@ -116,6 +122,7 @@ export interface StateMessage {
   payrollPerDay: number
   salaryPerDay: number
   bossSalaryPerDay: number
+  adminSalaryPerDay: number // зарплата админа офиса (ITGAME-101)
   forecastEndOfDay: number
   staffLimit: number
   officeSlots: number
@@ -145,6 +152,7 @@ export interface StateMessage {
     pc: number
     hire: number
     boss: number
+    admin: number // найм админа офиса (ITGAME-101)
     gateway: number
     cooler: number
     fridge: number
@@ -195,6 +203,8 @@ export const SERVER_ERROR_CODES = [
   'need_cooler',
   'bad_tier',
   'antivirus_already',
+  'admin_already',
+  'no_admin',
   'unknown_command',
   'bad_speed',
 ] as const
@@ -222,6 +232,8 @@ export interface DayReportMessage {
   lostIncome: number // упущено из-за поломок, $
   virusPCs: number // новых заражений за день (ITGAME-103)
   virusLost: number // упущено из-за вируса, $
+  adminRepairs: number // ПК, починенных админами за день (ITGAME-101)
+  adminCleaned: number // мест, вычищенных админами за день
   events: string[] // события дня: по строке на итог
 }
 
@@ -287,7 +299,7 @@ export const COMMAND_TYPES = [
   'buy_cooler', 'buy_fridge', 'buy_coffee', 'set_speed',
   'upgrade_server', 'upgrade_core',
   'motivate', 'repair_click', 'call_master', 'event_choice', 'fire',
-  'virus_click', 'set_antivirus',
+  'virus_click', 'set_antivirus', 'hire_admin', 'fire_admin',
   'abandon', 'exit',
 ] as const
 

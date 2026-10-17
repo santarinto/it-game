@@ -4,9 +4,10 @@ package game
 // досимулируются сводной формулой — как ForecastEndOfDay, консервативно:
 // без кофе-роллов, событий, поломок, волн вируса и XP; дебаффы жажды/голода
 // и обед учитываются (они детерминированы тиком дня). Сломанные и
-// заражённые места остаются такими во всех днях (ITGAME-136, ITGAME-103):
-// ночь их не чинит, а роллов офлайн нет — уход из игры замораживает рост
-// вируса, но не лечит.
+// заражённые места офиса без админа остаются такими во всех днях
+// (ITGAME-136, ITGAME-103): ночь их не чинит, а роллов офлайн нет — уход из
+// игры замораживает рост вируса, но не лечит. Админ (ITGAME-101) чинит и
+// чистит свой офис по тикам догона тем же темпом, что вживую.
 
 // OfflineSummary — итог офлайн-догона для отчёта «пока вас не было».
 // Теги — для /api/debug/advance (ITGAME-26); offline_report собирает
@@ -40,9 +41,10 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	dayTicks := g.cfg.DayTicks()
 
 	// 1. Хвост текущего дня: эффекты дня живут (кофе уже налит, поломки
-	// не чиним до ночи) — это и есть консервативная оценка.
+	// чинят и вирус чистят только админы — ITGAME-101) — это и есть
+	// консервативная оценка.
 	if remain := dayTicks - g.TickInDay; miss < remain {
-		inc := g.sumIncome(g.TickInDay, g.TickInDay+miss)
+		inc := g.offlineIncome(g.TickInDay, g.TickInDay+miss)
 		g.Money += inc
 		g.DayIncome += inc
 		g.Ledger.Income += inc
@@ -53,7 +55,7 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 		}
 		return s
 	}
-	inc := g.sumIncome(g.TickInDay, dayTicks)
+	inc := g.offlineIncome(g.TickInDay, dayTicks)
 	expenses := g.PayrollPerDay()
 	g.Money += inc
 	g.DayIncome += inc
@@ -70,7 +72,8 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	}
 
 	// 2. Полные дни по шаблону: дневные сбросы (как NextDay), без событий
-	// и кофе. Шаблон считается один раз — между днями офлайн ничего не меняется.
+	// и кофе. Шаблон считается один раз — между днями офлайн ничего не
+	// меняется, пока у админов есть очередь — пересобирается каждый день.
 	// Рынок шаблона нейтрален (0%): роллов офлайн нет, качели не угадываем.
 	tpl := g.offlineTemplate()
 	tpl.MarketToday = 0
@@ -84,12 +87,25 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 		g.TickInDay = 0
 		g.beginLedger()
 		g.TickInDay = dayTicks
-		g.Money += dayInc
-		g.Ledger.Income += dayInc
+		inc := dayInc
+		// Админам есть что чинить и чистить (ITGAME-101): день считается по
+		// тикам на шаблоне, его места переходят в живую игру, и шаблон
+		// пересобирается. На дефолтном конфиге очередь пустеет за день
+		// (15 + 12 × 3 кликов на офис против 2 × 54), с дельтой конфига —
+		// за сколько выйдет.
+		if tpl.adminsBusy() {
+			inc = tpl.offlineIncome(0, dayTicks)
+			g.adoptSeats(tpl)
+			tpl = g.offlineTemplate()
+			tpl.MarketToday = 0
+			dayInc = tpl.sumIncome(0, dayTicks)
+		}
+		g.Money += inc
+		g.Ledger.Income += inc
 		g.Ledger.Offline = true
 		g.chargeDay(dayExp, dayOpex, dayAV)
-		s.Income += dayInc
-		g.PrevDayIncome = dayInc
+		s.Income += inc
+		g.PrevDayIncome = inc
 		s.Payroll += dayExp
 		s.Days++
 		if g.closeOfflineDay(s) {
@@ -104,7 +120,7 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	g.TickInDay = 0
 	g.beginLedger()
 	g.TickInDay = miss
-	inc = g.sumIncome(0, miss)
+	inc = g.offlineIncome(0, miss)
 	g.Money += inc
 	g.DayIncome = inc
 	g.Ledger.Income += inc
@@ -151,7 +167,8 @@ func (g *Game) sumIncome(lo, hi int) int {
 
 // offlineTemplate — копия игры с дневными сбросами: точка отсчёта дохода
 // полного офлайн-дня (все оплачиваются, баффов нет). Сломанные ПК остаются
-// сломанными, заражённые — заражёнными: ночь их не чинит (ITGAME-136, ITGAME-103).
+// сломанными, заражённые — заражёнными: ночь их не чинит (ITGAME-136,
+// ITGAME-103); в офисе с админом их дочищает AdvanceOffline (ITGAME-101).
 func (g *Game) offlineTemplate() *Game {
 	tpl := &Game{
 		cfg: g.cfg, Money: g.Money, Offices: append([]Office(nil), g.Offices...),
@@ -171,6 +188,7 @@ func (g *Game) offlineTemplate() *Game {
 			o.Employees[j].OffendedUntil = 0
 		}
 		o.BossUnpaidToday = false
+		o.AdminUnpaidToday = false
 	}
 	return tpl
 }
@@ -188,6 +206,7 @@ func (g *Game) resetForNextDay() {
 			o.Employees[j].OffendedUntil = 0
 		}
 		o.BossUnpaidToday = false
+		o.AdminUnpaidToday = false
 		o.CoffeeEventTicks = nil
 	}
 	g.DayIncome = 0
@@ -196,6 +215,8 @@ func (g *Game) resetForNextDay() {
 	g.DayLostIncome = 0
 	g.DayVirusPCs = 0
 	g.DayVirusLost = 0
+	g.DayAdminRepairs = 0
+	g.DayAdminCleaned = 0
 	g.AVTierBilled = g.AVTier
 	g.DayEvents = nil
 	g.ActiveEvent = nil

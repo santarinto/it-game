@@ -59,66 +59,73 @@ type stateMessage struct {
 	Cause stateCause `json:"cause"` // tick | cmd | debug | start | resume
 	// Re — id команды отправителя, породившей этот снапшот; есть только в
 	// копии отправителя (остальные соединения сессии видят тот же rev без re).
-	Re               int64            `json:"re,omitempty"`
-	Money            int              `json:"money"`
-	Offices          []officeInfo     `json:"offices"`
-	Gateway          bool             `json:"gateway"`
-	Core             coreInfo         `json:"core"`
-	IncomePerTick    int              `json:"incomePerTick"`
-	Day              int              `json:"day"`
-	Clock            string           `json:"clock"`   // «12:30»
-	IsLunch          bool             `json:"isLunch"` // обед: доход за тик = 0
-	TicksPerHour     int              `json:"ticksPerHour"`
-	PayrollPerDay    int              `json:"payrollPerDay"` // полные расходы дня
-	SalaryPerDay     int              `json:"salaryPerDay"`
-	BossSalaryPerDay int              `json:"bossSalaryPerDay"`
-	ForecastEndOfDay int              `json:"forecastEndOfDay"`
-	StaffLimit       int              `json:"staffLimit"`
-	OfficeSlots      int              `json:"officeSlots"`
-	Phase            string           `json:"phase"`          // running | day_report | game_over
-	Speed            int              `json:"speed"`          // темп сессии: 0 — пауза, 1..3
-	Resumed          bool             `json:"resumed"`        // снапшот восстановленной сессии (ITGAME-8)
-	Seed             string           `json:"seed"`           // сид RNG партии, десятичная строка (ITGAME-26)
-	Scenario         string           `json:"scenario"`       // фикстура старта (ITGAME-26); "" — обычная партия
-	TickInDay        int              `json:"tickInDay"`      // тик текущего дня (ITGAME-26: степпинг/отладка)
-	DayIncome        int              `json:"dayIncome"`      // доход, накопленный за текущий день
-	DayProfit        int              `json:"dayProfit"`      // прибыль дня с прогнозом до вечера, = «Прибыль» отчёта (ITGAME-53)
-	Difficulty       string           `json:"difficulty"`     // easy | normal | hard | hardcore
-	WinTarget        int              `json:"winTarget"`      // денежная часть цели, $
-	WinStaff         int              `json:"winStaff"`       // комбо-цель: сотрудников (0 — нет; Сложность 2.0)
-	WinCore          int              `json:"winCore"`        // комбо-цель: уровень core (0 — нет)
-	WinDayLimit      int              `json:"winDayLimit"`    // дедлайн цели: дней (0 — нет)
-	MarketToday      int              `json:"marketToday"`    // рынок: % выработки сегодня (0 — нет)
-	MarketTomorrow   int              `json:"marketTomorrow"` // завтрашний рынок, виден заранее
-	CreditLimit      int              `json:"creditLimit"`    // кредитный порог, $ (0 — кредита нет)
-	CreditRatePct    int              `json:"creditRatePct"`  // процент за день на долг
-	BankruptInDays   int              `json:"bankruptInDays"` // обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)
-	VirusWaveAt      string           `json:"virusWaveAt"`    // «HH:MM», с которого видна следующая волна вируса; "" — заражённых нет (ITGAME-103)
-	Antivirus        antivirusInfo    `json:"antivirus"`      // подписка на антивирус (ITGAME-137)
-	ActiveEvent      *activeEventInfo `json:"activeEvent"`
-	Prices           prices           `json:"prices"`
-	OfflineReport    bool             `json:"offlineReport,omitempty"` // первый снапшот после resume: следом идёт offline_report (ITGAME-76)
+	Re                int64            `json:"re,omitempty"`
+	Money             int              `json:"money"`
+	Offices           []officeInfo     `json:"offices"`
+	Gateway           bool             `json:"gateway"`
+	Core              coreInfo         `json:"core"`
+	IncomePerTick     int              `json:"incomePerTick"`
+	Day               int              `json:"day"`
+	Clock             string           `json:"clock"`   // «12:30»
+	IsLunch           bool             `json:"isLunch"` // обед: доход за тик = 0
+	TicksPerHour      int              `json:"ticksPerHour"`
+	PayrollPerDay     int              `json:"payrollPerDay"` // полные расходы дня
+	SalaryPerDay      int              `json:"salaryPerDay"`
+	BossSalaryPerDay  int              `json:"bossSalaryPerDay"`
+	AdminSalaryPerDay int              `json:"adminSalaryPerDay"` // зарплата админа офиса (ITGAME-101)
+	ForecastEndOfDay  int              `json:"forecastEndOfDay"`
+	StaffLimit        int              `json:"staffLimit"`
+	OfficeSlots       int              `json:"officeSlots"`
+	Phase             string           `json:"phase"`          // running | day_report | game_over
+	Speed             int              `json:"speed"`          // темп сессии: 0 — пауза, 1..3
+	Resumed           bool             `json:"resumed"`        // снапшот восстановленной сессии (ITGAME-8)
+	Seed              string           `json:"seed"`           // сид RNG партии, десятичная строка (ITGAME-26)
+	Scenario          string           `json:"scenario"`       // фикстура старта (ITGAME-26); "" — обычная партия
+	TickInDay         int              `json:"tickInDay"`      // тик текущего дня (ITGAME-26: степпинг/отладка)
+	DayIncome         int              `json:"dayIncome"`      // доход, накопленный за текущий день
+	DayProfit         int              `json:"dayProfit"`      // прибыль дня с прогнозом до вечера, = «Прибыль» отчёта (ITGAME-53)
+	Difficulty        string           `json:"difficulty"`     // easy | normal | hard | hardcore
+	WinTarget         int              `json:"winTarget"`      // денежная часть цели, $
+	WinStaff          int              `json:"winStaff"`       // комбо-цель: сотрудников (0 — нет; Сложность 2.0)
+	WinCore           int              `json:"winCore"`        // комбо-цель: уровень core (0 — нет)
+	WinDayLimit       int              `json:"winDayLimit"`    // дедлайн цели: дней (0 — нет)
+	MarketToday       int              `json:"marketToday"`    // рынок: % выработки сегодня (0 — нет)
+	MarketTomorrow    int              `json:"marketTomorrow"` // завтрашний рынок, виден заранее
+	CreditLimit       int              `json:"creditLimit"`    // кредитный порог, $ (0 — кредита нет)
+	CreditRatePct     int              `json:"creditRatePct"`  // процент за день на долг
+	BankruptInDays    int              `json:"bankruptInDays"` // обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)
+	VirusWaveAt       string           `json:"virusWaveAt"`    // «HH:MM», с которого видна следующая волна вируса; "" — заражённых нет (ITGAME-103)
+	Antivirus         antivirusInfo    `json:"antivirus"`      // подписка на антивирус (ITGAME-137)
+	ActiveEvent       *activeEventInfo `json:"activeEvent"`
+	Prices            prices           `json:"prices"`
+	OfflineReport     bool             `json:"offlineReport,omitempty"` // первый снапшот после resume: следом идёт offline_report (ITGAME-76)
 }
 
 // officeInfo — офис в снапшоте: всё для отрисовки комнаты и панели.
 type officeInfo struct {
-	Unlocked        bool           `json:"unlocked"`
-	Price           int            `json:"price"` // цена покупки; 0 для открытых
-	PCs             int            `json:"pcs"`
-	NextPC          int            `json:"nextPC"` // цена следующего ПК офиса; 0 — мест нет
-	RouterTier      int            `json:"routerTier"`
-	Ports           int            `json:"ports"`
-	NextRouter      int            `json:"nextRouter"` // 0 — тир максимальный
-	NextPorts       int            `json:"nextPorts"`  // порты следующего тира; 0 — тир максимальный
-	Servers         []serverInfo   `json:"servers"`
-	ServerSlots     int            `json:"serverSlots"`
-	Boss            string         `json:"boss"` // "" — начальника нет
-	BossUnpaidToday bool           `json:"bossUnpaidToday"`
-	Cooler          bool           `json:"cooler"`
-	Fridge          bool           `json:"fridge"`
-	CoffeeMachine   bool           `json:"coffeeMachine"`
-	VirusPCs        int            `json:"virusPCs"`  // заражённых мест офиса (ITGAME-103)
-	Employees       []employeeInfo `json:"employees"` // порядок = порядок найма
+	Unlocked        bool         `json:"unlocked"`
+	Price           int          `json:"price"` // цена покупки; 0 для открытых
+	PCs             int          `json:"pcs"`
+	NextPC          int          `json:"nextPC"` // цена следующего ПК офиса; 0 — мест нет
+	RouterTier      int          `json:"routerTier"`
+	Ports           int          `json:"ports"`
+	NextRouter      int          `json:"nextRouter"` // 0 — тир максимальный
+	NextPorts       int          `json:"nextPorts"`  // порты следующего тира; 0 — тир максимальный
+	Servers         []serverInfo `json:"servers"`
+	ServerSlots     int          `json:"serverSlots"`
+	Boss            string       `json:"boss"` // "" — начальника нет
+	BossUnpaidToday bool         `json:"bossUnpaidToday"`
+	// Админ офиса (ITGAME-101): не сотрудник — места не занимает.
+	Admin            string         `json:"admin"` // "" — админа нет
+	AdminUnpaidToday bool           `json:"adminUnpaidToday"`
+	AdminSlot        int            `json:"adminSlot"`      // место, по которому его следующий клик; -1 — свободен или админа нет
+	AdminKind        string         `json:"adminKind"`      // repair | virus | "" — что он там делает
+	AdminFirePrice   int            `json:"adminFirePrice"` // компенсация увольнения; 0 — админа нет
+	Cooler           bool           `json:"cooler"`
+	Fridge           bool           `json:"fridge"`
+	CoffeeMachine    bool           `json:"coffeeMachine"`
+	VirusPCs         int            `json:"virusPCs"`  // заражённых мест офиса (ITGAME-103)
+	Employees        []employeeInfo `json:"employees"` // порядок = порядок найма
 }
 
 // employeeInfo — сотрудник в снапшоте: всё, что нужно тултипу.
@@ -216,6 +223,7 @@ type prices struct {
 	PC             int                  `json:"pc"`
 	Hire           int                  `json:"hire"`
 	Boss           int                  `json:"boss"`
+	Admin          int                  `json:"admin"` // найм админа офиса (ITGAME-101)
 	Gateway        int                  `json:"gateway"`
 	Cooler         int                  `json:"cooler"`
 	Fridge         int                  `json:"fridge"`
@@ -238,20 +246,22 @@ type errorMessage struct {
 
 // dayReportMessage — итоги дня; шлётся сразу после снапшота с phase=day_report.
 type dayReportMessage struct {
-	Type        string   `json:"type"` // всегда "day_report"
-	Day         int      `json:"day"`
-	Income      int      `json:"income"`
-	Payroll     int      `json:"payroll"`
-	GatewayOpex int      `json:"gatewayOpex"`
-	Antivirus   int      `json:"antivirus"`  // подписка на антивирус за день (ITGAME-137)
-	EventMoney  int      `json:"eventMoney"` // деньги исходов событий дня, со знаком (ITGAME-53)
-	Profit      int      `json:"profit"`
-	Balance     int      `json:"balance"`
-	Incidents   int      `json:"incidents"`  // поломок ПК за день
-	LostIncome  int      `json:"lostIncome"` // упущено из-за поломок, $
-	VirusPCs    int      `json:"virusPCs"`   // новых заражений за день (ITGAME-103)
-	VirusLost   int      `json:"virusLost"`  // упущено из-за вируса, $
-	Events      []string `json:"events"`     // события дня: по строке на итог
+	Type         string   `json:"type"` // всегда "day_report"
+	Day          int      `json:"day"`
+	Income       int      `json:"income"`
+	Payroll      int      `json:"payroll"`
+	GatewayOpex  int      `json:"gatewayOpex"`
+	Antivirus    int      `json:"antivirus"`  // подписка на антивирус за день (ITGAME-137)
+	EventMoney   int      `json:"eventMoney"` // деньги исходов событий дня, со знаком (ITGAME-53)
+	Profit       int      `json:"profit"`
+	Balance      int      `json:"balance"`
+	Incidents    int      `json:"incidents"`    // поломок ПК за день
+	LostIncome   int      `json:"lostIncome"`   // упущено из-за поломок, $
+	VirusPCs     int      `json:"virusPCs"`     // новых заражений за день (ITGAME-103)
+	VirusLost    int      `json:"virusLost"`    // упущено из-за вируса, $
+	AdminRepairs int      `json:"adminRepairs"` // ПК, починенных админами за день (ITGAME-101)
+	AdminCleaned int      `json:"adminCleaned"` // мест, вычищенных админами за день
+	Events       []string `json:"events"`       // события дня: по строке на итог
 }
 
 // gameOverMessage — итоги проигрыша; шлётся сразу после снапшота с phase=game_over.
@@ -359,12 +369,19 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 				ServedTo:   (si + 1) * cfg.EmployeesPerServer,
 			})
 		}
+		adminSlot, adminKind, adminFire := -1, "", 0
+		if o.Admin != "" {
+			adminSlot, adminKind = o.AdminTarget()
+			adminFire = g.AdminFireCompensation(oi)
+		}
 		offices[oi] = officeInfo{
 			Unlocked: o.Unlocked, Price: price, PCs: o.PCs, NextPC: g.NextPCPrice(oi),
 			RouterTier: o.RouterTier, Ports: o.Ports(cfg),
 			NextRouter: g.NextRouterPrice(oi), NextPorts: g.NextRouterPorts(oi),
 			Servers: servers, ServerSlots: cfg.ServerSlotsPerOffice(),
-			Boss: o.Boss, BossUnpaidToday: o.BossUnpaidToday, Cooler: o.Cooler,
+			Boss: o.Boss, BossUnpaidToday: o.BossUnpaidToday,
+			Admin: o.Admin, AdminUnpaidToday: o.AdminUnpaidToday, AdminSlot: adminSlot, AdminKind: adminKind,
+			AdminFirePrice: adminFire, Cooler: o.Cooler,
 			Fridge: o.Fridge, CoffeeMachine: o.CoffeeMachine, Employees: employees,
 			VirusPCs: g.OfficeInfected(oi),
 		}
@@ -408,7 +425,7 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 		Gateway: g.Gateway, Core: core, IncomePerTick: g.IncomePerTick(),
 		Day: g.Day, Clock: g.Clock(), IsLunch: g.IsLunch(),
 		TicksPerHour: cfg.TicksPerHour, PayrollPerDay: g.PayrollPerDay(),
-		SalaryPerDay: cfg.SalaryPerDay, BossSalaryPerDay: cfg.BossSalaryPerDay,
+		SalaryPerDay: cfg.SalaryPerDay, BossSalaryPerDay: cfg.BossSalaryPerDay, AdminSalaryPerDay: cfg.AdminSalaryPerDay,
 		ForecastEndOfDay: g.ForecastEndOfDay(), StaffLimit: cfg.StaffLimit,
 		OfficeSlots: cfg.OfficeSlots, Phase: string(g.Phase), Speed: speed,
 		Resumed: resumed, Difficulty: string(cfg.Difficulty), WinTarget: cfg.WinTarget,
@@ -419,7 +436,7 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 		ActiveEvent: active, Seed: g.SeedString(), Scenario: scenario,
 		TickInDay: g.TickInDay, DayIncome: g.DayIncome, DayProfit: g.DayProfit(),
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice,
-			Boss: cfg.BossPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,
+			Boss: cfg.BossPrice, Admin: cfg.AdminPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,
 			Fridge: cfg.FridgePrice, CoffeeMachine: cfg.CoffeeMachinePrice, Repair: cfg.MasterCallPrice,
 			ServerLevels: serverLevels, CoreLevels: coreLevels, AntivirusTiers: avTiers},
 	}

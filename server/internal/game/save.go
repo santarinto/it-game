@@ -43,11 +43,13 @@ type Save struct {
 	PeakIncomePerTick int        `json:"peakIncomePerTick"`
 	DayIncidents      int        `json:"dayIncidents"`
 	DayLostIncome     int        `json:"dayLostIncome"`
-	VirusWaveIn       int        `json:"virusWaveIn"`  // тиков до волны вируса, 0 — заражённых нет (ITGAME-103)
-	AVTier            int        `json:"avTier"`       // подписка на антивирус: 0 — нет, 1..N — тариф (ITGAME-137)
-	AVTierBilled      int        `json:"avTierBilled"` // самый дорогой тариф, включённый за день: его цена — вечером
-	DayVirusPCs       int        `json:"dayVirusPCs"`  // новых заражений за день
-	DayVirusLost      int        `json:"dayVirusLost"` // упущено из-за вируса за день
+	VirusWaveIn       int        `json:"virusWaveIn"`     // тиков до волны вируса, 0 — заражённых нет (ITGAME-103)
+	AVTier            int        `json:"avTier"`          // подписка на антивирус: 0 — нет, 1..N — тариф (ITGAME-137)
+	AVTierBilled      int        `json:"avTierBilled"`    // самый дорогой тариф, включённый за день: его цена — вечером
+	DayVirusPCs       int        `json:"dayVirusPCs"`     // новых заражений за день
+	DayVirusLost      int        `json:"dayVirusLost"`    // упущено из-за вируса за день
+	DayAdminRepairs   int        `json:"dayAdminRepairs"` // ПК, починенных админами за день (ITGAME-101)
+	DayAdminCleaned   int        `json:"dayAdminCleaned"` // мест, вычищенных админами за день
 	DayEvents         []DayEvent `json:"dayEvents"`
 	ActiveEvent       *DayEvent  `json:"activeEvent"`
 	EventLog          []string   `json:"eventLog"`
@@ -70,6 +72,7 @@ func (g *Game) Export() Save {
 		DayIncome: g.DayIncome, DayEventMoney: g.DayEventMoney, PrevDayIncome: g.PrevDayIncome, PeakIncomePerTick: g.PeakIncomePerTick,
 		DayIncidents: g.DayIncidents, DayLostIncome: g.DayLostIncome,
 		VirusWaveIn: g.VirusWaveIn, DayVirusPCs: g.DayVirusPCs, DayVirusLost: g.DayVirusLost,
+		DayAdminRepairs: g.DayAdminRepairs, DayAdminCleaned: g.DayAdminCleaned,
 		AVTier: g.AVTier, AVTierBilled: g.AVTierBilled,
 		EventLog:   slices.Clone(g.EventLog),
 		DeadlineOn: g.DeadlineOn, DeadlineGot: g.DeadlineGot, DeadlineGoal: g.DeadlineGoal,
@@ -191,6 +194,12 @@ func Restore(s Save) (*Game, error) {
 	if len(s.Config.AntivirusTiers) == 0 {
 		s.Config.AntivirusTiers = ApplyDifficulty(def, ParseDifficulty(string(s.Config.Difficulty))).AntivirusTiers
 	}
+	// Конфиг до ITGAME-101: полей админа нет — цены уровня сейва.
+	if s.Config.AdminPrice == 0 || s.Config.AdminSalaryPerDay == 0 || s.Config.AdminClicksPerTick == 0 {
+		lvl := ApplyDifficulty(def, ParseDifficulty(string(s.Config.Difficulty)))
+		s.Config.AdminPrice, s.Config.AdminSalaryPerDay, s.Config.AdminClicksPerTick =
+			lvl.AdminPrice, lvl.AdminSalaryPerDay, lvl.AdminClicksPerTick
+	}
 	if s.AVTier < 0 || s.AVTier > len(s.Config.AntivirusTiers) || s.AVTierBilled < 0 || s.AVTierBilled > len(s.Config.AntivirusTiers) {
 		return nil, fmt.Errorf("%w: avTier=%d avTierBilled=%d", ErrBadSave, s.AVTier, s.AVTierBilled)
 	}
@@ -211,6 +220,7 @@ func Restore(s Save) (*Game, error) {
 		DayIncome: s.DayIncome, DayEventMoney: s.DayEventMoney, PrevDayIncome: s.PrevDayIncome, PeakIncomePerTick: s.PeakIncomePerTick,
 		DayIncidents: s.DayIncidents, DayLostIncome: s.DayLostIncome,
 		VirusWaveIn: s.VirusWaveIn, DayVirusPCs: s.DayVirusPCs, DayVirusLost: s.DayVirusLost,
+		DayAdminRepairs: s.DayAdminRepairs, DayAdminCleaned: s.DayAdminCleaned,
 		AVTier: s.AVTier, AVTierBilled: s.AVTierBilled,
 		EventLog:   s.EventLog,
 		DeadlineOn: s.DeadlineOn, DeadlineGot: s.DeadlineGot, DeadlineGoal: s.DeadlineGoal,
