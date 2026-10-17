@@ -149,6 +149,9 @@ export interface StateMessage {
   virusWaveAt: string // «HH:MM», с которого видна следующая волна вируса; '' — заражённых нет (ITGAME-103)
   antivirus: AntivirusInfo // подписка на антивирус (ITGAME-137)
   activeEvent: ActiveEventInfo | null // висящее событие Unseen Forces
+  // Итоги событий текущего дня «HH:MM текст» (ITGAME-163): те же строки, что придут в
+  // dayReport.events, но вживую — лента HUD кладёт строку, когда событие случилось.
+  dayLog: string[]
   prices: {
     pc: number
     hire: number

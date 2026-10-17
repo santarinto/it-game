@@ -27,7 +27,9 @@
 //       офисов, V2 живая волна (virusWaveIn 1 через itd.restore, скорость 3 — itd.step волн не
 //       катит) растит значки без тостов, V3 строка «Вирус:     +k ПК за день (−$X)» в отчёте дня
 //       (ITGAME-146), V4 лента после отчёта — у строк журнала сервера одно своё время, итог дня
-//       последним (ITGAME-150)
+//       последним (ITGAME-150), без повторов; V5 лента вживую — строки журнала дня сервера
+//       (state.dayLog) ложатся сразу со своим временем, V6 «10:00 Новый день N+1» сразу за итогом
+//       дня (ITGAME-163)
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
 // :4174 — dist + собранный bin/itdirector, как visreg.mjs). Общий
@@ -309,6 +311,17 @@ async function runCase(browser, zoom, def) {
 
     // V1–V3 вирус (ITGAME-138): значки, живая волна без тостов, строка отчёта
     if (def.flow === 'virus') {
+      // V5 живая лента (ITGAME-163): строка журнала дня сервера (state.dayLog) ложится сразу,
+      // со своим временем, без отчёта; исход выбора в карточке — следом за кликом.
+      const feed0 = ((await logText(page))?.text ?? '').split('\n')
+      await page.evaluate(() => window.itd.cmd('event_choice', 0, { slot: 0 }))
+      await page.waitForFunction(() => window.itd.state().activeEvent == null, { timeout: 5000 }).catch(() => {})
+      await delay(300)
+      const feed1 = ((await logText(page))?.text ?? '').split('\n')
+      check(`${label}: V5 лента вживую — «вирус в офисе 1: 2 ПК» со своим временем до отчёта, «чистим вручную» сразу после выбора`,
+        feed0.some((l) => /^\d\d:\d\d вирус в офисе 1: 2 ПК$/.test(l))
+          && feed1.some((l) => /^\d\d:\d\d вирус в офисе 1: чистим вручную$/.test(l)),
+        JSON.stringify({ feed0, feed1 }))
       const badges = () => page.evaluate(() => [0, 1, 2].map((k) => {
         const n = window.__itd.scene.getScene('hud').children.list.find((o) => o.getData?.('id') === 'hud.virus.office' + k)
         if (!n) return null
@@ -350,11 +363,24 @@ async function runCase(browser, zoom, def) {
       // Лента после отчёта (ITGAME-150): у строки журнала сервера своё время, без часов прихода
       // отчёта перед ним («19:00 · 10:50 …»), итог дня последней строкой.
       const feed = ((await logText(page))?.text ?? '').split('\n')
-      check(`${label}: V4 лента после отчёта — одно время на строку, «к вечеру заражено» со своим временем, итог дня последним`,
+      // Строки, которые лента уже взяла вживую, отчёт второй раз не кладёт (ITGAME-163).
+      check(`${label}: V4 лента после отчёта — одно время на строку, «к вечеру заражено» со своим временем, итог дня последним, без повторов`,
         feed.every((l) => /^\d\d:\d\d (?!· )(?!\d\d:\d\d)\S/.test(l))
           && feed.some((l) => /^\d\d:\d\d вирус: к вечеру заражено \d+ ПК/.test(l))
-          && /^\d\d:\d\d День \d+: прибыль /.test(feed.at(-1) ?? ''),
+          && /^\d\d:\d\d День \d+: прибыль /.test(feed.at(-1) ?? '')
+          && new Set(feed).size === feed.length,
         JSON.stringify(feed))
+      // V6 граница дня (ITGAME-163): «Следующий день» — «10:00 Новый день N+1» сразу за итогом дня.
+      const dayBefore = await page.evaluate(() => window.itd.state().day)
+      await page.evaluate(() => window.itd.cmd('next_day'))
+      await page.waitForFunction((d) => window.itd.state().day > d, { timeout: 5000 }, dayBefore).catch(() => {})
+      await page.evaluate(() => window.itd.pause())
+      await delay(300)
+      const feed2 = ((await logText(page))?.text ?? '').split('\n')
+      const at = feed2.findIndex((l) => l === `10:00 Новый день ${dayBefore + 1}`)
+      check(`${label}: V6 «10:00 Новый день ${dayBefore + 1}» сразу за итогом дня ${dayBefore}`,
+        at > 0 && new RegExp(`^\\d\\d:\\d\\d День ${dayBefore}: прибыль `).test(feed2[at - 1]),
+        JSON.stringify(feed2))
     }
 
     // (j) O6 плашка онбординга: видна ровно там, где цепочка не пройдена (ITGAME-21)

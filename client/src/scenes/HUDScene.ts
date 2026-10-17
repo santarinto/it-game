@@ -16,7 +16,8 @@ import { emitUi } from '../uibus'
 import { activeZoom, applyZoom, ZOOM_OPTIONS, zoomLabel } from '../uiscale'
 import { FONT, HIRES_CAMERA } from '../render'
 import { ONBOARD_STEPS, onboardStep } from '../onboarding'
-import { LOG_LINES, diffEvents, wrapHanging } from '../eventlog'
+import { LOG_LINES, diffEvents, newDayLine, takeDayLog, wrapHanging } from '../eventlog'
+import type { DayLogCursor } from '../eventlog'
 import { WORKDAY, dayShare, hourShare } from '../workday'
 import {
   checkAchievements,
@@ -122,6 +123,9 @@ export class HUDScene extends Phaser.Scene {
   // Отчёт, уже выложенный в журнал («сид:день», ITGAME-150): сервер пересылает отчёт
   // после переподключения в фазе day_report — второй раз его строки в журнал не идут.
   private logReport = ''
+  // Сколько строк журнала дня сервера («сид:день») лента уже положила (ITGAME-163): их
+  // читают и снапшот (state.dayLog, вживую), и вечерний отчёт — повторов нет.
+  private logDay: DayLogCursor = { key: '', shown: 0 }
   // Плашка онбординга (ITGAME-21): текущий шаг цепочки (null — не показываем) и её объекты.
   private coachStep: number | null = null
   private coachBg!: Phaser.GameObjects.Rectangle
@@ -367,6 +371,7 @@ export class HUDScene extends Phaser.Scene {
     this.logLines = []
     this.logPrev = null
     this.logReport = ''
+    this.logDay = { key: '', shown: 0 }
     tag(this.add.rectangle(540, 620, 730, 94, 0x14162b, 0.9).setOrigin(0).setStrokeStyle(1, 0x3a3f5c), 'hud.log.bg')
     this.logText = tag(this.add.text(548, 624, '', {
       fontFamily: FONT, fontSize: '12px', color: '#94b0c2', lineSpacing: 2,
@@ -821,7 +826,12 @@ export class HUDScene extends Phaser.Scene {
   }
 
   private refresh(s: StateMessage) {
+    // Лента (ITGAME-163): граница дня, изменения снапшота, итоги событий дня со своим
+    // «HH:MM» — в этом порядке, чтобы «Событие: …» вставало раньше своего исхода.
+    const newDay = newDayLine(this.logPrev, s)
+    if (newDay) this.logLine(newDay.text, newDay.clock ?? undefined)
     if (this.logPrev) for (const l of diffEvents(this.logPrev, s)) this.logLine(l)
+    this.putDayLog(`${s.seed}:${s.day}`, s.dayLog)
     this.logPrev = s
     if (s.phase === 'running') {
       try {
@@ -1115,6 +1125,13 @@ export class HUDScene extends Phaser.Scene {
     this.logText.setText(this.logLines.join('\n'))
   }
 
+  // Строки журнала дня сервера, которых лента ещё не видела (ITGAME-163).
+  private putDayLog(key: string, log: string[]) {
+    const { cursor, lines } = takeDayLog(this.logDay, key, log)
+    this.logDay = cursor
+    for (const l of lines) this.logLine(l.text, l.clock ?? undefined)
+  }
+
   private toast(text: string, ms = 1500, opts?: { top?: boolean; bg?: string; icon?: string }) {
     const where: 'top' | 'bottom' = opts?.top ? 'top' : 'bottom'
     const bg = opts?.bg ?? '#b13e53'
@@ -1253,6 +1270,8 @@ export class HUDScene extends Phaser.Scene {
     playSfx(this, r.profit >= 0 ? 'bong' : 'drop')
     if (this.skipReports) {
       client.send('next_day')
+      // Без окна отчёта строки дня, которых лента не видела, всё равно ложатся (ITGAME-163).
+      this.putDayLog(`${client.latest?.seed ?? ''}:${r.day}`, r.events)
       const toastBg = r.profit > 0 ? '#257179' : r.profit === 0 ? '#333c57' : '#b13e53'
       this.toast(
         `День ${r.day}: прибыль ${fmtMoney(r.profit)} · баланс ${fmtMoney(r.balance)}`,
@@ -1261,18 +1280,14 @@ export class HUDScene extends Phaser.Scene {
       )
       return
     }
-    // Журнал событий: строки дня, итог последним (в ветке skipReports итог кладёт тост).
-    // Строка журнала сервера начинается со своего «HH:MM» (logEvent) — в ленту идёт оно,
-    // а не часы прихода отчёта: было «19:00 · 10:50 вирус…» (ITGAME-150). Пересланный
-    // отчёт того же дня (переподключение в фазе day_report) строк второй раз не кладёт.
+    // Журнал событий: итог дня последним (в ветке skipReports итог кладёт тост). Строки
+    // журнала сервера лента уже взяла из снапшотов вживую (ITGAME-163), отчёт докладывает
+    // только те, что она не видела, — со своим «HH:MM» (ITGAME-150). Пересланный отчёт
+    // того же дня (переподключение в фазе day_report) итог второй раз не кладёт.
     const reportKey = `${client.latest?.seed ?? ''}:${r.day}`
     if (this.logReport !== reportKey) {
       this.logReport = reportKey
-      for (const e of r.events) {
-        const at = /^(\d\d:\d\d) (.*)$/.exec(e)
-        if (at) this.logLine(at[2], at[1])
-        else this.logLine(e)
-      }
+      this.putDayLog(reportKey, r.events)
       this.logLine(`День ${r.day}: прибыль ${fmtMoney(r.profit)} · баланс ${fmtMoney(r.balance)}`)
     }
     // Серверная пауза (ITGAME-18): запоминаем скорость в sessionStorage
@@ -1593,6 +1608,7 @@ export class HUDScene extends Phaser.Scene {
     this.logPrev = null
     this.logLines = []
     this.logReport = ''
+    this.logDay = { key: '', shown: 0 }
     this.logText.setText('')
     this.hideCoach()
   }

@@ -98,8 +98,12 @@ type stateMessage struct {
 	VirusWaveAt       string           `json:"virusWaveAt"`    // «HH:MM», с которого видна следующая волна вируса; "" — заражённых нет (ITGAME-103)
 	Antivirus         antivirusInfo    `json:"antivirus"`      // подписка на антивирус (ITGAME-137)
 	ActiveEvent       *activeEventInfo `json:"activeEvent"`
-	Prices            prices           `json:"prices"`
-	OfflineReport     bool             `json:"offlineReport,omitempty"` // первый снапшот после resume: следом идёт offline_report (ITGAME-76)
+	// Итоги событий текущего дня «HH:MM текст» (ITGAME-163) — те же строки, что
+	// придут в dayReport.events, но вживую: лента HUD кладёт строку, когда событие
+	// случилось, а не вечером с отчётом.
+	DayLog        []string `json:"dayLog"`
+	Prices        prices   `json:"prices"`
+	OfflineReport bool     `json:"offlineReport,omitempty"` // первый снапшот после resume: следом идёт offline_report (ITGAME-76)
 }
 
 // officeInfo — офис в снапшоте: всё для отрисовки комнаты и панели.
@@ -436,6 +440,8 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 		CreditLimit: cfg.CreditLimit, CreditRatePct: int(cfg.CreditRate * 100),
 		BankruptInDays: g.BankruptInDays(), VirusWaveAt: g.VirusWaveClock(), Antivirus: av,
 		ActiveEvent: active, Seed: g.SeedString(), Scenario: scenario,
+		// Копия, не nil: журнал партии растёт дальше, а снапшот уходит в сокет позже.
+		DayLog:    append(make([]string, 0, len(g.EventLog)), g.EventLog...),
 		TickInDay: g.TickInDay, DayIncome: g.DayIncome, DayProfit: g.DayProfit(),
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice,
 			Boss: cfg.BossPrice, Admin: cfg.AdminPrice, AdminDept: cfg.AdminDeptPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,

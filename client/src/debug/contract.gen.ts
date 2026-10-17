@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "ca87a5cc61b9",
+  "hash": "65151234bfa3",
   "methods": {
     "version": {
       "kind": "prop",
@@ -3341,6 +3341,11 @@ export const CONTRACT = {
           "type": "ActiveEventInfo | null",
           "optional": false,
           "doc": "висящее событие Unseen Forces"
+        },
+        "dayLog": {
+          "type": "string[]",
+          "optional": false,
+          "doc": ""
         },
         "prices": {
           "type": "{ pc: number; hire: number; boss: number; admin: number; adminDept: number; gateway: number; cooler: number; fridge: number; coffeeMachine: number; repair: number; serverLevels: { mult: number; price: number; }[]; coreLevels: { capacity: number; price: number; mult: number; }[]; antivirusTiers: { name: string; seats: number; price: number; }[]; }",
