@@ -1,7 +1,7 @@
 ---
 name: generate-qa-promt-for-it-game
 description: >-
-  Use when a wave of it-game tasks has to be accepted, walked or reconnoitred by a browser agent (Claude in Chrome: one tab, no files, no repo, no terminal) on the live stand http://localhost:8080/?debug=1 with real mouse input plus the window.itd debug API, and the it-game coordinator writes that agent's wave prompt to go after the frozen brief: «промт на приёмку волны it-game», «QA-промт для браузерного агента», «пусть браузерный агент примет волну», «/generate-qa-promt-for-it-game». Not for the jig design-system workbench: that prompt is the separate skill generate-qa-promt-for-browser-agent.
+  Use when a wave of it-game tasks has to be accepted, walked or reconnoitred by a browser agent (Claude in Chrome: one tab, no files, no repo, no terminal) on the live stand http://localhost:15555/?debug=1 with real mouse input plus the window.itd debug API, and the it-game coordinator writes that agent's wave prompt to go after the frozen brief: «промт на приёмку волны it-game», «QA-промт для браузерного агента», «пусть браузерный агент примет волну», «/generate-qa-promt-for-it-game». Not for the jig design-system workbench: that prompt is the separate skill generate-qa-promt-for-browser-agent.
 ---
 
 # Промт браузерному агенту на волну it-game
@@ -42,18 +42,33 @@ Claude in Chrome: вкладка, и всё — страница, JS в ней, 
    жёсткий» с причиной одной строкой: без причины агент переставит.
 2. **Предполётная** — главная дыра практики: в четырёх ручных промтах
    сверка чисел с живым стендом не названа нигде.
-   - Стенд из чистого `main`: `make build` (клиент → `client/dist`, сервер →
-     `bin/itdirector`), затем `ITGAME_DEBUG=1 ./bin/itdirector -static client/dist`
-     (`:8080` по умолчанию; README, docs/development.md «Server-side gate»).
-     Без флага нет `/api/debug/*`, журнала, `itd.set/step/scenario`. Штамп —
-     `git rev-parse --short HEAD`: грязное дерево даст sha коммита при другом коде.
-   - С ЖИВОГО стенда: `itd.version.sha` (= `curl -s http://localhost:8080/ | grep -o '<meta name="build"[^>]*'`)
-     и `itd.contract().version.hash` (headless-вкладкой на `?debug=1`; в репо
-     он же — `client/src/debug/contract.gen.ts`) — в «Стенд» промта.
+   - Стенд — постоянный локальный `http://localhost:15555` (systemd
+     `itgame-dev`, ITGAME-123, `ITGAME_DEBUG=1`; docs/development.md «Local
+     stand»). Выкатывается `git push stand main` (pre-receive собирает и
+     штампует sha и версию) — только по слову владельца и не посреди чужой
+     приёмки, привязанной к sha стенда. `main` бывает впереди стенда с
+     непринятыми задачами: тогда волна идёт на sha стенда, а не «выкати свежий».
+     Без `ITGAME_DEBUG` нет `/api/debug/*`, журнала, `itd.set/step/scenario`.
+   - С ЖИВОГО стенда: `curl -s http://localhost:15555/api/version` → `{sha, version}`
+     (то же — `itd.version.sha` / `.version`) и `itd.contract().version.hash`
+     (headless-вкладкой на `?debug=1`; в репо он же — `client/src/debug/contract.gen.ts`)
+     — в «Стенд» промта.
    - Ожидаемые числа — headless на ТОМ ЖЕ коммите: `npm run qa:<…>` в `client/`
      (self-serve пересобирает `bin/itdirector` над этим `client/dist`; окно
-     1920×1080, dpr 1); `QA_BASE=http://localhost:8080` направляет скрипт на
-     живой стенд. В §1 промта: «сняты headless на `<sha>`, окно 1920×1080, dpr 1».
+     1920×1080, dpr 1); `QA_BASE=http://localhost:15555` направляет скрипт на
+     живой стенд (скрипты, что сами перезапускают свой сервер, как `qa:version`,
+     его не берут). Рабочее дерево впереди стенда — числа снимай одноразовым
+     puppeteer-скриптом в scratchpad прямо на :15555, а сниппеты промта гоняй
+     там же ТЕКСТОМ (`page.evaluate(строка)`): так проверены и числа, и
+     синтаксис. В §1 промта: «сняты headless на `<sha>`, окно 1920×1080, dpr 1».
+   - Состояние, которое ставит только перезапуск стенда (правка файла сейва:
+     стор держит сейвы в памяти): `systemctl --user stop itgame-dev` → правка
+     `~/.local/share/itgame-dev/saves/<sid>.json` → `start`, не `restart` —
+     штатная остановка пишет сейвы из памяти поверх правки. Координатору это
+     запрещает классификатор («Interfere With Workloads»): дай человеку
+     готовую команду, а числа этих шагов сними на своём self-serve сервере со
+     своим каталогом сейвов на том же коде и скажи в §1 промта, что на стенде
+     их никто не сверял.
    - Перед отправкой — КАЖДОЕ ожидаемое число и сценарий на живом стенде по
      тем же адресам. Самое дорогое в промте — неверное утверждение: пропуск
      агент не ищет, неверное идёт проверять (в jig такой прогон ловил 4
@@ -84,7 +99,7 @@ Claude in Chrome: вкладка, и всё — страница, JS в ней, 
      вкладки выполни `localStorage.removeItem('itd.onboard')` и скажи
      «готово»», — и велит ждать.
    - *Реплей журнала*: агент возвращает `sid` и `total` из `itd.journal()` (без
-     `url` — в нём `=`); ты гонишь `make replay ARGS="-url http://localhost:8080 -sid <sid>"`
+     `url` — в нём `=`); ты гонишь `make replay ARGS="-url http://localhost:15555 -sid <sid>"`
      (0 — совпало, 1 — расхождение, 2 — не читается) ПОКА стенд жив: журнал в
      памяти сервера, перезапуск его стирает.
 5. **Сохранить**: `My/MyProjects/it-game/promts/itgame-<код|wave-ДД-ММ>-acceptance-prompt.md`;
@@ -175,7 +190,8 @@ Claude in Chrome: вкладка, и всё — страница, JS в ней, 
 - Одна партия — один sid — одна вкладка, своя песочница с отдельной
   меткой, `restore()` из меню в конце блока: повторный sid молча продолжает
   старую партию, два сокета одного sid воюют (`session_taken`).
-- У каждой таблицы адресов — «сид и сценарий действуют только на НОВУЮ партию».
+- У каждой таблицы адресов — «сид и сценарий действуют на каждую НОВУЮ партию,
+  начатую с этой страницы»: перед блоком с другим адресом — открыть его заново.
 
 **Время**
 - Ожидание считай в ходах агента: ход инструмента 2–5 с, «подожди 45 с» —
@@ -237,6 +253,10 @@ Claude in Chrome: вкладка, и всё — страница, JS в ней, 
 ## Частые ошибки
 
 - `x,y` из `nodes()` взяты за угол — промах по кнопкам с центром в origin.
+- Партия блока B начата со страницы адреса A — пришла фикстура A (день 4)
+  вместо дня 1: сценарий адреса берёт каждая новая партия этой страницы.
+- В промте «если sha не тот — `git push stand main`» при `main` впереди
+  стенда: выкатило бы непринятые задачи посреди приёмки.
 - Своя замена точек в id на `_` — необратима, `btn.offline.continue` потерян.
 - `browser_batch` с ожиданием 45 с — «Tool failed»; нужен запуск без `await`.
 - Окно «Начать заново?» промт не упомянул — агент разбирался ходами.
