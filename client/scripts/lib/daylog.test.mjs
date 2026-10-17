@@ -1,6 +1,6 @@
 // Лента HUD по журналу дня (ITGAME-163): строки state.dayLog приходят вживую и
 // кладутся в ленту со своим «HH:MM», вечерний отчёт добавляет только то, чего
-// лента ещё не видела; на переходе дня — «Новый день N» с часами начала дня.
+// лента ещё не видела; на переходе дня — «Утро, день N» с часами начала дня.
 // src/eventlog.ts без Phaser, импорт только type — Node берёт его как есть.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -41,12 +41,12 @@ test('takeDayLog: журнал того же дня стал короче (resto
 
 const st = (o) => ({ seed: '7', day: 4, clock: '18:20', tickInDay: 50, ticksPerHour: 6, ...o })
 
-test('newDayLine: день той же партии сменился — «Новый день N» с часами начала дня', () => {
-  assert.deepEqual(newDayLine(st({}), st({ day: 5, clock: '10:00', tickInDay: 0 })), { clock: '10:00', text: 'Новый день 5' })
+test('newDayLine: день той же партии сменился — «Утро, день N» с часами начала дня', () => {
+  assert.deepEqual(newDayLine(st({}), st({ day: 5, clock: '10:00', tickInDay: 0 })), { clock: '10:00', text: 'Утро, день 5' })
   // Вкладка увидела новый день не с первого тика — часы всё равно начала дня.
-  assert.deepEqual(newDayLine(st({}), st({ day: 5, clock: '10:20', tickInDay: 2 })), { clock: '10:00', text: 'Новый день 5' })
+  assert.deepEqual(newDayLine(st({}), st({ day: 5, clock: '10:20', tickInDay: 2 })), { clock: '10:00', text: 'Утро, день 5' })
   // Офлайн на несколько дней — одна строка на итоговый день.
-  assert.deepEqual(newDayLine(st({}), st({ day: 8, clock: '10:00', tickInDay: 0 })), { clock: '10:00', text: 'Новый день 8' })
+  assert.deepEqual(newDayLine(st({}), st({ day: 8, clock: '10:00', tickInDay: 0 })), { clock: '10:00', text: 'Утро, день 8' })
 })
 
 test('newDayLine: первый снапшот, тот же день, другая партия, день назад — строки нет', () => {

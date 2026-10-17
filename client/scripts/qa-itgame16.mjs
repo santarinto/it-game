@@ -28,7 +28,7 @@
 //       катит) растит значки без тостов, V3 строка «Вирус:     +k ПК за день (−$X)» в отчёте дня
 //       (ITGAME-146), V4 лента после отчёта — у строк журнала сервера одно своё время, итог дня
 //       последним (ITGAME-150), без повторов; V5 лента вживую — строки журнала дня сервера
-//       (state.dayLog) ложатся сразу со своим временем, V6 «10:00 Новый день N+1» сразу за итогом
+//       (state.dayLog) ложатся сразу со своим временем, V6 «10:00 Утро, день N+1» сразу за итогом
 //       дня (ITGAME-163)
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
@@ -370,15 +370,15 @@ async function runCase(browser, zoom, def) {
           && /^\d\d:\d\d День \d+: прибыль /.test(feed.at(-1) ?? '')
           && new Set(feed).size === feed.length,
         JSON.stringify(feed))
-      // V6 граница дня (ITGAME-163): «Следующий день» — «10:00 Новый день N+1» сразу за итогом дня.
+      // V6 граница дня (ITGAME-163): «Следующий день» — «10:00 Утро, день N+1» сразу за итогом дня.
       const dayBefore = await page.evaluate(() => window.itd.state().day)
       await page.evaluate(() => window.itd.cmd('next_day'))
       await page.waitForFunction((d) => window.itd.state().day > d, { timeout: 5000 }, dayBefore).catch(() => {})
       await page.evaluate(() => window.itd.pause())
       await delay(300)
       const feed2 = ((await logText(page))?.text ?? '').split('\n')
-      const at = feed2.findIndex((l) => l === `10:00 Новый день ${dayBefore + 1}`)
-      check(`${label}: V6 «10:00 Новый день ${dayBefore + 1}» сразу за итогом дня ${dayBefore}`,
+      const at = feed2.findIndex((l) => l === `10:00 Утро, день ${dayBefore + 1}`)
+      check(`${label}: V6 «10:00 Утро, день ${dayBefore + 1}» сразу за итогом дня ${dayBefore}`,
         at > 0 && new RegExp(`^\\d\\d:\\d\\d День ${dayBefore}: прибыль `).test(feed2[at - 1]),
         JSON.stringify(feed2))
     }

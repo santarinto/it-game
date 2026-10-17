@@ -27,7 +27,8 @@ export function takeDayLog(cur: DayLogCursor, key: string, log: string[]): { cur
   return { cursor: { key, shown: log.length }, lines: log.slice(from).map(parseLogLine) }
 }
 
-// «Новый день N» (ITGAME-163, слово владельца 18.10): день той же партии сменился между
+// «Утро, день N» (ITGAME-163: строка дня — слово владельца 18.10, текст — выбор владельца в
+// приёмке 163 из «Новый день N» / «День N» / «Утро, день N»): день той же партии сменился между
 // снапшотами — граница дня в ленте. Часы — начало дня, даже если вкладка увидела день
 // не с первого тика; офлайн на несколько дней — одна строка на итоговый день.
 export function newDayLine(prev: StateMessage | null, s: StateMessage): LogEntry | null {
@@ -35,7 +36,7 @@ export function newDayLine(prev: StateMessage | null, s: StateMessage): LogEntry
   const [h, m] = s.clock.split(':').map(Number)
   const start = h * 60 + m - Math.round((s.tickInDay * 60) / s.ticksPerHour)
   const pad = (n: number) => String(n).padStart(2, '0')
-  return { clock: `${pad(Math.floor(start / 60))}:${pad(start % 60)}`, text: `Новый день ${s.day}` }
+  return { clock: `${pad(Math.floor(start / 60))}:${pad(start % 60)}`, text: `Утро, день ${s.day}` }
 }
 
 const names = (o: StateMessage['offices'][number]) => o.employees.map((e) => e.name)
