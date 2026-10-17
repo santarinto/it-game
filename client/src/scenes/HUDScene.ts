@@ -119,6 +119,9 @@ export class HUDScene extends Phaser.Scene {
   private logText!: Phaser.GameObjects.Text
   private logLines!: string[]
   private logPrev!: StateMessage | null
+  // Отчёт, уже выложенный в журнал («сид:день», ITGAME-150): сервер пересылает отчёт
+  // после переподключения в фазе day_report — второй раз его строки в журнал не идут.
+  private logReport = ''
   // Плашка онбординга (ITGAME-21): текущий шаг цепочки (null — не показываем) и её объекты.
   private coachStep: number | null = null
   private coachBg!: Phaser.GameObjects.Rectangle
@@ -363,6 +366,7 @@ export class HUDScene extends Phaser.Scene {
     // (depth 100) остаются над ним.
     this.logLines = []
     this.logPrev = null
+    this.logReport = ''
     tag(this.add.rectangle(540, 620, 730, 94, 0x14162b, 0.9).setOrigin(0).setStrokeStyle(1, 0x3a3f5c), 'hud.log.bg')
     this.logText = tag(this.add.text(548, 624, '', {
       fontFamily: FONT, fontSize: '12px', color: '#94b0c2', lineSpacing: 2,
@@ -1099,8 +1103,8 @@ export class HUDScene extends Phaser.Scene {
   // (layoutToasts), а гаснет тост только альфой — дрейф по y убран, иначе
   // своя и чужие анимации конфликтовали бы кадр в кадр.
   // Строка в журнал событий: время игры + текст в одну строку, последние LOG_LINES.
-  private logLine(text: string) {
-    const clock = client.latest?.clock ?? '--:--'
+  // clock — своё время строки (событие дня из журнала сервера), иначе — текущее.
+  private logLine(text: string, clock = client.latest?.clock ?? '--:--') {
     // Эмодзи в журнал не берём: системный шрифт широкий и машинозависимый (страховка —
     // с ITGAME-83 в строках клиента эмодзи нет, это держит check:emoji).
     // 76 знаков по 12 px — не шире полосы (730 px), строка не вылезает за x 1270.
@@ -1257,9 +1261,20 @@ export class HUDScene extends Phaser.Scene {
       )
       return
     }
-    // Журнал событий: итог дня и строки событий (в ветке skipReports это делает тост).
-    this.logLine(`День ${r.day}: прибыль ${fmtMoney(r.profit)} · баланс ${fmtMoney(r.balance)}`)
-    for (const e of r.events) this.logLine(`· ${e}`)
+    // Журнал событий: строки дня, итог последним (в ветке skipReports итог кладёт тост).
+    // Строка журнала сервера начинается со своего «HH:MM» (logEvent) — в ленту идёт оно,
+    // а не часы прихода отчёта: было «19:00 · 10:50 вирус…» (ITGAME-150). Пересланный
+    // отчёт того же дня (переподключение в фазе day_report) строк второй раз не кладёт.
+    const reportKey = `${client.latest?.seed ?? ''}:${r.day}`
+    if (this.logReport !== reportKey) {
+      this.logReport = reportKey
+      for (const e of r.events) {
+        const at = /^(\d\d:\d\d) (.*)$/.exec(e)
+        if (at) this.logLine(at[2], at[1])
+        else this.logLine(e)
+      }
+      this.logLine(`День ${r.day}: прибыль ${fmtMoney(r.profit)} · баланс ${fmtMoney(r.balance)}`)
+    }
     // Серверная пауза (ITGAME-18): запоминаем скорость в sessionStorage
     // (переживает перезагрузку F5 во время отчёта) и замораживаем темп.
     if (this.speedBeforeReport === null) {
@@ -1278,7 +1293,8 @@ export class HUDScene extends Phaser.Scene {
     }
     const head = [
       `Доход:     ${fmtMoney(r.income)}`,
-      `Зарплата: -${fmtMoney(r.payroll)}`,
+      // Без штата зарплата $0 — без минуса, «-$0» читается как ошибка (ITGAME-147).
+      `Зарплата: ${r.payroll > 0 ? '-' : ' '}${fmtMoney(r.payroll)}`,
       ...(r.gatewayOpex > 0 ? [`Интернет: -${fmtMoney(r.gatewayOpex)}`] : []),
       // Подписка на антивирус — опекс, как шлюз (ITGAME-137).
       ...(r.antivirus > 0 ? [`Антивирус: -${fmtMoney(r.antivirus)}`] : []),
@@ -1288,8 +1304,9 @@ export class HUDScene extends Phaser.Scene {
       `Прибыль:   ${fmtMoney(r.profit)}`,
       `Баланс:    ${fmtMoney(r.balance)}`,
       ...(r.incidents > 0 ? [`Поломки:   ${r.incidents} (−${fmtMoney(r.lostIncome)})`] : []),
-      // Вирус (ITGAME-103): новых заражений за день и упущенное из-за −30%.
-      ...(r.virusPCs > 0 || r.virusLost > 0 ? [`Вирус:     ${r.virusPCs} ПК (−${fmtMoney(r.virusLost)})`] : []),
+      // Вирус (ITGAME-103): новых заражений за день и упущенное из-за −30%. «+k за день» —
+      // не путать со строкой журнала «к вечеру заражено m ПК», где и вчерашние (ITGAME-146).
+      ...(r.virusPCs > 0 || r.virusLost > 0 ? [`Вирус:     +${r.virusPCs} ПК за день (−${fmtMoney(r.virusLost)})`] : []),
       // Админы (ITGAME-101): сколько починили и вычистили за день.
       ...(r.adminRepairs > 0 || r.adminCleaned > 0 ? [`Админы:    ${r.adminRepairs} ПК, ${seatsLabel(r.adminCleaned)}`] : []),
     ]
@@ -1575,6 +1592,7 @@ export class HUDScene extends Phaser.Scene {
     this.lastEventId = ''
     this.logPrev = null
     this.logLines = []
+    this.logReport = ''
     this.logText.setText('')
     this.hideCoach()
   }

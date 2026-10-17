@@ -25,7 +25,9 @@
 //       можно купить (ITGAME-21): L1 замки, L2 кейс tabs_affordable, L3 full_office
 //   (v) вирус (ITGAME-138), кейс virus_outbreak: V1 значки «☣ k» hud.virus.officeN под вкладками
 //       офисов, V2 живая волна (virusWaveIn 1 через itd.restore, скорость 3 — itd.step волн не
-//       катит) растит значки без тостов, V3 строка «Вирус:     k ПК (−$X)» в отчёте дня
+//       катит) растит значки без тостов, V3 строка «Вирус:     +k ПК за день (−$X)» в отчёте дня
+//       (ITGAME-146), V4 лента после отчёта — у строк журнала сервера одно своё время, итог дня
+//       последним (ITGAME-150)
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
 // :4174 — dist + собранный bin/itdirector, как visreg.mjs). Общий
@@ -335,14 +337,24 @@ async function runCase(browser, zoom, def) {
       check(`${label}: V2 живая волна — значки выросли до суммы ${total} > 3, тостов про волну нет`,
         total > 3 && sum === total && !toasts.some((t) => /волн|заражено|вирус в офисе/i.test(t)),
         JSON.stringify({ total, badges: v2.map((b) => b?.visible && b.text), toasts }))
-      // Отчёт дня: строка «Вирус:     k ПК (−$X)» под «Поломки».
+      // Отчёт дня: строка «Вирус:     +k ПК за день (−$X)» под «Поломки» — новые заражения дня,
+      // не путать со строкой журнала «к вечеру заражено m ПК» (ITGAME-146).
       await page.evaluate(() => window.itd.set({ tickInDay: 53 }))
       await page.evaluate(() => window.itd.speed(1))
       await page.waitForFunction(() => window.itd.text().some((n) => /^День \d+ завершён$/.test(n.text ?? '')), { timeout: 8000 }).catch(() => {})
       const body = await page.evaluate(() => (window.itd.text().find((n) => (n.text ?? '').startsWith('Доход:')) ?? {}).text ?? '')
       const line = body.split('\n').find((x) => x.startsWith('Вирус:')) ?? null
-      check(`${label}: V3 отчёт дня — строка «Вирус:     k ПК (−$X)»`, !!line && /^Вирус: {5}\d+ ПК \(−\$[\d,]+\)$/.test(line),
+      check(`${label}: V3 отчёт дня — строка «Вирус:     +k ПК за день (−$X)»`,
+        !!line && /^Вирус: {5}\+\d+ ПК за день \(−\$[\d,]+\)$/.test(line),
         JSON.stringify({ line, body: body.split('\n').slice(0, 8) }))
+      // Лента после отчёта (ITGAME-150): у строки журнала сервера своё время, без часов прихода
+      // отчёта перед ним («19:00 · 10:50 …»), итог дня последней строкой.
+      const feed = ((await logText(page))?.text ?? '').split('\n')
+      check(`${label}: V4 лента после отчёта — одно время на строку, «к вечеру заражено» со своим временем, итог дня последним`,
+        feed.every((l) => /^\d\d:\d\d (?!· )(?!\d\d:\d\d)\S/.test(l))
+          && feed.some((l) => /^\d\d:\d\d вирус: к вечеру заражено \d+ ПК/.test(l))
+          && /^\d\d:\d\d День \d+: прибыль /.test(feed.at(-1) ?? ''),
+        JSON.stringify(feed))
     }
 
     // (j) O6 плашка онбординга: видна ровно там, где цепочка не пройдена (ITGAME-21)

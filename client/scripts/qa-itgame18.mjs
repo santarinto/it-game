@@ -6,7 +6,10 @@
 //   (itd.speed(0) поверх отчёта) не снимается; itd.set({tickInDay}) в day_report отклонён;
 //   skipReports — день меняется без модалки и без залипания скорости в 0; нет pageerror;
 //   R1–R2 длинный журнал (ITGAME-141): перенос с висячим отступом, обрезка сверху строкой
-//   «… раньше: ещё k», текст в рамке, панель в поле, itd.overlaps()/offscreen() пусты.
+//   «… раньше: ещё k», текст в рамке, панель в поле, itd.overlaps()/offscreen() пусты;
+//   Z0 «Зарплата:  $0» без минуса при пустом штате (ITGAME-147); R3 лента hud.log после отчёта —
+//   строки журнала сервера со своим временем, итог дня последним, R4 пересланный после
+//   переподключения отчёт ленту не дублирует (ITGAME-150).
 //
 // Self-serve (ITGAME-70, по образцу qa-itgame47): без QA_BASE поднимает Go-сервер на QA_PORT
 // (по умолчанию :4182) с временным каталогом сейвов — F5 → «Продолжить» восстанавливает партию
@@ -123,6 +126,11 @@ try {
   })
   check('Модал дня открылся', reportOpened.hasBtn === true, `hasBtn=${reportOpened.hasBtn}`)
   check('Скорость на паузе (0) во время модала', reportOpened.speed === 0, `speed=${reportOpened.speed}`)
+  // Z0 (ITGAME-147): у fresh штата нет — «Зарплата:  $0» без минуса, «-$0» читался как ошибка.
+  const salary0 = await page.evaluate(() =>
+    (window.itd.text().find((n) => n.scene === 'hud' && (n.text ?? '').startsWith('Доход:'))?.text ?? '')
+      .split('\n').find((l) => l.startsWith('Зарплата:')) ?? null)
+  check('Z0 без штата строка «Зарплата:  $0» без минуса', salary0 === 'Зарплата:  $0', JSON.stringify(salary0))
 
   // 5. Ждем 2 секунды и проверяем, что время стоит и баланс не изменился
   await new Promise((r) => setTimeout(r, 2000))
@@ -409,6 +417,48 @@ try {
   check('R2 itd.overlaps() и itd.offscreen() пусты', r2.overlaps.length === 0 && r2.offscreen.length === 0,
     JSON.stringify({ overlaps: r2.overlaps, offscreen: r2.offscreen }).slice(0, 300))
   await closeReport(9)
+
+  // 14. Лента HUD после отчёта (ITGAME-150). R3 — строки журнала сервера идут в hud.log со своим
+  // «HH:MM», без часов прихода отчёта перед ним (было «19:00 · 10:50 …»), итог дня последним.
+  // R4 — отчёт, пересланный сервером после переподключения в фазе day_report (itd.away net
+  // короче таймаута — ранний возврат), приходит второй раз, а лента остаётся прежней.
+  const FEED = ['10:50 вирус в офисе 1: 2 ПК', '19:00 вирус: к вечеру заражено 3 ПК — само не пройдёт']
+  const feedText = () => page.evaluate(() => window.itd.text().find((n) => n.id === 'hud.log')?.text ?? '')
+  const reportsIn = () => page.evaluate(() => window.itd.net(200).last.filter((m) => m.dir === 'in' && m.type === 'day_report').length)
+  await reportWith(FEED)
+  const feed3 = await feedText()
+  const lines3 = feed3.split('\n')
+  check('R3 лента: строки журнала со своим временем, одно время на строку, итог дня последним',
+    // за подложенными строками — вечерние итоги активных событий самого сервера
+    lines3[0] === FEED[0] && lines3[1] === FEED[1] && lines3.every((l) => /^\d\d:\d\d (?!· )(?!\d\d:\d\d)\S/.test(l))
+      && /^\d\d:\d\d День 9: прибыль /.test(lines3.at(-1) ?? ''),
+    JSON.stringify(lines3))
+  const before4 = await reportsIn()
+  // Лента держит LOG_LINES (5) последних строк: отчёт в 5 строк, выложенный второй раз, даёт тот
+  // же хвост, и по тексту повтор не виден — считаем сами вызовы logLine у сцены на время пересылки.
+  await page.evaluate(() => {
+    const hud = window.__itd.scene.getScene('hud')
+    const orig = hud.logLine
+    window.__qaLogLines = []
+    hud.logLine = function (...a) { window.__qaLogLines.push(a[0]); return orig.apply(this, a) }
+  })
+  const away4 = await page.evaluate(() => window.itd.away(1, { mode: 'net', timeout: 5000 }))
+  await page.evaluate(async (n) => {
+    await window.itd.wait(() => window.itd.net(200).last.filter((m) => m.dir === 'in' && m.type === 'day_report').length > n, 5000).catch(() => null)
+  }, before4)
+  const after4 = await reportsIn()
+  const feed4 = await feedText()
+  const open4 = await page.evaluate(() => window.itd.ids().some((x) => x.id === 'btn.next_day'))
+  const logged4 = await page.evaluate(() => {
+    const hud = window.__itd.scene.getScene('hud')
+    delete hud.logLine // снова метод прототипа
+    return window.__qaLogLines
+  })
+  check('R4 пересланный после переподключения отчёт строк в ленту второй раз не кладёт',
+    away4.ok === true && after4 > before4 && open4 && feed4 === feed3
+      && !logged4.some((l) => FEED.some((e) => e.endsWith(l)) || /^День \d+: прибыль /.test(l)),
+    JSON.stringify({ ok: away4.ok, reports: [before4, after4], open4, logged4, feed4: feed4.split('\n') }))
+  await closeReport(10)
 
   check('Ошибок на странице нет', pageErrors.length === 0, `errors=${pageErrors.length} ${pageErrors.join(' | ')}`)
   await page.close()
