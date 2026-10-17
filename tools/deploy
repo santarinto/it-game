@@ -157,7 +157,12 @@ say "1/4 сборка клиента (docker $NODE_IMAGE, кэш $CACHE/npm)"
 # BUILD_SHA (ITGAME-81/98): в архиве нет .git — без него штамп сборки
 # (<meta name="build">, itd.version) читался бы 'dev'. Тот же короткий sha,
 # что штампует bin/deploy-local.sh (vite принимает hex 7..40).
+# NODE_OPTIONS (MINIPC-256): бокс 90.156.129.221 — 1 ядро и 869 МБ; дефолтная
+# планка кучи V8 на такой машине РУБИТ vite-сборку («Reached heap limit»,
+# поймано первым живым деплоем туда). 768 МБ кучи + своп 2 ГБ собирают; на
+# прежнем ci-cd-srv памяти было вдосталь и кап не был нужен.
 docker run --rm --user "$uid:$gid" -e HOME=/tmp -e BUILD_SHA="$sha7" -e BUILD_VERSION="$ver" \
+    -e NODE_OPTIONS=--max-old-space-size=768 \
     -v "$CACHE/npm:/tmp/.npm" -v "$REL:/work" -w /work/client "$NODE_IMAGE" \
     sh -c 'npm ci --no-audit --no-fund && npm run build'
 rm -rf "$REL/client/node_modules"

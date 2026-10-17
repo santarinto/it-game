@@ -1,17 +1,22 @@
 # Forgejo Actions — it-game tests + deploy (MINIPC-206, the platform chain:
 # minipc MINIPC-164 / sntbot MINIPC-209 pattern).
 #
-# Tests run on the ci-cd-srv docker runner (label minipc-test) on EVERY push
-# (any branch). The deploy job runs on the minipc HOST runner (label
-# minipc-deploy) and is ONE ssh line per target — stage first, prod after —
-# to the loader on the game-box (ci-cd-srv itself): forced command
-# deploy-project itgame-stage / itgame, transient user unit, recipe
-# tools/deploy (contract v1) from the deployed SHA.
+# Tests run on the aiserver docker runner (aiserver-test, label minipc-test —
+# home to them since LM-200; the first home ci-cd-srv is gone since 15.10,
+# MINIPC-255) on EVERY push (any branch). The deploy job runs on the minipc
+# HOST runner (label minipc-deploy): git.lan is unreachable from the game
+# box (the home perimeter admits no public inbound), so the job FEEDS the
+# commit to the box as a git bundle (forced command deploy-feed-bundle on
+# each checkout) and then is ONE ssh line per target — stage first, prod
+# after — to the loader on the game box 90.156.129.221 (MINIPC-256, the
+# re-home after ci-cd-srv died): forced command deploy-project itgame-stage
+# / itgame, transient user unit, recipe tools/deploy (contract v1) from the
+# deployed SHA.
 #
 # Checkout is a plain git fetch with the job token, NOT actions/checkout:
 # node-free where possible, and this runner serves no v4 artifact API
-# (minipc recipe note, MINIPC-164). The docker runner's config carries
-# add-host git.lan→10.8.1.12 — containers resolve the platform by mesh IP.
+# (minipc recipe note, MINIPC-164). The aiserver runner resolves
+# git.lan by LAN DNS (the public santarinto.com zone, MINIPC-198).
 #
 # Every job checks out the SHA the deploy ships (ITGAME-105): `inputs.ref`
 # on «Run workflow», else github.sha — `git fetch --depth 1 origin <sha>`
@@ -43,9 +48,11 @@
 # DEPLOY_ENABLED is the CT1 latch, "0" until the owner's word: the deploy
 # job then reports the skip and finishes GREEN (tests prove themselves, both
 # targets stay untouched). The first live deploy flipped it to 1 (e3ea574,
-# 08.10). Back to 0 since 16.10 by the owner's word: the game-box is
-# unreachable (ssh 10.8.1.33:49222 times out, runs 15–18 red), prod moves to
-# a new host (ITGAME-128) — flip it back when CI deploys there.
+# 08.10). Back to 0 since 16.10 (ci-cd-srv died, MINIPC-255 / ITGAME-128).
+# The new chain (box 90.156.129.221, bundle feed, MINIPC-256) is built and
+# a live stage build has run on the box; the flip back to 1 waits for DNS —
+# the recipe's health check hits the public vhost URL, red until
+# itgame.santarinto.ru points at the new box and LE certs are issued.
 name: ci
 on:
   push:
@@ -127,9 +134,13 @@ jobs:
           SHA: "${{ inputs.ref || github.sha }}"
         run: |
           # Host runner, no container: tools/ci-notify.sh needs only POSIX sh
-          # and curl; the checkout is best-effort — the deploy itself does not
-          # need it, the ssh line carries both words.
-          rm -rf .git && git init -q . && git fetch -q --depth 1 "https://x-access-token:${{ github.token }}@git.lan.santarinto.com/${GITHUB_REPOSITORY}.git" "$SHA" && git checkout -q -f --detach FETCH_HEAD || true
+          # and curl. The checkout is REQUIRED (MINIPC-256): the deploy ships
+          # the commit to the box as a git bundle built here — full main, so
+          # both a deploy sha and any rollback ancestor ride in one bundle.
+          set -eu
+          rm -rf .git && git init -q . && git fetch -q "https://x-access-token:${{ github.token }}@git.lan.santarinto.com/${GITHUB_REPOSITORY}.git" +refs/heads/main:refs/heads/main
+          git cat-file -e "${SHA}^{commit}" || { echo "sha $SHA не в main — раскатывать нечего"; exit 1; }
+          git checkout -q -f --detach "$SHA"
       - env:
           REF: "${{ inputs.ref || github.sha }}"
           INPUT_REF: "${{ inputs.ref }}"
@@ -144,6 +155,18 @@ jobs:
           fi
           printf '%s' "$REF"  | grep -Eq '^[0-9a-f]{40}$' || { echo "bad ref"; exit 1; }
           printf '%s' "$MODE" | grep -Eq '^(deploy|rollback)$' || { echo "bad mode"; exit 1; }
+          # Feed the box first (MINIPC-256): the game box cannot fetch git.lan
+          # (the home perimeter admits no public inbound), so the commit ships
+          # as a bundle into each checkout's refs/remotes/origin/main — the
+          # loader's own fetch then fails as a WARNING and its safety checks
+          # run against these refs (the native emergency-bundle path,
+          # MINIPC-157 F4). Both modes need it: a rollback sha must be known
+          # to the checkout too. ssh eats the bundle from stdin; the forced
+          # command deploy-feed-bundle on the box refuses anything that does
+          # not chain onto the local history.
+          git bundle create /tmp/itg.bndl main
+          ssh -o BatchMode=yes deploy-itgame-stage-feed < /tmp/itg.bndl
+          ssh -o BatchMode=yes deploy-itgame-feed < /tmp/itg.bndl
           if [ "$MODE" = rollback ]; then
             # Откат на голову ветки бессмыслен — sha отката называют явно.
             [ -n "$INPUT_REF" ] || { echo "rollback требует ref (sha40 релиза, который есть на цели)"; exit 1; }
