@@ -1,0 +1,26 @@
+format 1
+events []string
+game game.Save
+lastReport *struct
+lastReport.AdminCleaned int
+lastReport.AdminRepairs int
+lastReport.Antivirus int
+lastReport.Balance int
+lastReport.Day int
+lastReport.EventMoney int
+lastReport.Events []string
+lastReport.GatewayOpex int
+lastReport.Incidents int
+lastReport.Income int
+lastReport.LostIncome int
+lastReport.Payroll int
+lastReport.Profit int
+lastReport.VirusLost int
+lastReport.VirusPCs int
+resumeSpeed int omitempty
+rev uint64 omitempty
+savedAt time.Time
+scenario string
+sid string
+speed int
+version string omitempty

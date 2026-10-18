@@ -309,30 +309,41 @@ stateless. Expired saves are purged on start and on access.
 and it alone decides whether a save continues. A save of the same format
 continues on any build — a deploy (`git push stand main`, a green `main`) or a
 restart keeps every party; a save of another format, **older or newer**, does
-not, and there is no migration. **Any added, removed or changed field of
-`Save`** — at any depth (`Config`, `Office` → `Employee`, `DayEvent`,
-`DayLedger` → `LedgerEvent`, `LedgerPurchase`): a key, its type or its json tag
-options — **bumps `SaveFormat`**. `TestSaveShape`
-(`server/internal/game/saveshape_test.go`) holds it: it walks `Save` the way
-`encoding/json` names keys and compares the result with
-`server/internal/game/testdata/save_shape.txt` (`format N`, then one `key type`
-per line). A changed structure with the same `SaveFormat` is red and prints the
-new file with `format N+1`: bump `SaveFormat` to N+1 and replace the file with
-it (pasted without the bump it stays red). A golden that is missing or garbled
-is restored from git, never recreated (a fresh one would go green without the
-bump). The pin sees structure only — keys, kinds, tag options: a changed meaning
-or unit of an existing field, an enum value added or removed (`Phase`,
-`EventID`, `Difficulty` are plain strings to it), a custom `MarshalJSON`, a
-self-referential type (the walk would not end) are invisible to it and still
-need a manual `SaveFormat` bump by the rule. A game-rule change that reads
+not, and there is no migration. **Any added, removed or changed field of the
+save file** — `Save` at any depth (`Config`, `Office` → `Employee`, `DayEvent`,
+`DayLedger` → `LedgerEvent`, `LedgerPurchase`) and the session wrapper around
+it, `ws.sessionSave` (`sid`, `speed`, `resumeSpeed`, `savedAt`, `lastReport` →
+`game.DayReport`, `scenario`, `events`, `rev`, `version`; ITGAME-175 — a renamed
+wrapper field reads back as zero, a retyped one fails `json.Unmarshal` in
+`resume` and the party restarts without the card): a key, its type or its json
+tag options — **bumps `SaveFormat`**. Two pins hold it with one walker and one
+verdict (`server/internal/saveshape`, imported by tests only — `game` cannot
+import `ws`, and a test file of one package is invisible to another):
+`TestSaveShape` (`server/internal/game/saveshape_test.go`) holds `Save` against
+`server/internal/game/testdata/save_shape.txt`, `TestSessionSaveShape`
+(`server/internal/ws/saveshape_test.go`) holds `sessionSave` against
+`server/internal/ws/testdata/session_save_shape.txt`, where `game` is a single
+line `game game.Save` left to the first pin. Each walks its type the way
+`encoding/json` names keys (`format N`, then one `key type` per line; a type
+with its own `MarshalJSON`/`MarshalText` is named, not walked: `savedAt
+time.Time`). A changed structure with the same `SaveFormat` is red and prints
+the new file with `format N+1`: bump `SaveFormat` to N+1 and replace the file
+with it (pasted without the bump it stays red); the other pin then goes red
+with «SaveFormat поднят до N+1» and prints its own file — a bump re-pins both. A
+golden that is missing or garbled is restored from git, never recreated (a
+fresh one would go green without the bump). The pins see structure only — keys,
+kinds, tag options: a changed meaning or unit of an existing field, an enum
+value added or removed (`Phase`, `EventID`, `Difficulty` are plain strings to
+them), what a custom `MarshalJSON` writes, a self-referential type (the walk
+would not end) are invisible to them and still need a manual `SaveFormat` bump
+by the rule. A game-rule change that reads
 still-valid stored values differently is not a format change: old saves load
 and play on under the new rule, no bump (ITGAME-156: `CreditLimit == 0` now
 means an overdraft down to one day's payroll instead of instant bankruptcy,
 `SaveFormat` unchanged). A bump is for a save that would decode wrongly or
-hold values the new code cannot honour. The session wrapper (`sessionSave`:
-sid, speed, version, the last report) is not pinned. Config fields added to
-format 1 before the rule (audit, repair clicks, antivirus tiers, admin prices)
-are filled by `Restore` from the save's difficulty. Format 1 is the virus on
+hold values the new code cannot honour. Config fields added to format 1 before
+the rule (audit, repair clicks, antivirus tiers, admin prices) are filled by
+`Restore` from the save's difficulty. Format 1 is the virus on
 seats — a save from before it has no `format`.
 
 A save of another format behaves like a broken one, except that the menu says

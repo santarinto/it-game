@@ -569,7 +569,9 @@ func (g *Game) DayProfit() int {
 	return g.DayIncome + g.DayEventMoney + g.ForecastEndOfDay() - g.Money
 }
 
-// DayReport — итоги дня для сообщения протокола.
+// DayReport — итоги дня для сообщения протокола. Лежит и в файле сейва (ws.sessionSave.lastReport,
+// ключи — имена полей): добавленное, убранное или изменённое поле поднимает SaveFormat, это держит
+// TestSessionSaveShape в ws (ITGAME-175).
 type DayReport struct {
 	Day         int
 	Income      int

@@ -205,7 +205,9 @@ const cmdAbandon = game.Command("abandon")
 // офлайн-догона), Speed команды — скорость, на которой её вернёт «Продолжить».
 const cmdExit = game.Command("exit")
 
-// sessionSave — содержимое сейва сессии: игра плюс параметры сессии.
+// sessionSave — содержимое сейва сессии: игра плюс параметры сессии. Структура закреплена, как
+// и Save (ITGAME-175): добавленное, убранное или изменённое поле — здесь или в DayReport —
+// поднимает game.SaveFormat, это держит TestSessionSaveShape (слепок testdata/session_save_shape.txt).
 type sessionSave struct {
 	SID   string `json:"sid"`
 	Speed int    `json:"speed"`
