@@ -37,10 +37,16 @@ const LOSE_REASON: Record<string, string> = {
   deadlock: 'тупик',
 }
 
+// Карточка сейва другого формата (ITGAME-149, слово владельца 18.10): ни версий, ни форматов —
+// версия видна в углу меню. 58 знаков на 14px — 517 px, в карточке 480: две строки, перенос
+// после тире; склеенные пробелом — фраза владельца дословно.
+const STALE_LINE = 'Сохранение от прошлой версии игры —\nпродолжить его нельзя.'
+
 // Что меню знает о сейве (ITGAME-19):
 // none — сейва нет (или сервер сказал, что его нет: истёк, -saves off);
 // loading — ключ есть, сводка ещё едет; unknown — сервер не ответил;
 // alive — партию можно продолжить; ended — партия кончилась офлайн.
+// stale — сейв другого формата (ITGAME-140/169): карточка без клика, только новая партия.
 type SaveView = 'none' | 'loading' | 'unknown' | 'alive' | 'ended' | 'stale'
 
 type MenuObject = Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible
@@ -249,12 +255,14 @@ export class MenuScene extends Phaser.Scene {
     const withCard = view !== 'none'
     const TITLE_H = 48
     const CARD_H = 64
+    const STALE_H = 88 // две строки фразы (ITGAME-149)
+    const cardH = view === 'stale' ? STALE_H : CARD_H
     const LVL_H = 76
     const LVL_GAP = 12
     const SUB_H = 18
     const HINT_H = 16
     const levelsH = LEVELS.length * LVL_H + (LEVELS.length - 1) * LVL_GAP
-    const total = TITLE_H + 28 + (withCard ? CARD_H + 20 : 0) + SUB_H + 12 + levelsH + 20 + HINT_H
+    const total = TITLE_H + 28 + (withCard ? cardH + 20 : 0) + SUB_H + 12 + levelsH + 20 + HINT_H
     let y = Math.max(24, Math.round((BOTTOM_TOP - total) / 2))
 
     ui.push(this.add
@@ -262,18 +270,16 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5))
     y += TITLE_H + 28
 
-    // Сейв другой сборки (ITGAME-140, решение владельца 17.10): продолжать нечего — карточка
-    // без клика и фокуса говорит почему, уровни ниже начинают новую партию без вопроса (сейв
-    // не живой) под новым sid; старый файл доживает до TTL.
-    if (view === 'stale' && this.summary) {
-      const s = this.summary
-      const from = s.saveVersion ? `от версии ${s.saveVersion}` : 'от старой версии'
+    // Сейв другого формата (ITGAME-169; карточка — ITGAME-140): продолжать нечего — карточка без
+    // клика и фокуса, строка — слово владельца без версий и форматов (ITGAME-149, 18.10); уровни ниже
+    // начинают новую партию без вопроса (сейв не живой) под новым sid; старый файл доживает до TTL.
+    if (view === 'stale') {
       ui.push(
-        tag(this.add.rectangle(CX - 260, y, 520, CARD_H, 0x333c57).setOrigin(0).setStrokeStyle(2, 0x566c86), 'menu.stale'),
+        tag(this.add.rectangle(CX - 260, y, 520, STALE_H, 0x333c57).setOrigin(0).setStrokeStyle(2, 0x566c86), 'menu.stale'),
         this.add.text(CX - 240, y + 12, 'СЕЙВ НЕСОВМЕСТИМ', { fontFamily: FONT, fontSize: '20px', color: '#ef7d57' }),
-        this.add.text(CX - 240, y + 40, `${from}, игра ${s.version}`, { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4' }),
+        this.add.text(CX - 240, y + 40, STALE_LINE, { fontFamily: FONT, fontSize: '14px', color: '#f4f4f4', lineSpacing: 2 }),
       )
-      y += CARD_H + 20
+      y += STALE_H + 20
     }
 
     // «Продолжить» (ITGAME-8): на сервере живёт сейв сессии — возвращаем

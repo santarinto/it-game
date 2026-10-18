@@ -7,8 +7,10 @@
 //       с $4321, её сейв снова с version сервера
 //   V4  сейв без version (до ITGAME-140) — тоже «ПРОДОЛЖИТЬ» с $4,321
 //   V5  game.format в файле на 1 меньше серверного (сейв старого формата): «ПРОДОЛЖИТЬ» нет, карточка
-//       menu.stale «СЕЙВ НЕСОВМЕСТИМ», «начните новую партию:», overlaps/offscreen пусты (вторую строку
-//       карточки не сверяем — её пишет ITGAME-149)
+//       menu.stale «СЕЙВ НЕСОВМЕСТИМ», «начните новую партию:», overlaps/offscreen пусты; строка карточки —
+//       фраза владельца «Сохранение от прошлой версии игры — продолжить его нельзя.» (ITGAME-149): без
+//       версий и форматов (ни один текст меню, кроме угла, их не несёт), оба текста внутри рамки,
+//       угол — «версия X»
 //   V6  game.format на 1 больше (сейв новой сборки на старой) — то же
 //   V7  настоящий клик мышью по «НОРМА» с карточки: без вопроса «Начать заново?», новая партия (новый
 //       sid, как всякая новая партия из меню), день 1, не $4321; её сейв — с version и форматом сервера,
@@ -28,6 +30,12 @@ const PORT = Number(process.env.QA_PORT) || 4189
 const BASE = `http://127.0.0.1:${PORT}`
 const VERSION_RE = /^\d{4}\.\d{2}\.\d{2}\.\d{2}\.\d{2}$/
 const OLD = '2000.01.01.00.00'
+// ITGAME-149 (владелец 18.10): строка карточки — без версий и форматов; на 14px она шире
+// карточки, поэтому две строки с переносом после «—» — склеенные пробелом, это она.
+const STALE_LINE = 'Сохранение от прошлой версии игры — продолжить его нельзя.'
+// Что не должно попасть ни в один текст меню, кроме угла «версия X»: номер сборки, старая
+// строка карточки (ITGAME-140) и формат сейва.
+const LEAK_RE = /\d{4}\.\d{2}\.\d{2}\.\d{2}\.\d{2}|от версии|от старой версии|, игра |формат/
 
 const results = []
 const check = (name, pass, fact) => {
@@ -77,6 +85,12 @@ try {
         texts,
         overlaps: window.itd.overlaps(),
         offscreen: window.itd.offscreen(),
+        nodes: window.itd.text().filter((n) => n.scene === 'menu' && n.visible)
+          .map((n) => ({ id: n.id, text: n.text, cx: n.cx, cy: n.cy, w: n.w, h: n.h })),
+        card: (() => {
+          const n = window.itd.nodes().find((x) => x.id === 'menu.stale')
+          return n ? { cx: n.cx, cy: n.cy, w: n.w, h: n.h } : null
+        })(),
       }
     })
   }
@@ -115,6 +129,34 @@ try {
   const hasMoney = (m) => m.texts.some((t) => t.includes('$4,321'))
   const staleCard = (m) => !m.ids.includes('menu.continue') && m.ids.includes('menu.stale')
     && m.texts.includes('СЕЙВ НЕСОВМЕСТИМ') && m.texts.includes('начните новую партию:')
+  const box = (n) => ({ l: n.cx - n.w / 2, r: n.cx + n.w / 2, t: n.cy - n.h / 2, b: n.cy + n.h / 2 })
+  // Карточка «СЕЙВ НЕСОВМЕСТИМ» (ITGAME-149): заголовок, под ним строка владельца (1–2 строки),
+  // оба текста внутри рамки (≥16 px слева/справа, ≥8 px сверху/снизу), «начните новую партию:»
+  // ниже карточки, ни один текст меню, кроме угла, не несёт версию или формат; угол — «версия X».
+  const staleCardLine = (m, version) => {
+    const card = m.card && box(m.card)
+    const find = (pred) => m.nodes.find(pred) ?? null
+    const title = find((n) => n.text === 'СЕЙВ НЕСОВМЕСТИМ')
+    const line = find((n) => n.text.replace(/\n/g, ' ') === STALE_LINE)
+    const sub = find((n) => n.text === 'начните новую партию:')
+    const leaks = m.nodes.filter((n) => n.id !== 'menu.version' && LEAK_RE.test(n.text)).map((n) => n.text)
+    const inside = (n) => {
+      if (!card || !n) return false
+      const b = box(n)
+      return b.l - card.l >= 16 && card.r - b.r >= 16 && b.t - card.t >= 8 && card.b - b.b >= 8
+    }
+    const pass = !!card && !!title && !!line && !!sub
+      && line.text.split('\n').length <= 2 && inside(title) && inside(line)
+      && box(title).b <= box(line).t && box(sub).t >= card.b
+      && leaks.length === 0 && m.version?.text === `версия ${version}`
+    return {
+      pass,
+      fact: JSON.stringify({
+        card, title: title && box(title), line: line && { text: line.text, ...box(line) },
+        sub: sub && box(sub), leaks, corner: m.version?.text ?? null,
+      }),
+    }
+  }
 
   // V3 «деплой новой сборки того же формата»: тот же файл, чужая версия — партия продолжается
   await restartWith((d) => { d.version = OLD })
@@ -149,6 +191,9 @@ try {
       staleCard(m), JSON.stringify({ ids: m.ids.filter((i) => /^menu\.(continue|stale)$/.test(i)), texts: m.texts.filter((t) => /СЕЙВ|новую/.test(t)) }))
     check(`${name}: меню без находок линтера`, m.overlaps.length === 0 && m.offscreen.length === 0,
       JSON.stringify({ overlaps: m.overlaps, offscreen: m.offscreen }).slice(0, 300))
+    const line = staleCardLine(m, api.version)
+    check(`${name}: строка карточки — «Сохранение от прошлой версии игры — продолжить его нельзя.», без версий и форматов, внутри рамки; угол «версия X»`,
+      line.pass, line.fact)
   }
 
   // V7 настоящий клик по уровню с карточки (файл формата FORMAT+1): без вопроса, новая партия
