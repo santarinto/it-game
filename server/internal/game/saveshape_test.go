@@ -95,14 +95,19 @@ func jsonShape(t *testing.T, root reflect.Type) []string {
 
 // shapeVerdict — сверка слепка golden (содержимое файла, "" — файла нет) со структурой shape при
 // SaveFormat = format. fix — что сделать ("" — сходится). file — новое содержимое слепка, когда
-// его правильно просто вставить; "" — сначала поднять SaveFormat: слепок, вставленный без
-// подъёма формата, не должен позеленеть.
+// его правильно просто вставить; "" — вставлять нечего: сначала поднять SaveFormat (слепок,
+// вставленный без подъёма формата, не должен позеленеть) или восстановить из git пропавший
+// слепок (созданный заново по текущей структуре, он позеленел бы без подъёма).
 func shapeVerdict(golden string, format int, shape []string) (fix, file string) {
 	pin := func(n int) string { return fmt.Sprintf("format %d\n%s\n", n, strings.Join(shape, "\n")) }
 	head, body, _ := strings.Cut(golden, "\n")
 	var pinned int
 	if _, err := fmt.Sscanf(head, "format %d", &pinned); err != nil || head != fmt.Sprintf("format %d", pinned) {
-		return fmt.Sprintf("%s нет или в нём нет первой строки «format N»: положи в него блок выше", saveShapeFile), pin(format)
+		// Блока для вставки нет намеренно: слепок, созданный заново по текущей структуре при том же
+		// SaveFormat, позеленел бы без подъёма формата.
+		return fmt.Sprintf("%s нет или в нём нет первой строки «format N»: восстанови его из git "+
+			"(git checkout -- server/internal/game/%s), заново по структуре он не создаётся — иначе новое поле "+
+			"позеленело бы без подъёма SaveFormat", saveShapeFile, saveShapeFile), ""
 	}
 	var keys []string
 	if b := strings.TrimRight(body, "\n"); b != "" {
@@ -176,7 +181,8 @@ func TestSaveShapeWalk(t *testing.T) {
 }
 
 // Вердикт слепка: новое поле без подъёма формата красное и печатает слепок следующего формата;
-// он же, вставленный без подъёма, остаётся красным и ничего не печатает; подъём перепинивается.
+// он же, вставленный без подъёма, остаётся красным и ничего не печатает; подъём перепинивается;
+// пропавший или испорченный слепок не печатается заново — его восстанавливают из git.
 func TestSaveShapeVerdict(t *testing.T) {
 	pinned := func(n int, lines ...string) string {
 		return fmt.Sprintf("format %d\n%s\n", n, strings.Join(lines, "\n"))
@@ -194,7 +200,8 @@ func TestSaveShapeVerdict(t *testing.T) {
 		{"слепок вставлен без подъёма", pinned(2, "a int", "b string"), 1, false, "", "подними SaveFormat в save.go до 2"},
 		{"подъём со сменой структуры", pinned(1, "a int"), 2, false, pinned(2, "a int", "b string"), "SaveFormat поднят до 2"},
 		{"подъём без смены структуры", pinned(1, "a int", "b string"), 2, false, pinned(2, "a int", "b string"), "SaveFormat поднят до 2"},
-		{"слепка нет", "", 1, false, pinned(1, "a int", "b string"), "нет первой строки"},
+		{"слепка нет", "", 1, false, "", "восстанови его из git"},
+		{"слепок испорчен", "format x\na int\n", 1, false, "", "восстанови его из git"},
 	} {
 		fix, file := shapeVerdict(tc.golden, tc.format, shape)
 		if (fix == "") != tc.ok || file != tc.file || !strings.Contains(fix, tc.hint) {

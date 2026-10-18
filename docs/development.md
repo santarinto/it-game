@@ -318,7 +318,13 @@ options — **bumps `SaveFormat`**. `TestSaveShape`
 `server/internal/game/testdata/save_shape.txt` (`format N`, then one `key type`
 per line). A changed structure with the same `SaveFormat` is red and prints the
 new file with `format N+1`: bump `SaveFormat` to N+1 and replace the file with
-it (pasted without the bump it stays red). The session wrapper (`sessionSave`:
+it (pasted without the bump it stays red). A golden that is missing or garbled
+is restored from git, never recreated (a fresh one would go green without the
+bump). The pin sees structure only — keys, kinds, tag options: a changed meaning
+or unit of an existing field, an enum value added or removed (`Phase`,
+`EventID`, `Difficulty` are plain strings to it), a custom `MarshalJSON`, a
+self-referential type (the walk would not end) are invisible to it and still
+need a manual `SaveFormat` bump by the rule. The session wrapper (`sessionSave`:
 sid, speed, version, the last report) is not pinned. Config fields added to
 format 1 before the rule (audit, repair clicks, antivirus tiers, admin prices)
 are filled by `Restore` from the save's difficulty. Format 1 is the virus on
