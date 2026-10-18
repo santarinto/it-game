@@ -16,8 +16,8 @@
 //       «Отмена» — окна нет, скорость вернулась, партия жива
 //   D5  плашка не пересекается с текстами (itd.overlaps пуст), не за экраном, ошибок нет
 //   D6  itd.scenario('fresh'): плашки нет, bankruptInDays 0
-//   D7  Normal + doomed_debt: creditLimit 0, debtLimit 750 = payrollPerDay, bankruptInDays 1, плашка «До банкротства 1 день», hud.debt «Овердрафт -$2,000 из -$750 · расходы дня»
-//   D8  Normal, itd.set({money: -100}): bankruptInDays ≥ 2, плашка с тем же N, «Овердрафт -$100 из -$750 · расходы дня»
+//   D7  Normal + doomed_debt: creditLimit 0, debtLimit 750 = payrollPerDay, bankruptInDays 1, плашка «До банкротства 1 день», hud.debt «Овердрафт -$2,000 (мин. лимит -$750)» в ряду «Расходы», правее их, до x 832 (ITGAME-178)
+//   D8  Normal, itd.set({money: -100}): bankruptInDays ≥ 2, плашка с тем же N, «Овердрафт -$100 (мин. лимит -$750)»
 //   D9  Normal, $400 в 18:50 и живой тик: day_report, «19:00 овердрафт: долг $X из $750 (расходы дня), без процентов» в hud.log и в отчёте, процент 0, книга сведена
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
@@ -195,13 +195,17 @@ try {
       payroll: snap.payrollPerDay,
       text: node('hud.doom.text')?.text ?? null,
       debt: node('hud.debt')?.text ?? null,
+      // ITGAME-178: строка долга — во 2-м ряду, сразу за «Расходы $Y/день»
+      row: ['hud.payroll', 'hud.debt'].map((id) => node(id)).map((n) => n && { x: n.x, y: n.y, w: n.w }),
       errors: window.itd.errors(),
     }
   }, doomIds.toString())
-  note('D7: Normal + doomed_debt — овердрафт $750 = расходы дня, bankruptInDays 1, плашка «До банкротства 1 день»',
+  const [pay7, debt7] = d7.row
+  note('D7: Normal + doomed_debt — овердрафт $750 = расходы дня, bankruptInDays 1, плашка «До банкротства 1 день», строка долга за «Расходы»',
     d7.diff === 'normal' && d7.creditLimit === 0 && d7.debtLimit === 750 && d7.debtLimit === d7.payroll &&
       d7.days === 1 && d7.ids.includes('hud.doom') && d7.text === 'До банкротства 1 день' &&
-      d7.debt === 'Овердрафт -$2,000 из -$750 · расходы дня' && d7.errors.length === 0,
+      d7.debt === 'Овердрафт -$2,000 (мин. лимит -$750)' && d7.errors.length === 0 &&
+      pay7 && debt7 && debt7.y === pay7.y && debt7.x > pay7.x + pay7.w && debt7.x + debt7.w <= 832,
     JSON.stringify(d7))
 
   // D8 — Normal, долг поменьше (−$100): партия живёт несколько дней, плашка пересчитана
@@ -220,9 +224,9 @@ try {
       debt: node('hud.debt')?.text ?? null,
     }
   }, doomIds.toString())
-  note('D8: Normal, −$100 — bankruptInDays ≥ 2, плашка с тем же N, «Овердрафт -$100 из -$750 · расходы дня»',
+  note('D8: Normal, −$100 — bankruptInDays ≥ 2, плашка с тем же N, «Овердрафт -$100 (мин. лимит -$750)»',
     d8.days >= 2 && d8.ids.includes('hud.doom') && typeof d8.text === 'string' &&
-      d8.text.startsWith(`До банкротства ${d8.days} `) && d8.debt === 'Овердрафт -$100 из -$750 · расходы дня',
+      d8.text.startsWith(`До банкротства ${d8.days} `) && d8.debt === 'Овердрафт -$100 (мин. лимит -$750)',
     JSON.stringify(d8))
 
   // D9 — Normal, живой вечер: $400 в 18:50 и один тик → −$X в пределах $750, овердрафт без процента
@@ -249,7 +253,7 @@ try {
   note('D9: Normal, вечер в минусе — day_report, строка овердрафта в ленте и отчёте, процент 0, книга сведена',
     d9.phase === 'day_report' && d9.balance < 0 && -d9.balance <= 750 && d9.debtLimit === 750 &&
       d9.feed.includes(`19:00 ${line9}`) && d9.report.replace(/\s+/g, ' ').includes(line9) && !/кредит/.test(d9.feed) &&
-      d9.debt === `Овердрафт -$${(-d9.balance).toLocaleString('en-US')} из -$750 · расходы дня` &&
+      d9.debt === `Овердрафт -$${(-d9.balance).toLocaleString('en-US')} (мин. лимит -$750)` &&
       d9.interest === 0 && d9.balanced === true,
     JSON.stringify({ ...d9, line9 }))
   await p7.close()

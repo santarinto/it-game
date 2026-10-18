@@ -279,10 +279,11 @@ export class HUDScene extends Phaser.Scene {
         .setOrigin(1, 0),
       'hud.market',
     )
-    // Долг (кредит — сложность 2.0, овердрафт — ITGAME-156): виден только в минусе. Строки нижних
+    // Долг (кредит — сложность 2.0, овердрафт — ITGAME-156): виден только в минусе, стоит
+    // сразу за «Расходы …/день» — порог овердрафта и есть расходы дня (ITGAME-178). Строки
     // рядов раскладываются по ширинам в layoutPanel() (ITGAME-16) — стартовые
     // x/y здесь косметические, до первого layoutPanel().
-    this.debtText = tag(this.add.text(170, 84, '', {
+    this.debtText = tag(this.add.text(370, 44, '', {
       fontFamily: FONT, fontSize: '12px', color: '#b13e53',
     }), 'hud.debt')
     // Темп дня одним взглядом: прибыль дня (= «Прибыль» отчёта), считает
@@ -803,15 +804,16 @@ export class HUDScene extends Phaser.Scene {
     })
   }
 
-  // Раскладка верхней панели (ITGAME-16): столбец слева (money/income+payroll/
-  // net/dayProfit+debt) и столбец справа (goal/day/market) кладутся по
+  // Раскладка верхней панели (ITGAME-16): столбец слева (money/income+payroll+debt/
+  // net/dayProfit) и столбец справа (goal/day/market) кладутся по
   // фактическим высотам строк — при 0/1/9/15 сотрудниках и длинных суммах
   // ни одна строка не пересекает соседнюю и не уходит за HUD_H. Горизонталь
   // внутри строк — layoutRow (x-старт/gap/maxRight из прежней раскладки).
+  // Долг — за «Расходы» (ITGAME-178): худший ряд Кошмара ≈ 630 px < PANEL_LEFT_MAX.
   private layoutPanel() {
-    layoutColumn(4, [[this.moneyText], [this.incomeText, this.payrollText], [this.netText], [this.dayProfitText, this.debtText]], 0, HUD_H)
-    layoutRow(16, 16, [this.incomeText, this.payrollText], PANEL_LEFT_MAX)
-    layoutRow(16, 12, [this.dayProfitText, this.debtText], PANEL_LEFT_MAX)
+    layoutColumn(4, [[this.moneyText], [this.incomeText, this.payrollText, this.debtText], [this.netText], [this.dayProfitText]], 0, HUD_H)
+    layoutRow(16, 16, [this.incomeText, this.payrollText, this.debtText], PANEL_LEFT_MAX)
+    layoutRow(16, 12, [this.dayProfitText], PANEL_LEFT_MAX)
     layoutColumn(43, [[this.goalText], [this.dayText], [this.marketText]], 2, HUD_H)
     this.layoutBars()
   }
@@ -900,10 +902,12 @@ export class HUDScene extends Phaser.Scene {
       this.marketText.setText('')
     }
     // Долг: минус на любом уровне — не приговор до порога state.debtLimit (сервер): на
-    // кредите капают проценты, на овердрафте (легко, норма) порог — расходы дня (ITGAME-156).
+    // кредите капают проценты, на овердрафте (легко, норма) порог — расходы дня (ITGAME-156);
+    // формулировка овердрафта — слово владельца на приёмке 18.10 (ITGAME-178).
     if (s.money < 0 && s.debtLimit > 0) {
-      const tail = s.creditLimit > 0 ? `${s.creditRatePct}%/день` : 'расходы дня'
-      this.debtText.setText(`${s.creditLimit > 0 ? 'Долг' : 'Овердрафт'} ${fmtMoney(s.money)} из ${fmtMoney(-s.debtLimit)} · ${tail}`)
+      this.debtText.setText(s.creditLimit > 0
+        ? `Долг ${fmtMoney(s.money)} из ${fmtMoney(-s.debtLimit)} · ${s.creditRatePct}%/день`
+        : `Овердрафт ${fmtMoney(s.money)} (мин. лимит ${fmtMoney(-s.debtLimit)})`)
     } else {
       this.debtText.setText('')
     }
