@@ -1,0 +1,38 @@
+// Строки «Админы» отчёта дня (ITGAME-159) и множественное «мест» (seatsLabel).
+// src/format.ts без импортов — Node берёт его как есть (как eventlog.ts в daylog.test.mjs).
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { adminsReportLines, seatsLabel } from '../../src/format.ts'
+
+// Колонка значений отчёта: «Доход:     $X» — значение с 12-го знака.
+const COL = 'Доход:     '.length
+
+test('adminsReportLines: обе части — две строки, вторая под колонкой значений; склеенные — фраза целиком', () => {
+  const lines = adminsReportLines(1, 2)
+  assert.deepEqual(lines, ['Админы:    починили 1 ПК,', '           вычистили 2 места'])
+  assert.equal(lines[0].indexOf('починили'), COL)
+  assert.equal(lines[1].indexOf('вычистили'), COL)
+  assert.equal(`${lines[0]} ${lines[1].trimStart()}`, 'Админы:    починили 1 ПК, вычистили 2 места')
+})
+
+test('adminsReportLines: одна часть при нуле другой — одна строка без запятой', () => {
+  assert.deepEqual(adminsReportLines(1, 0), ['Админы:    починили 1 ПК'])
+  assert.deepEqual(adminsReportLines(7, 0), ['Админы:    починили 7 ПК'])
+  assert.deepEqual(adminsReportLines(0, 1), ['Админы:    вычистили 1 место'])
+  assert.deepEqual(adminsReportLines(0, 5), ['Админы:    вычистили 5 мест'])
+})
+
+test('adminsReportLines: обе нулевые — строк нет', () => {
+  assert.deepEqual(adminsReportLines(0, 0), [])
+})
+
+test('adminsReportLines: каждая строка ≤ 38 знаков — панель 440 минус поля 2×24 при 10,18 px на знак, и при трёхзначных числах', () => {
+  for (const [r, c] of [[999, 999], [999, 0], [0, 999], [12, 22]]) {
+    for (const l of adminsReportLines(r, c)) assert.ok(l.length <= 38, `${l.length}: «${l}»`)
+  }
+})
+
+test('seatsLabel: 1 место, 2–4 места, 5–20 мест, 21 место, 111 мест', () => {
+  assert.deepEqual([1, 2, 4, 5, 11, 12, 14, 20, 21, 22, 25, 111, 112].map(seatsLabel),
+    ['1 место', '2 места', '4 места', '5 мест', '11 мест', '12 мест', '14 мест', '20 мест', '21 место', '22 места', '25 мест', '111 мест', '112 мест'])
+})

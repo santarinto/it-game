@@ -19,7 +19,7 @@
 //       чистого места строки нет
 //   D11 гонка с тиком админа: not_infected в офисе с админом — без тоста;
 //       not_broken в офисе без админа — тост «ПК не сломан»
-//   D12 отчёт дня — строка «Админы:    k ПК, m мест»
+//   D12 отчёт дня — «Админы:    починили k ПК,» и под колонкой значений «вычистили m мест»
 //   D13 три админа с длинными именами: overlaps()/offscreen() пусты на 1× и 1.4×
 //   Z   нет pageerror
 //
@@ -261,16 +261,44 @@ try {
     r11.code === 'not_infected' && after11 === before11 && r11b.code === 'not_broken' && afterNb > beforeNb,
     JSON.stringify({ r11: r11.code, before11, after11, r11b: r11b.code, beforeNb, afterNb }))
 
-  // D12: строка отчёта дня
+  // D12: строки «Админы» отчёта дня (ITGAME-159) — что админы сделали, глаголами. Одной строкой
+  // («Админы:    починили k ПК, вычистили m мест», 42–44 знака) панель 440 не вмещает, поэтому обе
+  // части — две строки, вторая под колонкой значений. Админа сначала отпускаем (adminSlot −1: места
+  // 2 и 7 вычищены, 4 починено) — обе части есть; k и m — счётчики дня из сейва (до next_day их не
+  // обнуляют). Ширина строк — мерой контекста самого Text отчёта (тело шире их за счёт журнала),
+  // тело — внутри рамки с полями ≥ 16 px (правило R1 qa:report-pause), линтер HUD пуст.
   await page.evaluate(() => window.itd.scenario('admin_dept'))
   await delay(1000)
   await page.evaluate(() => window.itd.speed(3))
-  await delay(3000)
+  const free12 = await page.evaluate(() =>
+    window.itd.wait((s, srv) => srv.snapshot?.offices?.[0]?.adminSlot === -1, 15000).then(() => true, () => false))
   await page.evaluate(() => window.itd.set({ tickInDay: 53 }))
   await page.waitForFunction(() => window.itd.text().some((n) => /^День \d+ завершён$/.test(n.text ?? '')), { timeout: 10000 }).catch(() => {})
-  const body = await page.evaluate(() => (window.itd.text().find((n) => (n.text ?? '').startsWith('Доход:')) ?? {}).text ?? '')
-  const adminLine = body.split('\n').find((l) => l.startsWith('Админы:')) ?? null
-  check('D12: отчёт дня — «Админы:    k ПК, m мест» с числом по-русски', /^Админы: {4}\d+ ПК, \d+ (место|места|мест)$/.test(adminLine ?? '') && !/\b[234] мест$/.test(adminLine ?? ''), JSON.stringify({ adminLine, head: body.split('\n').slice(0, 9) }))
+  const d12 = await page.evaluate(async () => {
+    const save = (await window.itd.snapshot()).save
+    const box = (n) => n && { left: n.cx - n.w / 2, right: n.cx + n.w / 2, top: n.cy - n.h / 2, bottom: n.cy + n.h / 2 }
+    const body = window.itd.text().find((n) => n.scene === 'hud' && (n.text ?? '').startsWith('Доход:'))
+    const panel = window.itd.nodes().find((n) => n.scene === 'hud' && n.type === 'Rectangle' && n.depth === 51 && n.fill === '#14162b')
+    const obj = window.__itd.scene.getScene('hud').children.list.find((o) => o.type === 'Text' && (o.text ?? '').startsWith('Доход:'))
+    const lines = (body?.text ?? '').split('\n')
+    const i = lines.findIndex((l) => l.startsWith('Админы:'))
+    const admin = i < 0 ? [] : lines.slice(i, i + 2)
+    return {
+      repairs: save.dayAdminRepairs, cleaned: save.dayAdminCleaned, admin,
+      widths: admin.map((l) => (obj ? Math.round(obj.context.measureText(l).width) : -1)),
+      body: box(body), panel: box(panel),
+      overlaps: window.itd.overlaps().filter((e) => e.scene === 'hud'),
+      offscreen: window.itd.offscreen().filter((e) => e.scene === 'hud'),
+    }
+  })
+  const inside12 = (b, p) => !!b && !!p && b.left >= p.left + 16 && b.right <= p.right - 16 && b.top >= p.top && b.bottom <= p.bottom
+  check('D12: отчёт дня — «Админы:    починили k ПК,» и под колонкой значений «вычистили m мест» по счётчикам дня; строки ≤ 392 px, тело в рамке, линтер HUD пуст',
+    free12 && d12.repairs > 0 && d12.cleaned > 0 && d12.admin.length === 2
+      && d12.admin[0] === `Админы:    починили ${d12.repairs} ПК,`
+      && new RegExp(`^ {11}вычистили ${d12.cleaned} (место|места|мест)$`).test(d12.admin[1]) && !/\b[234] мест$/.test(d12.admin[1])
+      && d12.widths.every((w) => w > 0 && w <= 440 - 2 * 24)
+      && inside12(d12.body, d12.panel) && d12.overlaps.length === 0 && d12.offscreen.length === 0,
+    JSON.stringify({ free12, ...d12 }).slice(0, 800))
   await page.evaluate(() => window.itd.key('enter'))
   await delay(400)
 
