@@ -16,7 +16,7 @@
 //       «Отмена» — окна нет, скорость вернулась, партия жива
 //   D5  плашка не пересекается с текстами (itd.overlaps пуст), не за экраном, ошибок нет
 //   D6  itd.scenario('fresh'): плашки нет, bankruptInDays 0
-//   D7  Normal + doomed_debt: creditLimit 0, debtLimit 750 = payrollPerDay, bankruptInDays 1, плашка «До банкротства 1 день», hud.debt «Овердрафт -$2,000 (мин. лимит -$750)» в ряду «Расходы», правее их, до x 832 (ITGAME-178)
+//   D7  Normal + doomed_debt: creditLimit 0, debtLimit 750 = payrollPerDay (и itd.state().debtLimit — тот же, ITGAME-177), bankruptInDays 1, плашка «До банкротства 1 день», hud.debt «Овердрафт -$2,000 (мин. лимит -$750)» в ряду «Расходы», правее их, до x 832 (ITGAME-178)
 //   D8  Normal, itd.set({money: -100}): bankruptInDays ≥ 2, плашка с тем же N, «Овердрафт -$100 (мин. лимит -$750)»
 //   D9  Normal, $400 в 18:50 и живой тик: day_report, «19:00 овердрафт: долг $X из $750 (расходы дня), без процентов» в hud.log и в отчёте, процент 0, книга сведена
 import puppeteer from 'puppeteer-core'
@@ -192,6 +192,7 @@ try {
       ids: doomIds(),
       creditLimit: snap.creditLimit,
       debtLimit: snap.debtLimit,
+      stateDebtLimit: window.itd.state().debtLimit, // ITGAME-177: порог и в itd.state(), не только в снапшоте
       payroll: snap.payrollPerDay,
       text: node('hud.doom.text')?.text ?? null,
       debt: node('hud.debt')?.text ?? null,
@@ -201,8 +202,9 @@ try {
     }
   }, doomIds.toString())
   const [pay7, debt7] = d7.row
-  note('D7: Normal + doomed_debt — овердрафт $750 = расходы дня, bankruptInDays 1, плашка «До банкротства 1 день», строка долга за «Расходы»',
+  note('D7: Normal + doomed_debt — овердрафт $750 = расходы дня (снапшот и itd.state()), bankruptInDays 1, плашка «До банкротства 1 день», строка долга за «Расходы»',
     d7.diff === 'normal' && d7.creditLimit === 0 && d7.debtLimit === 750 && d7.debtLimit === d7.payroll &&
+      d7.stateDebtLimit === 750 && d7.stateDebtLimit === d7.debtLimit &&
       d7.days === 1 && d7.ids.includes('hud.doom') && d7.text === 'До банкротства 1 день' &&
       d7.debt === 'Овердрафт -$2,000 (мин. лимит -$750)' && d7.errors.length === 0 &&
       pay7 && debt7 && debt7.y === pay7.y && debt7.x > pay7.x + pay7.w && debt7.x + debt7.w <= 832,

@@ -516,8 +516,9 @@ export interface AgentState {
   coreCapacity: number | null
   gateway: boolean | null
   debt: number | null // -balance, когда баланс ушёл в минус
-  creditLimit: number | null
+  creditLimit: number | null // кредитный порог, $; 0 — кредита нет (Лёгкий/Норма: там овердрафт, порог — debtLimit)
   creditRatePct: number | null
+  debtLimit: number | null // порог долга, $: глубже — вечер банкротит; creditLimit или, без кредита, payrollPerDay (овердрафт, ITGAME-156/177)
   bankruptInDays: number | null // обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)
   virusPCs: number | null // заражённых мест по компании (ITGAME-103); по офисам — snapshot().state.offices[i].virusPCs
   virusWaveAt: string | null // «HH:MM», с которого видна следующая волна; '' — заражённых нет
@@ -771,7 +772,9 @@ export interface ItdApi {
   readonly version: { sha: string; builtAt: string; version: string }
   /**
    * Баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий
-   * (null до первого снапшота); menuReady — меню создано, активно, его перезапуск
+   * (null до первого снапшота); debtLimit — порог долга, глубже которого вечер
+   * банкротит: лимит кредита или, на Лёгком/Норме, овердрафт = расходы дня
+   * (creditLimit там 0, ITGAME-156); menuReady — меню создано, активно, его перезапуск
    * не в очереди (itd.sandbox()/restore() перезапускают меню) и сводка сейва
    * устоялась: после true плашки меню больше не сдвигаются (ITGAME-88), cx/cy можно
    * брать для настоящего клика. Анимации въезда у меню нет.
@@ -1335,7 +1338,7 @@ function buildState(game: Phaser.Game): AgentState {
       staffConnected: null, staffLimit: null, officesUnlocked: null,
       officesTotal: null, servers: null, coreLevel: null, coreConnected: null,
       coreCapacity: null, gateway: null, debt: null, creditLimit: null,
-      creditRatePct: null, bankruptInDays: null, virusPCs: null, virusWaveAt: null, antivirusTier: null, adminDept: null, admins: null,
+      creditRatePct: null, debtLimit: null, bankruptInDays: null, virusPCs: null, virusWaveAt: null, antivirusTier: null, adminDept: null, admins: null,
       winTarget: null, winStaff: null, winCore: null,
       winDayLimit: null, activeEvent: null,
       seed: null, scenario: null, tickInDay: null, dayIncome: null, dayProfit: null,
@@ -1368,6 +1371,7 @@ function buildState(game: Phaser.Game): AgentState {
     debt: s.money < 0 ? -s.money : 0,
     creditLimit: s.creditLimit,
     creditRatePct: s.creditRatePct,
+    debtLimit: s.debtLimit,
     bankruptInDays: s.bankruptInDays,
     virusPCs: s.offices.reduce((n, o) => n + o.virusPCs, 0),
     virusWaveAt: s.virusWaveAt,
@@ -1897,7 +1901,7 @@ const KEYMAP: Record<string, { code: string; keyCode: number; key: string }> = {
 const COMMANDS = new Set<string>(COMMAND_TYPES)
 
 const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/39/73)
-  itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); menuReady — меню создано, активно, перезапуск меню не в очереди и сводка сейва устоялась: после true плашки меню не сдвигаются
+  itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); debtLimit — порог долга, глубже — вечер банкротит: лимит кредита или, на Лёгком/Норме, овердрафт = расходы дня (creditLimit там 0, ITGAME-156); menuReady — меню создано, активно, перезапуск меню не в очереди и сводка сейва устоялась: после true плашки меню не сдвигаются
   itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rev/cause последнего снапшота (tick|cmd|debug|start|resume), rtt, reconnects, sid (куда уходят команды: liveSid ?? хранилище), liveSid (живая партия или null), sidSwitches; ждать версию — itd.wait((s, srv) => srv.rev >= N)
   itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy, visible, alpha, interactive, depth, active, disabled, fill}; x/y — по origin объекта, cx/cy — центр bounds (точка для клика); visible — видим в мире (скрытый контейнер → false у детей); disabled — кнопка покупки/найма неактивна; fill — заливка фигуры '#rrggbb' (Rectangle/Triangle/Arc/Ellipse/Polygon), иначе null
   itd.text()                        — nodes() с непустым текстом (текст в скрытом контейнере — visible: false: сам текст тултипа хранится и после ухода курсора)

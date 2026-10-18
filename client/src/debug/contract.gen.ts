@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "cfd0c425bd91",
+  "hash": "3d2d9550ee96",
   "methods": {
     "version": {
       "kind": "prop",
@@ -17,7 +17,7 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "AgentState",
-      "doc": "Баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий\n(null до первого снапшота); menuReady — меню создано, активно, его перезапуск\nне в очереди (itd.sandbox()/restore() перезапускают меню) и сводка сейва\nустоялась: после true плашки меню больше не сдвигаются (ITGAME-88), cx/cy можно\nбрать для настоящего клика. Анимации въезда у меню нет.",
+      "doc": "Баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий\n(null до первого снапшота); debtLimit — порог долга, глубже которого вечер\nбанкротит: лимит кредита или, на Лёгком/Норме, овердрафт = расходы дня\n(creditLimit там 0, ITGAME-156); menuReady — меню создано, активно, его перезапуск\nне в очереди (itd.sandbox()/restore() перезапускают меню) и сводка сейва\nустоялась: после true плашки меню больше не сдвигаются (ITGAME-88), cx/cy можно\nбрать для настоящего клика. Анимации въезда у меню нет.",
       "examples": [
         "itd.state()",
         "await itd.wait(s => s.menuReady)"
@@ -1075,12 +1075,17 @@ export const CONTRACT = {
         "creditLimit": {
           "type": "number | null",
           "optional": false,
-          "doc": ""
+          "doc": "кредитный порог, $; 0 — кредита нет (Лёгкий/Норма: там овердрафт, порог — debtLimit)"
         },
         "creditRatePct": {
           "type": "number | null",
           "optional": false,
           "doc": ""
+        },
+        "debtLimit": {
+          "type": "number | null",
+          "optional": false,
+          "doc": "порог долга, $: глубже — вечер банкротит; creditLimit или, без кредита, payrollPerDay (овердрафт, ITGAME-156/177)"
         },
         "bankruptInDays": {
           "type": "number | null",
