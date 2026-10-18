@@ -69,7 +69,9 @@ func TestDayEndsWithReport(t *testing.T) {
 
 func TestDayEndBankruptcy(t *testing.T) {
 	g := New(dayTestConfig())
-	g.Money = 0
+	// −$100 + $30 − $250 = −$320, глубже ФОТ $250 (в пределах — овердрафт,
+	// overdraft_test.go).
+	g.Money = -100
 	g.Offices[0].Employees = testStaff(1) // доход за день 30 < ФОТ 250
 	for i := 0; i < 3; i++ {
 		g.Tick()
@@ -77,8 +79,8 @@ func TestDayEndBankruptcy(t *testing.T) {
 	if g.Phase != PhaseGameOver {
 		t.Fatalf("Phase = %q, хотим game_over", g.Phase)
 	}
-	if g.Money != -220 {
-		t.Errorf("Money = %d, хотим -220 (сколько не хватило)", g.Money)
+	if g.Money != -320 {
+		t.Errorf("Money = %d, хотим -320 (сколько не хватило)", g.Money)
 	}
 }
 
@@ -140,7 +142,7 @@ func TestNextDayWrongPhase(t *testing.T) {
 
 func TestRestart(t *testing.T) {
 	g := New(dayTestConfig())
-	g.Money = 0
+	g.Money = -10000 // минус глубже расходов дня — банкротство вечером (ITGAME-156)
 	g.Offices[0].PCs = 3
 	g.Offices[0].Employees = testStaff(3)
 	for i := 0; i < 3; i++ {

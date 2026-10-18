@@ -195,10 +195,13 @@ func TestSessionBankruptcyAndRestart(t *testing.T) {
 	cfg := game.DefaultConfig()
 	// звезда (×1.5 выработки) рвёт диапазон 9–14 ниже
 	cfg.StarChancePct = 0
+	cfg.EventChancePct = 0 // штраф события не должен сдвигать вечерние суммы
 	// День = 1 секунда (100 тиков по 10мс): огромный запас, чтобы hire успел.
 	cfg.WorkdayEnd = cfg.WorkdayStart + 1
 	cfg.TicksPerHour = 100
-	cfg.SalaryPerDay = 100000 // гарантированное банкротство с одним сотрудником
+	// Один сотрудник: вечер 1 ≈ −$99k — овердрафт в пределах ФОТ дня
+	// (ITGAME-156), вечер 2 глубже — банкротство.
+	cfg.SalaryPerDay = 100000
 	c, ctx := dialTestServer(t, cfg, 10*time.Millisecond)
 
 	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 0}); err != nil {
@@ -213,8 +216,24 @@ func TestSessionBankruptcyAndRestart(t *testing.T) {
 	if e := first.Offices[0].Employees[0]; e.Name == "" || e.IncomePerTick < 9 || e.IncomePerTick > 14 {
 		t.Fatalf("нанятый сотрудник в снапшоте подозрителен: %+v", e)
 	}
+	rep := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "day_report" || m.Type == "game_over" })
+	if rep.Type != "day_report" || rep.Balance >= 0 || rep.Balance < -100000 {
+		t.Fatalf("вечер 1: хотим day_report с долгом в пределах ФОТ $100000, получили %+v", rep)
+	}
+	overdraft := false
+	for _, ev := range rep.Events {
+		if strings.Contains(ev, "овердрафт: долг") {
+			overdraft = true
+		}
+	}
+	if !overdraft {
+		t.Fatalf("в отчёте дня нет строки овердрафта: %v", rep.Events)
+	}
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "next_day"}); err != nil {
+		t.Fatal(err)
+	}
 	over := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "game_over" })
-	if over.DaysSurvived != 1 || over.Balance >= 0 {
+	if over.DaysSurvived != 2 || over.Balance >= -100000 {
 		t.Fatalf("итоги банкротства: %+v", over)
 	}
 	// restart возвращает стартовое состояние.

@@ -64,7 +64,7 @@ func TestNextDayResetsUnpaid(t *testing.T) {
 
 func TestRestartResetsOfficesAndGateway(t *testing.T) {
 	g := New(dayTestConfig())
-	g.Money = 0
+	g.Money = -10000 // минус глубже расходов дня — банкротство вечером (ITGAME-156)
 	g.Gateway = true
 	g.Offices[1] = Office{Unlocked: true, PCs: 3, Employees: testStaff(3), Boss: "Т Б"}
 	for i := 0; i < dayTestConfig().DayTicks(); i++ {

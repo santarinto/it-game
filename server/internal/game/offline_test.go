@@ -81,13 +81,23 @@ func TestAdvanceOfflineBankruptcy(t *testing.T) {
 	if err := g.Hire(0); err != nil {
 		t.Fatal(err)
 	}
+	// 300 стартовых после найма: день 1 → 180, день 2 → 60, день 3 → −60 —
+	// овердрафт до ФОТ $600 (ITGAME-156), партия жива.
+	alive := clone(t, g)
+	if s := alive.AdvanceOffline(3 * 54); s.GameOver || alive.Phase != PhaseRunning {
+		t.Fatalf("−$60 в пределах ФОТ $600 — овердрафт, не банкротство: %+v, фаза %s", s, alive.Phase)
+	}
+	if alive.Day != 4 || alive.Money != -60 {
+		t.Fatalf("после трёх дней: день %d баланс %d, хотим 4 и −60", alive.Day, alive.Money)
+	}
+
 	s := g.AdvanceOffline(10 * 54)
-	if !s.GameOver || g.Phase != PhaseGameOver || g.Money >= 0 {
+	if !s.GameOver || s.Reason != LoseBankrupt || g.Phase != PhaseGameOver || g.Money >= 0 {
 		t.Fatalf("банкротство офлайн не поймано: %+v, фаза %s, баланс %d", s, g.Phase, g.Money)
 	}
-	// 300 стартовых после найма: день 1 → 180, день 2 → 60, день 3 → −60.
-	if g.Day != 3 {
-		t.Fatalf("банкротство на дне %d, хотим 3", g.Day)
+	// 180, 60, −60, −180, −300, −420, −540, −660: день 8 глубже ФОТ.
+	if g.Day != 8 || g.Money != -660 {
+		t.Fatalf("банкротство на дне %d с балансом %d, хотим 8 и −660", g.Day, g.Money)
 	}
 }
 

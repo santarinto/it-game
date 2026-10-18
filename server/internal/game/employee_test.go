@@ -111,7 +111,7 @@ func TestForecastEndOfDay(t *testing.T) {
 
 func TestRestartClearsStaff(t *testing.T) {
 	g := New(dayTestConfig())
-	g.Money = 0
+	g.Money = -10000 // минус глубже расходов дня — банкротство вечером (ITGAME-156)
 	g.Offices[0].PCs = 3
 	g.Offices[0].Employees = testStaff(3)
 	for i := 0; i < dayTestConfig().DayTicks(); i++ {

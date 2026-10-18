@@ -200,7 +200,8 @@ func TestProtocolDayProfitAndEventMoney(t *testing.T) {
 }
 
 // Прогноз обречённой партии (ITGAME-118) едет в снапшоте полем bankruptInDays:
-// фикстура doomed_debt на Hard обречена, на Normal (без кредита) — нет.
+// фикстура doomed_debt на Hard обречена, на Normal долг $2000 глубже
+// овердрафта $750 — банкротство сегодня вечером, N = 1 (ITGAME-156).
 func TestProtocolBankruptInDays(t *testing.T) {
 	g, err := game.NewFixture(game.ConfigForDifficulty(game.DiffHard), "doomed_debt", "1")
 	if err != nil {
@@ -225,7 +226,44 @@ func TestProtocolBankruptInDays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := snapshot(normal, 1, false, "doomed_debt").BankruptInDays; got != 0 {
-		t.Errorf("Normal: bankruptInDays = %d, хотим 0", got)
+	if got := snapshot(normal, 1, false, "doomed_debt").BankruptInDays; got != 1 {
+		t.Errorf("Normal: bankruptInDays = %d, хотим 1", got)
+	}
+}
+
+// Порог долга (ITGAME-156) едет в снапшоте полем debtLimit: на кредите —
+// creditLimit, без кредита — расходы дня (овердрафт); creditLimit остаётся
+// значением конфига.
+func TestProtocolDebtLimit(t *testing.T) {
+	for _, c := range []struct {
+		diff   game.Difficulty
+		credit int
+		debt   int
+	}{
+		{game.DiffHard, 5000, 5000},
+		{game.DiffNormal, 0, 750},
+	} {
+		t.Run(string(c.diff), func(t *testing.T) {
+			g, err := game.NewFixture(game.ConfigForDifficulty(c.diff), "doomed_debt", "1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			st := snapshot(g, 1, false, "doomed_debt")
+			if st.CreditLimit != c.credit || st.DebtLimit != c.debt || st.DebtLimit != g.DebtLimit() {
+				t.Fatalf("creditLimit %d debtLimit %d (игра %d), хотим %d и %d",
+					st.CreditLimit, st.DebtLimit, g.DebtLimit(), c.credit, c.debt)
+			}
+			data, err := json.Marshal(st)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var raw map[string]any
+			if err := json.Unmarshal(data, &raw); err != nil {
+				t.Fatal(err)
+			}
+			if raw["debtLimit"] != float64(c.debt) {
+				t.Errorf("JSON debtLimit = %v, хотим %d", raw["debtLimit"], c.debt)
+			}
+		})
 	}
 }

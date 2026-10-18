@@ -6,7 +6,8 @@ import (
 )
 
 // Сложность 2.0 (ITGAME-9): кредит, рынок, комбо-цель, дедлайн дней,
-// вес вируса и доля дедлайна. Норма/легко ведут себя как до итерации 17.
+// вес вируса и доля дедлайна. Норма/легко: кредита нет — вечерний минус
+// до расходов дня это овердрафт (ITGAME-156, overdraft_test.go).
 
 // d2Cfg — быстрый конфиг уровня с кредитом и без помех рандома.
 func d2Cfg(limit int, rate float64) Config {
@@ -91,17 +92,6 @@ func TestCreditBeyondLimitBankrupts(t *testing.T) {
 	_ = runDay(g)
 	if g.Phase != PhaseGameOver || g.LoseReason != LoseBankrupt {
 		t.Fatalf("фаза %s причина %q, хотели game_over/bankrupt", g.Phase, g.LoseReason)
-	}
-}
-
-// Норма (кредита нет): минус — мгновенное банкротство, как до итерации 17.
-func TestNoCreditInstantBankrupt(t *testing.T) {
-	g := NewWithSeed(d2Cfg(0, 0), 1, 2)
-	g.Money = 100
-	g.Offices[0].Employees = append(g.Offices[0].Employees, Employee{IncomePerTick: 1, HireDay: 0})
-	_ = runDay(g)
-	if g.Phase != PhaseGameOver || g.LoseReason != LoseBankrupt {
-		t.Fatalf("фаза %s причина %q: без кредита минус = банкротство", g.Phase, g.LoseReason)
 	}
 }
 

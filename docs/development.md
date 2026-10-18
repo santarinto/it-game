@@ -665,9 +665,13 @@ Fixtures (`server/internal/game/fixtures/*.json`, `?scenario=X` or
 PC broken (0/3 repair clicks: the fixture pins `RepairNeeded: 3`) — the only
 way to get a broken PC on demand (breakdowns roll at random; at most one per
 office, so no second one appears). `doomed_debt` (ITGAME-118): morning of
-day 8, $2000 of debt, a boss and one weak employee — on Hard/Hardcore the
-party is doomed (`state.bankruptInDays` > 0, the «До банкротства N дней»
-plate), on Easy/Normal there is no credit and no signal. `virus_outbreak`
+day 8, $2000 of debt, a boss and one weak employee — doomed on every level:
+on Hard/Hardcore the debt runs into the credit limit in a few days
+(`state.bankruptInDays` > 0, the «До банкротства N дней» plate), on
+Easy/Normal it is already deeper than the overdraft ($750 on Normal — one
+day's expenses), so N = 1 and the party is bankrupt this evening
+(ITGAME-156); `itd.set({money: -100})` gives an overdraft party that lasts
+a couple of days (two on Normal, three on Easy). `virus_outbreak`
 (ITGAME-103): day 4, 11:00, office 1 with 9 employees on a tier-1 router
 (seats 1–4 on the router, 5–9 neighbours only), office 2 with 4, core level 1
 (both offices' seats 1–4 in core); seats 1 and 6 of office 1 and seat 2 of
@@ -677,9 +681,11 @@ jump.
 
 **Doomed party** (ITGAME-118): `Game.BankruptInDays()` is the number of day
 closes until bankruptcy, 0 when the party is not doomed, sent as
-`state.bankruptInDays`. Doomed means a level with credit, phase `running`,
-money below zero (nothing can be bought or fired) and income that does not
-cover payroll and interest before `CreditLimit`. Income comes from the
+`state.bankruptInDays`. Doomed means phase `running`, money below zero
+(nothing can be bought or fired) and income that does not cover payroll (and
+interest, on a credit level) before the debt limit — on every level since
+ITGAME-156: tonight's limit from today's `PayrollPerDay()`, later evenings
+from the template's. Income comes from the
 offline engine's day template with every PC whole — repair clicks are free,
 so a broken PC is not a dead end even though the night no longer fixes it
 (ITGAME-136); `BankruptInDays` repairs its own copy of the template, while
@@ -691,6 +697,26 @@ the current tick, so N does not drift during the day. A level deadline
 HUD shows the plate once per day while N > 0 (ids `hud.doom`,
 `hud.doom.surrender` → the «Удалить партию навсегда?» confirmation with the
 party paused, `hud.doom.close`).
+
+**Debt limit and overdraft** (ITGAME-156): an evening that ends below zero is
+a debt; it bankrupts (`reason: bankrupt`) only when the debt is deeper than
+the debt limit, `debtLimit(payroll)` in `game.go`: `CreditLimit` on a credit
+level (Hard/Hardcore, with `CreditRate` interest), otherwise the overdraft —
+`payroll`, the expenses that very evening charged (staff, bosses and admins
+paid today, gateway opex, the billed antivirus tier). No interest there
+(`CreditRate` 0), no day count. The live tick (`closeDay(expenses)`) and the
+offline catch-up (`closeOfflineDay(s, payroll)`: the day's tail passes the
+live `PayrollPerDay()`, full days the template's `dayExp` — the live game in
+that loop keeps `UnpaidToday` and would understate it) hand `settleDebt` what
+they charged. A day that starts at ≥ 0 cannot bankrupt on Easy/Normal that
+evening (the charge equals the limit) unless an event fine deepens it.
+`state.debtLimit` = `Game.DebtLimit()`; `state.creditLimit` stays the config
+value (0 on Easy/Normal). The HUD's `hud.debt` reads «Долг -$X из -$Y ·
+R%/день» on credit and «Овердрафт -$X из -$Y · расходы дня» on overdraft; the
+evening journal line (report and `hud.log`) «кредит: долг $X под R%/день» /
+«овердрафт: долг $X из $Y (расходы дня), без процентов». The limit is
+derived, not stored: no `Config`/`Save` field, `SaveFormat` unchanged, a save
+from before ITGAME-156 continues under the new rule.
 
 **Repair clicks k/N** (ITGAME-93): a breakdown rolls its own N — uniform
 `RepairClicksMin..RepairClicksMax` (3..15) from the server's seeded PCG, right
@@ -1450,7 +1476,13 @@ the audit fine share (`AuditFineShare`; `-1` keeps the config value) and
 `--audit-stats` prints one extra stderr line with the bankruptcies on a
 failed-audit day versus all bankruptcies and failed audits. Reference
 (300 seeds × 30 days, greedy): normal 0/300 bankrupt, easy 300/300 wins,
-hard 0/300 bankrupt, hardcore 19/300 bankrupt.
+hard 0/300 bankrupt, hardcore 19/300 bankrupt. ITGAME-156 (overdraft on
+Easy/Normal, 18.10, `--policy all`): normal random bankrupt 90 → 90 and
+deadlock 210 → 210 — the counts stay, but every one of the 90 bankruptcies
+moves exactly one day later (day 2–5 → day 3–6: the random policy earns $0
+once broke, so one evening of overdraft never becomes a recovery); easy
+random bankrupt 196 → 196, deadlock 72 → 72, timeout 32 → 32; greedy and
+idle unchanged (greedy/idle never end an evening below zero).
 
 **visreg** loads each fixture scenario (`?scenario=X&seed=1&debug=1`) — so the `?debug=1` red frames are part of the shots — and the
 menu, screenshots the canvas and diffs it against

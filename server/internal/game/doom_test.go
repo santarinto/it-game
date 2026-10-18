@@ -2,10 +2,11 @@ package game
 
 import "testing"
 
-// Сигнал обречённой партии (ITGAME-118): на кредитных уровнях игрок в минусе
-// не может ни купить, ни уволить (всё требует Money >= цена), и если доход
-// штата не покрывает ФОТ и проценты, долг упирается в CreditLimit через
-// BankruptInDays() дней. Эталон прогноза — офлайн-движок: та же формула дня.
+// Сигнал обречённой партии (ITGAME-118): на любом уровне (кредит или
+// овердрафт, ITGAME-156) игрок в минусе не может ни купить, ни уволить (всё
+// требует Money >= цена), и если доход штата не покрывает ФОТ (и проценты на
+// кредите), долг упирается в порог через BankruptInDays() дней. Эталон
+// прогноза — офлайн-движок: та же формула дня.
 
 // doomedGame — утро дня 8 на Hard: начальник и один слабый сотрудник
 // (ФОТ $313 + $625 против ~$400 дохода), долг $2000.
@@ -33,26 +34,42 @@ func clone(t *testing.T, g *Game) *Game {
 }
 
 func TestBankruptInDaysMatchesOfflineEngine(t *testing.T) {
-	g := doomedGame(t, DiffHard)
-	n := g.BankruptInDays()
-	if n < 2 {
-		t.Fatalf("ждали прогноз банкротства через несколько дней, получили %d", n)
-	}
-	dayTicks := g.cfg.DayTicks()
+	// Hard — кредит ($2000 из $5000 под процент); Normal/Easy — овердрафт до
+	// расходов дня ($750 / $600), долг −$100 с утра, чтобы дожить до вечера.
+	for _, c := range []struct {
+		name  string
+		diff  Difficulty
+		money int
+	}{
+		{"hard", DiffHard, -2000},
+		{"normal", DiffNormal, -100},
+		{"easy", DiffEasy, -100},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			g := doomedGame(t, c.diff)
+			g.Money = c.money
+			g.beginLedger()
+			n := g.BankruptInDays()
+			if n < 2 {
+				t.Fatalf("ждали прогноз банкротства через несколько дней, получили %d", n)
+			}
+			dayTicks := g.cfg.DayTicks()
 
-	alive := clone(t, g)
-	alive.AdvanceOffline((n-1)*dayTicks + 1) // n-1 вечеров позади, утро дня n
-	if alive.Phase == PhaseGameOver {
-		t.Fatalf("за %d дней партия уже погибла (%s), прогноз %d", n-1, alive.LoseReason, n)
-	}
-	if got := alive.BankruptInDays(); got != 1 {
-		t.Fatalf("утро последнего дня: ждали 1, получили %d", got)
-	}
+			alive := clone(t, g)
+			alive.AdvanceOffline((n-1)*dayTicks + 1) // n-1 вечеров позади, утро дня n
+			if alive.Phase == PhaseGameOver {
+				t.Fatalf("за %d дней партия уже погибла (%s), прогноз %d", n-1, alive.LoseReason, n)
+			}
+			if got := alive.BankruptInDays(); got != 1 {
+				t.Fatalf("утро последнего дня: ждали 1, получили %d", got)
+			}
 
-	dead := clone(t, g)
-	dead.AdvanceOffline(n * dayTicks)
-	if dead.Phase != PhaseGameOver || dead.LoseReason != LoseBankrupt {
-		t.Fatalf("за %d дней ждали банкротство, получили phase=%s reason=%q", n, dead.Phase, dead.LoseReason)
+			dead := clone(t, g)
+			dead.AdvanceOffline(n * dayTicks)
+			if dead.Phase != PhaseGameOver || dead.LoseReason != LoseBankrupt {
+				t.Fatalf("за %d дней ждали банкротство, получили phase=%s reason=%q", n, dead.Phase, dead.LoseReason)
+			}
+		})
 	}
 }
 
@@ -68,10 +85,10 @@ func TestBankruptInDaysStableThroughTheDay(t *testing.T) {
 	}
 }
 
-func TestBankruptInDaysNoCreditLevel(t *testing.T) {
-	g := doomedGame(t, DiffNormal)
-	if got := g.BankruptInDays(); got != 0 {
-		t.Fatalf("без кредита (Normal) сигнала нет, получили %d", got)
+func TestBankruptInDaysOverdraftBeyondLimit(t *testing.T) {
+	g := doomedGame(t, DiffNormal) // долг $2000, овердрафт Normal — ФОТ $750
+	if got := g.BankruptInDays(); got != 1 {
+		t.Fatalf("долг глубже расходов дня уже утром — банкротство сегодня вечером: ждали 1, получили %d", got)
 	}
 }
 
@@ -85,17 +102,31 @@ func TestBankruptInDaysNotInDebt(t *testing.T) {
 }
 
 func TestBankruptInDaysDebtButProfitable(t *testing.T) {
-	g := doomedGame(t, DiffHard)
-	o := &g.Offices[0]
-	o.Boss = ""
-	o.PCs = 3
-	o.Employees = []Employee{
-		{Name: "Артём Никитин", IncomePerTick: 14, HireDay: 1},
-		{Name: "Мария Фёдорова", IncomePerTick: 14, HireDay: 1},
-		{Name: "Дмитрий Смирнов", IncomePerTick: 14, HireDay: 1},
-	}
-	if got := g.BankruptInDays(); got != 0 {
-		t.Fatalf("доход покрывает ФОТ и проценты — сигнала нет, получили %d", got)
+	// На Normal −$2000 уже глубже овердрафта $750, поэтому долг поменьше.
+	for _, c := range []struct {
+		name  string
+		diff  Difficulty
+		money int
+	}{
+		{"hard", DiffHard, -2000},
+		{"normal", DiffNormal, -100},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			g := doomedGame(t, c.diff)
+			g.Money = c.money
+			g.beginLedger()
+			o := &g.Offices[0]
+			o.Boss = ""
+			o.PCs = 3
+			o.Employees = []Employee{
+				{Name: "Артём Никитин", IncomePerTick: 14, HireDay: 1},
+				{Name: "Мария Фёдорова", IncomePerTick: 14, HireDay: 1},
+				{Name: "Дмитрий Смирнов", IncomePerTick: 14, HireDay: 1},
+			}
+			if got := g.BankruptInDays(); got != 0 {
+				t.Fatalf("доход покрывает ФОТ и проценты — сигнала нет, получили %d", got)
+			}
+		})
 	}
 }
 

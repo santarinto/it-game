@@ -4,9 +4,9 @@ A pixel-art browser clicker about growing an IT company, inspired by Intel's
 *IT Manager 3: Unseen Forces* (not affiliated with or endorsed by Intel).
 Buy PCs, hire staff, build the network (routers → core switch → server racks
 → internet gateway), open new offices and keep income ahead of payroll and
-running costs. Run out of money at the end-of-day settlement and the company
-goes bankrupt. The game's UI is Russian-only (as are code comments and docs
-in this repo).
+running costs. Sink deeper than a day's expenses (the credit line on the hard
+levels) at the end-of-day settlement and the company goes bankrupt. The
+game's UI is Russian-only (as are code comments and docs in this repo).
 
 Play: https://itgame.santarinto.com
 

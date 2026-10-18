@@ -94,6 +94,7 @@ type stateMessage struct {
 	MarketTomorrow    int              `json:"marketTomorrow"` // завтрашний рынок, виден заранее
 	CreditLimit       int              `json:"creditLimit"`    // кредитный порог, $ (0 — кредита нет)
 	CreditRatePct     int              `json:"creditRatePct"`  // процент за день на долг
+	DebtLimit         int              `json:"debtLimit"`      // порог долга, $: глубже — вечер банкротит; CreditLimit или, без кредита, расходы дня (овердрафт, ITGAME-156)
 	BankruptInDays    int              `json:"bankruptInDays"` // обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)
 	VirusWaveAt       string           `json:"virusWaveAt"`    // «HH:MM», с которого видна следующая волна вируса; "" — заражённых нет (ITGAME-103)
 	Antivirus         antivirusInfo    `json:"antivirus"`      // подписка на антивирус (ITGAME-137)
@@ -437,7 +438,7 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 		Resumed: resumed, Difficulty: string(cfg.Difficulty), WinTarget: cfg.WinTarget,
 		WinStaff: cfg.WinStaff, WinCore: cfg.WinCore, WinDayLimit: cfg.WinDayLimit,
 		MarketToday: g.MarketToday, MarketTomorrow: g.MarketTomorrow,
-		CreditLimit: cfg.CreditLimit, CreditRatePct: int(cfg.CreditRate * 100),
+		CreditLimit: cfg.CreditLimit, CreditRatePct: int(cfg.CreditRate * 100), DebtLimit: g.DebtLimit(),
 		BankruptInDays: g.BankruptInDays(), VirusWaveAt: g.VirusWaveClock(), Antivirus: av,
 		ActiveEvent: active, Seed: g.SeedString(), Scenario: scenario,
 		// Копия, не nil: журнал партии растёт дальше, а снапшот уходит в сокет позже.

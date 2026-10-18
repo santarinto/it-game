@@ -67,7 +67,7 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	s.Days++ // текущий день закрывается — для игрока это прошедший день
 	miss -= dayTicks - g.TickInDay
 	g.TickInDay = dayTicks
-	if g.closeOfflineDay(s) {
+	if g.closeOfflineDay(s, expenses) {
 		return s
 	}
 
@@ -108,7 +108,7 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 		g.PrevDayIncome = inc
 		s.Payroll += dayExp
 		s.Days++
-		if g.closeOfflineDay(s) {
+		if g.closeOfflineDay(s, dayExp) {
 			return s
 		}
 	}
@@ -134,10 +134,11 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 
 // closeOfflineDay — закрытие дня офлайн: как closeDay, но без лога
 // (отчёт «пока вас не было» показывает числа, не строки). true — финал.
+// payroll — расходы, списанные этим вечером (порог овердрафта, ITGAME-156).
 // Победа проверяется раньше дедлайна — как в Tick: цель, достигнутая
 // в последний день, сильнее таймера.
-func (g *Game) closeOfflineDay(s *OfflineSummary) bool {
-	if g.settleDebt() {
+func (g *Game) closeOfflineDay(s *OfflineSummary, payroll int) bool {
+	if g.settleDebt(payroll) {
 		g.loseOffline(s, LoseBankrupt)
 		return true
 	}

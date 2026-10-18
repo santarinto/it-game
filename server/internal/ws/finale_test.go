@@ -54,10 +54,16 @@ func TestBankruptcyKeepsSessionWithSaves(t *testing.T) {
 	// День = 1 секунда (100 тиков по 10мс): запас, чтобы hire успел.
 	cfg.WorkdayEnd = cfg.WorkdayStart + 1
 	cfg.TicksPerHour = 100
-	cfg.SalaryPerDay = 100000 // гарантированное банкротство с одним сотрудником
+	// Один сотрудник: вечер 1 ≈ −$99k — овердрафт в пределах ФОТ дня
+	// (ITGAME-156), вечер 2 глубже — банкротство.
+	cfg.SalaryPerDay = 100000
 	c, ctx := dialSaves(t, saves, cfg, 10*time.Millisecond, "?sid=broke-123456")
 
 	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 0}); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "day_report" })
+	if err := wsjson.Write(ctx, c, clientMessage{Type: "next_day"}); err != nil {
 		t.Fatal(err)
 	}
 	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "game_over" })

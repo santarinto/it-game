@@ -119,7 +119,7 @@ type Game struct {
 
 // Причины проигрыша — значения поля reason протокола.
 const (
-	LoseBankrupt = "bankrupt" // долг за кредитным порогом / минус без кредита
+	LoseBankrupt = "bankrupt" // долг глубже порога: кредитного или овердрафта (ITGAME-156)
 	LoseTimeUp   = "time_up"  // дедлайн уровня: день X закрыт без победы
 	LoseDeadlock = "deadlock" // софт-лок: штат пуст и средств на развитие нет
 )
@@ -278,17 +278,35 @@ func (g *Game) won() bool {
 	return g.cfg.WinCore <= 0 || g.CoreLevel >= g.cfg.WinCore
 }
 
-// settleDebt — конец дня с отрицательным балансом (Сложность 2.0): долг
-// растёт на CreditRate за день; за кредитным порогом — банкротство.
-// Уровни без кредита (CreditLimit 0) банкротят сразу — как до итерации 17.
-func (g *Game) settleDebt() bool {
+// debtLimit — порог долга вечера, глубже которого банкротство (ITGAME-156):
+// кредитный порог уровня (сложно, хардкор), а без кредита (легко, норма) —
+// овердрафт в payroll, расходы этого вечера: зарплаты, шлюз, подписка.
+// Не поле Config: правило выводится из CreditLimit == 0, структура сейва
+// та же (SaveFormat не растёт).
+func (g *Game) debtLimit(payroll int) int {
+	if g.cfg.CreditLimit > 0 {
+		return g.cfg.CreditLimit
+	}
+	return payroll
+}
+
+// DebtLimit — порог долга сегодняшнего вечера для снапшота (state.debtLimit):
+// PayrollPerDay — то, что вечер спишет, а в отчёте дня — уже списал.
+func (g *Game) DebtLimit() int { return g.debtLimit(g.PayrollPerDay()) }
+
+// settleDebt — конец дня с отрицательным балансом: долг растёт на CreditRate
+// за день (без кредита ставка 0 — процента нет); минус глубже
+// debtLimit(payroll) — банкротство. payroll — расходы, списанные этим вечером:
+// живой тик и офлайн передают своё (шаблон офлайна платит и за нанятых
+// после обеда, живая игра в цикле офлайн-дней — нет).
+func (g *Game) settleDebt(payroll int) bool {
 	if g.Money >= 0 {
 		return false
 	}
 	interest := int(math.Ceil(float64(-g.Money) * g.cfg.CreditRate))
 	g.Money -= interest
 	g.Ledger.Interest += interest
-	return -g.Money > g.cfg.CreditLimit
+	return -g.Money > g.debtLimit(payroll)
 }
 
 // TotalEmployees — суммарное число сотрудников во всех открытых офисах.
@@ -298,8 +316,9 @@ func (g *Game) TotalEmployees() int {
 
 // AvailableFunds — средства, доступные для покупок и найма.
 // Так как ни одна команда игры не позволяет уходить в отрицательный баланс
-// (все покупки и найм требуют Money >= price, а кредит в settleDebt регулирует
-// лишь выживание при ночном списании ФОТ), покупательная способность равна Money.
+// (все покупки и найм требуют Money >= price, а кредит или овердрафт в
+// settleDebt регулирует лишь выживание при ночном списании ФОТ),
+// покупательная способность равна Money.
 func (g *Game) AvailableFunds() int {
 	return g.Money
 }
@@ -342,8 +361,8 @@ func (g *Game) MinCostToEarn() int {
 // IsDeadlocked возвращает true, если компания оказалась в софт-локе:
 // неотрицательный баланс при пустом штате (нет источников дохода),
 // при этом денег не хватает даже на самое дешёвое действие для получения дохода.
-// Отрицательный баланс тупиком не является — он регулируется кредитом и ведёт к
-// банкротству (settleDebt).
+// Отрицательный баланс тупиком не является — он регулируется кредитом или
+// овердрафтом и ведёт к банкротству (settleDebt).
 func (g *Game) IsDeadlocked() bool {
 	if g.Money < 0 || g.TotalEmployees() > 0 {
 		return false
@@ -356,9 +375,11 @@ func (g *Game) IsDeadlocked() bool {
 const doomHorizonDays = 365
 
 // BankruptInDays — через сколько закрытий дня обречённая партия обанкротится
-// (ITGAME-118); 0 — не обречена. Обречена: уровень с кредитом, партия идёт,
-// баланс в минусе (ни покупки, ни увольнения: всё требует Money >= цена) и
-// доход штата не покрывает ФОТ и проценты до CreditLimit. Доход — по шаблону
+// (ITGAME-118); 0 — не обречена. Обречена: партия идёт, баланс в минусе (ни
+// покупки, ни увольнения: всё требует Money >= цена) и доход штата не
+// покрывает расходы (и проценты на кредитном уровне) до порога долга —
+// CreditLimit или, без кредита, расходы вечера (овердрафт, ITGAME-156:
+// сегодня PayrollPerDay живой игры, дальше — шаблона). Доход — по шаблону
 // офлайн-движка, но с целыми и чистыми ПК: ремонт и чистка кликами бесплатны,
 // сломанный ПК — не тупик, хотя ночью он сам больше не чинится (ITGAME-136),
 // заражённое место — тоже, хотя вирус сам не проходит (ITGAME-103). Без баффов и
@@ -366,7 +387,7 @@ const doomHorizonDays = 365
 // поэтому прогноз не скачет в течение дня. Дедлайн уровня раньше банкротства
 // закроет партию по time_up — тогда 0: предупреждать о банкротстве незачем.
 func (g *Game) BankruptInDays() int {
-	if g.cfg.CreditLimit <= 0 || g.Phase != PhaseRunning || g.Money >= 0 {
+	if g.Phase != PhaseRunning || g.Money >= 0 {
 		return 0
 	}
 	tpl := g.offlineTemplate()
@@ -378,8 +399,10 @@ func (g *Game) BankruptInDays() int {
 		}
 	}
 	dayTicks := g.cfg.DayTicks()
-	net := tpl.sumIncome(0, dayTicks) - tpl.PayrollPerDay()
-	money := g.Money + tpl.sumIncome(g.TickInDay, dayTicks) - g.PayrollPerDay()
+	tplPayroll := tpl.PayrollPerDay()
+	net := tpl.sumIncome(0, dayTicks) - tplPayroll
+	payroll := g.PayrollPerDay() // сегодняшний вечер: без нанятых после обеда
+	money := g.Money + tpl.sumIncome(g.TickInDay, dayTicks) - payroll
 	for d := 1; d <= doomHorizonDays; d++ {
 		if g.cfg.WinDayLimit > 0 && g.Day+d-1 > g.cfg.WinDayLimit {
 			return 0
@@ -388,23 +411,27 @@ func (g *Game) BankruptInDays() int {
 			return 0
 		}
 		money -= int(math.Ceil(float64(-money) * g.cfg.CreditRate))
-		if -money > g.cfg.CreditLimit {
+		if -money > g.debtLimit(payroll) {
 			return d
 		}
 		money += net
+		payroll = tplPayroll
 	}
 	return 0
 }
 
-// closeDay — конец дня после списания ФОТ: кредит или банкротство,
-// затем дедлайн уровня (время вышло без победы), затем тупик. Переводит фазу.
-func (g *Game) closeDay() {
+// closeDay — конец дня после списания ФОТ: долг (кредит или овердрафт) или
+// банкротство, затем дедлайн уровня (время вышло без победы), затем тупик.
+// Переводит фазу. payroll — расходы, списанные этим вечером.
+func (g *Game) closeDay(payroll int) {
 	g.Phase = PhaseDayReport
-	if g.settleDebt() {
+	if g.settleDebt(payroll) {
 		g.Phase = PhaseGameOver
 		g.LoseReason = LoseBankrupt
-	} else if g.Money < 0 {
+	} else if g.Money < 0 && g.cfg.CreditLimit > 0 {
 		g.logEvent(fmt.Sprintf("кредит: долг $%d под %d%%/день", -g.Money, int(g.cfg.CreditRate*100)))
+	} else if g.Money < 0 {
+		g.logEvent(fmt.Sprintf("овердрафт: долг $%d из $%d (расходы дня), без процентов", -g.Money, payroll))
 	}
 	if g.Phase == PhaseDayReport && g.cfg.WinDayLimit > 0 && g.Day >= g.cfg.WinDayLimit {
 		g.Phase = PhaseGameOver
@@ -619,7 +646,7 @@ func (g *Game) Tick() *DayReport {
 	opex, av := g.gatewayOpex(), g.antivirusOpex()
 	payroll := expenses - opex - av
 	g.chargeDay(expenses, opex, av)
-	g.closeDay()
+	g.closeDay(expenses)
 	return &DayReport{Day: g.Day, Income: g.DayIncome, Payroll: payroll,
 		GatewayOpex: opex, Antivirus: av, EventMoney: g.DayEventMoney,
 		Profit: g.DayIncome + g.DayEventMoney - expenses, Balance: g.Money,
