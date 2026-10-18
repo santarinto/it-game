@@ -324,7 +324,12 @@ bump). The pin sees structure only — keys, kinds, tag options: a changed meani
 or unit of an existing field, an enum value added or removed (`Phase`,
 `EventID`, `Difficulty` are plain strings to it), a custom `MarshalJSON`, a
 self-referential type (the walk would not end) are invisible to it and still
-need a manual `SaveFormat` bump by the rule. The session wrapper (`sessionSave`:
+need a manual `SaveFormat` bump by the rule. A game-rule change that reads
+still-valid stored values differently is not a format change: old saves load
+and play on under the new rule, no bump (ITGAME-156: `CreditLimit == 0` now
+means an overdraft down to one day's payroll instead of instant bankruptcy,
+`SaveFormat` unchanged). A bump is for a save that would decode wrongly or
+hold values the new code cannot honour. The session wrapper (`sessionSave`:
 sid, speed, version, the last report) is not pinned. Config fields added to
 format 1 before the rule (audit, repair clicks, antivirus tiers, admin prices)
 are filled by `Restore` from the save's difficulty. Format 1 is the virus on
