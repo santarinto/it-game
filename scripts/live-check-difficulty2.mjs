@@ -5,7 +5,8 @@
 // Хардкор: поля кредита/рынка/дедлайна в снапшоте, день 1 без качелей,
 // завтрашний рынок виден заранее; поздний найм (после 12:00, до 15:00)
 // уводит вечерний ФОТ в долг — отчёт дня вместо game_over, кредит в логе,
-// день 2 продолжается. Норма: кредитов и рынка нет, цель — только деньги.
+// день 2 продолжается. Норма: кредита и рынка нет — минус до расходов дня это
+// овердрафт (debtLimit = payrollPerDay, ITGAME-156), цель — только деньги.
 //
 // Сид фиксирован: ролл выработки найма воспроизводим целиком. SEED=… —
 // проверить другой сид.
@@ -42,6 +43,7 @@ ws.onmessage = (ev) => {
       hire: m.prices.hire === 450,
       creditLimit: m.creditLimit === 10000,
       creditRatePct: m.creditRatePct === 15,
+      debtLimit: m.debtLimit === 10000,
       winTarget: m.winTarget === 1000000,
       winDayLimit: m.winDayLimit === 30,
       winStaff: m.winStaff === 0,
@@ -102,6 +104,7 @@ function normalCheck() {
     const checks = {
       creditLimit: m.creditLimit === 0,
       creditRatePct: m.creditRatePct === 0,
+      debtLimit: m.debtLimit === m.payrollPerDay,
       winDayLimit: m.winDayLimit === 0,
       winStaff: m.winStaff === 0,
       winCore: m.winCore === 0,
@@ -110,7 +113,7 @@ function normalCheck() {
       marketTomorrow: m.marketTomorrow === 0,
     }
     for (const [k, v] of Object.entries(checks)) if (!v) fail(`норма state.${k}`, m)
-    ok('норма: без кредита, рынка и дедлайна — как до итерации 17')
+    ok('норма: без кредита (овердрафт = расходы дня), рынка и дедлайна')
     ws2.close()
     clearTimeout(to)
     console.log(`\nDIFFICULTY2 OK — ${step} проверок`)

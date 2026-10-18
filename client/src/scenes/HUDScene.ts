@@ -279,7 +279,7 @@ export class HUDScene extends Phaser.Scene {
         .setOrigin(1, 0),
       'hud.market',
     )
-    // Долг по кредиту (сложность 2.0): виден только в минусе. Строки нижних
+    // Долг (кредит — сложность 2.0, овердрафт — ITGAME-156): виден только в минусе. Строки нижних
     // рядов раскладываются по ширинам в layoutPanel() (ITGAME-16) — стартовые
     // x/y здесь косметические, до первого layoutPanel().
     this.debtText = tag(this.add.text(170, 84, '', {
@@ -899,9 +899,11 @@ export class HUDScene extends Phaser.Scene {
     } else {
       this.marketText.setText('')
     }
-    // Долг: минус в кредитных уровнях — не приговор, но проценты капают.
-    if (s.money < 0 && s.creditLimit > 0) {
-      this.debtText.setText(`Долг ${fmtMoney(s.money)} из ${fmtMoney(-s.creditLimit)} · ${s.creditRatePct}%/день`)
+    // Долг: минус на любом уровне — не приговор до порога state.debtLimit (сервер): на
+    // кредите капают проценты, на овердрафте (легко, норма) порог — расходы дня (ITGAME-156).
+    if (s.money < 0 && s.debtLimit > 0) {
+      const tail = s.creditLimit > 0 ? `${s.creditRatePct}%/день` : 'расходы дня'
+      this.debtText.setText(`${s.creditLimit > 0 ? 'Долг' : 'Овердрафт'} ${fmtMoney(s.money)} из ${fmtMoney(-s.debtLimit)} · ${tail}`)
     } else {
       this.debtText.setText('')
     }
@@ -1020,9 +1022,9 @@ export class HUDScene extends Phaser.Scene {
     this.eventUI = []
   }
 
-  // Плашка обречённой партии (ITGAME-118): сервер шлёт state.bankruptInDays > 0, когда на
-  // уровне с кредитом баланс в минусе (ни купить, ни уволить), а доход не покрывает ФОТ и
-  // проценты. Встаёт раз в день — с первым снапшотом дня, — висит до «×» или «Сдаться»;
+  // Плашка обречённой партии (ITGAME-118): сервер шлёт state.bankruptInDays > 0, когда
+  // баланс в минусе (кредит или овердрафт, ITGAME-156; ни купить, ни уволить), а доход не
+  // покрывает расходы до порога. Встаёт раз в день — с первым снапшотом дня, — висит до «×» или «Сдаться»;
   // отчёт дня, финал и сброс партии её снимают. Не модальная: игра идёт. Стоит над журналом,
   // а не сверху — там панель события; нижние тосты поднимаются над ней (layoutToasts).
   private updateDoom(s: StateMessage) {

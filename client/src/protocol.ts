@@ -145,6 +145,7 @@ export interface StateMessage {
   marketTomorrow: number // завтрашний рынок, виден заранее
   creditLimit: number // кредитный порог, $ (0 — кредита нет)
   creditRatePct: number // процент за день на долг
+  debtLimit: number // порог долга, $: глубже — вечер банкротит; creditLimit или, без кредита, payrollPerDay (овердрафт, ITGAME-156)
   bankruptInDays: number // обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)
   virusWaveAt: string // «HH:MM», с которого видна следующая волна вируса; '' — заражённых нет (ITGAME-103)
   antivirus: AntivirusInfo // подписка на антивирус (ITGAME-137)

@@ -1,5 +1,6 @@
 // QA сценарий ITGAME-118: «Ранний сигнал обречённой партии» — плашка
-// «До банкротства N дней» с кнопкой «Сдаться» на Hard/Hardcore.
+// «До банкротства N дней» с кнопкой «Сдаться» на любом уровне (Easy/Normal —
+// овердрафт, ITGAME-156).
 //
 // Запуск из корня проекта:
 //   node client/scripts/qa-itgame118.mjs     (npm run qa:doom в client/)
@@ -7,14 +8,17 @@
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию :4188,
 // ITGAME_DEBUG=1 — itd.scenario/itd.set/itd.advanceDays ходят в /api/debug/*).
 //   D1  Hard + itd.scenario('doomed_debt'): state.bankruptInDays > 0, плашка hud.doom
-//       с «До банкротства N …», кнопки hud.doom.surrender и hud.doom.close, строка в журнале
+//       с «До банкротства N …», кнопки hud.doom.surrender и hud.doom.close, строка в журнале,
+//       hud.debt «Долг -$2,000 из -$5,000 · 10%/день»
 //   D2  настоящий клик по hud.doom.close: плашка снята; через тики того же дня не возвращается
 //   D3  следующий день (advanceDays(1), утро): плашка снова, N на 1 меньше
 //   D4  настоящий клик по «Сдаться»: окно «Удалить партию навсегда?», партия на паузе;
 //       «Отмена» — окна нет, скорость вернулась, партия жива
 //   D5  плашка не пересекается с текстами (itd.overlaps пуст), не за экраном, ошибок нет
 //   D6  itd.scenario('fresh'): плашки нет, bankruptInDays 0
-//   D7  Normal + doomed_debt: bankruptInDays 0, плашки нет
+//   D7  Normal + doomed_debt: creditLimit 0, debtLimit 750 = payrollPerDay, bankruptInDays 1, плашка «До банкротства 1 день», hud.debt «Овердрафт -$2,000 из -$750 · расходы дня»
+//   D8  Normal, itd.set({money: -100}): bankruptInDays ≥ 2, плашка с тем же N, «Овердрафт -$100 из -$750 · расходы дня»
+//   D9  Normal, $400 в 18:50 и живой тик: day_report, «19:00 овердрафт: долг $X из $750 (расходы дня), без процентов» в hud.log и в отчёте, процент 0, книга сведена
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
@@ -77,14 +81,16 @@ try {
       days: window.itd.state().bankruptInDays,
       ids: doomIds(),
       text: node ? node.text : null,
+      debt: window.itd.nodes().find((n) => n.id === 'hud.debt')?.text ?? null,
       log: window.itd.log().filter((e) => e.type === 'log' || e.type === 'toast').map((e) => e.text).filter((t) => /банкрот/i.test(t || '')),
     }
   }, doomIds.toString())
   note(
-    'D1: Hard + doomed_debt — bankruptInDays > 0, плашка с текстом и двумя кнопками',
+    'D1: Hard + doomed_debt — bankruptInDays > 0, плашка с текстом и двумя кнопками, строка кредита',
     d1.diff === 'hard' && d1.days > 0 &&
       ['hud.doom', 'hud.doom.text', 'hud.doom.surrender', 'hud.doom.close'].every((id) => d1.ids.includes(id)) &&
-      typeof d1.text === 'string' && d1.text.startsWith(`До банкротства ${d1.days} `),
+      typeof d1.text === 'string' && d1.text.startsWith(`До банкротства ${d1.days} `) &&
+      d1.debt === 'Долг -$2,000 из -$5,000 · 10%/день',
     JSON.stringify(d1),
   )
 
@@ -165,7 +171,7 @@ try {
   }, doomIds.toString())
   note('D6: itd.scenario(fresh) — плашки нет, bankruptInDays 0', d6.ids.length === 0 && d6.days === 0, JSON.stringify(d6))
 
-  // D7 — Normal: кредита нет, сигнала нет
+  // D7 — Normal: кредита нет, овердрафт в расходы дня ($750); долг $2000 глубже — банкротство сегодня вечером
   const p7 = await browser.newPage()
   await p7.evaluateOnNewDocument(() => localStorage.clear())
   await p7.goto(`${BASE}/?debug=1`, { waitUntil: 'domcontentloaded' })
@@ -177,11 +183,75 @@ try {
     await window.itd.pause()
     await window.itd.scenario('doomed_debt')
     await window.itd.wait((s) => s.scenario === 'doomed_debt', 10000)
-    await new Promise((r) => setTimeout(r, 300))
-    return { diff: window.itd.state().difficulty, days: window.itd.state().bankruptInDays, ids: doomIds(), errors: window.itd.errors() }
+    await window.itd.wait(() => window.itd.ids().some((x) => x.id === 'hud.doom'), 5000).catch(() => null)
+    const snap = window.itd.server().snapshot
+    const node = (id) => window.itd.nodes().find((n) => n.id === id)
+    return {
+      diff: window.itd.state().difficulty,
+      days: window.itd.state().bankruptInDays,
+      ids: doomIds(),
+      creditLimit: snap.creditLimit,
+      debtLimit: snap.debtLimit,
+      payroll: snap.payrollPerDay,
+      text: node('hud.doom.text')?.text ?? null,
+      debt: node('hud.debt')?.text ?? null,
+      errors: window.itd.errors(),
+    }
   }, doomIds.toString())
-  note('D7: Normal + doomed_debt — bankruptInDays 0, плашки нет',
-    d7.diff === 'normal' && d7.days === 0 && d7.ids.length === 0 && d7.errors.length === 0, JSON.stringify(d7))
+  note('D7: Normal + doomed_debt — овердрафт $750 = расходы дня, bankruptInDays 1, плашка «До банкротства 1 день»',
+    d7.diff === 'normal' && d7.creditLimit === 0 && d7.debtLimit === 750 && d7.debtLimit === d7.payroll &&
+      d7.days === 1 && d7.ids.includes('hud.doom') && d7.text === 'До банкротства 1 день' &&
+      d7.debt === 'Овердрафт -$2,000 из -$750 · расходы дня' && d7.errors.length === 0,
+    JSON.stringify(d7))
+
+  // D8 — Normal, долг поменьше (−$100): партия живёт несколько дней, плашка пересчитана
+  const d8 = await p7.evaluate(async (doomIdsSrc) => {
+    const doomIds = new Function(`return (${doomIdsSrc})()`)
+    await window.itd.set({ money: -100 })
+    await window.itd.wait((s) => s.balance === -100, 5000)
+    const node = (id) => window.itd.nodes().find((n) => n.id === id)
+    await window.itd
+      .wait(() => (node('hud.doom.text')?.text ?? '').startsWith(`До банкротства ${window.itd.state().bankruptInDays} `), 5000)
+      .catch(() => null)
+    return {
+      days: window.itd.state().bankruptInDays,
+      ids: doomIds(),
+      text: node('hud.doom.text')?.text ?? null,
+      debt: node('hud.debt')?.text ?? null,
+    }
+  }, doomIds.toString())
+  note('D8: Normal, −$100 — bankruptInDays ≥ 2, плашка с тем же N, «Овердрафт -$100 из -$750 · расходы дня»',
+    d8.days >= 2 && d8.ids.includes('hud.doom') && typeof d8.text === 'string' &&
+      d8.text.startsWith(`До банкротства ${d8.days} `) && d8.debt === 'Овердрафт -$100 из -$750 · расходы дня',
+    JSON.stringify(d8))
+
+  // D9 — Normal, живой вечер: $400 в 18:50 и один тик → −$X в пределах $750, овердрафт без процента
+  const d9 = await p7.evaluate(async () => {
+    await window.itd.set({ money: 400, tickInDay: 53 })
+    await window.itd.wait((s) => s.balance === 400 && s.tickInDay === 53, 5000)
+    await window.itd.speed(1)
+    await window.itd.wait((s) => s.phase === 'day_report', 10000)
+    await new Promise((r) => setTimeout(r, 300))
+    const text = (pred) => window.itd.text().find(pred)?.text ?? ''
+    const ledger = await window.itd.ledger()
+    return {
+      phase: window.itd.state().phase,
+      balance: window.itd.state().balance,
+      debtLimit: window.itd.server().snapshot.debtLimit,
+      feed: text((n) => n.id === 'hud.log'),
+      report: text((n) => n.scene === 'hud' && (n.text ?? '').startsWith('Доход:')),
+      debt: window.itd.nodes().find((n) => n.id === 'hud.debt')?.text ?? null,
+      interest: ledger.interest,
+      balanced: ledger.balanced,
+    }
+  })
+  const line9 = `овердрафт: долг $${-d9.balance} из $750 (расходы дня), без процентов`
+  note('D9: Normal, вечер в минусе — day_report, строка овердрафта в ленте и отчёте, процент 0, книга сведена',
+    d9.phase === 'day_report' && d9.balance < 0 && -d9.balance <= 750 && d9.debtLimit === 750 &&
+      d9.feed.includes(`19:00 ${line9}`) && d9.report.replace(/\s+/g, ' ').includes(line9) && !/кредит/.test(d9.feed) &&
+      d9.debt === `Овердрафт -$${(-d9.balance).toLocaleString('en-US')} из -$750 · расходы дня` &&
+      d9.interest === 0 && d9.balanced === true,
+    JSON.stringify({ ...d9, line9 }))
   await p7.close()
 } finally {
   if (browser) await browser.close()

@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "ff40383f5600",
+  "hash": "cfd0c425bd91",
   "methods": {
     "version": {
       "kind": "prop",
@@ -3321,6 +3321,11 @@ export const CONTRACT = {
           "type": "number",
           "optional": false,
           "doc": "процент за день на долг"
+        },
+        "debtLimit": {
+          "type": "number",
+          "optional": false,
+          "doc": "порог долга, $: глубже — вечер банкротит; creditLimit или, без кредита, payrollPerDay (овердрафт, ITGAME-156)"
         },
         "bankruptInDays": {
           "type": "number",
