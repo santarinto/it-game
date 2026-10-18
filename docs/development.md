@@ -882,12 +882,16 @@ queue, across the night — tomorrow's morning). Protocol: `officeInfo.admin`,
 admin fields restores with its difficulty's. The client is ITGAME-145 (see the
 department room below). `make sim` (300 × 30): `--policy all` stays
 greedy/idle/random, byte for byte; `handsoff` clicks only offices under 4 staff
-(with no clicks at all a one-PC company breaks on day 1 and is bankrupt on day
-2) — the price of being away; `delegate` clicks an office until it has an admin
-and hires one into every office that grows to 4 as soon as the money allows
-(the department first) — the price of delegating: normal greedy median
-$135,061, handsoff $37,680 (19 bankrupt), delegate $125,018; hard $35,994 /
-$1,196 / $27,794.
+(with no clicks at all a one-PC company breaks on day 1 and earns nothing after:
+on normal one evening in overdraft and bankruptcy the next, most often on day 3;
+on hard credit carries it to day 10–15) — the price of being away;
+`delegate` clicks an office until it has an admin and hires one into every
+office that grows to 4 as soon as the money allows (the department first) — the
+price of delegating: normal greedy median $135,061, handsoff $38,218 (0
+bankrupt: 19 parties dip into overdraft for one evening, −$5…−$83, and climb
+out — before the ITGAME-156 overdraft they were 19 bankruptcies and $37,680),
+delegate $125,018; hard $35,994 / $1,196 / $27,794 (median money on the last
+row of each party).
 
 The department room (ITGAME-145, `AdminDeptScene`, scene key `adminDept`): the
 fifth nav tab «АДМ» (`nav.adminDept`) under «СРВ» — while not bought a lock
@@ -1476,7 +1480,8 @@ and confirm live.
 
 **sim** (`server/cmd/sim`) plays games with the real engine, e.g.
 `make sim ARGS="--diff hardcore --seed 1..50 --days 30 --policy all --out runs.csv"`.
-Policies: `greedy`, `idle`, `random`. CSV:
+Policies: `greedy`, `idle`, `random` (`--policy all`), plus `handsoff` and
+`delegate` for the price of admins (see «Admins»). CSV:
 `policy,seed,day,money,income,payroll,events,outcome`, one row per day;
 the last row holds the outcome (`bankrupt | deadlock | victory | time_up |
 timeout`). `--events-text` writes the event names joined by `" | "` into
@@ -1491,7 +1496,10 @@ deadlock 210 → 210 — the counts stay, but every one of the 90 bankruptcies
 moves exactly one day later (day 2–5 → day 3–6: the random policy earns $0
 once broke, so one evening of overdraft never becomes a recovery); easy
 random bankrupt 196 → 196, deadlock 72 → 72, timeout 32 → 32; greedy and
-idle unchanged (greedy/idle never end an evening below zero).
+idle unchanged (greedy/idle never end an evening below zero). `handsoff` /
+`delegate` (ITGAME-173, re-measured 19.10): normal handsoff bankrupt 19 → 0,
+median $37,680 → $38,218 — its 19 parties dip into overdraft for one evening
+and climb out; normal delegate, hard and easy byte-identical.
 
 **visreg** loads each fixture scenario (`?scenario=X&seed=1&debug=1`) — so the `?debug=1` red frames are part of the shots — and the
 menu, screenshots the canvas and diffs it against

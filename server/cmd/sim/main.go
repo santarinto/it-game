@@ -4,9 +4,11 @@
 //	go run ./cmd/sim --diff hard --seed 1..50 --days 30 --policy greedy --out runs.csv
 //
 // CSV: policy,seed,day,money,income,payroll,events,outcome — по строке на
-// закрытый день; outcome — running в промежуточных строках и финал
-// (bankrupt | victory | time_up) в последней. Один прогон закрывает
-// вопросы «проходим ли ХАРДКОР» и «как часто аудит убивает до 5-го дня».
+// закрытый день; outcome — running в промежуточных строках и финал в
+// последней: bankrupt | time_up | deadlock — проигрыш вечером (LoseReason
+// ядра), victory — победа среди дня, timeout — дни прогона кончились, партия
+// жива. Один прогон закрывает вопросы «проходим ли ХАРДКОР» и «как часто
+// аудит убивает до 5-го дня».
 //
 // Флаги ITGAME-50 (подбор штрафа аудита):
 //
@@ -167,7 +169,7 @@ func runOne(w *csv.Writer, cfg game.Config, name string, policy policyFunc, seed
 func dayOutcome(g *game.Game, r *game.DayReport) string {
 	switch {
 	case g.Phase == game.PhaseGameOver:
-		return string(g.LoseReason) // bankrupt | time_up
+		return string(g.LoseReason) // bankrupt | time_up | deadlock
 	default:
 		return "running"
 	}
