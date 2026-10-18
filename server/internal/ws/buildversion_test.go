@@ -11,7 +11,7 @@ import (
 )
 
 // Версия сборки (ITGAME-140): штамп линкера год.мес.день.час.мин бьёт vcs.time, vcs.time
-// переводится в московское время, без обоих — "" (сверять не с чем).
+// переводится в московское время, без обоих — "" (версии нет).
 func TestPickBuildVersion(t *testing.T) {
 	vcs := func(v string) *debug.BuildInfo {
 		return &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "vcs.time", Value: v}}}
@@ -57,50 +57,39 @@ func putVersionedSave(t *testing.T, saves *store.Store, sid, ver string) {
 	}
 }
 
-// Сейв другой сборки и сейв до ITGAME-140 (решение владельца 17.10): меню получает
-// incompatible с обеими версиями, подключение с тем же sid начинает новую партию, и её
-// первый сейв перезаписывает файл уже с версией сервера.
-func TestSaveOfAnotherBuildStartsNewParty(t *testing.T) {
-	const cur = "2026.10.17.12.00"
-	withBuildVersion(t, cur)
-	for _, old := range []string{"2026.10.16.09.30", ""} {
-		sid := "other-build-1"
-		if old == "" {
-			sid = "pre-140-1"
-		}
-		saves := newTestStore(t)
-		putVersionedSave(t, saves, sid, old)
-
-		s := peek(t, saves, savesTestConfig(), "?peek=1&sid="+sid)
-		if s.Exists || s.Alive || !s.Incompatible || s.SaveVersion != old || s.Version != cur {
-			t.Fatalf("сейв версии %q в меню: %+v, хотим incompatible, saveVersion %q, version %q", old, s, old, cur)
-		}
-		c, ctx := dialSaves(t, saves, savesTestConfig(), time.Hour, "?sid="+sid)
-		first := readResume(t, ctx, c)
-		if first.Resumed || first.Money != 600 || first.Day != 1 {
-			t.Fatalf("сейв версии %q поднялся: resumed=%v money=%d day=%d", old, first.Resumed, first.Money, first.Day)
-		}
-		data, ok := saves.Load(sid)
-		if !ok {
-			t.Fatal("новая партия не записала сейв")
-		}
-		var ss sessionSave
-		if err := json.Unmarshal(data, &ss); err != nil || ss.Version != cur || ss.Game.Money != 600 {
-			t.Fatalf("файл сейва: version=%q money=%d err=%v — хотим новую партию версии %s", ss.Version, ss.Game.Money, err, cur)
-		}
+// putEditedSave — сейв sid с $4321 сборки ver, игру которого правит edit на уровне JSON: формат и
+// поле другого типа — то, чего Save этой сборки сам не запишет.
+func putEditedSave(t *testing.T, saves *store.Store, sid, ver string, edit func(g map[string]any)) {
+	t.Helper()
+	g := game.NewWithSeed(savesTestConfig(), 11, 22)
+	g.Money = 4321
+	raw, _ := json.Marshal(sessionSave{SID: sid, Speed: 1, SavedAt: time.Now(), Game: g.Export(), Version: ver})
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	edit(m["game"].(map[string]any))
+	raw, _ = json.Marshal(m)
+	gen, _ := saves.Begin(sid)
+	if !saves.Put(sid, gen, raw, time.Now()) {
+		t.Fatal("не удалось записать тестовый сейв")
 	}
 }
 
-// Сейв своей сборки продолжается как раньше; сервер без версии (go run) принимает любой.
-func TestSaveOfSameBuildResumes(t *testing.T) {
+// Сейв того же формата продолжается на любой сборке (ITGAME-169, правило владельца 18.10):
+// версия сборки — для людей, совместимость решает game.SaveFormat. Своя сборка, чужая, сейв без
+// версии (до ITGAME-140) и сервер без версии (go run) — везде партия $4321 продолжается.
+func TestSaveOfAnyBuildResumes(t *testing.T) {
 	for _, tc := range []struct{ server, save string }{
 		{"2026.10.17.12.00", "2026.10.17.12.00"},
+		{"2026.10.18.03.00", "2026.10.16.09.30"},
+		{"2026.10.18.03.00", ""},
 		{"", "2026.10.16.09.30"},
 		{"", ""},
 	} {
 		withBuildVersion(t, tc.server)
 		saves := newTestStore(t)
-		const sid = "same-build-1"
+		const sid = "any-build-1"
 		putVersionedSave(t, saves, sid, tc.save)
 
 		s := peek(t, saves, savesTestConfig(), "?peek=1&sid="+sid)
@@ -110,6 +99,52 @@ func TestSaveOfSameBuildResumes(t *testing.T) {
 		c, ctx := dialSaves(t, saves, savesTestConfig(), time.Hour, "?sid="+sid)
 		if first := readResume(t, ctx, c); !first.Resumed || first.Money != 4321 {
 			t.Fatalf("сервер %q, сейв %q: resumed=%v money=%d, хотим продолжение $4321", tc.server, tc.save, first.Resumed, first.Money)
+		}
+	}
+}
+
+// Сейв другого формата — старше или новее — не продолжается (ITGAME-169): меню получает exists
+// false и incompatible с версией писавшей сборки, подключение с тем же sid начинает новую партию,
+// её первый сейв перезаписывает файл форматом и версией сервера. Сборка та же, что у сервера: тут
+// отказывает формат, не версия. Новее и с полем, сменившим тип (сейв целиком не декодируется), —
+// меню всё равно говорит «несовместим», а не «сейва нет».
+func TestSaveOfAnotherFormatStartsNewParty(t *testing.T) {
+	const cur = "2026.10.18.03.00"
+	withBuildVersion(t, cur)
+	for _, tc := range []struct {
+		name   string
+		format int
+		retype bool // money строкой: так выглядит поле, сменившее тип в новом формате
+	}{
+		{"старше", game.SaveFormat - 1, false},
+		{"новее", game.SaveFormat + 1, false},
+		{"новее, поле сменило тип", game.SaveFormat + 1, true},
+	} {
+		saves := newTestStore(t)
+		const sid = "other-format-1"
+		putEditedSave(t, saves, sid, cur, func(g map[string]any) {
+			g["format"] = tc.format
+			if tc.retype {
+				g["money"] = "4321"
+			}
+		})
+
+		s := peek(t, saves, savesTestConfig(), "?peek=1&sid="+sid)
+		if s.Exists || s.Alive || !s.Incompatible || s.SaveVersion != cur || s.Version != cur {
+			t.Fatalf("%s: сводка %+v, хотим incompatible, saveVersion и version %q", tc.name, s, cur)
+		}
+		c, ctx := dialSaves(t, saves, savesTestConfig(), time.Hour, "?sid="+sid)
+		first := readResume(t, ctx, c)
+		if first.Resumed || first.Money != 600 || first.Day != 1 {
+			t.Fatalf("%s: сейв поднялся: resumed=%v money=%d day=%d", tc.name, first.Resumed, first.Money, first.Day)
+		}
+		data, ok := saves.Load(sid)
+		if !ok {
+			t.Fatalf("%s: новая партия не записала сейв", tc.name)
+		}
+		var ss sessionSave
+		if err := json.Unmarshal(data, &ss); err != nil || ss.Game.Format != game.SaveFormat || ss.Version != cur || ss.Game.Money != 600 {
+			t.Fatalf("%s: файл сейва format=%d version=%q money=%d err=%v — хотим новую партию формата %d", tc.name, ss.Game.Format, ss.Version, ss.Game.Money, err, game.SaveFormat)
 		}
 	}
 }

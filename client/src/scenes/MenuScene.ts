@@ -197,7 +197,7 @@ export class MenuScene extends Phaser.Scene {
       this.menuUI.push(zBg, zTxt)
     })
 
-    // Версия сборки (ITGAME-140): с ней сервер сверяет сейв — игрок видит, на какой он версии.
+    // Версия сборки (ITGAME-140): игрок видит, на какой он версии; сейв сверяется по формату (ITGAME-169).
     this.menuUI.push(tag(
       this.add.text(GAME_W - 16, GAME_H - 12, `версия ${__BUILD_VERSION__}`, { fontFamily: FONT, fontSize: '12px', color: DIM })
         .setOrigin(1, 1),

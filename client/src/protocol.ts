@@ -286,8 +286,8 @@ export interface SaveSummaryMessage {
   difficulty: DifficultyId | ''
   outcome: '' | 'won' | 'lost' // финал, случившийся офлайн
   reason: '' | 'bankrupt' | 'time_up' | 'deadlock'
-  // ITGAME-140: version — сборка сервера ('' — без версии); сейв другой сборки — exists false,
-  // incompatible true, saveVersion писавшей его сборки ('' — сейв до ITGAME-140).
+  // ITGAME-140/169: version — сборка сервера ('' — без версии), для людей; сейв другого
+  // формата — exists false, incompatible true, saveVersion писавшей его сборки ('' — сейв до ITGAME-140).
   version: string
   incompatible: boolean
   saveVersion: string

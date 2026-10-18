@@ -594,6 +594,15 @@ func TestRestoreRejectsSaveBeforeVirus(t *testing.T) {
 	}
 }
 
+// Сейв новее сервера тоже не читается (ITGAME-169): формат решает в обе стороны, миграций нет.
+func TestRestoreRejectsNewerFormat(t *testing.T) {
+	s := virusGame(2).Export()
+	s.Format = SaveFormat + 1
+	if _, err := Restore(s); !errors.Is(err, ErrBadSave) {
+		t.Fatalf("сейв формата %d: %v, хотим %v", s.Format, err, ErrBadSave)
+	}
+}
+
 // Одинаковый сид — одинаковые цели вспышки и волн (реплей ITGAME-46).
 func TestVirusDeterministicBySeed(t *testing.T) {
 	run := func() [][]int {

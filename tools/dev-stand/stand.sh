@@ -92,9 +92,9 @@ deploy() {
   local src=$1 sha=$2 lock ver
   # Версия — время коммита по Москве (MSK-3: POSIX TZ, UTC+3 без tzdata); читается, пока мы
   # ещё в bare-репо хука (его GIT_DIR и карантин объектов), в выкладке .git нет. Пусто —
-  # сервер не сверяет сейвы, и об этом надо сказать.
+  # меню и /api/version останутся без версии, и об этом надо сказать.
   ver=$(TZ=MSK-3 git log -1 --format=%cd --date=format-local:%Y.%m.%d.%H.%M "$sha" 2>/dev/null || true)
-  [ -n "$ver" ] || say "ВНИМАНИЕ: версия сборки не определилась (не из хука?) — сейвы сверяться не будут"
+  [ -n "$ver" ] || say "ВНИМАНИЕ: версия сборки не определилась (не из хука?) — меню и /api/version будут без версии"
   # Хук git отдаёт свои GIT_* (bare-репо, карантин объектов) — сборке они чужие.
   unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_QUARANTINE_PATH \
     GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PUSH_OPTION_COUNT

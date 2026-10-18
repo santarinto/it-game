@@ -765,7 +765,7 @@ export interface ItdContract {
 export interface ItdApi {
   /**
    * Штамп сборки: {sha, builtAt, version} + `<meta name="build">` в html; version —
-   * год.мес.день.час.мин коммита (ITGAME-140): с ней сервер сверяет сейв, она же в меню.
+   * год.мес.день.час.мин коммита (ITGAME-140), она же в меню; сейв ею не сверяется (ITGAME-169).
    * @example itd.version
    */
   readonly version: { sha: string; builtAt: string; version: string }
@@ -1931,7 +1931,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
                                        Пример: itd.log(200).filter(e => e.type === 'sound').map(e => e.key)
   itd.errors()                      — ошибки страницы (window.onerror + unhandledrejection), переживают перезагрузку вкладки: load — номер загрузки
   itd.net(20)                       — последние сообщения WS в обе стороны + сокет/rtt/реконнекты/rev; info: out — id, state — rev/cause/re, error — code/re/rev
-  itd.version                       — {sha, builtAt, version} сборки (+ <meta name="build"> в html); version — год.мес.день.час.мин коммита, с ней сервер сверяет сейв (ITGAME-140)
+  itd.version                       — {sha, builtAt, version} сборки (+ <meta name="build"> в html); version — год.мес.день.час.мин коммита (ITGAME-140), для людей: сейв сверяется по формату (ITGAME-169)
   itd.sandbox('acc3')               — своя партия вкладки: sid a-acc3-<время> во вкладку, ключи владельца (localStorage itd.sid/itd.diff/itd.onboard, sessionStorage вкладки) запомнены → {ok, sid, owner:{sid, diff}}; новая партия и «Сдаться» берут новый sid песочницы, общий ключ не трогают; из меню (в партии — in_party)
   itd.sandbox.fakeOwner()           — «чужой» общий ключ itd.sid/itd.diff вызовом игры (проверить гард «Сдаться») → {sid, diff}; restore() вернёт настоящий
   itd.sandbox.restore()             — выйти из песочницы (из меню): {sidSame, diffSame, fake, restored, kept, removed} — sidSame/diffSame: общий ключ тот, что при входе (или fake); itd.sid/itd.diff: наше/стёртое значение возвращено, чужое (kept) не перетёрто; itd.onboard возвращается к значению при входе при любом отличии

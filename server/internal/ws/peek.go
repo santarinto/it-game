@@ -25,11 +25,22 @@ type saveSummaryMessage struct {
 	Difficulty string `json:"difficulty"` // easy | normal | hard | hardcore
 	Outcome    string `json:"outcome"`    // "" — жива; won | lost — финал случился офлайн
 	Reason     string `json:"reason"`     // причина поражения: bankrupt | time_up | deadlock
-	// Версии (ITGAME-140): Version — сборка сервера ("" — без версии); сейв другой сборки —
-	// Exists false, Incompatible true и SaveVersion писавшей его сборки ("" — сейв до ITGAME-140).
+	// Version — сборка сервера ("" — без версии), для людей (ITGAME-140). Сейв другого формата
+	// (ITGAME-169) — Exists false, Incompatible true и SaveVersion писавшей его сборки ("" — сейв до ITGAME-140).
 	Version      string `json:"version"`
 	Incompatible bool   `json:"incompatible"`
 	SaveVersion  string `json:"saveVersion"`
+}
+
+// saveHead — то, что читается из сейва любого формата (ITGAME-169): sid, версия сборки и формат
+// игры. Сейв другого формата может не лечь в sessionSave этой сборки целиком (поле сменило тип) —
+// по заголовку меню всё равно скажет «несовместим», а не «сейва нет».
+type saveHead struct {
+	SID     string `json:"sid"`
+	Version string `json:"version"`
+	Game    struct {
+		Format int `json:"format"`
+	} `json:"game"`
 }
 
 // summarize — факты сейва sid без захвата сессии и без записи: офлайн
@@ -45,12 +56,16 @@ func (h *Handler) summarize(sid string) saveSummaryMessage {
 	if !ok {
 		return msg
 	}
-	var ss sessionSave
-	if json.Unmarshal(raw, &ss) != nil || ss.SID != sid {
+	var head saveHead
+	if json.Unmarshal(raw, &head) != nil || head.SID != sid {
 		return msg
 	}
-	if staleSave(ss) {
-		msg.Incompatible, msg.SaveVersion = true, ss.Version
+	if incompatibleSave(head.Game.Format) {
+		msg.Incompatible, msg.SaveVersion = true, head.Version
+		return msg
+	}
+	var ss sessionSave
+	if json.Unmarshal(raw, &ss) != nil {
 		return msg
 	}
 	g, err := game.Restore(ss.Game)

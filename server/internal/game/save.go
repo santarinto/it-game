@@ -17,10 +17,14 @@ import (
 // сессия начинается заново.
 var ErrBadSave = errors.New("bad_save")
 
-// SaveFormat — версия формата сейва, её пишет Export. Сейв младше не
-// читается (ErrBadSave), без миграции — решение владельца 16.10 (не прод):
-// 1 — ITGAME-103, вирус живёт на местах, а конфиг без VirusSpreadTicks и
-// OfficeCols встал бы нулями и сломал волну. Сейв без поля — формат 0.
+// SaveFormat — версия формата сейва, её пишет Export. Сейв другого формата — старше или новее —
+// не читается (ErrBadSave), миграций нет; сейв того же формата продолжается на любой сборке
+// (ITGAME-169, правило владельца 18.10). Любое добавленное, убранное или изменённое поле Save —
+// на любой глубине: ключ, тип, опции json-тега — поднимает формат; это держит TestSaveShape
+// (слепок testdata/save_shape.txt). Поля конфига, добавленные в формат 1 до правила (аудит,
+// клики ремонта, тарифы антивируса, цены админа), Restore дописывает из уровня сейва.
+// 1 — ITGAME-103: вирус живёт на местах, конфиг без VirusSpreadTicks и OfficeCols встал бы
+// нулями и сломал волну. Сейв без поля — формат 0.
 const SaveFormat = 1
 
 // Save — сериализуемый слепок Game: конфиг плюс все поля состояния.
@@ -153,8 +157,8 @@ func bindActiveEvent(events []DayEvent, active *DayEvent) ([]DayEvent, *DayEvent
 // Restore — игра из сейва. Ошибку возвращает ErrBadSave: битые сейвы
 // молча заменяются новой игрой, это не авария сервера.
 func Restore(s Save) (*Game, error) {
-	if s.Format < SaveFormat {
-		return nil, fmt.Errorf("%w: формат %d < %d — сейв до ITGAME-103", ErrBadSave, s.Format, SaveFormat)
+	if s.Format != SaveFormat {
+		return nil, fmt.Errorf("%w: формат %d, сервер читает только %d — миграций нет", ErrBadSave, s.Format, SaveFormat)
 	}
 	if s.Day < 1 || len(s.Offices) == 0 || !s.Offices[0].Unlocked {
 		return nil, fmt.Errorf("%w: day=%d offices=%d", ErrBadSave, s.Day, len(s.Offices))

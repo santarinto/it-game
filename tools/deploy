@@ -143,7 +143,8 @@ say "релиз $ID: $(git -C "$CHECKOUT" log -1 --pretty=%s "$sha")"
 mkdir -p "$REL" "$CACHE/go" "$CACHE/npm" "$CACHE/go/pkg" "$CACHE/go/build"
 git -C "$CHECKOUT" archive "$sha" | tar -x -C "$REL"
 # Версия сборки (ITGAME-140): время коммита по Москве (MSK-3 — POSIX TZ, UTC+3 без tzdata);
-# с ней сервер сверяет сейвы, клиент показывает её в меню. В архиве .git нет — считаем здесь.
+# для людей — меню, /api/version, сейв и журнал (сейвы сверяются по формату, ITGAME-169).
+# В архиве .git нет — считаем здесь.
 ver=$(TZ=MSK-3 git -C "$CHECKOUT" log -1 --format=%cd --date=format-local:%Y.%m.%d.%H.%M "$sha")
 say "версия сборки $ver"
 

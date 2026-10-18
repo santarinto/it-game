@@ -110,9 +110,9 @@ func TestDayReportVirus(t *testing.T) {
 	}
 }
 
-// Сейв до ITGAME-103 не читается (решение владельца 16.10, без миграции):
-// меню говорит «сейва нет», подключение с тем же sid начинает новую
-// партию, и её первый сейв перезаписывает старый файл.
+// Сейв до ITGAME-103 (формат 0) не читается (решение владельца 16.10, без миграции): меню
+// показывает карточку «несовместим», подключение с тем же sid начинает новую партию, и её первый
+// сейв перезаписывает старый файл.
 func TestSaveBeforeVirusStartsNewParty(t *testing.T) {
 	const sid = "pre-virus-1"
 	saves := newTestStore(t)
@@ -127,8 +127,8 @@ func TestSaveBeforeVirusStartsNewParty(t *testing.T) {
 		t.Fatal("не удалось записать тестовый сейв")
 	}
 
-	if s := peek(t, saves, savesTestConfig(), "?peek=1&sid="+sid); s.Exists || s.Alive {
-		t.Fatalf("сейв до ITGAME-103 в меню: %+v, хотим «сейва нет»", s)
+	if s := peek(t, saves, savesTestConfig(), "?peek=1&sid="+sid); s.Exists || s.Alive || !s.Incompatible {
+		t.Fatalf("сейв до ITGAME-103 в меню: %+v, хотим incompatible", s)
 	}
 	c, ctx := dialSaves(t, saves, savesTestConfig(), time.Hour, "?sid="+sid)
 	first := readResume(t, ctx, c)

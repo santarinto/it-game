@@ -239,8 +239,8 @@ func pickVersion(stamp string, bi *debug.BuildInfo) string {
 //
 //	go build -ldflags "-X itdirector/internal/ws.buildVersion=2026.10.17.01.25"
 //
-// Время коммита, а не сборки: пересборка того же коммита (рестарт стенда) — та же версия,
-// партии живут. Пусто (make build, selfServe QA) — vcs.time из чекаута.
+// Время коммита, а не сборки: пересборка того же коммита (рестарт стенда) — та же версия.
+// Пусто (make build, selfServe QA) — vcs.time из чекаута.
 var buildVersion string
 
 var buildVersionRe = regexp.MustCompile(`^\d{4}\.\d{2}\.\d{2}\.\d{2}\.\d{2}$`)
@@ -248,8 +248,9 @@ var buildVersionRe = regexp.MustCompile(`^\d{4}\.\d{2}\.\d{2}\.\d{2}\.\d{2}$`)
 // msk — время версии: зона владельца, без перехода на летнее время (UTC+3 с 2014).
 var msk = time.FixedZone("MSK", 3*60*60)
 
-// BuildVersion — версия сборки сервера; "" — сверить не с чем (go run, go test, архив без
-// штампа): сейвы тогда принимаются любые. Зовётся на каждый сейв (тик) — build info
+// BuildVersion — версия сборки сервера; "" — не определилась (go run, go test, архив без
+// штампа). Для людей: меню, /api/version, сейв, журнал; сейвы ею не сверяются (ITGAME-169).
+// Зовётся на каждый сейв (тик) — build info
 // разбирается один раз; штамп читается каждый раз (тесты его подменяют).
 func BuildVersion() string {
 	if buildVersionRe.MatchString(buildVersion) {

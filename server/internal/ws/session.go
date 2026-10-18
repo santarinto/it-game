@@ -217,16 +217,17 @@ type sessionSave struct {
 	Scenario    string          `json:"scenario"`      // фикстура старта (ITGAME-26)
 	Events      []string        `json:"events"`        // журнал событий сессии (ITGAME-26)
 	Rev         uint64          `json:"rev,omitempty"` // версия состояния (ITGAME-45); 0 — сейв до неё
-	// Version — версия сборки, писавшей сейв (ITGAME-140); "" — сейв до неё или сервер без версии.
+	// Version — версия сборки, писавшей сейв (ITGAME-140), — для людей (меню, журнал);
+	// совместимость решает формат игры (ITGAME-169). "" — сейв до ITGAME-140 или сервер без версии.
 	Version string `json:"version,omitempty"`
 }
 
-// staleSave — сейв написан другой сборкой (ITGAME-140, решение владельца 17.10): сверяется
-// версия сборки, а не формат сейва, так что любой деплой (git push stand main, зелёный main)
-// начинает партии заново. Сервер без версии (go run, go test) не сверяет.
-func staleSave(ss sessionSave) bool {
-	cur := BuildVersion()
-	return cur != "" && ss.Version != cur
+// incompatibleSave — сейв другого формата (ITGAME-169, правило владельца 18.10): старше или новее
+// game.SaveFormat — не продолжается, миграций нет. Версия сборки не сверяется: сейв того же
+// формата продолжается на любой сборке, деплой партию не сбрасывает (с ITGAME-140 до ITGAME-169
+// сверялась версия — любой деплой начинал все партии заново).
+func incompatibleSave(format int) bool {
+	return format != game.SaveFormat
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -613,9 +614,9 @@ func (h *Handler) resume(sid string, gen uint64, rt *resumeTrace) (g *game.Game,
 		return nil, 1, nil, nil, false, "", journal, time.Time{}, 0
 	}
 	var ss sessionSave
-	// Сейв другой сборки — как битый (ITGAME-140): новая партия под тем же sid, её первый
+	// Сейв другого формата — как битый (ITGAME-169): новая партия под тем же sid, её первый
 	// сейв перезапишет файл; меню об этом уже сказало (save_summary.incompatible).
-	if json.Unmarshal(raw, &ss) != nil || ss.SID != sid || staleSave(ss) {
+	if json.Unmarshal(raw, &ss) != nil || ss.SID != sid || incompatibleSave(ss.Game.Format) {
 		h.Saves.Finish(sid, gen) // не Delete: тот закрыл бы kick — наш же (владеем с Begin)
 		return nil, 1, nil, nil, false, "", journal, time.Time{}, 0
 	}
