@@ -67,13 +67,17 @@ var (
 )
 
 // opaque — тип, внутрь которого слепок не смотрит, а называет его по имени: закреплённый своим
-// слепком (Skip) или со своим MarshalJSON/MarshalText — его JSON пишет метод, а не поля (time.Time).
+// слепком (Skip) или со своим MarshalJSON/MarshalText на самом типе — его JSON пишет метод, а не
+// поля (time.Time). Метод только у *T тип opaque не делает: encoding/json зовёт его лишь там,
+// где значение адресуемо (элементы срезов, всё под указателем — offices[], lastReport), а по
+// цепочке значений (сейв маршалится по значению) пишет поля. Пин всюду обходит поля: в худшем
+// случае лишний подъём формата, пропущенного поля нет. Поле *T — opaque уже указателем.
 func (p Pin) opaque(typ reflect.Type) bool {
 	if slices.Contains(p.Skip, typ) {
 		return true
 	}
 	for _, m := range []reflect.Type{jsonMarshaler, textMarshaler} {
-		if typ.Implements(m) || reflect.PointerTo(typ).Implements(m) {
+		if typ.Implements(m) {
 			return true
 		}
 	}
@@ -152,24 +156,30 @@ func (p Pin) verdict(golden string, shape []string) (fix, file string) {
 	pin := func(n int) string { return fmt.Sprintf("format %d\n%s\n", n, strings.Join(shape, "\n")) }
 	head, body, _ := strings.Cut(golden, "\n")
 	var pinned int
-	if _, err := fmt.Sscanf(head, "format %d", &pinned); err != nil || head != fmt.Sprintf("format %d", pinned) {
-		// Блока для вставки нет намеренно: слепок, созданный заново по текущей структуре при том же
-		// SaveFormat, позеленел бы без подъёма формата.
-		return fmt.Sprintf("%s нет или в нём нет первой строки «format N»: восстанови его из git "+
-			"(git checkout -- %s), заново по структуре он не создаётся — иначе новое поле "+
-			"позеленело бы без подъёма SaveFormat", p.path(), p.path()), ""
-	}
 	var keys []string
 	if b := strings.TrimRight(body, "\n"); b != "" {
 		keys = strings.Split(b, "\n")
+	}
+	_, err := fmt.Sscanf(head, "format %d", &pinned)
+	if err != nil || head != fmt.Sprintf("format %d", pinned) || len(keys) == 0 && len(shape) > 0 ||
+		slices.ContainsFunc(keys, func(k string) bool { return k == "" || strings.TrimSpace(k) != k }) {
+		// Блока для вставки нет намеренно: слепок, созданный заново по текущей структуре при том же
+		// SaveFormat, позеленел бы без подъёма формата. Слепок из одной строки «format N», с пустой
+		// строкой или пробелом по краю ключа (правка руками, merge) — тоже испорченный: иначе
+		// ключи вышли бы «новыми» и вердикт толкал бы к подъёму.
+		// Путь — :/ от корня репо: go test идёт в каталоге пакета.
+		return fmt.Sprintf("%s нет, в нём нет первой строки «format N», нет ни одного ключа или есть "+
+			"пустая строка или пробел по краю ключа: "+
+			"восстанови его из git (git checkout -- :/%s), заново по структуре он не создаётся — "+
+			"иначе новое поле позеленело бы без подъёма SaveFormat", p.path(), p.path()), ""
 	}
 	diff := shapeDiff(keys, shape)
 	switch {
 	case pinned == format && diff == "":
 		return "", ""
 	case pinned == format:
-		return fmt.Sprintf("структура %s изменилась (%s), а SaveFormat всё ещё %d. Правило владельца (ITGAME-169, "+
-			"ITGAME-175): любое добавленное, убранное или изменённое поле файла сейва — game.Save и ws.sessionSave "+
+		return fmt.Sprintf("структура %s изменилась (%s), а SaveFormat всё ещё %d. Правило владельца ITGAME-169 "+
+			"(на весь sessionSave — ITGAME-175): любое добавленное, убранное или изменённое поле файла сейва — game.Save и ws.sessionSave "+
 			"вокруг него — поднимает формат, миграций нет. Подними SaveFormat в %s до %d и замени %s блоком выше",
 			p.Root, diff, format, saveGo, format+1, p.path()), pin(format + 1)
 	case pinned > format:

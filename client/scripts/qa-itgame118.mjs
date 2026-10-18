@@ -9,7 +9,7 @@
 // ITGAME_DEBUG=1 — itd.scenario/itd.set/itd.advanceDays ходят в /api/debug/*).
 //   D1  Hard + itd.scenario('doomed_debt'): state.bankruptInDays > 0, плашка hud.doom
 //       с «До банкротства N …», кнопки hud.doom.surrender и hud.doom.close, строка в журнале,
-//       hud.debt «Долг -$2,000 из -$5,000 · 10%/день»
+//       hud.debt «Долг -$2,000 из -$5,000 · 10%/день», itd.state().debtLimit = creditLimit = 5000 (ITGAME-177)
 //   D2  настоящий клик по hud.doom.close: плашка снята; через тики того же дня не возвращается
 //   D3  следующий день (advanceDays(1), утро): плашка снова, N на 1 меньше
 //   D4  настоящий клик по «Сдаться»: окно «Удалить партию навсегда?», партия на паузе;
@@ -82,6 +82,9 @@ try {
       ids: doomIds(),
       text: node ? node.text : null,
       debt: window.itd.nodes().find((n) => n.id === 'hud.debt')?.text ?? null,
+      // ITGAME-177: на кредите порог долга в itd.state() — лимит кредита
+      debtLimit: window.itd.state().debtLimit,
+      creditLimit: window.itd.state().creditLimit,
       log: window.itd.log().filter((e) => e.type === 'log' || e.type === 'toast').map((e) => e.text).filter((t) => /банкрот/i.test(t || '')),
     }
   }, doomIds.toString())
@@ -90,7 +93,7 @@ try {
     d1.diff === 'hard' && d1.days > 0 &&
       ['hud.doom', 'hud.doom.text', 'hud.doom.surrender', 'hud.doom.close'].every((id) => d1.ids.includes(id)) &&
       typeof d1.text === 'string' && d1.text.startsWith(`До банкротства ${d1.days} `) &&
-      d1.debt === 'Долг -$2,000 из -$5,000 · 10%/день',
+      d1.debt === 'Долг -$2,000 из -$5,000 · 10%/день' && d1.debtLimit === 5000 && d1.creditLimit === 5000,
     JSON.stringify(d1),
   )
 

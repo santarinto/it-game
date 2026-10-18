@@ -326,25 +326,38 @@ import `ws`, and a test file of one package is invisible to another):
 line `game game.Save` left to the first pin. Each walks its type the way
 `encoding/json` names keys (`format N`, then one `key type` per line; a type
 with its own `MarshalJSON`/`MarshalText` is named, not walked: `savedAt
-time.Time`). A changed structure with the same `SaveFormat` is red and prints
-the new file with `format N+1`: bump `SaveFormat` to N+1 and replace the file
-with it (pasted without the bump it stays red); the other pin then goes red
-with «SaveFormat поднят до N+1» and prints its own file — a bump re-pins both. A
-golden that is missing or garbled is restored from git, never recreated (a
-fresh one would go green without the bump). The pins see structure only — keys,
-kinds, tag options: a changed meaning or unit of an existing field, an enum
-value added or removed (`Phase`, `EventID`, `Difficulty` are plain strings to
-them), what a custom `MarshalJSON` writes, a self-referential type (the walk
-would not end) are invisible to them and still need a manual `SaveFormat` bump
-by the rule. A game-rule change that reads
-still-valid stored values differently is not a format change: old saves load
-and play on under the new rule, no bump (ITGAME-156: `CreditLimit == 0` now
-means an overdraft down to one day's payroll instead of instant bankruptcy,
-`SaveFormat` unchanged). A bump is for a save that would decode wrongly or
-hold values the new code cannot honour. Config fields added to format 1 before
-the rule (audit, repair clicks, antivirus tiers, admin prices) are filled by
-`Restore` from the save's difficulty. Format 1 is the virus on
-seats — a save from before it has no `format`.
+time.Time`; a method on `*T` only does not make a type opaque —
+`encoding/json` calls it only where the value is addressable, slice elements
+and anything behind a pointer (`offices[]`, `lastReport`), and writes the
+fields elsewhere, so the pin walks the fields everywhere: at worst one bump
+too many, never a missed field). Outside both pins is the store's envelope
+(`store.diskEnvelope`: `savedAt` and `data`, which holds `sessionSave`): its
+two keys are frozen — a bump cannot help there (the format is read inside
+`data`), a renamed key makes every save unreadable and `Load` drops it. Also
+frozen, though inside the pins, is `sid`: the menu reads it with `version`
+and `game.format` from a save of any format (`saveHead`, `ws/peek.go`), and
+a renamed `sid` turns every old save into «no save» instead of the
+incompatible card even with the bump (renaming `version` or `game.format`
+along with `saveHead` still ends at the card). A changed structure with the
+same `SaveFormat` is red and prints the new file with `format N+1`: bump
+`SaveFormat` to N+1 and replace the file with it (pasted without the bump it
+stays red); the other pin then goes red with «SaveFormat поднят до N+1» and
+prints its own file — a bump re-pins both. A golden that is missing or
+garbled is restored from git, never recreated (a fresh one would go green
+without the bump). The pins see structure only — keys, kinds, tag options: a
+changed meaning or unit of an existing field, an enum value added or removed
+(`Phase`, `EventID`, `Difficulty` are plain strings to them), what a custom
+`MarshalJSON` writes, a self-referential type (the walk would not end) are
+invisible to them and still need a manual `SaveFormat` bump by the rule. A
+game-rule change that reads still-valid stored values differently is not a
+format change: old saves load and play on under the new rule, no bump
+(ITGAME-156: `CreditLimit == 0` now means an overdraft down to one day's
+payroll instead of instant bankruptcy, `SaveFormat` unchanged). A bump is
+for a save that would decode wrongly or hold values the new code cannot
+honour. Config fields added to format 1 before the rule (audit, repair
+clicks, antivirus tiers, admin prices) are filled by `Restore` from the
+save's difficulty. Format 1 is the virus on seats — a save from before it
+has no `format`.
 
 A save of another format behaves like a broken one, except that the menu says
 why: the peek reads the sid, the version and `game.format` before the rest (a
@@ -727,15 +740,15 @@ that loop keeps `UnpaidToday` and would understate it) hand `settleDebt` what
 they charged. A day that starts at ≥ 0 cannot bankrupt on Easy/Normal that
 evening (the charge equals the limit) unless an event fine deepens it.
 `state.debtLimit` = `Game.DebtLimit()`; `state.creditLimit` stays the config
-value (0 on Easy/Normal); `itd.state()` carries both (ITGAME-177). The
-HUD's `hud.debt` reads «Долг -$X из -$Y ·
-R%/день» on credit and «Овердрафт -$X (мин. лимит -$Y)» on overdraft (the
-owner's wording, ITGAME-178) and sits in the second row right after «Расходы
-$Y/день» (`hud.payroll`) — the overdraft limit is that same number; the
-evening journal line (report and `hud.log`) «кредит: долг $X под R%/день» /
-«овердрафт: долг $X из $Y (расходы дня), без процентов». The limit is
-derived, not stored: no `Config`/`Save` field, `SaveFormat` unchanged, a save
-from before ITGAME-156 continues under the new rule.
+value (0 on Easy/Normal); `itd.state()` carries both (ITGAME-177). The HUD's
+`hud.debt` reads «Долг -$X из -$Y · R%/день» on credit and «Овердрафт -$X
+(мин. лимит -$Y)» on overdraft (the owner's wording, ITGAME-178) and sits in
+the second row right after «Расходы $Y/день» (`hud.payroll`) — the overdraft
+limit is that same number; the evening journal line (report and `hud.log`)
+«кредит: долг $X под R%/день» / «овердрафт: долг $X из $Y (расходы дня), без
+процентов». The limit is derived, not stored: no `Config`/`Save` field,
+`SaveFormat` unchanged, a save from before ITGAME-156 continues under the
+new rule.
 
 **Repair clicks k/N** (ITGAME-93): a breakdown rolls its own N — uniform
 `RepairClicksMin..RepairClicksMax` (3..15) from the server's seeded PCG, right
@@ -748,8 +761,9 @@ N, survives `next_day`, the offline catch-up (`resetForNextDay`, the day
 template) and the forecast, until it is clicked away, the master comes or the
 office's admin gets to it (ITGAME-101: then the forecast and the catch-up
 repair it on his schedule, see «Admins») —
-`make sim`'s `random` policy never repairs, so its parties now end bankrupt
-(normal 300×30: 39 survivors → 0). Saves from before ITGAME-93 (a broken PC without
+`make sim`'s `random` policy never repairs, so its parties no longer live 30
+days (normal 300×30: 39 timeouts → 0; they end bankrupt, 90, or in deadlock,
+210). Saves from before ITGAME-93 (a broken PC without
 `RepairNeeded`, a config with the old `RepairClicksNeeded`) restore as N = 3
 and the 3..15 range. `make sim` models clicks as free (greedy clicks until
 repaired), so N does not move its economics — what it changes is the player's
@@ -1433,7 +1447,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:buttons` | buy-button enabled/tooltip/alpha states (ITGAME-17); R1–R7 the room action column (ITGAME-94): `btn.pc`/`hire`/`boss` in the `office` scene at x 1142, 128×44, y 384/438/492, no overlap with any office object; the `room.tooltip` sits left of the column; a real mouse click at the `screen()` point buys a PC; under the router window `hit()` fails, `X`, no tooltip; in a locked office the column is hidden and `itd.click` answers `code: 'hidden'`; `btn.gateway` in `serverRoom` at x 1142 y 452; AV1–AV8 the antivirus (ITGAME-137): `btn.antivirus` in `serverRoom` at x 1142 y 506 128×44, a real click opens «Антивирус» with three tiers and «Отключить» disabled (`D`, a click sends nothing), a real click on SOHO Edition sends `set_antivirus` slot 1 (button «Антивирус / SOHO Edition», first seats covered, billed $12), at $10 the current tier and the upgrades are `D` and «Отключить» sends slot 0 with the day still billed $12, a shield per covered seat in the office, the day report line «Антивирус: -$12» | :4180, self-serve |
 | `npm run qa:tabs` | multi-tab session takeover (ITGAME-35); T0 the `Storage.prototype` probe; T1–T2 storage fully blocked (ITGAME-80): «Сохранить и выйти» → «Продолжить» resumes the same sid from tab memory, after a reload no «Продолжить» and a new sid | :4179, self-serve + temp saves dir |
 | `npm run qa:hud` | HUD layout column (left block right ≤ 832 since ITGAME-94, right column left ≥ 848), toast stack, no overlaps (ITGAME-16); goal/day bars G1–G3/D1–D3, tab locks L1–L3, event log E1–E3, onboarding coach O1–O6 (ITGAME-21); `virus_outbreak` V1 «☣ 2»/«☣ 1» under the office tabs, none under О3, V2 a live wave (`virusWaveIn` 1 by `itd.restore`, speed 3) grows the badges to the company total with no wave toast, V3 the day report line «Вирус:     +k ПК за день (−$X)» (ITGAME-138, ITGAME-146), V4 the `hud.log` strip after that report: one time per line, «к вечеру заражено m ПК» with the server's own time, the day summary last (ITGAME-150), no line twice; V5 the strip live (ITGAME-163): «HH:MM вирус в офисе 1: 2 ПК» from `state.dayLog` before any report, «чистим вручную» right after `event_choice`; V6 after `next_day` «10:00 Утро, день N+1» right below the day summary | :4174, self-serve |
-| `npm run qa:doom` | the doomed-party plate (ITGAME-118) and the overdraft (ITGAME-156): D1 Hard + `doomed_debt` — `bankruptInDays` > 0, `hud.doom` «До банкротства N …» with «Сдаться» and ✕, `hud.debt` «Долг -$2,000 из -$5,000 · 10%/день»; D2 a real click on ✕ hides it for the rest of the day; D3 next morning it is back with N − 1; D4 a real click on «Сдаться» → «Удалить партию навсегда?» paused, «Отмена» back with the speed; D5 no overlaps/offscreen; D6 `fresh` — no plate; D7 Normal + `doomed_debt` — `creditLimit` 0, `debtLimit` 750 = `payrollPerDay` in the snapshot and in `itd.state()` (ITGAME-177), N = 1, «Овердрафт -$2,000 (мин. лимит -$750)» in the «Расходы» row right of `hud.payroll`, right edge ≤ 832; D8 at −$100 N ≥ 2 and the line follows; D9 a live evening from $400 at tick 53 — `day_report`, «19:00 овердрафт: долг $X из $750 (расходы дня), без процентов» in `hud.log` and the report, `interest` 0, the book balanced | :4188, self-serve, saves off |
+| `npm run qa:doom` | the doomed-party plate (ITGAME-118) and the overdraft (ITGAME-156): D1 Hard + `doomed_debt` — `bankruptInDays` > 0, `hud.doom` «До банкротства N …» with «Сдаться» and ✕, `hud.debt` «Долг -$2,000 из -$5,000 · 10%/день», `itd.state().debtLimit` = `creditLimit` = 5000; D2 a real click on ✕ hides it for the rest of the day; D3 next morning it is back with N − 1; D4 a real click on «Сдаться» → «Удалить партию навсегда?» paused, «Отмена» back with the speed; D5 no overlaps/offscreen; D6 `fresh` — no plate; D7 Normal + `doomed_debt` — `creditLimit` 0, `debtLimit` 750 = `payrollPerDay` in the snapshot and in `itd.state()` (ITGAME-177), N = 1, «Овердрафт -$2,000 (мин. лимит -$750)» in the «Расходы» row right of `hud.payroll`, right edge ≤ 832; D8 at −$100 N ≥ 2 and the line follows; D9 a live evening from $400 at tick 53 — `day_report`, «19:00 овердрафт: долг $X из $750 (расходы дня), без процентов» in `hud.log` and the report, `interest` 0, the book balanced | :4188, self-serve, saves off |
 | `npm run qa:facade` | `window.itd` `active`/`log()`/`overlaps()` kind (ITGAME-38); HUD `+X/день` = the day's profit on `mid_day10` (ITGAME-49); `itd.step({ticks})` advances > 10 ticks per call (ITGAME-56); UI-scale ids/cycle and a stored 2× → «по окну»; canvas-vs-window `offscreen()` entry (ITGAME-61); a throwing `localStorage` for `itd.uiScale` neither breaks the load nor the zoom choice (ITGAME-67); ⏸ on pause is an amber block, speed(1) restores it (ITGAME-62); `itd.screen()` on the day report — title, blocker, `X`/`free`/`frame`, `D` on a buy button without money (ITGAME-72), the office's `btn:pc` under the report dim is `X` and `hit()` fails (S2b, ITGAME-94); build stamp and «устарело, обнови» on a faked stand `index.html`, `itd.stale()` (ITGAME-78); `itd.sandbox()`: the owner's shared key survives «Сдаться» and a second party, `fakeOwner()`, `restore()` puts back / keeps (ITGAME-77); `itd.stack()` under the day report: the dimmer wins over `btn.menu`, same as `hit().top` (ITGAME-74); `hit()` and the `X` flag follow the real hit area — a 1×1 hitArea on `btn.next_day` makes it covered (owner 10.10); S4 the exit window's ✕ over the event card stays out of `btn:event:1`'s `screen()` label, H3 a rectangle added in this frame: `stack()` and a same-instant canvas mousedown both miss it, after one `requestAnimationFrame` both get it (ITGAME-113); `itd.play()` on `fresh` (seed 7): hire → hire `FAIL no_free_pc` → day → buy_pc → hire `FAIL not_enough_money` → day with the balances 600>300>614>39>353, `itd.ledger()` books balanced, `adjust` after `itd.set` (ITGAME-73); K1 the office tooltip's text in its hidden container is `visible: false`, K2 «ТУПИК» and the day report give 0 overlaps entries from the dim (22 with the `dim` mark removed) (ITGAME-87); K3 `nodes().fill`, K4 `menuReady` false right after `sandbox.restore()` and the plate still for 1.5 s after it, `stale().shown` false/true/false (ITGAME-88); L1–L3 and L6 storage fully blocked — both getters and `Storage.prototype` throw `SecurityError` (ITGAME-80): the menu loads without «Продолжить», a party starts, the `hire` receipt is ok, «Первые кадры» toasts once, the report pause keeps 3× in tab memory; without `?debug=1` (no `window.itd`) no pageerror and the `2` key starts a party (the «Продолжить» round trip needs saves on disk — it is in `qa:tabs` T1–T2) | :4175, self-serve |
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks; `broken_pc`: one zone `office.slot.0` covers the worker and the «✖ чинить k/N» label, real clicks repair 0/3 → 1/3 → 2/3 → repaired, then the same zone motivates; right click and tooltip shared (ITGAME-75/92/93); `virus_outbreak` (ITGAME-138): a real click on «Чистить вручную» closes the card, «☣ вирус 0/3» on seats 1 and 6 only, the plate «☣ вирус: 2 из 9 мест · волна в 12:00», tab badges «☣ 2»/«☣ 1», the zone covers the worker and the label, exactly two lime-blinking zones and no red one, `itd.stack` wins `office.slot.0` at the label and the worker, no overlaps, the tooltip «ЗАРАЖЁН … 0/3», «вирус -30%», «мотивация: после чистки», right click opens the fire dialog and sends nothing, real clicks send `virus_click` 1/3 → 2/3 → clean (zone back to 64×64, plate «1 из 9», badge «☣ 1»), then the zone motivates; a broken infected seat (by `itd.restore`) shows «✖ чинить 0/3» in a red zone, the tooltip «после ремонта вирус останется», clicks send `repair_click`, and after the repair «☣ вирус 0/3» is back; the tooltip hides when the router/fire window opens and stays hidden after a snapshot and `itd.hover` (ITGAME-89); 3в with `?debug=1` frames: under the router window, the HUD exit dialog and the day report no frame of a covered object lies above the dim, every frame sits at its object's depth + 0.5, the window's own buttons are framed above it, also after a snapshot (ITGAME-84); EV1–EV4 the event card: `btn.event.0`/`btn.event.1` framed once each at 41.5 with the frames in `eventUI`, still once after a snapshot rebuilds the card, under the exit dialog's dim 70 together with the header, none left after the event is cleared; OF1–OF4 «Пока вас не было»: the final `btn.offline.menu`, then the ordinary report over it — `btn.offline.continue` framed once at 56.5 and the dim at 55.5 (frames in `offlineUI`, the final window's frames gone), header frames under 55 also after a snapshot, «Продолжить →» leaves no `btn.offline.*` frame or id (ITGAME-97); shelf (`spare_pcs`, no amenities): without a cooler `office.amenity.fridge`/`coffee_machine` are disabled, no hand cursor, «нужен кулер», hover shows «Сначала купите кулер» and real clicks send nothing; a real click on the cooler sends `buy_cooler`, then both cells open and real clicks send `buy_fridge`, `buy_coffee` with no server error (ITGAME-102) | :4177, self-serve |
 | `npm run qa:sprite-try` | `itd.sprite.try/reset/list` (ITGAME-119): a clean swap re-points live objects and reports `sha256`; an off-palette PNG is applied and named in `problems`; a sleeping scene's key; fallback keys stay independent; `unknown_key`/`bad_src`/`bad_size`/`not_tried`; no `crypto.subtle` → `sha256: null`; `reset()` restores the original pixels after two tries; `assets()`/`assetSet()` mark the key `tried`; `{filter: 'linear'}` sets LINEAR on the GL texture, the default stays NEAREST, `bad_filter`, `reset()` brings back NEAREST; the menu `icon_trophy` (ITGAME-83) keeps 16×16 under a 64px try, loads LINEAR as a `render: smooth` key, `try` defaults to linear for it and `assets()` reports it `smooth` with no off-palette colours | :4187, self-serve |
@@ -1501,16 +1515,17 @@ the audit fine share (`AuditFineShare`; `-1` keeps the config value) and
 `--audit-stats` prints one extra stderr line with the bankruptcies on a
 failed-audit day versus all bankruptcies and failed audits. Reference
 (300 seeds × 30 days, greedy): normal 0/300 bankrupt, easy 300/300 wins,
-hard 0/300 bankrupt, hardcore 19/300 bankrupt. ITGAME-156 (overdraft on
-Easy/Normal, 18.10, `--policy all`): normal random bankrupt 90 → 90 and
-deadlock 210 → 210 — the counts stay, but every one of the 90 bankruptcies
-moves exactly one day later (day 2–5 → day 3–6: the random policy earns $0
-once broke, so one evening of overdraft never becomes a recovery); easy
-random bankrupt 196 → 196, deadlock 72 → 72, timeout 32 → 32; greedy and
-idle unchanged (greedy/idle never end an evening below zero). `handsoff` /
-`delegate` (ITGAME-173, re-measured 19.10): normal handsoff bankrupt 19 → 0,
-median $37,680 → $38,218 — its 19 parties dip into overdraft for one evening
-and climb out; normal delegate, hard and easy byte-identical.
+hard 0/300 bankrupt, hardcore 12/300 bankrupt (the other 288 `time_up`).
+ITGAME-156 (overdraft on Easy/Normal, 18.10, `--policy all`): normal random
+bankrupt 90 → 90 and deadlock 210 → 210 — the counts stay, but every one of
+the 90 bankruptcies moves exactly one day later (day 2–5 → day 3–6: the
+random policy earns $0 once broke, so one evening of overdraft never becomes
+a recovery); easy random bankrupt 196 → 196, deadlock 72 → 72, timeout 32 →
+32; greedy and idle unchanged (greedy/idle never end an evening below zero).
+`handsoff` / `delegate` (ITGAME-173, re-measured 19.10): normal handsoff
+bankrupt 19 → 0, median $37,680 → $38,218 — its 19 parties dip into
+overdraft for one evening and climb out; normal delegate, hard and easy
+byte-identical.
 
 **visreg** loads each fixture scenario (`?scenario=X&seed=1&debug=1`) — so the `?debug=1` red frames are part of the shots — and the
 menu, screenshots the canvas and diffs it against

@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// ptrMarshaler — MarshalJSON только у указателя: поле-значение маршалится полями, поле-указатель —
+// методом (сейв пишется по значению, поле в нём неадресуемо).
+type ptrMarshaler struct{ C int }
+
+func (*ptrMarshaler) MarshalJSON() ([]byte, error) { return []byte(`"c"`), nil }
+
 // Обход слепка по правилам encoding/json: тег и имя поля, json:"-", неэкспортируемые, опции тега,
 // указатель, срез, карта, именованный тип — его kind; тип из Skip и тип со своим MarshalJSON —
 // имя типа без своих строк.
@@ -27,9 +33,11 @@ func TestSaveShapeWalk(t *testing.T) {
 		List   []leaf          `json:"list"`
 		Index  map[string]leaf `json:"index"`
 		Kind   phase
-		At     time.Time `json:"at"`
-		Other  pinned    `json:"other"`
-		Others []*pinned `json:"others"`
+		At     time.Time     `json:"at"`
+		Other  pinned        `json:"other"`
+		Others []*pinned     `json:"others"`
+		PtrM   ptrMarshaler  `json:"ptrM"`
+		PtrMs  *ptrMarshaler `json:"ptrMs"`
 		inner  int
 	}
 	got := Pin{Root: reflect.TypeFor[probe](), Skip: []reflect.Type{reflect.TypeFor[pinned]()}}.shape(t)
@@ -46,6 +54,9 @@ func TestSaveShapeWalk(t *testing.T) {
 		"opt.A int",
 		"other saveshape.pinned",
 		"others []*saveshape.pinned",
+		"ptrM struct",
+		"ptrM.C int",
+		"ptrMs *saveshape.ptrMarshaler",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("слепок probe:\n%s\nхотим:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -73,7 +84,10 @@ func TestSaveShapeVerdict(t *testing.T) {
 		{"слепок вставлен без подъёма", pinned(2, "a int", "b string"), 1, false, "", "подними SaveFormat в server/internal/game/save.go до 2"},
 		{"подъём со сменой структуры", pinned(1, "a int"), 2, false, pinned(2, "a int", "b string"), "SaveFormat поднят до 2"},
 		{"подъём без смены структуры", pinned(1, "a int", "b string"), 2, false, pinned(2, "a int", "b string"), "SaveFormat поднят до 2"},
-		{"слепка нет", "", 1, false, "", "восстанови его из git (git checkout -- server/internal/x/testdata/x.txt)"},
+		{"слепка нет", "", 1, false, "", "восстанови его из git (git checkout -- :/server/internal/x/testdata/x.txt)"},
+		{"слепок без ключей", "format 1\n", 1, false, "", "восстанови его из git"},
+		{"пустая строка в слепке", "format 1\na int\n\nb string\n", 1, false, "", "восстанови его из git"},
+		{"пробел в конце ключа", "format 1\na int \nb string\n", 1, false, "", "восстанови его из git"},
 		{"слепок испорчен", "format x\na int\n", 1, false, "", "восстанови его из git"},
 	} {
 		p := Pin{Root: reflect.TypeFor[struct{}](), Pkg: "server/internal/x", File: "testdata/x.txt", Format: tc.format}
