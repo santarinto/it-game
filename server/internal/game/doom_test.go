@@ -174,3 +174,87 @@ func TestBankruptInDaysOnlyWhileRunning(t *testing.T) {
 		t.Fatalf("в отчёте дня прогноз не считаем, получили %d", got)
 	}
 }
+
+// doomUnpaidHireGame — Normal, день 8, 15:30: начальник ($500), оплаченный
+// сотрудник ($250) и нанятый после обеда (сегодня без зарплаты). Расходы
+// сегодняшнего вечера $750, шаблона — $1000 (ITGAME-156).
+func doomUnpaidHireGame(t *testing.T, income int) *Game {
+	t.Helper()
+	g := doomedGame(t, DiffNormal)
+	g.TickInDay = 33 // 15:30, обед позади
+	o := &g.Offices[0]
+	o.PCs = 3
+	o.Boss = "Ирина Соколова"
+	o.Employees = []Employee{
+		{Name: "Артём Никитин", IncomePerTick: income, HireDay: 1},
+		{Name: "Мария Фёдорова", IncomePerTick: income, HireDay: 8, UnpaidToday: true},
+	}
+	g.beginLedger()
+	return g
+}
+
+// Овердрафт плавает с ФОТ вечера: сегодня порог и списание — живой
+// PayrollPerDay (нанятый после обеда не оплачен), дальше — шаблонный
+// (оплачен). Тест держит именно это переключение: с шаблонным ФОТ уже
+// сегодня прогноз расходится с офлайн-движком и по стартовому списанию, и по
+// сегодняшнему порогу.
+func TestBankruptInDaysTonightUsesLivePayroll(t *testing.T) {
+	dayTicks := DefaultConfig().DayTicks()
+	// Выработка, при которой чистая прибыль шаблона чуть ниже нуля: долг
+	// тает медленно, и N чувствителен к $250 разницы в ФОТ.
+	income := 0
+	for p := 1; p <= 40; p++ {
+		tpl := doomUnpaidHireGame(t, p).offlineTemplate()
+		tpl.MarketToday = 0
+		if tpl.sumIncome(0, dayTicks)-tpl.PayrollPerDay() >= 0 {
+			break
+		}
+		income = p
+	}
+	if income == 0 {
+		t.Fatal("не нашли выработку с чистой прибылью шаблона ниже нуля")
+	}
+	probe := doomUnpaidHireGame(t, income)
+	if tpl := probe.offlineTemplate(); probe.PayrollPerDay() != 750 || tpl.PayrollPerDay() != 1000 {
+		t.Fatalf("ФОТ сегодня %d (хотим 750), шаблона %d (хотим 1000)", probe.PayrollPerDay(), tpl.PayrollPerDay())
+	}
+
+	for _, c := range []struct {
+		name    string
+		tonight int // баланс после сегодняшнего списания
+		wantOne bool
+	}{
+		// −700 в пределах сегодняшних $750: жив, дальше шаблонный порог $1000.
+		{"alive_tonight", -700, false},
+		// −900 глубже сегодняшних $750, но в пределах шаблонных $1000: банкротство
+		// сегодня — порог живой, не шаблонный.
+		{"dead_tonight", -900, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			g := doomUnpaidHireGame(t, income)
+			tpl := g.offlineTemplate()
+			tpl.MarketToday = 0
+			g.Money = c.tonight - tpl.sumIncome(g.TickInDay, dayTicks) + g.PayrollPerDay()
+			g.beginLedger()
+			n := g.BankruptInDays()
+			if n < 1 || (n == 1) != c.wantOne {
+				t.Fatalf("прогноз %d, хотим %s", n, map[bool]string{true: "1", false: "≥ 2"}[c.wantOne])
+			}
+
+			// Эталон — офлайн-движок: n вечеров погибают, n−1 нет.
+			remain := dayTicks - g.TickInDay
+			dead := clone(t, g)
+			dead.AdvanceOffline(remain + (n-1)*dayTicks)
+			if dead.Phase != PhaseGameOver || dead.LoseReason != LoseBankrupt {
+				t.Fatalf("за %d вечеров ждали банкротство, получили phase=%s reason=%q money=%d", n, dead.Phase, dead.LoseReason, dead.Money)
+			}
+			if n > 1 {
+				alive := clone(t, g)
+				alive.AdvanceOffline(remain + (n-2)*dayTicks)
+				if alive.Phase == PhaseGameOver {
+					t.Fatalf("за %d вечеров партия уже погибла (%s), прогноз %d", n-1, alive.LoseReason, n)
+				}
+			}
+		})
+	}
+}
