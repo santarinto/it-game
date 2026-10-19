@@ -8,7 +8,7 @@ running costs. Sink deeper than a day's expenses (the credit line on the hard
 levels) at the end-of-day settlement and the company goes bankrupt. The
 game's UI is Russian-only (as are code comments and docs in this repo).
 
-Play: https://itgame.santarinto.com
+Play: https://itgame.santarinto.ru
 
 ![Office screen](docs/img/screenshot.png)
 
