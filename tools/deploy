@@ -6,9 +6,10 @@
 # commit ships its own deploy logic. The loader owns fetch/reachability/
 # checkout; this script owns everything after the checkout move.
 #
-# Ported from bin/deploy-local.sh (the gitflic-webhook era, retired with the
-# gitflic chain): same release shape (git-archive tree + built client dist +
-# bin/itdirector), same atomic current swap (rename(2)), same KEEP=3 pruning,
+# Ported from the old on-box deploy script of the gitflic-webhook era (retired
+# with that chain, removed in ITGAME-181): same release shape (git-archive
+# tree + built client dist + bin/itdirector), same atomic current swap
+# (rename(2)), same KEEP=3 pruning,
 # same "saves live in shared/ and survive releases". The host has NO go/node
 # toolchains — builds run in throwaway docker containers (santarinto is in the
 # docker group). Build caches are BIND mounts under /opt/itgame/cache, not
@@ -69,7 +70,7 @@ exec > >(tee -a "$LOG") 2>&1
 find_release() { ls -1 "$RELEASES" 2>/dev/null | grep -E -- "-${sha7}\$" | head -1 || true; }
 
 # Atomic current swap: build the symlink aside, rename(2) it into place —
-# readers never observe a missing/partial current (old deploy-local.sh).
+# readers never observe a missing/partial current (as the old on-box script did).
 swap_to() {
     ln -sfn "$1" "$ROOT/current.tmp"
     mv -T "$ROOT/current.tmp" "$ROOT/current"
@@ -157,7 +158,7 @@ say "1/4 сборка клиента (docker $NODE_IMAGE, кэш $CACHE/npm)"
 # stage deploy, 08.10).
 # BUILD_SHA (ITGAME-81/98): в архиве нет .git — без него штамп сборки
 # (<meta name="build">, itd.version) читался бы 'dev'. Тот же короткий sha,
-# что штампует bin/deploy-local.sh (vite принимает hex 7..40).
+# что штамповал прежний on-box деплой (vite принимает hex 7..40).
 # NODE_OPTIONS (MINIPC-256): бокс 90.156.129.221 — 1 ядро и 869 МБ; дефолтная
 # планка кучи V8 на такой машине РУБИТ vite-сборку («Reached heap limit»,
 # поймано первым живым деплоем туда). 768 МБ кучи + своп 2 ГБ собирают; на

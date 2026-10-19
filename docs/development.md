@@ -113,14 +113,11 @@ keeps the last `KEEP=3` releases and never prunes `current`.
   there and the pipeline events come from the CI jobs on the runners
   (minipc `deploy/itgame/README.md`).
 
-**Retired chain (since 08.10; the files stay in the repo — do not run
-them):** `bin/trigger-deploy.sh` (HMAC `X-Hub-Signature-256` POST to the
-on-box `/api/deploy` hook), the `deploy` job of `.github/workflows/ci.yml`
-(`DEPLOY_HOOK_SECRET`; the repo's only remote is Forgejo, so GitHub runs
-nothing) and, on the box, the wrapper `/usr/local/bin/itgame-deploy` +
-`bin/deploy-local.sh` (production only: reset of `/opt/itgame/repo`, Go on
-the host, an `/admin` probe on `127.0.0.1:8080`). `tools/deploy` is its
-port: same release layout, atomic swap and `KEEP=3`.
+**Retired chain (until 08.10, its files removed in ITGAME-181):** an HMAC
+POST to the on-box `/api/deploy` hook, a GitHub Actions `deploy` job, and on
+the box the wrapper `/usr/local/bin/itgame-deploy` running a production-only
+deploy script. `tools/deploy` is its port: same release layout, atomic swap
+and `KEEP=3`.
 
 Notes:
 
@@ -137,8 +134,7 @@ Notes:
   falls back to `git rev-parse`, then `dev`; the server falls back to
   `vcs.revision`, then `unknown`. `make build` and the QA self-serve build
   from a checkout and need neither. `tools/deploy` passes both as the short
-  sha (ITGAME-98, same as the retired `bin/deploy-local.sh`); releases built
-  before that read `dev` / `unknown`. Check a release:
+  sha (ITGAME-98); releases built before that read `dev` / `unknown`. Check a release:
   `curl -s https://<host>/ | grep -o '<meta name="build"[^>]*'`.
 - The **build version** (ITGAME-140) is stamped the same way: `BUILD_VERSION`
   for the client (`itd.version.version`, the menu's «версия …») and `-X
@@ -1582,9 +1578,7 @@ other branches (see [Deploy](#deploy)). Each job reports start/finish through
 that needs a browser or a running server — `smoke-ui` (menu and
 `OFFICE=1`), the `qa:*` suites, `live-check-*`, `visreg`. Run what your
 change touches locally (see [Tests](#tests)) before pushing to `main`: a
-green push there goes straight to stage and production (the pushed sha, which a quick second push can make differ from the one tested). The retired
-`.github/workflows/ci.yml` (jobs `server`, `client`, `visreg`, `deploy`)
-stays in the repo and runs nowhere.
+green push there goes straight to stage and production (the pushed sha, which a quick second push can make differ from the one tested).
 
 ## Claude Code cloud sessions
 
