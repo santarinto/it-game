@@ -8,6 +8,7 @@ import { OfficeScene } from './scenes/OfficeScene'
 import { ServerRoomScene } from './scenes/ServerRoomScene'
 import { AdminDeptScene } from './scenes/AdminDeptScene'
 import { installAgentApi } from './debug/agentApi'
+import { installCheats } from './debug/cheat'
 import { debug } from './debug'
 import { client } from './net'
 import { CLIENT_SHA, watchStale } from './buildstamp'
@@ -72,6 +73,9 @@ applyCanvasFilter(game, zoomNumber())
 
 // Агентский фасад window.itd (ITGAME-24): dev всегда, прод — ?debug=1.
 installAgentApi(game)
+
+// Чит денег в консоли (ITGAME-194): cheat.money() — только на localhost, без ?debug=1.
+installCheats()
 
 // Кэш «назад/вперёд» (ITGAME-19): уходя в bfcache, страница отпускает сессию
 // (client.suspend — иначе партия тикает онлайн без игрока); вернувшись —

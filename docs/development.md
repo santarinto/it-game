@@ -1533,6 +1533,20 @@ documenting separately:
   member needs a JSDoc comment (an `@example` tag is recommended) — the
   generator refuses to run without one.
 
+### Cheats (localhost)
+
+ITGAME-194. On `localhost`, `127.0.0.1`, `[::1]` or `*.localhost` the page
+installs a global `cheat` in every build, without `?debug=1`:
+`await cheat.money()` adds $10 000 to the tab's live party, and
+`cheat.money(50000)` adds $50 000. The call resolves to the new balance and
+logs it. It goes to `POST /api/cheat/money {sid, amount}` (amount 1..10 000 000).
+That route is registered without `ITGAME_DEBUG`, but it accepts only a local
+request: a loopback RemoteAddr, a localhost `Host`, and no `X-Real-IP` /
+`X-Forwarded-For` / `Forwarded` header. Everything else gets
+`403 not_local`. Prod nginx always sets `X-Real-IP`, so players there cannot
+reach it. The actor applies the cheat as the same money patch `itd.set` uses,
+so with `ITGAME_DEBUG` the replay journal records it as a debug patch.
+
 ## Tests
 
     make test         # Go (DB tests need TEST_DATABASE_URL, otherwise SKIP)
