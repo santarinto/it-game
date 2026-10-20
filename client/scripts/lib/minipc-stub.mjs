@@ -7,8 +7,8 @@
 // Формы сверены с настоящим minipc 20.10 (ITGAME-182; отказы и порядок проверок — по
 // живым ответам и исходнику minipc):
 //   GET  /jobs            → {items: [{taskId, about, created_at, keys: <число ключей>}]}
-//   POST /jobs            → 201, задание как в GET /jobs/{taskId}; ошибка тела — 422 {error, field}
-//   GET  /jobs/{taskId}   → {taskId, about, profile, class, created_at,
+//   POST /jobs            → 201, задание как в GET /jobs/{taskId}, ключи в порядке тела; ошибка тела — 422 {error, field}
+//   GET  /jobs/{taskId}   → {taskId, about, profile, class, created_at, ключи по алфавиту:
 //                            items: [{key, brief, ctx: {text, bg}, status, status_at,
 //                                     revisions: <число>, latest: {rev, sha256} | null, final: … | null}]}
 //                            (в POST контекст — context {text, bg, cropPng}; кроп в ответ не попадает)
@@ -106,6 +106,7 @@ function validateJob(body) {
   const colors = cls.colors
   if (!Array.isArray(colors) || colors.length === 0 || colors.length > 64) throw refuse(422, '1..64 colors are required', 'class.colors')
   for (const c of colors) if (typeof c !== 'string' || !/^[0-9a-fA-F]{6}$/.test(c)) throw refuse(422, `color '${c}' is not 6 hex digits without '#'`, 'class.colors')
+  if (new Set(colors.map((c) => c.toLowerCase())).size !== colors.length) throw refuse(422, 'colors repeat', 'class.colors')
   const items = body.items
   if (!Array.isArray(items) || items.length === 0) throw refuse(422, 'at least one item is required', 'items')
   if (items.length > 200) throw refuse(422, 'more than 200 items', 'items')
@@ -159,14 +160,17 @@ export async function startMinipcStub(opts = {}) {
     it.status = status
     it.statusAt = now()
   }
-  function publicJob(j) {
+  // GET /jobs/{taskId} отдаёт ключи по алфавиту (из базы), ответ POST /jobs — в порядке тела
+  // (сверено 20.10 на задании 4).
+  function publicJob(j, { byKey = true } = {}) {
+    const items = byKey ? [...j.items].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)) : j.items
     return {
       taskId: j.taskId,
       about: j.about,
       profile: j.profile,
       class: j.class,
       created_at: j.createdAt,
-      items: j.items.map((it) => ({
+      items: items.map((it) => ({
         key: it.key,
         brief: it.brief,
         ctx: it.ctx,
@@ -203,7 +207,7 @@ export async function startMinipcStub(opts = {}) {
         items: v.items.map((it) => ({ key: it.key, brief: it.brief, ctx: it.ctx, hasCrop: !!it.crop, status: 'open', statusAt: at, revs: [], final: null })),
       }
       jobs.set(taskId, j)
-      return publicJob(j)
+      return publicJob(j, { byKey: false })
     },
     addRevision: wrap((taskId, key, png, origin = { kind: 'edited', from: null }) => {
       if (!png?.length || png.length > MAX_PNG) throw refuse(422, 'a non-empty PNG of at most 2 MiB is required', 'png')

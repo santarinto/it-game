@@ -1,0 +1,72 @@
+{
+  "taskId": "4",
+  "about": "ITGAME-134",
+  "createdAt": "2026-10-20T13:33:22+00:00",
+  "spec": "scripts/sprites/minipc/jobs/ITGAME-134.json",
+  "specSha256": "a1273c68767e5abda47fa8a9dacb7ca541e538f22c43f5eda38e971e41906e13",
+  "profile": {
+    "version": "graphics@b8c8582",
+    "sha256": "681a6096552291ae6d781649775a614b14411bfa37f9e09952137cce51e6f0f2"
+  },
+  "class": "desk",
+  "keys": [
+    {
+      "key": "desk_pc_crt",
+      "status": "open"
+    },
+    {
+      "key": "desk_pc_lcd",
+      "status": "open"
+    },
+    {
+      "key": "desk_pc_dual",
+      "status": "open"
+    },
+    {
+      "key": "desk_ov_off",
+      "status": "open"
+    },
+    {
+      "key": "desk_ov_broken",
+      "status": "open"
+    },
+    {
+      "key": "desk_ov_virus",
+      "status": "open"
+    },
+    {
+      "key": "desk_ov_replace",
+      "status": "open"
+    }
+  ],
+  "crops": {
+    "desk_pc_crt": {
+      "bytes": 5785,
+      "sha256": "ee4fb816fc523380b485c626a270d6041a6fe5d111d6f22e405b24865f8c98b5"
+    },
+    "desk_pc_lcd": {
+      "bytes": 6061,
+      "sha256": "74a636e9a9745e4fe4335f49da8c075fdab33e434fccfabe5d8f443c27cb63ec"
+    },
+    "desk_pc_dual": {
+      "bytes": 5935,
+      "sha256": "04e7c819a88005ed06eadb03031e124dc0e281095eac6a772c37bbf3fba1150d"
+    },
+    "desk_ov_off": {
+      "bytes": 5496,
+      "sha256": "7e0a1fff1daff44e4c23a1bb43bb810808c6bb0a404d24a819434869ec118c9c"
+    },
+    "desk_ov_broken": {
+      "bytes": 8632,
+      "sha256": "3f498ae8b041ee90ad976ab02c9b8ba3302fff88a957a149fb5afdab83472130"
+    },
+    "desk_ov_virus": {
+      "bytes": 8304,
+      "sha256": "ba1333716f6c83f12baec0fb61dc4d52a75fc9ffa1413b44929a1fc40ae3d6e8"
+    },
+    "desk_ov_replace": {
+      "bytes": 9187,
+      "sha256": "2ad83c3a5765e23d89d9f613b0b4b1a2dcd3ea6f2de1718ccb8f1fb6440c5cbb"
+    }
+  }
+}

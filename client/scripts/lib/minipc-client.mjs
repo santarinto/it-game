@@ -121,6 +121,19 @@ export async function errorText(resp) {
   return `HTTP ${resp.status} (ответ не JSON)`
 }
 
+/**
+ * Завести задание (POST /jobs, роль itgame-cli): body — по контракту {about, profile,
+ * class, items}. 201 — задание в форме GET /jobs/{taskId} (taskId — строка, ключи open);
+ * отказ — исключение с текстом minipc и полем (422 {error, field}).
+ */
+export async function createJob(mp, body) {
+  const resp = await call(mp, 'POST', '/jobs', body)
+  if (resp.status !== 201) throw new Error(`POST /jobs: ${resp.status} ${await errorText(resp)}`)
+  const job = await resp.json()
+  if (typeof job?.taskId !== 'string' || !/^[0-9]+$/.test(job.taskId)) throw new Error('POST /jobs: 201 без taskId — ответ не той формы')
+  return job
+}
+
 export async function getJob(mp, taskId) {
   const resp = await call(mp, 'GET', `/jobs/${encodeURIComponent(taskId)}`)
   if (!resp.ok) throw new Error(`задание ${taskId}: ${resp.status} ${await errorText(resp)}`)

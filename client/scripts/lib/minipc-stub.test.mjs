@@ -50,10 +50,16 @@ test('задание: POST /jobs → 201 в форме GET (ctx, created_at, sta
   assert.equal(typeof r.body.taskId, 'string')
   assert.ok(r.body.created_at && it.status_at)
   assert.deepEqual({ ...it, status_at: undefined }, { key: 'icon_lock', brief: 'ключ icon_lock', ctx: { text: '12px', bg: '232640' }, status: 'open', status_at: undefined, revisions: 0, latest: null, final: null })
-  assert.deepEqual((await json(await req(`/jobs/${r.body.taskId}`))).body, r.body)
+  assert.deepEqual((await json(await req(`/jobs/${r.body.taskId}`))).body, r.body) // один ключ — порядок не играет
   const list = (await json(await req('/jobs'))).body
   assert.deepEqual(list.items[0], { taskId: r.body.taskId, about: 'ITGAME-182', created_at: r.body.created_at, keys: 1 })
   assert.deepEqual(await json(await req('/jobs/999999')), { status: 404, body: { error: 'task 999999 not found' } })
+})
+
+test('порядок ключей: ответ POST /jobs — как в теле, GET /jobs/{taskId} — по алфавиту (как minipc)', async () => {
+  const r = await json(await req('/jobs', { method: 'POST', body: jobBody(['desk_pc_crt', 'desk_pc_lcd', 'desk_ov_off']) }))
+  assert.deepEqual(r.body.items.map((x) => x.key), ['desk_pc_crt', 'desk_pc_lcd', 'desk_ov_off'])
+  assert.deepEqual((await json(await req(`/jobs/${r.body.taskId}`))).body.items.map((x) => x.key), ['desk_ov_off', 'desk_pc_crt', 'desk_pc_lcd'])
 })
 
 test('задание: тело не по контракту — 422 {error, field}, задание не заводится', async () => {
@@ -64,6 +70,7 @@ test('задание: тело не по контракту — 422 {error, fiel
     [jobBody([{ key: 'a', context: { cropPng: Buffer.from('not png').toString('base64') } }]), 'items.0.context.cropPng'],
     [jobBody(['a', 'a']), 'items.1.key'],
     [{ ...jobBody(['a']), items: [] }, 'items'],
+    [jobBody(['a'], { class: { name: 'icon', screenPx: 32, sourcePx: 64, palette: 'sweetie16', colors: ['1a1c2c', '1A1C2C'] } }), 'class.colors'],
   ]
   for (const [body, field] of bad) {
     const r = await json(await req('/jobs', { method: 'POST', body }))

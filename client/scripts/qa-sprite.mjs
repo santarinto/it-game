@@ -25,8 +25,8 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
-import { waitMenuReady } from './lib/menu.mjs'
 import { clipUtf8, describeSource, getJob, jobItems, minipcFromEnv, postStatus } from './lib/minipc-client.mjs'
+import { openStep as openSceneStep } from './lib/scene-step.mjs'
 import { selfServe } from './lib/selfserve.mjs'
 import { loadManifest } from './lib/sprite-check.mjs'
 
@@ -163,28 +163,8 @@ const browser = await puppeteer.launch({
   defaultViewport: { width: 1920, height: 1080 },
 })
 
-async function openStep(step, scale, tag) {
-  const page = await browser.newPage()
-  const errors = []
-  page.on('pageerror', (e) => errors.push(String(e)))
-  await page.evaluateOnNewDocument((v) => localStorage.setItem('itd.uiScale', v), scale)
-  await page.goto(`${base}/?scenario=${step.fixture}&seed=1&debug=1`, { waitUntil: 'domcontentloaded' })
-  await waitMenuReady(page)
-  if (step.scene !== 'menu') {
-    // Партия под своим sid: серверные сейвы живут сутки и резюмятся по общему ключу.
-    await page.evaluate((t) => localStorage.setItem('itd.sid', `qasprite-${t}-${Date.now().toString(36)}`), tag)
-    const clicked = await page.evaluate(() => window.itd.click('menu.diff.normal'))
-    if (!clicked.ok) throw new Error(`старт партии: ${JSON.stringify(clicked)}`)
-    await page.waitForFunction(() => window.itd.state().connected === true, { timeout: 20000 })
-    await page.evaluate(() => window.itd.pause())
-  }
-  if (step.open) {
-    const opened = await page.evaluate((id) => window.itd.click(id), step.open)
-    if (!opened.ok) throw new Error(`seenIn.open '${step.open}': ${JSON.stringify(opened)}`)
-  }
-  await delay(400)
-  return { page, errors }
-}
+// Шаг seenIn во вкладке — общий путь с кропом sprite:job (lib/scene-step.mjs).
+const openStep = (step, scale, tag) => openSceneStep(browser, base, step, scale, `qasprite-${tag}-${Date.now().toString(36)}`)
 
 const report = { taskId: TASK, about: job.about ?? null, at: new Date().toISOString(), commit: gitHead(), dry: DRY, keys: [] }
 let broken = false

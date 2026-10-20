@@ -178,6 +178,28 @@ try {
   const last = stub.statusLog.at(-1)
   check('T5: --committed после коммита — статус committed с хешем HEAD', t5.code === 0 && last.status === 'committed' && last.reason === head && stub.job(T).items[0].status === 'committed',
     { code: t5.code, last, out: t5.code ? t5.out.slice(-300) : undefined })
+
+  // J1–J2: sprite:job против заглушки (ITGAME-182) — первый ключ настоящей спеки ITGAME-134 во
+  // временной копии: кроп со своей копии игры, POST /jobs, ключ open, запись taskId рядом со
+  // спекой; второй прогон по той же спеке отказывает, второго задания нет.
+  const real = JSON.parse(readFileSync(join(CLIENT, '..', 'scripts', 'sprites', 'minipc', 'jobs', 'ITGAME-134.json'), 'utf8'))
+  const jobSpec = join(tmp, 'jobs', 'ITGAME-134.json')
+  mkdirSync(dirname(jobSpec), { recursive: true })
+  writeFileSync(jobSpec, JSON.stringify({ ...real, items: real.items.slice(0, 1) }))
+  const jobsBefore = (await (await fetch(`${stub.url}/jobs`, { headers: { authorization: `Bearer ${stub.tokens.cli}` } })).json()).items.length
+  const j1 = await run('sprite-job.mjs', '--spec', jobSpec, '--out', join(tmp, 'job-out'), '--allow-dirty')
+  const rec = existsSync(jobSpec.replace(/\.json$/, '.task.json')) ? JSON.parse(readFileSync(jobSpec.replace(/\.json$/, '.task.json'), 'utf8')) : {}
+  const made = rec.taskId ? stub.job(rec.taskId) : null
+  check('J1: sprite:job — задание в заглушке, ключ open с ctx, кроп в запросе, запись taskId рядом со спекой',
+    j1.code === 0 && made?.about === 'ITGAME-134' && made.items.length === 1 && made.items[0].key === real.items[0].key && made.items[0].status === 'open' &&
+      made.items[0].ctx.bg === '2b2f4a' && made.class.name === 'desk' && made.class.sourcePx === 128 && made.profile.text.includes('## Задание ITGAME-134') &&
+      rec.crops?.[real.items[0].key]?.bytes > 0 && /minipc: адрес — окружение, токен координатора — окружение/.test(j1.out),
+    { code: j1.code, rec, tail: j1.code ? j1.out.slice(-600) : undefined })
+  const j2 = await run('sprite-job.mjs', '--spec', jobSpec, '--out', join(tmp, 'job-out'), '--allow-dirty')
+  const jobsAfter = (await (await fetch(`${stub.url}/jobs`, { headers: { authorization: `Bearer ${stub.tokens.cli}` } })).json()).items.length
+  check('J2: повторный sprite:job по той же спеке — отказ с taskId, второго задания нет',
+    j2.code === 1 && new RegExp(`задание уже заведено — taskId ${rec.taskId}`).test(j2.out) && jobsAfter === jobsBefore + 1,
+    { code: j2.code, out: j2.out.trim().slice(-200), jobsBefore, jobsAfter })
 } finally {
   await stub.stop()
   rmSync(tmp, { recursive: true, force: true })

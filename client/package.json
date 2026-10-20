@@ -23,6 +23,7 @@
     "qa:sprite-pipeline": "node scripts/qa-itgame157-pipeline.mjs",
     "qa:sprite": "node scripts/qa-sprite.mjs",
     "sprite:take": "node scripts/sprite-take.mjs",
+    "sprite:job": "node scripts/sprite-job.mjs",
     "qa:trace": "node scripts/qa-itgame37.mjs",
     "qa:contract": "node scripts/qa-itgame39.mjs",
     "qa:party": "node scripts/qa-itgame47.mjs",
