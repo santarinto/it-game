@@ -252,3 +252,50 @@ func TestKnownCommandsCoverProtocol(t *testing.T) {
 		}
 	}
 }
+
+// Ряды с метками есть в скрейпе нулями до первого события (metrics.Preset): иначе
+// ряд рождается единицей, increase() не видит 0 → 1, и первое событие каждого
+// набора меток после деплоя пропадает с дашборда. Gather рядов не заводит —
+// видно ровно то, что заведено init'ом и прошлыми тестами.
+func TestMetricsPresetSeries(t *testing.T) {
+	fams, err := metrics.Registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	have := map[string]map[string]bool{}
+	for _, f := range fams {
+		set := map[string]bool{}
+		for _, m := range f.GetMetric() {
+			var kv []string
+			for _, l := range m.GetLabel() {
+				kv = append(kv, l.GetName()+"="+l.GetValue())
+			}
+			set[strings.Join(kv, ",")] = true
+		}
+		have[f.GetName()] = set
+	}
+	want := func(name string, labels ...string) {
+		t.Helper()
+		for _, l := range labels {
+			if !have[name][l] {
+				t.Errorf("%s{%s} нет в скрейпе до первого события", name, l)
+			}
+		}
+	}
+	diffs := []string{"easy", "normal", "hard", "hardcore"}
+	for _, d := range diffs {
+		want("itgame_parties_started_total", "difficulty="+d)
+		for _, o := range metrics.Outcomes {
+			want("itgame_parties_finished_total", "difficulty="+d+",outcome="+o)
+		}
+	}
+	for _, o := range metrics.Outcomes {
+		want("itgame_party_days", "outcome="+o)
+	}
+	for c := range knownCommands {
+		want("itgame_commands_total", "cmd="+string(c)+",result=ok", "cmd="+string(c)+",result=rejected")
+	}
+	want("itgame_commands_total", "cmd=unknown,result=ok", "cmd=unknown,result=rejected")
+	want("itgame_saves_total", "result=ok", "result=stale")
+	want("itgame_save_errors_total", "op=write", "op=rename")
+}

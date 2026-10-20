@@ -1753,6 +1753,18 @@ node_exporter (job `itgame-node`, `:9100`, ufw open only to `38.180.192.251`
 for prod and stage, the env var in the units and the Grafana dashboard are
 the minipc side (`deploy/prometheus/`, `deploy/itgame/` in their repo).
 
+Live since 20.10.2026 (MINIPC-310): `ITGAME_METRICS_ADDR` is
+`127.0.0.1:9181` on prod and `:9182` on stage. nginx on the box exposes it as
+`location = /metrics` on the 443 vhosts, allowing only `38.180.192.251`;
+everyone else gets 403. The Prometheus job is `itgame-app` (https, label
+`env=prod|stage`). The Grafana dashboard is «IT-директор — сервер игры»
+(uid `itgame-app`, datasource `prom-hub`), viewable without login at
+`https://minipc.lan.santarinto.com/grafana/d/itgame-app`. To check panels
+from the shell, query through the Grafana datasource proxy, for example
+`…/grafana/api/datasources/proxy/uid/prom-hub/api/v1/query?query=up{job="itgame-app"}`.
+If you rename a series or a label, tell minipc: the dashboard queries them
+by name.
+
 **What is exported** (`server/internal/metrics`). No `sid` in labels —
 cardinality and the player's privacy; labels are finite sets only.
 
@@ -1779,6 +1791,18 @@ the running phase `game.Apply` answers `wrong_phase` before it looks at the
 command, so a raw client `type` would otherwise become a series.
 `TestKnownCommandsCoverProtocol` fails when a new `Command("…")` is missing
 from that set.
+
+Labelled series exist at zero from the start. The metrics package `init` sets
+up `saves`/`save_errors` itself. The `ws` package `init` calls
+`metrics.Preset`, which creates every difficulty × outcome, the outcomes of
+`party_days`, and every `knownCommands` name plus `unknown` × `ok|rejected`.
+Without this, a vector creates a series only on its first `Inc`, so
+Prometheus sees it born at 1. `increase()`/`rate()` then see no 0 → 1 step,
+and the first event of each label set after every restart (every deploy)
+vanishes from the dashboard. On stage on 20.10 «Партий начато» showed 0 with
+`itgame_parties_started_total{difficulty="normal"} 1`.
+`TestMetricsPresetSeries` checks the scrape before any event. A new
+difficulty must be added to the list in `ws/metrics.go` `init`.
 
 ## Database
 

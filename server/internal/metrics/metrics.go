@@ -90,11 +90,43 @@ var buildInfo = reg.NewGaugeVec(prometheus.GaugeOpts{
 	Help: "Сборка сервера (как /api/version): всегда 1.",
 }, []string{"sha", "version"})
 
+// Outcomes — исходы финала, метка outcome у PartiesFinished и PartyDays.
+var Outcomes = []string{"bankrupt", "victory", "abandon"}
+
 func init() {
 	Registry.MustRegister(
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
+	for _, r := range []string{"ok", "stale"} {
+		Saves.WithLabelValues(r)
+	}
+	for _, op := range []string{"write", "rename"} {
+		SaveErrors.WithLabelValues(op)
+	}
+}
+
+// Preset — ряды с метками нулями с самого старта. Вектор заводит ряд только на
+// первом Inc, и Prometheus получает его сразу единицей: increase() и rate() не
+// видят скачка 0 → 1, и первое событие каждого набора меток после рестарта (то
+// есть после каждого деплоя) пропадает с дашборда — так «Партий начато» на
+// стейдже 20.10 показывало 0 при itgame_parties_started_total 1 (ITGAME-189).
+// difficulties — все сложности, commands — имена команд для метки cmd (с unknown).
+func Preset(difficulties, commands []string) {
+	for _, d := range difficulties {
+		PartiesStarted.WithLabelValues(d)
+		for _, o := range Outcomes {
+			PartiesFinished.WithLabelValues(o, d)
+		}
+	}
+	for _, o := range Outcomes {
+		PartyDays.WithLabelValues(o)
+	}
+	for _, c := range commands {
+		for _, r := range []string{"ok", "rejected"} {
+			Commands.WithLabelValues(c, r)
+		}
+	}
 }
 
 // SetBuild — сборка процесса в itgame_build_info; прежние метки снимаются.

@@ -21,6 +21,17 @@ var knownCommands = map[game.Command]bool{
 	cmdSetSpeed: true, cmdAbandon: true, cmdExit: true,
 }
 
+// Ряды с метками — нулями до первого события (см. metrics.Preset).
+func init() {
+	cmds := []string{"unknown"}
+	for c := range knownCommands {
+		cmds = append(cmds, string(c))
+	}
+	metrics.Preset([]string{
+		string(game.DiffEasy), string(game.DiffNormal), string(game.DiffHard), string(game.DiffHardcore),
+	}, cmds)
+}
+
 // countCommand — команда игрока в itgame_commands_total.
 func countCommand(cmd game.Command, rejected *errorMessage) {
 	name, result := "unknown", "ok"
