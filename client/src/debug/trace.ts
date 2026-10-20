@@ -35,12 +35,12 @@ export interface TraceTarget {
 // вешает на них слушателей got ДО Phaser (ITGAME-112).
 export type PointerProbe = (ev: MouseEvent) => { x: number; y: number; wins: TraceTarget | null; stack: string[]; objs: Phaser.GameObjects.GameObject[] }
 
-// Запись sent (ITGAME-179): полная команда + src — кто её отправил.
+// Запись sent (ITGAME-179): полная команда + src — кто её отправил. Отложенная отправка (tween, delayedCall) после itd.click/itd.key — уже 'ui'.
 export interface TraceSent {
   t: number
   type: string
   office?: number
-  src: 'itd' | 'ui' // itd — ушла синхронно внутри вызова itd.* (cmd, click, key, pause, resume, speed, step; play — через cmd); ui — всё прочее: настоящий клик/клавиша, реакция UI на снапшот
+  src: 'itd' | 'ui' // itd — ушла синхронно внутри вызова itd.* (cmd, click, key, pause, resume, speed, step; play — через cmd; отправка, отложенная обработчиком — tween, delayedCall, — уже ui); ui — всё прочее: настоящий клик/клавиша, реакция UI на снапшот
   [k: string]: unknown
 }
 
@@ -318,7 +318,9 @@ function openTrace(game: Phaser.Game, probe: PointerProbe, windowMs: number): Op
   // GAMEOBJECT_DOWN/UP Phaser шлёт, только если у объекта после его события ещё
   // есть input (InputPlugin.processDownEvents), так что объект, удаливший себя
   // в pointerdown (✕ модалки, «Продолжить»), оставался бы в got [].
-  let downGot: { obj: Phaser.GameObjects.GameObject; label: string }[] = [] // ITGAME-148: получившие последний down
+  // ITGAME-148: получившие down, по кнопке мыши — левый down → правый down → левый up не теряет gone левой.
+  // Окно, открытое посреди нажатия, gone для него не покажет (down не видели)
+  const downGot = new Map<number, { obj: Phaser.GameObjects.GameObject; label: string }[]>()
   let pending: (() => void)[] = []
   const flush = () => { const fs = pending; pending = []; fs.forEach((f) => f()) }
   const onMouse = (ev: MouseEvent) => {
@@ -340,11 +342,11 @@ function openTrace(game: Phaser.Game, probe: PointerProbe, windowMs: number): Op
     r.pointer.push(rec)
     if (!down) {
       // ITGAME-148: момент up до Phaser (capture) — тот же, что у хит-теста wins/stack
-      rec.gone = downGot.filter((d) => goneObj(d.obj)).map((d) => d.label)
-      downGot = []
+      rec.gone = (downGot.get(ev.button) ?? []).filter((d) => goneObj(d.obj)).map((d) => d.label)
+      downGot.delete(ev.button)
     }
-    if (down) downGot = []
-    const mine: typeof downGot | null = down ? downGot : null
+    const mine: { obj: Phaser.GameObjects.GameObject; label: string }[] | null = down ? [] : null
+    if (mine) downGot.set(ev.button, mine)
     const evName = down ? Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN : Phaser.Input.Events.GAMEOBJECT_POINTER_UP
     for (const obj of hit.objs) {
       // имя читаем сейчас: после destroy() в обработчике getData/type уже пусты
@@ -363,7 +365,7 @@ function openTrace(game: Phaser.Game, probe: PointerProbe, windowMs: number): Op
     window.removeEventListener('mousedown', onMouse, true)
     window.removeEventListener('mouseup', onMouse, true)
     flush()
-    downGot = []
+    downGot.clear()
   })
   let closed = false
   return {
@@ -498,8 +500,13 @@ export interface TraceSummary {
   lines: string[]
 }
 
-const val = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringify(v))
 const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim()
+// Значение k=v одним токеном: строка с пробелом/переводом строки — в одну строку и в кавычках (ITGAME-179)
+const val = (v: unknown): string => {
+  if (typeof v !== 'string') return JSON.stringify(v)
+  const s = oneLine(v)
+  return s === '' || /\s/.test(s) ? JSON.stringify(s) : s
+}
 
 export function summarizeTrace(r: TraceResult): string[] {
   const out: { t: number; k: number; line: string }[] = []

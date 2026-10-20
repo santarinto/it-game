@@ -1004,7 +1004,7 @@ export interface ItdApi {
    * renderList камеры; сцены сверху вниз, globalTopOnly + topOnly). Точка —
    * центр (cx/cy) объекта по id/safe-id или мировые gx, gy (1280×720).
    * stack — все interactive под точкой сверху вниз ('safe scene dN Type WxH';
-   * '!' — сцена ниже забравшей клик), wins — кто получит pointerdown.
+   * '!' — сцена ниже забравшей клик), wins — кто получит pointerdown (объект; в itd.trace().pointer[].wins с ITGAME-179 — метка-строка, как got).
    * hit() и флаг X в screen() — тот же хит-тест, только верх в центре объекта.
    * Объект, добавленный в этом кадре, виден со следующего кадра (ITGAME-113):
    * setInteractive() ставит его в очередь input-плагина, в список хит-теста он

@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "b20c0156c571",
+  "hash": "7d3c3e1184a7",
   "methods": {
     "version": {
       "kind": "prop",
@@ -288,7 +288,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "StackResult",
-      "doc": "Стек под точкой по НАСТОЯЩЕМУ хит-тесту Phaser (InputManager.hitTest:\nhitArea, камера, видимость контейнеров; порядок — sortGameObjects по\nrenderList камеры; сцены сверху вниз, globalTopOnly + topOnly). Точка —\nцентр (cx/cy) объекта по id/safe-id или мировые gx, gy (1280×720).\nstack — все interactive под точкой сверху вниз ('safe scene dN Type WxH';\n'!' — сцена ниже забравшей клик), wins — кто получит pointerdown.\nhit() и флаг X в screen() — тот же хит-тест, только верх в центре объекта.\nОбъект, добавленный в этом кадре, виден со следующего кадра (ITGAME-113):\nsetInteractive() ставит его в очередь input-плагина, в список хит-теста он\nпопадает на следующем шаге лупа — и настоящий клик в тот же момент его\nтоже не видит (уходит тому, кто под ним). Нужен сразу — дождаться кадра:\nawait new Promise(r => requestAnimationFrame(r)); в скрытой вкладке кадр\nпрогревает сам stack().",
+      "doc": "Стек под точкой по НАСТОЯЩЕМУ хит-тесту Phaser (InputManager.hitTest:\nhitArea, камера, видимость контейнеров; порядок — sortGameObjects по\nrenderList камеры; сцены сверху вниз, globalTopOnly + topOnly). Точка —\nцентр (cx/cy) объекта по id/safe-id или мировые gx, gy (1280×720).\nstack — все interactive под точкой сверху вниз ('safe scene dN Type WxH';\n'!' — сцена ниже забравшей клик), wins — кто получит pointerdown (объект; в itd.trace().pointer[].wins с ITGAME-179 — метка-строка, как got).\nhit() и флаг X в screen() — тот же хит-тест, только верх в центре объекта.\nОбъект, добавленный в этом кадре, виден со следующего кадра (ITGAME-113):\nsetInteractive() ставит его в очередь input-плагина, в список хит-теста он\nпопадает на следующем шаге лупа — и настоящий клик в тот же момент его\nтоже не видит (уходит тому, кто под ним). Нужен сразу — дождаться кадра:\nawait new Promise(r => requestAnimationFrame(r)); в скрытой вкладке кадр\nпрогревает сам stack().",
       "examples": [
         "itd.stack('office:slot:0')",
         "itd.stack(260, 190).wins"
@@ -3590,7 +3590,7 @@ export const CONTRACT = {
         "src": {
           "type": "'itd' | 'ui'",
           "optional": false,
-          "doc": "itd — ушла синхронно внутри вызова itd.* (cmd, click, key, pause, resume, speed, step; play — через cmd); ui — всё прочее: настоящий клик/клавиша, реакция UI на снапшот"
+          "doc": "itd — ушла синхронно внутри вызова itd.* (cmd, click, key, pause, resume, speed, step; play — через cmd; отправка, отложенная обработчиком — tween, delayedCall, — уже ui); ui — всё прочее: настоящий клик/клавиша, реакция UI на снапшот"
         }
       },
       "index": [

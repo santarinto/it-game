@@ -1089,7 +1089,7 @@ documenting separately:
   `stack()` takes an id/safe id (its `cx`/`cy`) or world `gx, gy` and answers
   `{ok, at, stack, wins}`: `stack` lists every interactive under the point top
   to bottom as `'safe scene dN Type WxH'` (a trailing `!` — its scene is below
-  the one that took the click), `wins` is who gets `pointerdown`.
+  the one that took the click), `wins` is who gets `pointerdown` — an object here, while `itd.trace().pointer[].wins` is a label string since ITGAME-179.
   An object added in this frame is seen from the next one (ITGAME-113):
   `setInteractive()` queues it in the input plugin's `_pendingInsertion`, the
   scene's `preUpdate` moves it into the hit-test list on the next loop step,
@@ -1344,7 +1344,8 @@ documenting separately:
   (`inItdCall()`) that the wire tap reads, since `client.send` → `logWire` →
   `tapWire` run in one call stack; `'ui'` — anything else: a real click or key,
   the HUD reacting to a snapshot (also after an `await` inside
-  `itd.scenario()`/`advanceDays()`). The `set_speed` of `itd.pause()` and of the
+  `itd.scenario()`/`advanceDays()`, and a send the handler defers — a tween, a
+  `delayedCall` — after `itd.click()`/`itd.key()` returned). The `set_speed` of `itd.pause()` and of the
   ⏸ button are no longer alike.
   Since ITGAME-88 `pointer` lists the real `mousedown`/`mouseup` events of the
   window (what Phaser listens to; a capture listener on `window` runs before
@@ -1375,7 +1376,9 @@ documenting separately:
   switches the scene), «Сохранить и выйти», `btn.next_day`, ✕ — reads «accepted,
   target left», not «never arrived». A target dragged away is not `gone`;
   `down` entries carry `gone: []`; `summary()` prints `gone [...]` when it is
-  not empty.
+  not empty. The pending `down`s are kept per mouse button (a left down, a
+  right down and a left up keep the left press's `gone`); a window opened in the
+  middle of a press never saw its `down`, so that `up` has `gone: []`.
   **Open window** (ITGAME-88): `itd.trace` is a function with methods (like
   `itd.sandbox`). `itd.trace.start({maxMs?})` → `{ok, id, t0, maxMs, open}` sets
   the listeners at once; the real click comes from another tool call;
