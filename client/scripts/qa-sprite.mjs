@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 import { waitMenuReady } from './lib/menu.mjs'
-import { clipUtf8, getJob, jobItems, minipcFromEnv, postStatus } from './lib/minipc-client.mjs'
+import { clipUtf8, describeSource, getJob, jobItems, minipcFromEnv, postStatus } from './lib/minipc-client.mjs'
 import { selfServe } from './lib/selfserve.mjs'
 import { loadManifest } from './lib/sprite-check.mjs'
 
@@ -55,6 +55,7 @@ try {
 } catch (e) {
   die(e.message)
 }
+console.log(describeSource(mp))
 const manifest = loadManifest(CLIENT_DIR)
 
 const job = await getJob(mp, TASK).catch((e) => die(e.message))
@@ -79,7 +80,7 @@ for (const it of targets) {
 // Go-сервер прогона читает minipc своим токеном itgame-go; токен координатора к нему не
 // попадает ни подменой, ни окружением (selfServe его вычищает).
 if (!process.env.ITGAME_MINIPC_TOKEN) {
-  die('ITGAME_MINIPC_TOKEN (роль itgame-go) не задан — Go-серверу прогона нужен свой токен чтения, токен координатора ему не отдаётся. Стенд держит его в ~/.config/itgame-dev/env: set -a; . ~/.config/itgame-dev/env; set +a')
+  die(`ITGAME_MINIPC_TOKEN (роль itgame-go) не задан — Go-серверу прогона нужен свой токен чтения, токен координатора ему не отдаётся. Стенд держит его в ~/.config/itgame-dev/env — экспортируйте только эту строку, не весь файл (там и DATABASE_URL стенда): export ITGAME_MINIPC_TOKEN="$(sed -n 's/^ITGAME_MINIPC_TOKEN=//p' ~/.config/itgame-dev/env)"`)
 }
 if (process.env.ITGAME_MINIPC_TOKEN === mp.token) die('ITGAME_MINIPC_TOKEN совпал с токеном координатора (itgame-cli) — Go-серверу нужен токен роли itgame-go')
 process.env.ITGAME_MINIPC_URL = mp.url

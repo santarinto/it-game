@@ -68,18 +68,26 @@ export function envFromFile(file, name) {
 /**
  * Адрес (…/api/itgame) и токен координатора (роль itgame-cli). Окружение главнее
  * файлов; from — откуда взято каждое ('env' или путь файла), для сообщений без значений.
- * Нет ни там, ни там — исключение с именами переменной и файла.
+ * Нет ни там, ни там — исключение с именами переменной и файла. Токен из файла владельца —
+ * настоящий, он уходит только на https: http-адрес (заглушка, чужой порт) с ним — отказ.
  */
 export function minipcFromEnv(env = process.env) {
   const files = envFiles(env)
   const url = env.ITGAME_MINIPC_URL || envFromFile(files.dev, 'ITGAME_MINIPC_URL')
-  const token = env.ITGAME_MINIPC_CLI_TOKEN || envFromFile(files.cli, 'ITGAME_MINIPC_CLI_TOKEN')
-  if (!/^https?:\/\//.test(url)) throw new Error(`ITGAME_MINIPC_URL — не http(s)-адрес (из ${env.ITGAME_MINIPC_URL ? 'окружения' : files.dev})`)
-  return {
-    url: url.replace(/\/+$/, ''),
-    token,
-    from: { url: env.ITGAME_MINIPC_URL ? 'env' : files.dev, token: env.ITGAME_MINIPC_CLI_TOKEN ? 'env' : files.cli },
+  const from = { url: env.ITGAME_MINIPC_URL ? 'env' : files.dev, token: env.ITGAME_MINIPC_CLI_TOKEN ? 'env' : files.cli }
+  const where = from.url === 'env' ? 'окружения' : from.url
+  if (!/^https?:\/\//.test(url)) throw new Error(`ITGAME_MINIPC_URL — не http(s)-адрес (из ${where})`)
+  if (from.token !== 'env' && !url.startsWith('https://')) {
+    throw new Error(`ITGAME_MINIPC_CLI_TOKEN не задан в окружении, а токен из ${files.cli} уходит только на https — ITGAME_MINIPC_URL (из ${where}) не https; для заглушки задайте оба в окружении`)
   }
+  const token = env.ITGAME_MINIPC_CLI_TOKEN || envFromFile(files.cli, 'ITGAME_MINIPC_CLI_TOKEN')
+  return { url: url.replace(/\/+$/, ''), token, from }
+}
+
+/** Откуда взяты адрес и токен — одна строка без значений, для начала прогона. */
+export function describeSource(mp) {
+  const of = (f) => (f === 'env' ? 'окружение' : f)
+  return `minipc: адрес — ${of(mp.from.url)}, токен координатора — ${of(mp.from.token)}`
 }
 
 async function call(mp, method, path, body) {

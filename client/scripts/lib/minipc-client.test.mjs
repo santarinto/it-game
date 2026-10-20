@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, test } from 'node:test'
-import { clipUtf8, errorText, jobItems, minipcFromEnv, parseEnvText, REASON_MAX_BYTES } from './minipc-client.mjs'
+import { clipUtf8, describeSource, errorText, jobItems, minipcFromEnv, parseEnvText, REASON_MAX_BYTES } from './minipc-client.mjs'
 
 const dir = mkdtempSync(join(tmpdir(), 'minipc-client-'))
 after(() => rmSync(dir, { recursive: true, force: true }))
@@ -48,6 +48,26 @@ test('без окружения: токен — из minipc-cli.env, адрес 
   assert.equal(mp.token, CLI_SECRET)
   assert.notEqual(mp.token, GO_SECRET)
   assert.deepEqual(mp.from, { url: env.ITGAME_DEV_ENV_FILE, token: env.ITGAME_MINIPC_CLI_ENV_FILE })
+})
+
+test('токен из файла владельца — только на https: http-адрес (заглушка) с ним — отказ до чтения файла', () => {
+  const env = { ITGAME_MINIPC_URL: 'http://127.0.0.1:4199/api/itgame', ...home('httpstub', { cli: CLI_FILE }) }
+  assert.throws(() => minipcFromEnv(env), (e) => {
+    assert.match(e.message, /уходит только на https/)
+    assert.ok(e.message.includes(env.ITGAME_MINIPC_CLI_ENV_FILE))
+    assert.ok(!e.message.includes(CLI_SECRET) && !e.message.includes('127.0.0.1'))
+    return true
+  })
+  // тот же http-адрес с токеном из окружения — можно: так ходят прогоны против заглушки
+  assert.equal(minipcFromEnv({ ...env, ITGAME_MINIPC_CLI_TOKEN: 'stub-itgame-cli' }).token, 'stub-itgame-cli')
+})
+
+test('describeSource: источники без значений', () => {
+  const env = home('describe', { cli: CLI_FILE, dev: DEV_FILE })
+  const line = describeSource(minipcFromEnv(env))
+  assert.equal(line, `minipc: адрес — ${env.ITGAME_DEV_ENV_FILE}, токен координатора — ${env.ITGAME_MINIPC_CLI_ENV_FILE}`)
+  assert.ok(!line.includes(CLI_SECRET) && !line.includes(GO_SECRET) && !line.includes('minipc.example'))
+  assert.equal(describeSource(minipcFromEnv({ ITGAME_MINIPC_URL: URL, ITGAME_MINIPC_CLI_TOKEN: 'x' })), 'minipc: адрес — окружение, токен координатора — окружение')
 })
 
 test('нет minipc-cli.env — ошибка с именем файла и переменной; токен itgame-go не подставляется', () => {

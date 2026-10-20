@@ -1573,7 +1573,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 
 | Command | Checks | Port (`QA_PORT`/…) |
 |---|---|---|
-| `npm test` | `node --test` over `client/scripts/lib/*.test.mjs`: the sprite contract core (pixel and `render: smooth` profiles, no `node:*` imports) and `sprite-smooth` (fractional-step area resampling, alpha-weighted colour, centre/bottom placement, chroma key, `chroma: 'auto'` by corners with a noise-derived tolerance, background zeroing), `emoji-check` (what counts as an emoji), `format` (the day report's «Админы» lines — both parts, one, none — and the `seatsLabel` plural, ITGAME-159) and `daylog` (the HUD feed over `src/eventlog.ts`, type-only imports so no Phaser: `parseLogLine` splits the server's «HH:MM», `takeDayLog` puts only the new tail of a growing day log into the feed and starts over on another day or after a shorter log, `newDayLine` gives «Утро, день N» at the day's start hour, ITGAME-163), `minipc-stub` (roles, routes, answer shapes and status machine of the real minipc, refusals leave the state alone, ITGAME-157/182) and `minipc-client` (credential auto-load from temp files — the itgame-go token never taken, errors name the file and variable, no values —, the real shapes, `clipUtf8`, `committed` without a hash not sent, ITGAME-182) — no browser, no game server | — |
+| `npm test` | `node --test` over `client/scripts/lib/*.test.mjs`: the sprite contract core (pixel and `render: smooth` profiles, no `node:*` imports) and `sprite-smooth` (fractional-step area resampling, alpha-weighted colour, centre/bottom placement, chroma key, `chroma: 'auto'` by corners with a noise-derived tolerance, background zeroing), `emoji-check` (what counts as an emoji), `format` (the day report's «Админы» lines — both parts, one, none — and the `seatsLabel` plural, ITGAME-159) and `daylog` (the HUD feed over `src/eventlog.ts`, type-only imports so no Phaser: `parseLogLine` splits the server's «HH:MM», `takeDayLog` puts only the new tail of a growing day log into the feed and starts over on another day or after a shorter log, `newDayLine` gives «Утро, день N» at the day's start hour, ITGAME-163), `minipc-stub` (roles, routes, answer shapes and status machine of the real minipc, refusals leave the state alone, ITGAME-157/182; plus the client lib against it: the wrapped revision catalog, `committed` without a hash not sent), `minipc-client` (credential auto-load from temp files — the itgame-go token never taken, a file token never to `http://`, errors and `describeSource` name files and variables, no values —, the real shapes, `clipUtf8`, ITGAME-182) and `selfserve` (`serverEnv`: no coordinator token, no inherited `DATABASE_URL`, ITGAME-182) — no browser, no game server | — |
 | `npm run check:emoji` | no emoji in `client/src` — strings, comments, the manifest (ITGAME-83): a `\p{Extended_Pictographic}` character or U+FE0F, except the glyphs our own fonts carry (`FONT_PICTOGRAPHS` in `client/scripts/lib/emoji-check.mjs`, the cmap of both woff2 by `fc-query`); an icon is a sprite next to a Text (`attachIcon`), a text symbol is a glyph of our fonts; last step of `npm run build` | — |
 | `npm run qa:meta` | stats/achievements modals; ITGAME-83 icons: the menu buttons (16) and modal titles (24) — `icon_trophy`, `icon_chart`, `icon_warning` on «Начать заново?» / «Партия в другой вкладке»; each achievement card's own `ach_*` (16) left of its title, dimmed while locked (alpha 0.6 and a grayscale `ColorMatrix` in `preFX`), `icon_lock` (12) left of every «Заблокировано», no emoji in the modal | :4173, `vite preview` — needs a Go server already on :8080 |
 | `npm run qa:buttons` | buy-button enabled/tooltip/alpha states (ITGAME-17); R1–R7 the room action column (ITGAME-94): `btn.pc`/`hire`/`boss` in the `office` scene at x 1142, 128×44, y 384/438/492, no overlap with any office object; the `room.tooltip` sits left of the column; a real mouse click at the `screen()` point buys a PC; under the router window `hit()` fails, `X`, no tooltip; in a locked office the column is hidden and `itd.click` answers `code: 'hidden'`; `btn.gateway` in `serverRoom` at x 1142 y 452; AV1–AV8 the antivirus (ITGAME-137): `btn.antivirus` in `serverRoom` at x 1142 y 506 128×44, a real click opens «Антивирус» with three tiers and «Отключить» disabled (`D`, a click sends nothing), a real click on SOHO Edition sends `set_antivirus` slot 1 (button «Антивирус / SOHO Edition», first seats covered, billed $12), at $10 the current tier and the upgrades are `D` and «Отключить» sends slot 0 with the day still billed $12, a shield per covered seat in the office, the day report line «Антивирус: -$12» | :4180, self-serve |
@@ -2319,8 +2319,9 @@ tracker, commit messages, fixtures or logs; refer to them by variable name.
 Where they live (owner's decision 20.10, ITGAME-182), both files mode 600:
 `~/.config/itgame-dev/env` — the stand's `EnvironmentFile`
 (`itgame-dev.service`), holds `ITGAME_MINIPC_URL` and `ITGAME_MINIPC_TOKEN`;
-`~/.config/itgame-dev/minipc-cli.env` — `ITGAME_MINIPC_CLI_TOKEN` only. The Go
-server never gets the itgame-cli token.
+`~/.config/itgame-dev/minipc-cli.env` — `ITGAME_MINIPC_CLI_TOKEN` only. A
+self-served server never gets the itgame-cli token in its environment (the Go
+server does not read that variable anyway).
 
 **Auto-load** (`client/scripts/lib/minipc-client.mjs`, `minipcFromEnv`): when
 `ITGAME_MINIPC_CLI_TOKEN` is not in the environment, `qa:sprite` and
@@ -2329,13 +2330,30 @@ they read **only that key** from `~/.config/itgame-dev/env` — the itgame-go
 token there is the server's and is never taken. The environment wins over the
 files. Lines are `KEY=VALUE` (blank lines and `#` comments skipped, `export `
 and surrounding quotes allowed); a missing file, a missing or empty variable
-is an error naming the file and the variable, never a value.
-`ITGAME_MINIPC_CLI_ENV_FILE` / `ITGAME_DEV_ENV_FILE` override the two paths
-(tests). `qa:sprite` self-serves a Go server, which reads minipc with its own
-token: `ITGAME_MINIPC_TOKEN` must come from the caller's environment (`set -a;
-. ~/.config/itgame-dev/env; set +a`), the run refuses without it or when it
-equals the coordinator's token, and `selfServe` strips
-`ITGAME_MINIPC_CLI_TOKEN` from the environment of every self-served server.
+is an error naming the file and the variable, never a value. The token from
+the owner's file goes only to an `https://` address: an `http://` base (a
+stub, a foreign port) with a file-sourced token is refused before the file is
+read — a stub run sets both variables in the environment. Both scripts start
+by printing where the address and the token came from (`minipc: адрес — …,
+токен координатора — …`: `окружение` or the file path, never a value).
+`ITGAME_MINIPC_CLI_ENV_FILE` / `ITGAME_DEV_ENV_FILE` override the two paths;
+the stub harness (`qa:sprite-pipeline`) points them at a path that does not
+exist, so no hole in its environment can load the owner's token.
+
+`qa:sprite` self-serves a Go server, which reads minipc with its own token:
+`ITGAME_MINIPC_TOKEN` must come from the caller's environment, and only that
+line of the stand's file — not the whole file, which may also carry the
+stand's `DATABASE_URL`:
+
+    export ITGAME_MINIPC_TOKEN="$(sed -n 's/^ITGAME_MINIPC_TOKEN=//p' ~/.config/itgame-dev/env)"
+
+The run refuses without it or when it equals the coordinator's token.
+`selfServe` (`client/scripts/lib/selfserve.mjs`, `serverEnv`) strips
+`ITGAME_MINIPC_CLI_TOKEN` from the environment of every self-served server,
+and an inherited `DATABASE_URL` too (a QA server would otherwise run its
+migrations on whatever database the shell points at — `make` exports `.env`);
+a script that needs a database passes it as `selfServe({ env: { DATABASE_URL }
+})`. No QA script does today.
 
 **Go routes** (`server/internal/spriteproxy`, registered only with
 `ITGAME_DEBUG=1`; without the URL or the token they answer `503

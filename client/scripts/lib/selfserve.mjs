@@ -79,10 +79,27 @@ function portIsFree(port) {
 }
 
 /**
- * @param {{ port: number, saves?: 'off' | 'tmp' | string, label: string }} opts
+ * Окружение self-serve сервера: наследуется от процесса, кроме двух переменных
+ * (ITGAME-182). ITGAME_MINIPC_CLI_TOKEN — токен координатора minipc (itgame-cli:
+ * вердикты, финал) — не отдаётся никогда: серверу хватает своего ITGAME_MINIPC_TOKEN
+ * роли itgame-go. DATABASE_URL — только если вызывающий передал его в env явно:
+ * унаследованный (make экспортирует .env, рецепт `. ~/.config/itgame-dev/env` — весь
+ * EnvironmentFile стенда) погнал бы миграции QA-сервера по чужой базе.
+ * @param {NodeJS.ProcessEnv} inherited
+ * @param {Record<string, string>} [extra]
+ */
+export function serverEnv(inherited, extra = {}) {
+  const { ITGAME_MINIPC_CLI_TOKEN: _cli, DATABASE_URL: _db, ...env } = inherited
+  const { ITGAME_MINIPC_CLI_TOKEN: _cli2, ...own } = extra
+  return { ...env, ...own, ITGAME_DEBUG: '1' }
+}
+
+/**
+ * @param {{ port: number, saves?: 'off' | 'tmp' | string, label: string, env?: Record<string, string> }} opts
+ *   env — переменные серверу сверх унаследованных (DATABASE_URL — только так), см. serverEnv
  * @returns {Promise<{ base: string, stop: () => Promise<void> }>}
  */
-export async function selfServe({ port, saves = 'off', label }) {
+export async function selfServe({ port, saves = 'off', label, env: extraEnv }) {
   const tag = label || 'QA'
   if (!port) throw new Error(`${tag} FAIL: selfServe() вызван без port`)
   if (BAD_PORTS.has(Number(port))) throw new Error(`${tag} FAIL: ${badPortMessage(port)}`)
@@ -129,12 +146,10 @@ export async function selfServe({ port, saves = 'off', label }) {
   // ITGAME_DEBUG=1: QA/visreg говорят с /api/debug/* (itd.set/advance/…) и
   // могут понадобиться /ws/agent — без флага main.go не регистрирует эти
   // маршруты вовсе (гейт ITGAME-26/29, см. server/cmd/server/main.go).
-  // Токен координатора minipc (itgame-cli: вердикты, финал) Go-серверу не отдаётся никогда
-  // (ITGAME-182): у сервера свой ITGAME_MINIPC_TOKEN роли itgame-go — только чтение.
-  const { ITGAME_MINIPC_CLI_TOKEN: _cli, ...env } = process.env
+  // Токен координатора minipc и унаследованный DATABASE_URL отсекает serverEnv.
   const proc = spawn(BIN_PATH, ['-addr', `127.0.0.1:${port}`, '-static', DIST_DIR, '-saves', savesArg], {
     stdio: ['ignore', 'ignore', 'pipe'],
-    env: { ...env, ITGAME_DEBUG: '1' },
+    env: serverEnv(process.env, extraEnv),
   })
   proc.stderr.on('data', (d) => {
     stderrBuf = (stderrBuf + d.toString()).slice(-STDERR_TAIL)

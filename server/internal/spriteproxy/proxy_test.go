@@ -15,7 +15,7 @@ import (
 const goToken = "go-token"
 
 // fakeMinipc — заглушка API заданий minipc (MINIPC-231): задание 7 с ключом
-// icon_trophy и двумя ревизиями; latest — вторая. lie подменяет заявленный
+// icon_trophy и двумя ревизиями (latest — вторая) и ключом icon_lock без ревизий. lie подменяет заявленный
 // sha256 у ревизии 2 — проверка sha_mismatch. Токен — только goToken. Формы
 // ответов и отказов — настоящего minipc (сверено 20.10, ITGAME-182): задание с
 // items[]/ctx/status_at/revisions, отказы {error}, у 403 — detail, путь вне
@@ -32,7 +32,9 @@ type fakeMinipc struct {
 const fakeJob = `{"taskId":"7","about":"ITGAME-83","profile":{"version":"graphics@9e94e68","sha256":"a","text":"t"},` +
 	`"class":{"name":"icon","screenPx":32,"sourcePx":64,"palette":"sweetie16","colors":["1a1c2c"]},"created_at":"2026-10-16T22:39:16+00:00",` +
 	`"items":[{"key":"icon_trophy","brief":"кубок","ctx":{"text":"12px","bg":"232640"},"status":"draft","status_at":"2026-10-16T22:39:29+00:00",` +
-	`"revisions":2,"latest":{"rev":2,"sha256":"b"},"final":null}]}`
+	`"revisions":2,"latest":{"rev":2,"sha256":"b"},"final":null},` +
+	`{"key":"icon_lock","brief":"замок","ctx":{"text":null,"bg":null},"status":"open","status_at":"2026-10-16T22:39:16+00:00",` +
+	`"revisions":0,"latest":null,"final":null}]}`
 
 func sum(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
 
@@ -61,6 +63,11 @@ func (f *fakeMinipc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, fakeJob)
 		return
 	case strings.HasPrefix(r.URL.Path, "/api/itgame/jobs/7/keys/icon_trophy/"):
+	case strings.HasPrefix(r.URL.Path, "/api/itgame/jobs/7/keys/icon_lock/"):
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"error":"key 'icon_lock' has no revisions yet"}`)
+		return
 	case strings.HasPrefix(r.URL.Path, "/api/itgame/jobs/"):
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -284,6 +291,20 @@ func TestRouteNotFoundIsNotNotFound(t *testing.T) {
 		wantCode(t, resp, body, http.StatusBadGateway, "minipc_error")
 		if !strings.Contains(string(body), "ITGAME_MINIPC_URL") {
 			t.Fatalf("%s: отказ не называет адрес: %s", path, body)
+		}
+	}
+}
+
+// Ключ без ревизий: minipc отвечает JSON-404 «has no revisions yet» — это
+// not_found (404), на котором watch молчит, а не minipc_error, как HTML-404.
+func TestKeyWithoutRevisionsIsNotFound(t *testing.T) {
+	_, up := newFake(t)
+	srv := setup(t, up)
+	for _, path := range []string{"/api/debug/sprite/7/icon_lock/latest", "/api/debug/sprite/7/icon_lock?rev=1"} {
+		resp, body := get(t, srv.URL+path)
+		wantCode(t, resp, body, http.StatusNotFound, "not_found")
+		if !strings.Contains(string(body), "has no revisions yet") {
+			t.Fatalf("%s: причина minipc потерялась: %s", path, body)
 		}
 	}
 }

@@ -30,6 +30,10 @@ const env = {
   ITGAME_MINIPC_URL: stub.url,
   ITGAME_MINIPC_CLI_TOKEN: stub.tokens.cli,
   ITGAME_MINIPC_TOKEN: stub.tokens.go,
+  // Файлы владельца — в несуществующий путь: прогон против заглушки не подхватит настоящий
+  // токен ни при какой дыре в окружении (ITGAME-182).
+  ITGAME_MINIPC_CLI_ENV_FILE: join(tmp, 'no-owner-files', 'minipc-cli.env'),
+  ITGAME_DEV_ENV_FILE: join(tmp, 'no-owner-files', 'env'),
   QA_PORT: process.env.QA_PORT || '4196',
 }
 // Асинхронно: заглушка живёт в этом процессе, spawnSync заморозил бы её цикл событий.

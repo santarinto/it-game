@@ -24,7 +24,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { getJob, getRevision, getRevisions, jobItems, minipcFromEnv, postStatus, sha256 } from './lib/minipc-client.mjs'
+import { describeSource, getJob, getRevision, getRevisions, jobItems, minipcFromEnv, postStatus, sha256 } from './lib/minipc-client.mjs'
 
 const OWN_CLIENT = dirname(dirname(fileURLToPath(import.meta.url)))
 // Часть note о заборе из minipc: прежняя причина порога (зачем smooth, почему палитра не
@@ -62,6 +62,7 @@ try {
 } catch (e) {
   die(e.message)
 }
+console.log(describeSource(mp))
 
 if (COMMITTED) await committed()
 else await take()
