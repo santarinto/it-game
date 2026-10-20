@@ -24,7 +24,7 @@ import { findLowContrast, findOffscreen, findOverlaps, findTiny } from './lint'
 import type { ContrastEntry, OffscreenEntry, OverlapEntry, OverlapOptions, TinyEntry } from './lint'
 import { startTelemetry } from './telemetry'
 import type { ErrorEntry, LogEntry } from './telemetry'
-import { inItdCall, notifyItdKey, runTrace, startTrace, stopTrace, summaryTrace } from './trace'
+import { inItdCall, notifyItdKey, runTrace, peekTrace, startTrace, stopTrace, summaryTrace } from './trace'
 import type { PointerProbe, TracePointer, TraceResult, TraceSent, TraceStart, TraceStartOptions, TraceSummary, TraceTarget } from './trace'
 export type { TracePointer, TraceResult, TraceSent, TraceStart, TraceStartOptions, TraceSummary, TraceTarget }
 import {
@@ -720,6 +720,8 @@ export interface TraceApi {
   start: (opts?: TraceStartOptions) => TraceStart
   /** Закрыть окно id (без id — последнее открытое) → TraceResult того же вида, что у itd.trace(), с id, windowMs = длина окна, cut — закрылось само по maxMs; нет окна — {ok:false, code:'no_trace'}. */
   stop: (id?: number) => TraceResult | (AgentResult & { code: 'no_trace' })
+  /** Прочитать окно, не закрывая (ITGAME-160): копия TraceResult на сейчас (t1 — сейчас, windowMs — от t0; cut-окно — каким закрылось), окно и его maxMs не трогает, луп не шагает; без id — последнее открытое; нет окна — {ok:false, code:'no_trace'}. */
+  peek: (id?: number) => TraceResult | (AgentResult & { code: 'no_trace' })
   /** Окно короткими строками по времени (ITGAME-179), не закрывая: summary(id?) — открытое (или cut) окно, без id — последнее; summary(tr) — любой TraceResult → {ok, id?, cut?, error?, lines['t<мс> ptr|key|sent|recv|state|trans|toast|sound …']}; нет окна / не TraceResult — {ok:false, code:'no_trace', lines: []}. */
   summary: (src?: number | TraceResult) => TraceSummary
 }
@@ -862,9 +864,11 @@ export interface ItdApi {
    * (мимо input-слоя). Открытое окно для клика другим вызовом инструмента:
    * itd.trace.start() → {id} … клик … itd.trace.stop(id?) → тот же TraceResult
    * (windowMs — длина окна; само закроется через maxMs, по умолчанию 120 с, cut: true).
+   * itd.trace.peek(id?) — то же окно на сейчас, не закрывая (ITGAME-160).
    * @example itd.trace(() => itd.click('btn.pc'), 1000)
    * @example itd.trace.start()
    * @example itd.trace.stop().pointer
+   * @example itd.trace.peek().pointer
    * @example itd.trace.summary().lines
    */
   readonly trace: TraceApi
@@ -1762,6 +1766,7 @@ function makeTrace(game: Phaser.Game): TraceApi {
   const fn = ((action: () => unknown, windowMs = 1000) => runTrace(game, probe, action, windowMs)) as TraceApi
   fn.start = (opts) => startTrace(game, probe, opts)
   fn.stop = (id) => stopTrace(id)
+  fn.peek = (id) => peekTrace(id)
   fn.summary = (src) => summaryTrace(src)
   return fn
 }
@@ -1928,6 +1933,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, id, src, …}] по порядку (src: itd — ушла синхронно внутри itd.* — cmd/click/key/pause/resume/speed/step; ui — настоящий клик/клавиша или реакция UI), recv[error/day_report…] (у error info.re/rev), states[{rev, cause, re?}] — снапшоты окна, transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}], pointer[{type: down|up, button, x, y — мировые, onCanvas, wins — метка победителя хит-теста Phaser в момент события, та же форма, что got (safe id или тип без id; полная строка — stack[0]), stack — как itd.stack, got — до кого дошёл pointerdown/up объекта, в т.ч. удалившегося в обработчике (✕ модалки) — на up его уже нет; [] — до объектов не дошло, gone — на up: получившие этот down и снятые до up (уничтожены, без input, скрыты, сцена не идёт) — «клик принят, цель ушла»; на down []}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой); itd.click() в pointer не попадает (мимо input-слоя)
   itd.trace.start({maxMs?})          — открытое окно (ITGAME-88): подписки сразу → {ok, id, t0, maxMs, open}; настоящий клик/клавиша — другим вызовом инструмента; само закроется через maxMs (по умолчанию 120000, до 600000; cut: true); коды bad_max, too_many (больше 8 окон)
   itd.trace.stop(id?)               — закрыть окно (без id — последнее) → тот же TraceResult, что у itd.trace() (+ id, windowMs = длина окна); нет окна — {ok:false, code:'no_trace'}. Пример: const {id} = itd.trace.start(); …клик…; const tr = itd.trace.stop(id); tr.pointer[0].wins — 'btn:pc', tr.sent[0].src, itd.trace.summary(tr).lines
+  itd.trace.peek(id?)               — прочитать окно, не закрывая (ITGAME-160): копия TraceResult на сейчас (t1 — сейчас, windowMs от t0; cut-окно — каким закрылось), окно, maxMs и луп не трогает; нет окна — {ok:false, code:'no_trace'}. Счёт посреди пункта без stop → start
   itd.trace.summary(id? | tr)       — окно строками по времени (ITGAME-179), не закрывая: id / без id — открытое (или cut) окно, tr — любой TraceResult → {ok, id?, cut?, error?, lines}; строки «t812 ptr down 640,360 canvas wins btn:pc got [btn:pc]», «t815 sent buy_pc o0 id7 ui», «t930 recv error not_enough_money re8 rev12», «t841 state rev12 cmd re7», «t50 key ENTER dom handled [hud] acted [hud:next_day]», «t813 ptr up 640,360 canvas wins - got [] gone [modal:close]», «t990 trans speed 0→1», «t931 toast "Не хватает денег"», «t842 sound select ok»; при равном t — ptr, key, sent, recv, state, trans, toast, sound; нет окна — {ok:false, code:'no_trace', lines: []}
   itd.warm()                        — прогреть кадр вручную (шаги лупа); в скрытой вкладке itd делает это сам
   itd.wait(s => s.day === 2)        — промис: поллинг state()/server() до условия (таймаут 5с, второй аргумент — свой); готовность меню — wait(s => s.menuReady), до старта партии state() null, но menuReady уже честен

@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "539fbe9865a6",
+  "hash": "b20c0156c571",
   "methods": {
     "version": {
       "kind": "prop",
@@ -135,11 +135,12 @@ export const CONTRACT = {
       "kind": "prop",
       "type": "TraceApi",
       "readonly": true,
-      "doc": "Живая трассировка окна вокруг action (ITGAME-37): подписка ДО action,\nокно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь\nигрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().\nITGAME-45: sent — с id команды, states — снапшоты окна {rev, cause, re?}:\nответ на команду — state с re = её id. ITGAME-179: sent[].src — itd (ушла внутри\nвызова itd.*: cmd/click/key/pause/resume/speed/step) или ui (настоящий клик/клавиша,\nреакция UI); itd.trace.summary(id? | tr) — окно строками по времени, не закрывая.\nITGAME-88: pointer — настоящие\nmousedown/mouseup в окне: {type: down|up, button, x, y (мировые 1280×720),\nonCanvas, wins — метка победителя хит-теста Phaser в момент события, та же форма,\nчто got (safe id или тип без id; полная строка — stack[0]), stack — как itd.stack,\ngot — до кого дошёл pointerdown/up (GAMEOBJECT_POINTER_DOWN/UP объекта; кнопка,\nудалившая себя в pointerdown, в got на down есть, на up её нет; ITGAME-148: gone — на up: получившие этот\ndown и снятые до up (уничтожены, без input, скрыты, сцена не идёт) — «клик принят, цель ушла»; на down [])}; itd.click() сюда не попадает\n(мимо input-слоя). Открытое окно для клика другим вызовом инструмента:\nitd.trace.start() → {id} … клик … itd.trace.stop(id?) → тот же TraceResult\n(windowMs — длина окна; само закроется через maxMs, по умолчанию 120 с, cut: true).",
+      "doc": "Живая трассировка окна вокруг action (ITGAME-37): подписка ДО action,\nокно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь\nигрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().\nITGAME-45: sent — с id команды, states — снапшоты окна {rev, cause, re?}:\nответ на команду — state с re = её id. ITGAME-179: sent[].src — itd (ушла внутри\nвызова itd.*: cmd/click/key/pause/resume/speed/step) или ui (настоящий клик/клавиша,\nреакция UI); itd.trace.summary(id? | tr) — окно строками по времени, не закрывая.\nITGAME-88: pointer — настоящие\nmousedown/mouseup в окне: {type: down|up, button, x, y (мировые 1280×720),\nonCanvas, wins — метка победителя хит-теста Phaser в момент события, та же форма,\nчто got (safe id или тип без id; полная строка — stack[0]), stack — как itd.stack,\ngot — до кого дошёл pointerdown/up (GAMEOBJECT_POINTER_DOWN/UP объекта; кнопка,\nудалившая себя в pointerdown, в got на down есть, на up её нет; ITGAME-148: gone — на up: получившие этот\ndown и снятые до up (уничтожены, без input, скрыты, сцена не идёт) — «клик принят, цель ушла»; на down [])}; itd.click() сюда не попадает\n(мимо input-слоя). Открытое окно для клика другим вызовом инструмента:\nitd.trace.start() → {id} … клик … itd.trace.stop(id?) → тот же TraceResult\n(windowMs — длина окна; само закроется через maxMs, по умолчанию 120 с, cut: true).\nitd.trace.peek(id?) — то же окно на сейчас, не закрывая (ITGAME-160).",
       "examples": [
         "itd.trace(() => itd.click('btn.pc'), 1000)",
         "itd.trace.start()",
         "itd.trace.stop().pointer",
+        "itd.trace.peek().pointer",
         "itd.trace.summary().lines"
       ]
     },
@@ -3407,6 +3408,11 @@ export const CONTRACT = {
           "type": "(id?: number) => TraceResult | (AgentResult & { code: 'no_trace'; })",
           "optional": false,
           "doc": "Закрыть окно id (без id — последнее открытое) → TraceResult того же вида, что у itd.trace(), с id, windowMs = длина окна, cut — закрылось само по maxMs; нет окна — {ok:false, code:'no_trace'}."
+        },
+        "peek": {
+          "type": "(id?: number) => TraceResult | (AgentResult & { code: 'no_trace'; })",
+          "optional": false,
+          "doc": "Прочитать окно, не закрывая (ITGAME-160): копия TraceResult на сейчас (t1 — сейчас, windowMs — от t0; cut-окно — каким закрылось), окно и его maxMs не трогает, луп не шагает; без id — последнее открытое; нет окна — {ok:false, code:'no_trace'}."
         },
         "summary": {
           "type": "(src?: number | TraceResult) => TraceSummary",

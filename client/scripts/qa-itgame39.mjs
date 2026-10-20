@@ -18,7 +18,7 @@
 //       JournalView.lines расшифровывает end (evicted/read_timeout/debug_drop/disconnect);
 //       SandboxApi тоже с call; itd.trace.start/stop — функции
 //   A16 (ITGAME-179/148/160) трасса 20.10: TracePointer.wins — string | null, sent — TraceSent[] с src и doc, TraceApi.summary → TraceSummary.lines; itd.trace.summary — функция;
-//       TracePointer.gone, screen → bad_frame, ScreenMap.ok (ITGAME-148)
+//       TracePointer.gone, screen → bad_frame, ScreenMap.ok (ITGAME-148), TraceApi.peek (ITGAME-160)
 //   A12 (ITGAME-131) из меню (liveSid null, socket closed): set/step/advanceDays/ledger/scenario/
 //       snapshot/restore → reject «not_in_party: …» с подсказкой itd.click('menu.diff.normal'),
 //       play([{days:1}]) → «FAIL not_in_party»; ни одного запроса /api/debug/*
@@ -106,7 +106,7 @@ async function run() {
         itdVersion: window.itd.version,
         socketNow: window.itd.server().socket,
         itdTraceFns: [typeof window.itd.trace, typeof window.itd.trace.start, typeof window.itd.trace.stop].join(),
-        itdTraceMore: [typeof window.itd.trace.summary].join(),
+        itdTraceMore: [typeof window.itd.trace.summary, typeof window.itd.trace.peek].join(),
       }
     })
     const { c1: contract, c2Hash, c3StateDoc, itdKeys, itdVersion, socketNow, itdTraceFns, itdTraceMore } = data
@@ -221,15 +221,17 @@ async function run() {
       lines: T.TraceSummary?.fields?.lines,
       fns: itdTraceMore,
       gone: T.TracePointer?.fields?.gone?.type,
+      peek: T.TraceApi?.fields?.peek,
       screenRet: contract.methods.screen?.returns,
       screenOk: T.ScreenMap?.fields?.ok?.type,
     }
     check(
-      'A16: контракт трассы 20.10 — wins метка (string | null), sent: TraceSent[] с src itd|ui и doc, TraceApi.summary → TraceSummary.lines (ITGAME-179); TracePointer.gone, screen → bad_frame, ScreenMap.ok (ITGAME-148)',
+      'A16: контракт трассы 20.10 — wins метка (string | null), sent: TraceSent[] с src itd|ui и doc, TraceApi.summary → TraceSummary.lines (ITGAME-179); TracePointer.gone, screen → bad_frame, ScreenMap.ok (ITGAME-148); TraceApi.peek (ITGAME-160)',
       a16.wins === 'string | null' && a16.sent === 'TraceSent[]' &&
         a16.src?.type === "'itd' | 'ui'" && !!a16.src.doc &&
         !!a16.summary?.doc && a16.summary.type.includes('TraceSummary') &&
-        a16.lines?.type === 'string[]' && !!a16.lines.doc && a16.fns === 'function' &&
+        a16.lines?.type === 'string[]' && !!a16.lines.doc && a16.fns === 'function,function' &&
+        !!a16.peek?.doc && a16.peek.type.includes("'no_trace'") &&
         a16.gone === 'string[]' && (a16.screenRet ?? '').includes("'bad_frame'") && a16.screenOk === 'true',
       JSON.stringify(a16),
     )

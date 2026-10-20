@@ -56,6 +56,8 @@
 //      cut, windowMs ≈ 300; bad_max; два окна — stop() закрывает последнее, stop(id) первое;
 //      itd.click() внутри окна — sent есть, pointer пуст (мимо input-слоя);
 //      классическая форма trace(action, ms) тоже несёт pointer []; itd.click() — src itd
+//  15b (ITGAME-160) peek: no_trace без окна; копия растёт между кликами, мутация не течёт; окно в start().open;
+//      stop(id) — тот же id; peek после stop — no_trace; peek cut-окна — cut:true и итоговый windowMs
 //  16  (ITGAME-179) itd.trace.summary(id) открытого окна = summary(tr) после stop, строки по t,
 //      каждая разновидность по образцу; no_trace с lines [] без окна и для не-TraceResult
 //   + на странице нет pageerror
@@ -675,6 +677,48 @@ async function run() {
         t15.firstSent.includes('buy_pc') && JSON.stringify(t15.firstSrc) === '["itd"]' && t15.firstPointer === 0 && t15.again === 'no_trace' &&
         Array.isArray(t15.classicPointer) && t15.classicPointer.length === 0,
       JSON.stringify(t15),
+    )
+
+    // ── 15b (ITGAME-160): peek — прочитать открытое окно, не закрывая
+    const t15b = await page.evaluate(async () => {
+      const itd = window.itd
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+      const none = itd.trace.peek()
+      const w = itd.trace.start()
+      itd.click('btn.pc')
+      await sleep(200)
+      const p1 = itd.trace.peek(w.id)
+      const p1Sent = p1.sent.length
+      p1.sent.push({ t: 0, type: 'mutated', src: 'ui' }) // копия — в окно не протекает
+      itd.click('btn.pc')
+      await sleep(200)
+      const p2 = itd.trace.peek() // без id — последнее открытое
+      const other = itd.trace.start()
+      const listed = other.open.includes(w.id)
+      itd.trace.stop(other.id)
+      const fin = itd.trace.stop(w.id)
+      const after = itd.trace.peek(w.id)
+      const c = itd.trace.start({ maxMs: 200 })
+      await sleep(500)
+      const pc = itd.trace.peek(c.id)
+      const sc = itd.trace.stop(c.id)
+      return {
+        none, listed, after, id: w.id,
+        p1: { ok: p1.ok, id: p1.id, sent: p1Sent, t1: p1.t1, t0: p1.t0, windowMs: p1.windowMs },
+        p2: { id: p2.id, sent: p2.sent.map((e) => e.type) },
+        fin: { id: fin.id, sent: fin.sent.map((e) => e.type) },
+        pc: { id: pc.id, cut: pc.cut, windowMs: pc.windowMs }, sc: { id: sc.id, cut: sc.cut, windowMs: sc.windowMs },
+      }
+    })
+    check(
+      '15b: peek (ITGAME-160) — без окна no_trace; копия растёт между кликами, мутация не течёт; окно открыто; stop(id) — тот же id; peek после stop — no_trace; peek cut-окна — cut и итоговый windowMs',
+      t15b.none.ok === false && t15b.none.code === 'no_trace' &&
+        t15b.p1.ok === true && t15b.p1.id === t15b.id && t15b.p1.sent === 1 && t15b.p1.t1 > 0 && t15b.p1.windowMs === t15b.p1.t1 - t15b.p1.t0 &&
+        JSON.stringify(t15b.p2.sent) === '["buy_pc","buy_pc"]' && t15b.p2.id === t15b.id && t15b.listed === true &&
+        t15b.fin.id === t15b.id && JSON.stringify(t15b.fin.sent) === '["buy_pc","buy_pc"]' &&
+        t15b.after.ok === false && t15b.after.code === 'no_trace' &&
+        t15b.pc.cut === true && t15b.sc.cut === true && t15b.pc.id === t15b.sc.id && t15b.pc.windowMs === t15b.sc.windowMs,
+      JSON.stringify(t15b),
     )
 
     // ── 16 (ITGAME-179): itd.trace.summary — окно строками по времени, по строке каждой разновидности

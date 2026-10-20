@@ -18,6 +18,7 @@ import { onUi } from '../uibus'
 // itd.trace.start() → … настоящий клик другим вызовом инструмента … →
 // itd.trace.stop(): фиксированное окно гонялось с кликом, пришедшим позже.
 // ITGAME-179: pointer.wins — метка, как got; sent[].src — itd|ui; summary() — окно строками.
+// ITGAME-160: peek(id?) — окно на сейчас без закрытия.
 
 // Кто под указателем по хит-тесту Phaser (agentApi: stackAt) — без импорта
 // agentApi (он импортирует этот модуль): функцию передаёт фасад.
@@ -405,7 +406,8 @@ export async function runTrace(game: Phaser.Game, probe: PointerProbe, action: (
 }
 
 // ── Открытое окно (ITGAME-88) ─────────────────────────────────────────────
-// start() ставит подписки и отдаёт id; stop(id?) закрывает и отдаёт TraceResult.
+// start() ставит подписки и отдаёт id; stop(id?) закрывает и отдаёт TraceResult;
+// peek(id?) читает, не закрывая (ITGAME-160).
 // Окно, забытое без stop(), закрывается само по maxMs (cut: true) и ждёт
 // stop() с готовым результатом. Окон одновременно — не больше TRACE_MAX_OPEN.
 
@@ -459,6 +461,20 @@ export function stopTrace(id?: number): TraceResult | NoTrace {
   if (found.entry.timer) clearTimeout(found.entry.timer)
   finishOpen(found.entry.tr)
   return found.entry.tr.r
+}
+
+// ITGAME-160: прочитать окно, не закрывая — копия результата на сейчас; окно, его
+// maxMs и луп не трогаем (без stepOnce: смену сцен на самом последнем шаге увидит
+// stop(), peek — со следующего POST_STEP). cut-окно — каким закрылось.
+export function peekTrace(id?: number): TraceResult | NoTrace {
+  const found = findOpen(id)
+  if (!found.ok) return found
+  const r = structuredClone(found.entry.tr.r)
+  if (!r.cut) {
+    r.t1 = Date.now()
+    r.windowMs = r.t1 - r.t0
+  }
+  return r
 }
 
 // ── summary (ITGAME-179) ──────────────────────────────────────────────────
