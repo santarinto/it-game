@@ -374,6 +374,23 @@ starts a new party under it and its first save overwrites the file.
 carry the format) take a save or a journal of any build of the same format; a
 journal of another format no longer replays.
 
+To see the card without a restart (ITGAME-154): `POST /api/debug/format`
+`{sid, format?}` (`ITGAME_DEBUG` only) marks the save of `sid` with another
+`game.format` — by default `SaveFormat + 1`, `0` is the oldest, the server's
+own format → `400 same_format`, below 0 → `400 bad_format`. It keeps `version`,
+every other byte and `savedAt`; the answer is `{sid, was, format, live}`.
+`live: false` — nobody holds the sid, the store is rewritten, memory and file
+(`store.Rewrite`: no `Begin`, so the owner's generation and kick are kept; a
+hand-edited file stays invisible on a live server because `Load` serves memory
+first). `live: true` — the actor of a live party (owner, 20.10: «порча до
+переподключения») writes every save with the mark until it exits; the game,
+`rev`, the snapshot stream and the party journal are untouched (the replay never
+sees it). «В меню» then shows the card, and a reconnect goes through `resume` →
+another format → a new party under the same sid, silent in the tab today
+(ITGAME-174). A finished party → `404 no_save`, a server without saves →
+`409 no_saves`; the errors are free text, not protocol codes. Client:
+`itd.staleSave()`.
+
 **Build version** (ITGAME-140): the session save (`sessionSave.version`, next to
 `game`) records the server's build version (see [Deploy](#deploy)) for people:
 the peek sends `version` always (`""` without one) and `saveVersion` with an
@@ -668,7 +685,7 @@ session. Without `sid` it reads the tab's own sid, which survives «Сохран
 «Сдаться» or a finale followed by «В меню» — `clearSession()` wipes the sid, the
 default one is a fresh one and answers `no_journal`; take `itd.server().sid`
 before leaving and pass it: `itd.journal({sid})`. `itd.away()` keeps its own
-`not_connected`.
+`not_connected`. `itd.staleSave()` is not gated either.
 
 `itd.restore(save)` is a delta over the live party and does not reset it; if
 the active office is locked in the restored state, the tab moves to office 0
@@ -1297,6 +1314,15 @@ documenting separately:
   connection). `+tk` — ticks since the previous record. `sid` reads another party (default: the tab's, like the debug
   calls). `url` is the full JSONL for `make replay ARGS="-url <origin> -sid
   <sid>"`. Without `ITGAME_DEBUG` it rejects with `journal_off`.
+- **`await itd.staleSave({format?, sid?})`** (ITGAME-154) — the wrapper over
+  `POST /api/debug/format` (see [Sessions and saves](#sessions-and-saves)):
+  `format` defaults to one above the server's (`{format: 0}` — older), `sid` to
+  the tab's own (`liveSid ?? stored sid`, like `itd.journal()`), so it works from
+  the menu (`live: false`: reload the menu to see the card) and in a party
+  (`live: true`: «В меню» → the card, F5 or `itd.away` → a new party with no
+  word, ITGAME-174). Rejections carry the code in the text (`bad_sid`,
+  `bad_format`, `same_format`, `no_save`, `no_saves`); a bare `HTTP 404` is a
+  server without `ITGAME_DEBUG=1`.
 - **`itd.play(steps)` / `itd.ledger(day?)`** (ITGAME-73) — a party and its
   books from the console. `play` runs steps in order — `{cmd, office?, extra?}`
   (an `itd.cmd` with its receipt) or `{days: n}` (an `itd.advanceDays`) — and
@@ -1513,7 +1539,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:report-pause` | the day report pauses the party (speed 0, time and balance stand still); Enter/Space/`btn.next_day`/`itd.cmd('next_day')` restore the pre-report speed; F5 with the report open keeps `itd.speedBeforeReport`, «Продолжить» reopens it paused and closing restores 3×; an outside `itd.speed(0)` over the report survives; `itd.set({tickInDay})` refused in `day_report`; `skipReports` changes the day without a modal or a stuck 0 (ITGAME-18, self-serve since ITGAME-70); R1–R2 a long journal (ITGAME-141, `eventLog` by `itd.restore`, viewport 1920×1080): lines wider than the panel wrap with a hanging indent `  ` under «·» and glue back to the server's lines, 30 two-line events give «· … раньше: ещё k» on top with the evening line kept, the text stays ≥ 16 px inside the panel frame, the panel inside 16..704, `itd.overlaps()`/`offscreen()` empty; Z0 with no staff the report reads «Зарплата:  $0», no minus (ITGAME-147); R3–R4 the `hud.log` strip after the report (ITGAME-150): a server journal line goes in with its own «HH:MM» and no arrival clock before it, the day summary last; the report the server re-sends after an early reconnect in `day_report` (`itd.away` `net` 1 s, timeout 5 s) arrives a second time and puts no line into the strip (counted on `logLine` calls — the strip keeps 5 lines, so a 5-line report repeated gives the same tail) | :4182, self-serve + temp saves dir |
 | `npm run qa:journal` | the journal of a live browser party (HUD clicks, `itd.cmd`, a rejection, `itd.set`/`itd.step`, F5 → «Продолжить» with offline catch-up) from `/api/debug/journal` replays with `cmd/replay -json` without divergence or warnings, and the replayed save equals the live one; `itd.journal({tail, sid})` gives the same journal from the tab — tail lines, kinds/total, ids, saves stripped (ITGAME-46); a `/ws/agent` command with its own id 1 after the F5: `conn`/`src` on every command, `start c1`, `resume c2`, the bridge on its own conn, ids repeat but (conn, id) pairs don't, replay `conns`; lines `end disconnect`, `c3 bridge id1` (ITGAME-91); J3b/J6b `itd.restore` infects seat 1 of two with the wave in 2 ticks, a live wave infects seat 2, six `virus_click` clean both and a seventh is `not_infected` — all in the journal and the replay (ITGAME-138) | :4186, self-serve + temp saves dir |
 | `npm run qa:admins` | the admin department (ITGAME-145), real mouse clicks at `itd.screen()` points: D1 the «АДМ» tab with its lock and $3,000, the closed room «Отдел админов закрыт» with `dept.buy` and no hire column; D2 `dept.buy` at $600 — sent, refused, still closed; D3 bought — `buy_admin_dept`, −$3,000, three seats, the tab «0/3» without a lock; D4 `btn.admin.0` enabled «Админ О1 / $600», О2/О3 disabled with «Офис 2 не куплен»; D5 a click on a disabled button sends nothing; D6 `hire_admin 0`, «Админ О1 ✓», the admin seated, «свободен», «1/3»; D7 `admin_dept` with live ticks — the target line goes «чистит место 2» → «чистит место 7» → «чинит место 4» → «свободен»; D8 the admin's tooltip, D8b it survives a snapshot under the cursor and does not stick once the cursor left in one move (no `pointerout` reaches the re-created sprite — the bounds check `OfficeScene` has since ITGAME-89); D9 a right click — «Уволить админа?» with «Компенсация: $300», the confirm sends `fire_admin 0`, the seat is empty; D10 the office seat tooltip «чистит админ» on the admin's target and not on a clean seat; D11 `not_infected` in an office with an admin raises no toast, `not_broken` in an office without one does; D12 the day report's admin lines (ITGAME-159), once the admin is free so both parts are there: «Админы:    починили k ПК,» and «           вычистили m мест» under the value column, k and m the day's counts from the save, a Russian plural, each line ≤ 392 px by the report Text's own `measureText`, the body inside the panel with ≥ 16 px margins, no `hud` overlaps/offscreen; D13 three admins with long names — overlaps/offscreen empty at both zooms; no pageerror | :4192, self-serve |
-| `npm run qa:version` | the build version and save compatibility (ITGAME-140, ITGAME-169): V1 `/api/version` → `version` год.мес.день.час.мин = `itd.version.version` = the menu's «версия X» (`menu.version`, inside the field); V2 a party → «Сохранить и выйти»: the save file carries the server's version and `game.format`, the menu shows «ПРОДОЛЖИТЬ»; V3 the server restarted on the same saves dir with the file's version set to 2000.01.01.00.00 (a deploy of a new build of the same format): «ПРОДОЛЖИТЬ» with $4,321 and no `menu.stale`, «Продолжить» resumes the party with $4321 and its save carries the server's version again; V4 a save without `version` (before ITGAME-140) — «ПРОДОЛЖИТЬ» too; V5/V6 `game.format` one below / one above the server's: no `menu.continue`, the card `menu.stale` «СЕЙВ НЕСОВМЕСТИМ», «начните новую партию:», overlaps/offscreen empty; the card's line is the owner's sentence (two lines joined by a space), no menu text but `menu.version` matches a build version, «от версии», «от старой версии», «, игра » or «формат», the title and the line inside `menu.stale` (≥ 16 px left and right, ≥ 8 px top and bottom), the title above the line, «начните новую партию:» below the card, the corner still «версия X» (ITGAME-149); V7 a real mouse click on «НОРМА» from the card: no «Начать заново?», a new sid, day 1, its save carries the server's version and format, the old file untouched; V8 no pageerror | :4189, self-serve on its own saves dir (restarted between steps: the store keeps saves in memory) |
+| `npm run qa:version` | the build version and save compatibility (ITGAME-140, ITGAME-169): V1 `/api/version` → `version` год.мес.день.час.мин = `itd.version.version` = the menu's «версия X» (`menu.version`, inside the field); V2 a party → «Сохранить и выйти»: the save file carries the server's version and `game.format`, the menu shows «ПРОДОЛЖИТЬ»; V3 the server restarted on the same saves dir with the file's version set to 2000.01.01.00.00 (a deploy of a new build of the same format): «ПРОДОЛЖИТЬ» with $4,321 and no `menu.stale`, «Продолжить» resumes the party with $4321 and its save carries the server's version again; V4 a save without `version` (before ITGAME-140) — «ПРОДОЛЖИТЬ» too; V5/V6 `game.format` one below / one above the server's, set by the route without a restart (V5 `itd.staleSave` from the menu, V6 a raw `POST /api/debug/format`): `{sid, was, format, live: false}`, only `game.format` changed and `savedAt` kept (ITGAME-154); then no `menu.continue`, the card `menu.stale` «СЕЙВ НЕСОВМЕСТИМ», «начните новую партию:», overlaps/offscreen empty; the card's line is the owner's sentence (two lines joined by a space), no menu text but `menu.version` matches a build version, «от версии», «от старой версии», «, игра » or «формат», the title and the line inside `menu.stale` (≥ 16 px left and right, ≥ 8 px top and bottom), the title above the line, «начните новую партию:» below the card, the corner still «версия X» (ITGAME-149); V7 a real mouse click on «НОРМА» from the card: no «Начать заново?», a new sid, day 1, its save carries the server's version and format, the old file untouched; V8 a live party marked (`live: true`, the file at once FORMAT+1 with the server's version) — `itd.away(1)` answers `not_resumed`, a new party day 1 under the same sid, no card, the file back to the server's format (ITGAME-174, today's silent behaviour); V9 a live mark then «Сохранить и выйти» → the card; V10 no pageerror | :4189, self-serve on its own saves dir (restarted for V3/V4 only — the build version is set by a file edit; the format by the route) |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |
 | `npm run visreg` | screenshot diff + layout linter per fixture scenario | :4173, self-serve, `VISREG_PORT` overrides |
 
