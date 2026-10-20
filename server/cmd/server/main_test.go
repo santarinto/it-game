@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"itdirector/internal/game"
 	"itdirector/internal/ws"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -172,5 +174,32 @@ func TestVersionEndpoint(t *testing.T) {
 	}
 	if want := ws.ServerVersion(); body.SHA != want {
 		t.Fatalf("/api/version sha %q, want ws.ServerVersion() %q", body.SHA, want)
+	}
+}
+
+// Метрики (ITGAME-189) — на своём mux для отдельного listener'а: /metrics
+// отдаёт сборку бинаря; основной mux (публичный за nginx) маршрута не знает.
+func TestMetricsMux(t *testing.T) {
+	srv := httptest.NewServer(newMetricsMux())
+	t.Cleanup(srv.Close)
+	resp, err := http.Get(srv.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("/metrics: %d", resp.StatusCode)
+	}
+	if want := `itgame_build_info{sha="` + ws.ServerVersion() + `"`; !strings.Contains(string(body), want) {
+		t.Fatalf("в /metrics нет %s", want)
+	}
+
+	pub := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, "", false, 0))
+	t.Cleanup(pub.Close)
+	if resp, err := http.Get(pub.URL + "/metrics"); err != nil {
+		t.Fatal(err)
+	} else if resp.Body.Close(); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("основной mux /metrics: %d, ожидался 404", resp.StatusCode)
 	}
 }

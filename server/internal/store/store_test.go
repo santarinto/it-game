@@ -6,6 +6,12 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
+
+	"itdirector/internal/metrics"
 )
 
 func newTestStore(t *testing.T, ttl time.Duration) *Store {
@@ -421,5 +427,57 @@ func TestPruneRemovesTmp(t *testing.T) {
 	}
 	if left := tmpLeft(t, dir); len(left) > 0 {
 		t.Fatalf("временные файлы пережили старт: %v", left)
+	}
+}
+
+// histCount — число наблюдений гистограммы.
+func histCount(t *testing.T, h prometheus.Histogram) uint64 {
+	t.Helper()
+	var m dto.Metric
+	if err := h.Write(&m); err != nil {
+		t.Fatal(err)
+	}
+	return m.GetHistogram().GetSampleCount()
+}
+
+// Метрики сейвов (ITGAME-189): каждый Put в гистограмме длительности, исход —
+// ok или stale (сессию забрал другой актор).
+func TestPutCountsSaves(t *testing.T) {
+	s := newTestStore(t, time.Hour)
+	const sid = "metrics-1234"
+	ok0 := testutil.ToFloat64(metrics.Saves.WithLabelValues("ok"))
+	stale0 := testutil.ToFloat64(metrics.Saves.WithLabelValues("stale"))
+	n0 := histCount(t, metrics.SaveSeconds)
+
+	gen, _ := s.Begin(sid)
+	s.Put(sid, gen, []byte(`{}`), time.Now())
+	s.Begin(sid)
+	s.Put(sid, gen, []byte(`{}`), time.Now())
+
+	if d := testutil.ToFloat64(metrics.Saves.WithLabelValues("ok")) - ok0; d != 1 {
+		t.Errorf("saves ok +%v, хотим +1", d)
+	}
+	if d := testutil.ToFloat64(metrics.Saves.WithLabelValues("stale")) - stale0; d != 1 {
+		t.Errorf("saves stale +%v, хотим +1", d)
+	}
+	if d := histCount(t, metrics.SaveSeconds) - n0; d != 2 {
+		t.Errorf("save_seconds +%d наблюдений, хотим +2", d)
+	}
+}
+
+// Файл сейва не записался (каталог пропал) — ошибка в счётчике, данные в памяти.
+func TestPutCountsWriteErrors(t *testing.T) {
+	s := newTestStore(t, time.Hour)
+	const sid = "metrics-err-1"
+	gen, _ := s.Begin(sid)
+	if err := os.RemoveAll(s.dir); err != nil {
+		t.Fatal(err)
+	}
+	e0 := testutil.ToFloat64(metrics.SaveErrors.WithLabelValues("write"))
+	if !s.Put(sid, gen, []byte(`{}`), time.Now()) {
+		t.Fatal("Put без каталога отклонён — память должна принять сейв")
+	}
+	if d := testutil.ToFloat64(metrics.SaveErrors.WithLabelValues("write")) - e0; d != 1 {
+		t.Errorf("save_errors write +%v, хотим +1", d)
 	}
 }

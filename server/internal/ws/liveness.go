@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"itdirector/internal/metrics"
 )
 
 // Таймаут чтения вкладки (ITGAME-76). Без него сервер узнавал об обрыве сети
@@ -140,6 +142,9 @@ func (t *tabConn) watch(ctx context.Context, cancel context.CancelFunc, sid stri
 			t.mu.Lock()
 			t.gone = gone
 			t.mu.Unlock()
+			if !dropped {
+				metrics.ReadTimeouts.Inc()
+			}
 			log.Printf("сессия %s: клиент молчит %s (таймаут чтения %s, %s) — соединение закрыто", sid, idle.Round(time.Millisecond), timeout, why)
 			t.c.CloseNow() // без close-фрейма: пиру его всё равно не доставить
 			cancel()       // актор встаёт; последний сейв — момент, когда заметили

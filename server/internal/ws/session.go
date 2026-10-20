@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	"itdirector/internal/game"
+	"itdirector/internal/metrics"
 	"itdirector/internal/store"
 )
 
@@ -248,6 +249,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	metrics.WSConnections.Inc()
+	defer metrics.WSConnections.Dec()
+
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
@@ -289,6 +293,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Begin() в run() отбирает сессию у headless-актора агента, его мосты
 	// закрываются с session_taken и переподключаются уже как наблюдатели.
 	evicted := h.run(ctx, sess, cfg, sid, opts)
+	if evicted {
+		metrics.SessionTakeovers.Inc()
+	}
 	hub.closeAll(evicted)
 }
 
@@ -393,9 +400,13 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 			h.afterLoad(sid)
 		}
 	}
+	// Метрики партии (ITGAME-189): старт, подъём из сейва, финал.
+	var pm partyMetrics
 	// Первый снапшот сессии: start — новая партия, resume — из сейва.
 	if resumed {
 		rv.bump(causeResume)
+		metrics.PartiesResumed.Inc()
+		pm.settle(g) // офлайн-догон мог привести к финалу
 	} else {
 		rv.bump(causeStart)
 	}
@@ -426,6 +437,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		default:
 			g = newGame(cfg, opts.Seed)
 		}
+		pm.started(g)
 		if withSaves && !h.persist(sid, gen, g, speed, 0, lastReport, scenario, journal.last(journal.cap), rv.rev, saveFormat) {
 			return true
 		}
@@ -499,9 +511,13 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 				&g, &speed, resumeSpeed, &lastReport, journal, &scenario, rv, &saveFormat) {
 				return true // сейв не прошёл — мутации в партии нет, в журнал не пишем
 			}
+			// debug-промотка могла привести к финалу
+			pm.settle(g)
 			jn.debug(req, rv.rev != rev) // мутация = новая версия состояния
 		case cmd := <-commands:
 			if cmd.Cmd == cmdAbandon {
+				countCommand(cmd.Cmd, nil)
+				pm.finish(g, "abandon")
 				jn.command(cmd, nil)
 				if withSaves {
 					h.Saves.Delete(sid)
@@ -524,6 +540,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 			} else if err := g.Apply(cmd.Cmd, cmd.Office, cmd.Slot); err != nil {
 				rejected = &errorMessage{Type: "error", Code: err.Error()}
 			}
+			countCommand(cmd.Cmd, rejected)
 			// Ошибки — только отправителю (его промах, не общее событие),
 			// состояние не меняют: rev текущий.
 			if rejected != nil {
@@ -535,6 +552,10 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 				continue
 			}
 			rv.bump(causeCmd)
+			if cmd.Cmd == game.CmdRestart {
+				pm.started(g) // после банкротства — новая партия
+			}
+			pm.settle(g)
 			// Успешная команда — точка сейва: покупки и переходы дней
 			// не должны теряться даже при жёстком kill -9. Финальная партия
 			// сейва не держит: после финала сессия жива до «В меню»
@@ -552,6 +573,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 			// Успешный снапшот — всем соединениям сессии, отправителю — с re.
 			hub.writeReply(ctx, rv.stamp(snapshot(g, speed, false, scenario)), cmd.From, cmd.ID)
 		case <-tickC:
+			tickStart := time.Now()
 			wasRunning := g.Phase == game.PhaseRunning
 			report := g.Tick()
 			if report != nil {
@@ -581,6 +603,8 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 					}
 				}
 			}
+			metrics.TickSeconds.Observe(time.Since(tickStart).Seconds())
+			pm.settle(g)
 			// В журнал — после сейва: тик вытесненного актора, чей сейв не
 			// прошёл, никто не увидит, и реплею он не нужен (ITGAME-46).
 			jn.tick(finished || report != nil)

@@ -1726,6 +1726,55 @@ prepares a fresh container: Go modules, `npm ci`, `npm run browser:install`
 local PostgreSQL with role `itd` and databases `itdirector` /
 `itdirector_test`; it exports `DATABASE_URL` and `TEST_DATABASE_URL`.
 
+## Metrics
+
+ITGAME-189. The server exposes Prometheus metrics on a **separate
+listener**: `-metrics-addr` (default from `ITGAME_METRICS_ADDR`), e.g.
+`127.0.0.1:9181`; empty — no listener (the default: the local stand and the
+tests run without it). It serves only `GET /metrics`; the public mux has no
+such route (404), so the nginx vhost cannot leak it by accident. A listener
+error is logged and never stops the game.
+
+```bash
+go run ./cmd/server -metrics-addr 127.0.0.1:9181 &
+curl -s 127.0.0.1:9181/metrics | grep '^itgame_'
+```
+
+**Delivery.** The game box is not in the minipc VPN mesh, so the Vector push
+of the minipc Grafana stack (`10.8.1.12:9880`) is unreachable from it.
+Prometheus on minipc pulls instead, the way it already scrapes the box's
+node_exporter (job `itgame-node`, `:9100`, ufw open only to `38.180.192.251`
+— the egress of the usa hub). The scrape job, the nginx location or ufw rule
+for prod and stage, the env var in the units and the Grafana dashboard are
+the minipc side (`deploy/prometheus/`, `deploy/itgame/` in their repo).
+
+**What is exported** (`server/internal/metrics`). No `sid` in labels —
+cardinality and the player's privacy; labels are finite sets only.
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `itgame_build_info{sha,version}` | gauge | always 1, the binary as `/api/version` reports it |
+| `itgame_ws_connections` | gauge | open `/ws` tab connections |
+| `itgame_sessions_live` | gauge | live party actors (agent headless sessions included) |
+| `itgame_tick_seconds` | histogram | actor time per tick: the game step and the save |
+| `itgame_save_seconds` | histogram | `store.Put`: temp file plus rename |
+| `itgame_saves_total{result}` | counter | `ok`, or `stale` — another actor took the session |
+| `itgame_save_errors_total{op}` | counter | `write` (temp file) or `rename`; memory keeps the save |
+| `itgame_session_takeovers_total` | counter | a second tab took the sid (`session_taken`) |
+| `itgame_ws_read_timeouts_total` | counter | tabs closed by the read timeout (ITGAME-76) |
+| `itgame_parties_started_total{difficulty}` | counter | new parties, `restart` after a bankruptcy included |
+| `itgame_parties_resumed_total` | counter | parties restored from a save on connect |
+| `itgame_parties_finished_total{outcome,difficulty}` | counter | `bankrupt`, `victory` or `abandon`, counted once per finale |
+| `itgame_party_days{outcome}` | histogram | the game day at the finale |
+| `itgame_commands_total{cmd,result}` | counter | player commands, `ok` or `rejected`; a name outside the protocol is `unknown` |
+
+Plus the standard `go_*` and `process_*` series. The `cmd` label takes a
+name only from `knownCommands` (`server/internal/ws/metrics.go`): outside
+the running phase `game.Apply` answers `wrong_phase` before it looks at the
+command, so a raw client `type` would otherwise become a series.
+`TestKnownCommandsCoverProtocol` fails when a new `Command("…")` is missing
+from that set.
+
 ## Database
 
 PostgreSQL is optional: gameplay and saves don't use it. It backs the

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"itdirector/internal/game"
+	"itdirector/internal/metrics"
 	"itdirector/internal/store"
 )
 
@@ -124,6 +125,7 @@ func (h *Handler) registerSession(sid string, sess *session) {
 	}
 	h.live[sid] = sess
 	h.debugMu.Unlock()
+	metrics.LiveSessions.Inc() // гейдж считает акторов: при захвате двое живут миг вместе
 }
 
 // unregisterSession — только если в реестре наша сессия: sid мог забрать
@@ -134,6 +136,7 @@ func (h *Handler) unregisterSession(sid string, sess *session) {
 		delete(h.live, sid)
 	}
 	h.debugMu.Unlock()
+	metrics.LiveSessions.Dec()
 }
 
 // lookupSession — живая сессия по sid или nil (для агентского моста).

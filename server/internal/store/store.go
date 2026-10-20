@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"itdirector/internal/metrics"
 )
 
 // Store — каталог сейвов. Потокобезопасен: акторы сессий зовут Put/Load
@@ -167,6 +169,8 @@ func (s *Store) Put(sid string, gen uint64, data []byte, at time.Time) bool {
 	if !ValidSID(sid) {
 		return false
 	}
+	start := time.Now()
+	defer func() { metrics.SaveSeconds.Observe(time.Since(start).Seconds()) }()
 	tmp := s.writeTmp(sid, data, at)
 	if s.beforeCommit != nil {
 		s.beforeCommit(sid)
@@ -176,11 +180,13 @@ func (s *Store) Put(sid string, gen uint64, data []byte, at time.Time) bool {
 	e, ok := s.entries[sid]
 	if !ok || e.gen != gen {
 		s.dropTmp(tmp)
+		metrics.Saves.WithLabelValues("stale").Inc()
 		return false
 	}
 	e.data = append([]byte(nil), data...)
 	e.savedAt = at
 	s.commitTmp(sid, tmp)
+	metrics.Saves.WithLabelValues("ok").Inc()
 	return true
 }
 
@@ -196,11 +202,13 @@ func (s *Store) writeTmp(sid string, data []byte, at time.Time) string {
 	f, err := os.CreateTemp(s.dir, sid+".json.*.tmp")
 	if err != nil {
 		log.Printf("сейв %s: запись: %v", sid, err)
+		metrics.SaveErrors.WithLabelValues("write").Inc()
 		return ""
 	}
 	_, werr := f.Write(env)
 	if err := errors.Join(werr, f.Close()); err != nil {
 		log.Printf("сейв %s: запись: %v", sid, err)
+		metrics.SaveErrors.WithLabelValues("write").Inc()
 		s.dropTmp(f.Name())
 		return ""
 	}
@@ -215,6 +223,7 @@ func (s *Store) commitTmp(sid, tmp string) {
 	}
 	if err := os.Rename(tmp, s.path(sid)); err != nil {
 		log.Printf("сейв %s: переименование: %v", sid, err)
+		metrics.SaveErrors.WithLabelValues("rename").Inc()
 		s.dropTmp(tmp)
 	}
 }

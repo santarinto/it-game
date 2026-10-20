@@ -14,6 +14,7 @@ import (
 	"itdirector/internal/admin"
 	"itdirector/internal/db"
 	"itdirector/internal/game"
+	"itdirector/internal/metrics"
 	"itdirector/internal/store"
 	"itdirector/internal/ws"
 )
@@ -43,6 +44,7 @@ func main() {
 	static := flag.String("static", "", "каталог собранного клиента (client/dist); пусто — не раздавать")
 	savesDir := flag.String("saves", "", "каталог сейвов сессий; пусто — ITGAME_SAVES_DIR, потом /opt/itgame/shared/saves (если есть), иначе ./saves; off — выключить")
 	saveTTL := flag.Duration("save-ttl", 24*time.Hour, "сколько часов сейв сессии ждёт игрока")
+	metricsAddr := flag.String("metrics-addr", os.Getenv("ITGAME_METRICS_ADDR"), "адрес отдельного listener'а /metrics (Prometheus); пусто — ITGAME_METRICS_ADDR, нет и его — метрики не отдаются")
 	flag.Parse()
 
 	// БД опциональна: геймплей от неё не зависит, каталог читает админка.
@@ -96,9 +98,28 @@ func main() {
 	}
 	log.Printf("таймаут чтения вкладки: %s", readTimeout)
 
+	// Метрики (ITGAME-189) — свой listener, не публичный mux: наружу их выводит
+	// nginx бокса только для скрейпа Prometheus minipc. Ошибка listener'а
+	// игру не роняет.
+	if *metricsAddr != "" {
+		go func() {
+			log.Printf("метрики: слушаю %s/metrics", *metricsAddr)
+			log.Printf("метрики: %v", http.ListenAndServe(*metricsAddr, newMetricsMux()))
+		}()
+	}
+
 	mux := newMux(cfg, database, saves, *static, debugRoutes, readTimeout)
 	log.Printf("IT Director: слушаю %s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, mux))
+}
+
+// newMetricsMux — listener метрик (ITGAME-189): только GET /metrics, сборка
+// бинаря в itgame_build_info.
+func newMetricsMux() *http.ServeMux {
+	metrics.SetBuild(ws.ServerVersion(), ws.BuildVersion())
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", metrics.Handler())
+	return mux
 }
 
 // newMux — маршруты сервера одним местом (тестируется без запуска main).
