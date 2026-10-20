@@ -224,9 +224,12 @@ func TestReadTimeoutNoticesSilentPeer(t *testing.T) {
 	const sid = "mute-12345"
 	saves := newTestStore(t)
 	base, h := startLivenessServer(t, saves, 20*time.Millisecond, 200*time.Millisecond)
+	// Часы «слышал» сервера (newTabConn, liveness.go) идут от апгрейда, а он
+	// раньше возврата dialURL и readResume: отсчёт — до дозвона, иначе нижняя
+	// граница завышена на время рукопожатия и тест флакает («через 199ms»).
+	start := time.Now()
 	c, ctx := dialURL(t, base, "/ws?sid="+sid)
 	readResume(t, ctx, c)
-	start := time.Now()
 	// Больше не читаем: pong-ов нет, сервер для нас молчит.
 	noticed := waitGone(t, h, sid, 3*time.Second)
 	if d := noticed.Sub(start); d < 200*time.Millisecond {
