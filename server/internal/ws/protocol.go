@@ -353,7 +353,7 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 				virusNeeded = cfg.VirusCleanClicks
 			}
 			employees[i] = employeeInfo{Name: e.Name, IncomePerTick: e.IncomePerTick,
-				EffectiveIncomePerTick: g.EffectiveIncomePerTick(o, &o.Employees[i]),
+				EffectiveIncomePerTick: g.EffectiveIncomePerTick(o, i),
 				Connected:              net.CoreLinked[oi][i], UnpaidToday: e.UnpaidToday, Effects: effects,
 				NetMult: net.Mults[oi][i], ServerSlot: net.ServerSlot[oi][i],
 				PCBroken: e.PCBroken, RepairClicks: e.RepairClicks, RepairNeeded: repairNeeded, MotivateReadyAt: readyAt,

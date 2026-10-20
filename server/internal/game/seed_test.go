@@ -88,7 +88,7 @@ func TestFixturesAllValid(t *testing.T) {
 		"fresh": false, "broke_day3": false, "mid_day10": false,
 		"full_office": false, "soft_lock": false, "pre_victory": false,
 		"spare_pcs": false, "broken_pc": false, "doomed_debt": false,
-		"virus_outbreak": false, "admin_dept": false,
+		"virus_outbreak": false, "admin_dept": false, "worn_pcs": false,
 	}
 	if len(names) != len(want) {
 		t.Fatalf("фикстур %d, ожидалось %d: %v", len(names), len(want), names)

@@ -162,7 +162,7 @@ func NewWithSeed(cfg Config, s1, s2 uint64) *Game {
 		Money: cfg.StartMoney, Phase: PhaseRunning, Day: 1,
 		Offices: make([]Office, 3),
 	}
-	g.Offices[0] = Office{Unlocked: true, PCs: cfg.StartPCs}
+	g.Offices[0] = Office{Unlocked: true, PCs: cfg.StartPCs, Workplaces: make([]Workplace, cfg.StartPCs)}
 	// Рынок: сегодня онбординг без качелей, завтрашний ролл уже виден.
 	g.MarketTomorrow = g.rollMarket()
 	g.beginLedger()
@@ -232,7 +232,7 @@ func (g *Game) accrueXP() {
 		}
 		for i := range o.Employees {
 			e := &o.Employees[i]
-			if e.PCBroken || g.XPNext(e) == 0 {
+			if e.PCBroken || o.Workplace(i).Dead || g.XPNext(e) == 0 { // «требуется замена» (ITGAME-135) не производит
 				continue
 			}
 			e.XP += rate
@@ -333,9 +333,14 @@ func (g *Game) MinCostToEarn() int {
 			cap := o.StaffCap(g.cfg)
 			if len(o.Employees) < cap {
 				if o.PCs > len(o.Employees) {
-					// Свободный ПК уже есть — платим только за найм
-					if g.cfg.HirePrice < minCost {
-						minCost = g.cfg.HirePrice
+					// Свободный ПК уже есть — платим только за найм. Найм садит за первый
+					// свободный стол, даже «требуется замена» (ITGAME-135): тогда плюс замена.
+					cost := g.cfg.HirePrice
+					if o.Workplace(len(o.Employees)).Dead {
+						cost += g.PCReplacePrice()
+					}
+					if cost < minCost {
+						minCost = cost
 					}
 				} else if o.PCs < g.cfg.OfficeSlots {
 					// ПК нет — покупка ПК + найм
@@ -382,7 +387,8 @@ const doomHorizonDays = 365
 // сегодня PayrollPerDay живой игры, дальше — шаблона). Доход — по шаблону
 // офлайн-движка, но с целыми и чистыми ПК: ремонт и чистка кликами бесплатны,
 // сломанный ПК — не тупик, хотя ночью он сам больше не чинится (ITGAME-136),
-// заражённое место — тоже, хотя вирус сам не проходит (ITGAME-103). Без баффов и
+// заражённое место — тоже, хотя вирус сам не проходит (ITGAME-103). ПК «требуется
+// замена» (ITGAME-135) — нет: замена стоит денег, шаблон держит его мёртвым. Без баффов и
 // событий, рынок нейтрален. Сегодня — остаток дня от текущего тика,
 // поэтому прогноз не скачет в течение дня. Дедлайн уровня раньше банкротства
 // закроет партию по time_up — тогда 0: предупреждать о банкротстве незачем.
@@ -475,15 +481,16 @@ func (g *Game) incomeAtTickDetail(tick int) (total, lost, virusLost int) {
 		}
 		for i := range o.Employees {
 			e := &o.Employees[i]
-			// Прибавка уровня входит в личную выработку до эффектов и сети:
-			// тенюра масштабируется инфраструктурой (итерация 15).
-			clean := float64(e.IncomePerTick+g.levelBonus(e)) * g.dayEffectMult(o, e, tick)
+			// Прибавка уровня и множитель уровня ПК (ITGAME-135) входят в личную
+			// выработку до эффектов и сети: тенюра и железо масштабируются
+			// инфраструктурой (итерация 15).
+			clean := float64(e.IncomePerTick+g.levelBonus(e)) * g.pcMult(o, i) * g.dayEffectMult(o, e, tick)
 			v := int(math.Round(clean * net.Mults[oi][i]))
 			healthy := v
 			if e.Infected {
 				v = int(math.Round(clean * g.cfg.VirusMult * net.Mults[oi][i]))
 			}
-			if e.PCBroken {
+			if e.PCBroken || o.Workplace(i).Dead { // «требуется замена» (ITGAME-135) — как сломанный
 				lost += v
 				continue
 			}
@@ -686,6 +693,10 @@ func (g *Game) rollRepairNeeded() int {
 // rollBreakdowns — инциденты дня: с шансом за тик на офис ломается ПК
 // случайного занятого слота. Максимум один сломанный ПК на офис
 // одновременно — иначе ранняя игра карается, а поздняя тонет в ремонте.
+// Износ (ITGAME-135): поломка — +1 к износу места, как бы её ни починили;
+// поломка места с износом PCWearLimit ПК не ломает, а выводит из строя —
+// без нового ролла, та же поломка из того же PCG. Мёртвое место в пул не
+// входит и «одну поломку на офис» не держит.
 func (g *Game) rollBreakdowns() {
 	for oi := range g.Offices {
 		o := &g.Offices[oi]
@@ -693,19 +704,27 @@ func (g *Game) rollBreakdowns() {
 			continue
 		}
 		broken := false
+		var alive []int // занятые места с живым ПК: «требуется замена» не ломается снова и кап не держит (ITGAME-135)
 		for i := range o.Employees {
 			if o.Employees[i].PCBroken {
 				broken = true
-				break
+			}
+			if !o.Workplace(i).Dead {
+				alive = append(alive, i)
 			}
 		}
-		if broken || g.rng.IntN(100) >= g.cfg.BreakdownChancePct {
+		if broken || len(alive) == 0 || g.rng.IntN(100) >= g.cfg.BreakdownChancePct {
 			continue
 		}
-		slot := g.rng.IntN(len(o.Employees))
+		slot := alive[g.rng.IntN(len(alive))]
+		g.DayIncidents++
+		if w := o.workplaceRef(slot); g.cfg.PCWearLimit > 0 && w.Wear >= g.cfg.PCWearLimit {
+			g.killPC(oi, slot) // без ролла N: та же поломка, тот же PCG
+			continue
+		}
+		o.workplaceRef(slot).Wear++
 		o.Employees[slot].PCBroken = true
 		o.Employees[slot].RepairClicks = 0
 		o.Employees[slot].RepairNeeded = g.rollRepairNeeded()
-		g.DayIncidents++
 	}
 }

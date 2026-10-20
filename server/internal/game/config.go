@@ -77,6 +77,10 @@ type Config struct {
 
 	PCPriceGrowth float64 // рост цены ПК за каждый следующий в офисе (ит. 14)
 
+	// Рабочее место (ITGAME-135): уровни ПК и износ. Числа — GDD «Рабочее место».
+	PCLevels    []PCLevel // уровни ПК места по возрастанию: 0 — ЭЛТ, Price — апгрейд до уровня
+	PCWearLimit int       // поломок, которые ПК переживает; следующая выводит его из строя; 0 — не изнашивается
+
 	// Сложность 2.0 (итерация 17, ITGAME-9): сложность меняет решения,
 	// а не только длину прогона. Числа — GDD «Сложность 2.0».
 	CreditLimit       int     // кредит: долг до −X жив (0 — кредита нет: овердрафт до расходов дня без процента, ITGAME-156)
@@ -117,6 +121,15 @@ type Config struct {
 type RouterTier struct {
 	Price int
 	Ports int
+}
+
+// PCLevel — уровень ПК рабочего места (ITGAME-135): множитель личной выработки
+// до эффектов дня и сети; Price — апгрейд ДО этого уровня (у ЭЛТ 0 — он
+// приходит с покупкой ПК).
+type PCLevel struct {
+	Name  string
+	Mult  float64
+	Price int
 }
 
 // ServerLevel — уровень офисного сервера: множитель четвёрке работников.
@@ -219,6 +232,9 @@ func DefaultConfig() Config {
 		RaiseOffendMult: 0.85,
 
 		PCPriceGrowth: 1.15,
+
+		PCLevels:    []PCLevel{{Name: "ЭЛТ", Mult: 1.0, Price: 0}, {Name: "ЖК", Mult: 1.1, Price: 350}, {Name: "2×ЖК", Mult: 1.2, Price: 600}},
+		PCWearLimit: 3,
 
 		VirusWeightK:      1,
 		DeadlineGoalShare: 0.7,

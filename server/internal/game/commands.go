@@ -37,6 +37,9 @@ const (
 	ErrNoAdmin          = Err("no_admin")           // fire_admin: админа в офисе нет
 	ErrAdminDeptAlready = Err("admin_dept_already") // buy_admin_dept: отдел уже куплен
 	ErrAdminDeptLocked  = Err("admin_dept_locked")  // hire_admin: отдел админов не куплен
+	ErrPCDead           = Err("pc_dead")            // ПК места «требуется замена»: клики, мастер и апгрейд — нет (ITGAME-135)
+	ErrPCFresh          = Err("pc_fresh")           // replace_pc по новому ПК
+	ErrPCMaxLevel       = Err("pc_max_level")       // upgrade_pc на максимальном уровне
 )
 
 // office проверяет адресата офисной команды: индекс и открытость.
@@ -74,6 +77,7 @@ func (g *Game) BuyPC(office int) error {
 	}
 	g.spend(CmdBuyPC, price)
 	o.PCs++
+	o.syncWorkplaces()
 	return nil
 }
 
@@ -132,8 +136,9 @@ func (g *Game) FireCompensation(e *Employee) int {
 	return g.cfg.FireCompensation
 }
 
-// Fire увольняет сотрудника: ПК остаётся в офисе (свободен для найма),
-// сотрудник уходит с опытом и уровнем. События «повышение», адресованные
+// Fire увольняет сотрудника: ПК остаётся в офисе (свободен для найма) со своим
+// уровнем и износом (ITGAME-135): стол уволенного становится первым свободным,
+// остальные сотрудники остаются за своими ПК. Сотрудник уходит с опытом и уровнем. События «повышение», адресованные
 // этому офису, ретаргетятся: адресат уволен — резолв, следующий сдвигается.
 func (g *Game) Fire(office, slot int) error {
 	o, err := g.office(office)
@@ -150,6 +155,11 @@ func (g *Game) Fire(office, slot int) error {
 	g.spend(CmdFire, comp)
 	g.retargetRaiseEvents(office, slot)
 	infected := o.Employees[slot].Infected
+	o.syncWorkplaces()
+	n := len(o.Employees)
+	w := o.Workplaces[slot]
+	copy(o.Workplaces[slot:n-1], o.Workplaces[slot+1:n])
+	o.Workplaces[n-1] = w
 	o.Employees = append(o.Employees[:slot], o.Employees[slot+1:]...)
 	if infected { // уволенный уходит вместе с заражением (ITGAME-103)
 		g.virusSettled(office, cleanedSilent)
@@ -374,6 +384,9 @@ func (g *Game) RepairClick(office, slot int) error {
 	if slot < 0 || slot >= len(o.Employees) {
 		return ErrBadSlot
 	}
+	if o.Workplace(slot).Dead {
+		return ErrPCDead
+	}
 	e := &o.Employees[slot]
 	if !e.PCBroken {
 		return ErrNotBroken
@@ -403,6 +416,9 @@ func (g *Game) CallMaster(office, slot int) error {
 	}
 	if slot < 0 || slot >= len(o.Employees) {
 		return ErrBadSlot
+	}
+	if o.Workplace(slot).Dead {
+		return ErrPCDead
 	}
 	e := &o.Employees[slot]
 	if !e.PCBroken {
@@ -534,10 +550,12 @@ const (
 	CmdHireAdmin     = Command("hire_admin")     // найм админа офиса (ITGAME-101)
 	CmdFireAdmin     = Command("fire_admin")     // увольнение админа офиса
 	CmdBuyAdminDept  = Command("buy_admin_dept") // покупка отдела админов — комнаты, где они сидят
+	CmdUpgradePC     = Command("upgrade_pc")     // апгрейд ПК стола slot (ITGAME-135)
+	CmdReplacePC     = Command("replace_pc")     // замена ПК стола slot: мёртвого или изношенного
 )
 
 // Apply выполняет команду игрока; офисные команды адресуются индексом office,
-// slot дополнительно адресует стойку сервера (upgrade_server).
+// slot дополнительно адресует стойку сервера (upgrade_server) или стол (upgrade_pc, replace_pc).
 func (g *Game) Apply(cmd Command, office, slot int) error {
 	switch cmd {
 	case CmdNextDay:
@@ -591,6 +609,10 @@ func (g *Game) Apply(cmd Command, office, slot int) error {
 		return g.SetAntivirus(slot)
 	case CmdFire:
 		return g.Fire(office, slot)
+	case CmdUpgradePC:
+		return g.UpgradePC(office, slot)
+	case CmdReplacePC:
+		return g.ReplacePC(office, slot)
 	case CmdEventChoice:
 		// slot — индекс опции активного события (см. спеку итерации 10).
 		return g.ChooseEvent(slot)

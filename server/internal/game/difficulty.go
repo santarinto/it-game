@@ -85,6 +85,12 @@ func ApplyDifficulty(c Config, d Difficulty) Config {
 	for i := range c.RouterTiers {
 		c.RouterTiers[i].Price = scale(c.RouterTiers[i].Price, s.PriceK)
 	}
+	c.PCLevels = append([]PCLevel(nil), c.PCLevels...)
+	for i := range c.PCLevels {
+		if c.PCLevels[i].Price > 0 { // ЭЛТ бесплатен: scale дал бы ему 1
+			c.PCLevels[i].Price = scale(c.PCLevels[i].Price, s.PriceK)
+		}
+	}
 	c.ServerLevels = append([]ServerLevel(nil), c.ServerLevels...)
 	for i := range c.ServerLevels {
 		c.ServerLevels[i].Price = scale(c.ServerLevels[i].Price, s.PriceK)

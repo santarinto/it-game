@@ -356,7 +356,7 @@ func TestVirusIncomeAndLost(t *testing.T) {
 		t.Errorf("тик: доход %d, поломки %d, вирус %d — хотим 17/0/3", inc, lost, vlost)
 	}
 	o := &g.Offices[0]
-	if got := g.EffectiveIncomePerTick(o, &o.Employees[0]); got != 7 {
+	if got := g.EffectiveIncomePerTick(o, 0); got != 7 {
 		t.Errorf("тултип: выработка %d, хотим 7", got)
 	}
 	effects := g.Effects(o, &o.Employees[0])

@@ -1,4 +1,4 @@
-format 1
+format 2
 activeEvent *struct
 activeEvent.AVTier int
 activeEvent.Dismissed bool
@@ -67,8 +67,13 @@ config.MotivateTicks int
 config.OfficeCols int
 config.OfficePrices []int
 config.OfficeSlots int
+config.PCLevels []struct
+config.PCLevels[].Mult float64
+config.PCLevels[].Name string
+config.PCLevels[].Price int
 config.PCPrice int
 config.PCPriceGrowth float64
+config.PCWearLimit int
 config.RaiseBoostMult float64
 config.RaiseOffendMult float64
 config.RepairClicksMax int
@@ -206,6 +211,10 @@ offices[].PCs int
 offices[].RouterTier int
 offices[].Servers []int
 offices[].Unlocked bool
+offices[].Workplaces []struct
+offices[].Workplaces[].Dead bool
+offices[].Workplaces[].Level int
+offices[].Workplaces[].Wear int
 peakIncomePerTick int
 phase string
 prevDayIncome int

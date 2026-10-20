@@ -27,7 +27,9 @@ var ErrBadSave = errors.New("bad_save")
 // дописывает из уровня сейва.
 // 1 — ITGAME-103: вирус живёт на местах, конфиг без VirusSpreadTicks и OfficeCols встал бы
 // нулями и сломал волну. Сейв без поля — формат 0.
-const SaveFormat = 1
+// 2 — ITGAME-135: рабочие места (Office.Workplaces) и их конфиг (PCLevels, PCWearLimit);
+// решение владельца 20.10.
+const SaveFormat = 2
 
 // Save — сериализуемый слепок Game: конфиг плюс все поля состояния.
 // Поле в день отчёта (Phase=day_report) валидно: TickInDay при этом равен
@@ -104,11 +106,12 @@ func (g *Game) Export() Save {
 }
 
 // cloneOffices — глубокая копия офисов: у каждого свои Employees, Servers
-// и CoffeeEventTicks (ITGAME-60). Employee — только значения, ссылок нет.
+// и CoffeeEventTicks (ITGAME-60). Employee и Workplace — только значения, ссылок нет.
 func cloneOffices(offices []Office) []Office {
 	out := slices.Clone(offices)
 	for i := range out {
 		out[i].Employees = slices.Clone(out[i].Employees)
+		out[i].Workplaces = slices.Clone(out[i].Workplaces)
 		out[i].Servers = slices.Clone(out[i].Servers)
 		out[i].CoffeeEventTicks = slices.Clone(out[i].CoffeeEventTicks)
 	}
@@ -122,6 +125,7 @@ func cloneConfig(c Config) Config {
 	c.RouterTiers = slices.Clone(c.RouterTiers)
 	c.ServerLevels = slices.Clone(c.ServerLevels)
 	c.CoreLevels = slices.Clone(c.CoreLevels)
+	c.PCLevels = slices.Clone(c.PCLevels)
 	c.OfficePrices = slices.Clone(c.OfficePrices)
 	c.EmployeeLevelXP = slices.Clone(c.EmployeeLevelXP)
 	c.EmployeeLevelBonus = slices.Clone(c.EmployeeLevelBonus)
@@ -214,6 +218,24 @@ func Restore(s Save) (*Game, error) {
 		for ei := range s.Offices[oi].Employees {
 			if e := &s.Offices[oi].Employees[ei]; e.PCBroken && e.RepairNeeded <= 0 {
 				e.RepairNeeded = LegacyRepairClicks
+			}
+		}
+		// Рабочие места (ITGAME-135): по одному на ПК. Дельта debug и фикстура правят PCs без
+		// мест — недостающие дописываются новыми (ЭЛТ, без износа), лишние отрезаются.
+		o := &s.Offices[oi]
+		if o.PCs < 0 {
+			return nil, fmt.Errorf("%w: офис %d: pcs=%d", ErrBadSave, oi, o.PCs)
+		}
+		o.syncWorkplaces()
+		if len(o.Workplaces) > o.PCs {
+			o.Workplaces = o.Workplaces[:o.PCs]
+		}
+		for i, w := range o.Workplaces {
+			if w.Level < 0 || w.Level >= len(s.Config.PCLevels) || w.Wear < 0 {
+				return nil, fmt.Errorf("%w: офис %d, место %d: level=%d wear=%d", ErrBadSave, oi, i, w.Level, w.Wear)
+			}
+			if e := o.Employees; w.Dead && i < len(e) && (e[i].PCBroken || e[i].Infected) {
+				return nil, fmt.Errorf("%w: офис %d, место %d: мёртвое место не бывает сломанным или заражённым", ErrBadSave, oi, i)
 			}
 		}
 	}

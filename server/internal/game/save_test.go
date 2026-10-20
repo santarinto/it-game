@@ -332,9 +332,11 @@ func TestExportDetachesOffices(t *testing.T) {
 	s.Config.CoreLevels[0].Price = 99
 	s.Config.OfficePrices[0] = 99
 	s.Config.EmployeeLevelBonus[0] = 99
+	s.Offices[0].Workplaces[0].Level = 2
+	s.Config.PCLevels[1].Price = 99
 
 	o := g.Offices[0]
-	if o.Boss != "" || o.Employees[0].IncomePerTick != income || o.Servers[0] != 1 || o.CoffeeEventTicks[0] != 5 {
+	if o.Boss != "" || o.Employees[0].IncomePerTick != income || o.Servers[0] != 1 || o.CoffeeEventTicks[0] != 5 || o.Workplaces[0].Level != 0 {
 		t.Fatalf("правка офиса в сейве протекла в живую игру: %+v", o)
 	}
 	if g.EventLog[0] != "живая запись" {
@@ -343,8 +345,8 @@ func TestExportDetachesOffices(t *testing.T) {
 	cur := g.Config()
 	if cur.EmployeeLevelXP[0] != xp || cur.RouterTiers[0].Ports != router ||
 		cur.ServerLevels[0].Mult != serverMult || cur.CoreLevels[0].Price != corePrice ||
-		cur.OfficePrices[0] != officePrice || cur.EmployeeLevelBonus[0] != levelBonus {
-		t.Fatalf("правка конфига протекла (все шесть слайсов): %+v", cur)
+		cur.OfficePrices[0] != officePrice || cur.EmployeeLevelBonus[0] != levelBonus || cur.PCLevels[1].Price != 350 {
+		t.Fatalf("правка конфига протекла (все семь слайсов): %+v", cur)
 	}
 
 	// Тот же путь, что у debug restore: дельта поверх Export().

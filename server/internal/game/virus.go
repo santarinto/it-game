@@ -16,8 +16,11 @@ type seat struct{ office, slot int }
 
 // virusTarget — годится ли место в цель вспышки или волны: здоровое, с
 // исправным ПК (сломанный ПК выключен — не заражается и не заражает) и не под
-// подпиской на антивирус (ITGAME-137).
-func virusTarget(e *Employee, covered bool) bool { return !covered && !e.Infected && !e.PCBroken }
+// подпиской на антивирус (ITGAME-137). ПК «требуется замена» (dead, ITGAME-135)
+// выключен насовсем — тоже не цель.
+func virusTarget(e *Employee, dead, covered bool) bool {
+	return !covered && !dead && !e.Infected && !e.PCBroken
+}
 
 // virusNeighbors — соседи места i по сетке офиса без диагоналей: по ряду
 // и по колонке, только занятые места (n — штат офиса).
@@ -116,7 +119,7 @@ func (g *Game) seedOutbreak(oi int) int {
 	cov := g.AVCovered()
 	var cands []int
 	for i := range o.Employees {
-		if virusTarget(&o.Employees[i], cov[oi][i]) {
+		if virusTarget(&o.Employees[i], o.Workplace(i).Dead, cov[oi][i]) {
 			cands = append(cands, i)
 		}
 	}
@@ -157,7 +160,7 @@ func (g *Game) tickVirus() {
 	for _, s := range sources {
 		var targets []seat
 		for _, t := range g.virusReach(net, s.office, s.slot) {
-			if virusTarget(&g.Offices[t.office].Employees[t.slot], cov[t.office][t.slot]) {
+			if virusTarget(&g.Offices[t.office].Employees[t.slot], g.Offices[t.office].Workplace(t.slot).Dead, cov[t.office][t.slot]) {
 				targets = append(targets, t)
 			}
 		}

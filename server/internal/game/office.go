@@ -4,12 +4,13 @@ package game
 // Серверная и шлюз — общие на компанию (в Game).
 type Office struct {
 	Unlocked        bool
-	PCs             int // первые len(Employees) заняты сотрудниками
+	PCs             int // первые len(Employees) заняты сотрудниками; Workplaces[i] — ПК стола i
 	Employees       []Employee
-	RouterTier      int    // 0 — роутера нет; 1..len(cfg.RouterTiers)
-	Servers         []int  // уровни серверов офиса (1..len(cfg.ServerLevels)); порядок = порядок покупки
-	Boss            string // имя начальника; "" — не нанят
-	BossUnpaidToday bool   // босс нанят после обеда: сегодня без оплаты
+	Workplaces      []Workplace // рабочие места (ITGAME-135): по одному на ПК, len = PCs; сотрудник i сидит за i
+	RouterTier      int         // 0 — роутера нет; 1..len(cfg.RouterTiers)
+	Servers         []int       // уровни серверов офиса (1..len(cfg.ServerLevels)); порядок = порядок покупки
+	Boss            string      // имя начальника; "" — не нанят
+	BossUnpaidToday bool        // босс нанят после обеда: сегодня без оплаты
 	// Админ (ITGAME-101): не сотрудник — места, ПК и сети не занимает.
 	Admin            string // имя админа; "" — не нанят
 	AdminUnpaidToday bool   // админ нанят после обеда: сегодня без оплаты

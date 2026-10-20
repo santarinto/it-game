@@ -213,6 +213,9 @@ export const SERVER_ERROR_CODES = [
   'no_admin',
   'admin_dept_already',
   'admin_dept_locked',
+  'pc_dead',
+  'pc_fresh',
+  'pc_max_level',
   'unknown_command',
   'bad_speed',
 ] as const
@@ -308,6 +311,7 @@ export const COMMAND_TYPES = [
   'upgrade_server', 'upgrade_core',
   'motivate', 'repair_click', 'call_master', 'event_choice', 'fire',
   'virus_click', 'set_antivirus', 'hire_admin', 'fire_admin', 'buy_admin_dept',
+  'upgrade_pc', 'replace_pc',
   'abandon', 'exit',
 ] as const
 
