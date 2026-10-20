@@ -6,19 +6,27 @@
 //       того же формата): «ПРОДОЛЖИТЬ» с $4,321, карточки menu.stale нет; «Продолжить» поднимает партию
 //       с $4321, её сейв снова с version сервера
 //   V4  сейв без version (до ITGAME-140) — тоже «ПРОДОЛЖИТЬ» с $4,321
-//   V5  game.format в файле на 1 меньше серверного (сейв старого формата): «ПРОДОЛЖИТЬ» нет, карточка
+//   V5  itd.staleSave из меню (sid вкладки по умолчанию): game.format на 1 меньше, маршрутом
+//       POST /api/debug/format без перезапуска (ITGAME-154): {sid, was, format, live:false}, в файле
+//       изменился только game.format, savedAt тот же. Сейв старого формата: «ПРОДОЛЖИТЬ» нет, карточка
 //       menu.stale «СЕЙВ НЕСОВМЕСТИМ», «начните новую партию:», overlaps/offscreen пусты; строка карточки —
 //       фраза владельца «Сохранение от прошлой версии игры — продолжить его нельзя.» (ITGAME-149): без
 //       версий и форматов (ни один текст меню, кроме угла, их не несёт), оба текста внутри рамки,
 //       угол — «версия X»
-//   V6  game.format на 1 больше (сейв новой сборки на старой) — то же
+//   V6  то же на 1 больше (сейв новой сборки на старой), сырым POST из node (как curl координатора)
 //   V7  настоящий клик мышью по «НОРМА» с карточки: без вопроса «Начать заново?», новая партия (новый
 //       sid, как всякая новая партия из меню), день 1, не $4321; её сейв — с version и форматом сервера,
 //       старый файл не тронут
-//   V8  нет pageerror
+//   V8  живая партия (продолжение партии V7) помечена: itd.staleSave → live:true, файл сразу формата
+//       FORMAT+1 с версией сервера; itd.away(1) → not_resumed, новая партия дня 1 под тем же sid, карточки
+//       нет, файл снова формата сервера — молчаливое поведение на сегодня (владелец 20.10: «порча до
+//       переподключения»), его изменит ITGAME-174
+//   V9  метка живой партии (формат по умолчанию), «Сохранить и выйти» → карточка «СЕЙВ НЕСОВМЕСТИМ»
+//   V10 нет pageerror
 //
 // Self-serve на своём каталоге сейвов (не 'tmp': тот удаляется на stop, а сервер надо поднять
-// заново на тех же файлах — стор держит сейвы в памяти, правка файла на живом сервере не видна).
+// заново на тех же файлах — версию сборки ставит только правка файла, а стор держит сейвы в памяти,
+// правка файла на живом сервере не видна; формат ставит маршрут, перезапуск ему не нужен).
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -61,6 +69,15 @@ const restartWith = async (edit) => {
 const fileData = (s = sid) => JSON.parse(readFileSync(saveOf(s), 'utf8')).data
 const fileVersion = (s = sid) => fileData(s).version
 const fileFormat = (s = sid) => fileData(s).game?.format
+const fileEnv = (s = sid) => JSON.parse(readFileSync(saveOf(s), 'utf8'))
+// Ключи по алфавиту рекурсивно: маршрут пишет сейв с ключами в порядке сортировки.
+const canon = (v) => (Array.isArray(v) ? v.map(canon)
+  : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v)
+// Конверты равны, кроме data.game.format (ITGAME-154): savedAt, version, деньги, сид — те же.
+const sameButFormat = (a, b) => {
+  const strip = (e) => { const d = canon(e.data); d.game.format = null; return JSON.stringify(d) }
+  return Date.parse(a.savedAt) === Date.parse(b.savedAt) && strip(a) === strip(b)
+}
 let FORMAT = null // формат сейва этой сборки — из файла V2
 
 let browser = null
@@ -183,9 +200,20 @@ try {
     m4.ids.includes('menu.continue') && !m4.ids.includes('menu.stale') && hasMoney(m4),
     JSON.stringify(m4.texts.filter((t) => /\$|СЕЙВ/.test(t))))
 
-  // V5/V6 сейв другого формата — старше и новее: карточка вместо «ПРОДОЛЖИТЬ»
-  for (const [name, format] of [['V5 старше', FORMAT - 1], ['V6 новее', FORMAT + 1]]) {
-    await restartWith((d) => { d.game.format = format; d.version = OLD })
+  // V5/V6 сейв другого формата — старше и новее, маршрутом без перезапуска (ITGAME-154): карточка
+  // вместо «ПРОДОЛЖИТЬ». Версию маршрут не трогает (после V4 её в файле нет) — это пинует sameButFormat.
+  for (const [name, format, via] of [['V5 старше', FORMAT - 1, 'itd'], ['V6 новее', FORMAT + 1, 'http']]) {
+    const before = fileEnv()
+    const was = fileFormat()
+    const r = via === 'itd'
+      ? await page.evaluate((f) => window.itd.staleSave({ format: f }), format)
+      : await (await fetch(`${BASE}/api/debug/format`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sid, format }),
+      })).json()
+    check(`${name}: маршрут ${via === 'itd' ? 'itd.staleSave' : 'POST /api/debug/format'} → {sid, was, format, live:false}, в файле изменился только game.format, savedAt тот же`,
+      r.sid === sid && r.was === was && r.format === format && r.live === false
+        && fileFormat() === format && sameButFormat(before, fileEnv()),
+      JSON.stringify({ r, was, file: fileFormat() }))
     const m = await menu()
     check(`${name}: сейв формата ${format} (сервер ${FORMAT}) — «ПРОДОЛЖИТЬ» нет, карточка «СЕЙВ НЕСОВМЕСТИМ», «начните новую партию:»`,
       staleCard(m), JSON.stringify({ ids: m.ids.filter((i) => /^menu\.(continue|stale)$/.test(i)), texts: m.texts.filter((t) => /СЕЙВ|новую/.test(t)) }))
@@ -214,7 +242,47 @@ try {
       && fileVersion(p7.sid) === api.version && fileFormat(p7.sid) === FORMAT && fileFormat() === FORMAT + 1,
     JSON.stringify({ ...p7, file: fileVersion(p7.sid), format: fileFormat(p7.sid), old: fileFormat(), files: readdirSync(savesDir) }))
 
-  check('V8 ошибок на странице нет', pageErrors.length === 0, `errors=${pageErrors.length} ${pageErrors.join(' | ')}`)
+  // V8 живая партия (ITGAME-174, владелец 20.10: «порча до переподключения»): метку держит актор,
+  // переподключение молча начинает новую партию под тем же sid — так сегодня, ITGAME-174 это изменит.
+  await menu()
+  const p8 = await page.evaluate(async (F) => {
+    window.itd.click('menu.continue')
+    await window.itd.wait((s) => s.connected === true, 8000)
+    await window.itd.set({ money: 4321 })
+    const sid8 = window.itd.server().liveSid
+    const mark = await window.itd.staleSave({ format: F + 1 })
+    return { sid8, mark }
+  }, FORMAT)
+  const sid8 = p8.sid8
+  check('V8 метка живой партии: live:true, файл сразу формата FORMAT+1 с версией сервера и $4321',
+    p8.mark.live === true && p8.mark.sid === sid8 && p8.mark.was === FORMAT && p8.mark.format === FORMAT + 1
+      && fileFormat(sid8) === FORMAT + 1 && fileVersion(sid8) === api.version && fileData(sid8).game.money === 4321,
+    JSON.stringify({ mark: p8.mark, file: fileFormat(sid8), version: fileVersion(sid8), money: fileData(sid8).game.money }))
+  const a8 = await page.evaluate(async () => {
+    const r = await window.itd.away(1)
+    await window.itd.wait((s) => s.connected === true, 8000).catch(() => null)
+    const st = window.itd.state()
+    return {
+      r, day: st.day, balance: st.balance, connected: st.connected, liveSid: window.itd.server().liveSid,
+      stale: window.itd.ids().some((x) => x.id === 'menu.stale'),
+    }
+  })
+  check('V8 itd.away(1): not_resumed, новая партия дня 1 под тем же sid, карточки нет, файл снова формата сервера',
+    a8.r.code === 'not_resumed' && a8.r.resumed === false && a8.r.sid === sid8 && a8.liveSid === sid8
+      && a8.connected && a8.day === 1 && a8.balance !== 4321 && !a8.stale
+      && fileFormat(sid8) === FORMAT && fileData(sid8).game.money !== 4321,
+    JSON.stringify({ ...a8, file: fileFormat(sid8), money: fileData(sid8).game.money }))
+
+  // V9 метка живой партии и «Сохранить и выйти»: карточка (рецепт агента из навыка приёмки)
+  const p9 = await page.evaluate(() => window.itd.staleSave())
+  await exitToMenu()
+  const m9 = await menu()
+  check('V9 метка живой партии, «Сохранить и выйти»: карточка «СЕЙВ НЕСОВМЕСТИМ»',
+    p9.live === true && p9.sid === sid8 && p9.was === FORMAT && p9.format === FORMAT + 1
+      && fileFormat(sid8) === FORMAT + 1 && staleCard(m9),
+    JSON.stringify({ p9, file: fileFormat(sid8), ids: m9.ids.filter((i) => /^menu\.(continue|stale)$/.test(i)) }))
+
+  check('V10 ошибок на странице нет', pageErrors.length === 0, `errors=${pageErrors.length} ${pageErrors.join(' | ')}`)
 } catch (e) {
   check('сценарий выполнен без исключений', false, e instanceof Error ? e.stack : String(e))
 } finally {

@@ -117,6 +117,14 @@ export interface DebugAdvanceResult {
   state: StateMessage
 }
 
+// Ответ POST /api/debug/format (ITGAME-154): сейв sid помечен другим форматом.
+export interface StaleSaveResult {
+  sid: string
+  was: number // game.format сейва до метки
+  format: number // game.format после — не формат сервера
+  live: boolean // true — сейв держит живая партия: её актор пишет метку до выхода, «В меню» → карточка, переподключение → новая партия молча (ITGAME-174); false — сейв переписан в сторе: меню после перезагрузки → «СЕЙВ НЕСОВМЕСТИМ»
+}
+
 // ── Партия и бухгалтерия из консоли (ITGAME-73) ────────────────────────────
 
 // Шаг itd.play(): команда с квитанцией (как itd.cmd) …
@@ -1274,6 +1282,21 @@ export interface ItdApi {
    */
   restore(save: Record<string, unknown>): Promise<DebugState>
   /**
+   * Пометить сейв другим форматом (ITGAME-154): POST /api/debug/format (сервер с ITGAME_DEBUG=1).
+   * game.format сейва = format (по умолчанию на 1 новее сервера; формат самого сервера — отказ
+   * same_format), версия сборки и остальное не трогаются, перезапуск стенда не нужен.
+   * sid по умолчанию — свой (liveSid ?? sid хранилища, как itd.journal): партии не требует
+   * (не ITGAME-131) — из меню помечает сейв, из которого вкладка вышла.
+   * Ответ {sid, was, format, live}: live false — сейв переписан в сторе, перезагрузите меню →
+   * «СЕЙВ НЕСОВМЕСТИМ»; live true — сейв держит живая партия, её актор пишет метку до выхода:
+   * «В меню» → карточка, переподключение (F5, itd.away) → новая партия молча (ITGAME-174).
+   * Отказы — в тексте ошибки: bad_sid, bad_format, same_format, no_save, no_saves; голое
+   * HTTP 404 — сервер без ITGAME_DEBUG=1.
+   * @example await itd.staleSave()
+   * @example await itd.staleSave({format: 0})
+   */
+  staleSave(opts?: { format?: number; sid?: string }): Promise<StaleSaveResult>
+  /**
    * Стоп твитов/миганий для стабильных скриншотов.
    * @example itd.quiet()
    */
@@ -1973,6 +1996,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs|broken_pc|doomed_debt|virus_outbreak|admin_dept; сбрасывает клиентское состояние партии (офис → О1, оверлеи HUD, окна офиса/серверной, пауза отчёта); скорость не трогает — из отчёта или окна выхода партия остаётся на паузе: itd.resume(); работает и после финала; из меню — сразу not_in_party (ниже)
   itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы
   itd.restore(save)                 — вернуть состояние из snapshot().save (дельта над текущим); закрытый в новом состоянии активный офис → О1; окна офиса/серверной закрывает
+  await itd.staleSave({format?, sid?}) — пометить сейв чужим форматом (ITGAME-154, /api/debug/format): game.format = format (по умолчанию на 1 новее сервера), версия не трогается, без перезапуска; sid — свой (liveSid ?? хранилище), из меню тоже → {sid, was, format, live}; live:false — сейв переписан, перезагрузите меню → «СЕЙВ НЕСОВМЕСТИМ»; live:true — метку держит актор партии: «В меню» → карточка, переподключение → новая партия молча (ITGAME-174)
   itd.quiet()                       — стоп твитов/миганий для стабильных скриншотов
   itd.meta()                        — статистика прогонов и состояние достижений (localStorage)
   itd.resetMeta()                   — сбросить мета-статистику и достижения
@@ -1980,7 +2004,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.contract()                    — машинный контракт API (методы, типы, коды ошибок); version.hash — цитировать в отчётах, а не пересказ help()
 Фоновая вкладка: RAF стоит, но itd сам ведёт луп (пульс 300мс + прогрев в каждом вызове) — ids()/nodes()/click() живут без скриншотов и без «принудительного кадра».
 Параллельные вкладки: sid берётся из sessionStorage РАНЬШЕ localStorage; в хранилища ключ попадает ТОЛЬКО с реальной партиёй (чтение его не пишет — «ПРОДОЛЖИТЬ» не врёт). Одна партия = один sid: агрессивным прогонам — itd.sandbox('<имя>') (или вручную sessionStorage.setItem('itd.sid', 'a-<имя>-'+Date.now()): виден только вкладке, общий ключ не трогает; ЯВНО выставленный sid чтится и для новой партии), игроку достаётся localStorage + зеркало вкладки. Кнопка сложности/1-4 = НОВАЯ партия: без явного sessionStorage-sid берётся свежий sid, чужой сейв из общего ключа НЕ продолжается молча; «ПРОДОЛЖИТЬ»/Enter = восстановление текущего sid. server().sidSwitches > 0 — общий ключ перезаписала соседняя вкладка, реконнект ушёл бы в её партию.
-Вне партии: debug-вызовы (set, step, advanceDays, play {days}, ledger, scenario, snapshot, restore) идут только в живую партию вкладки (server().liveSid) — из меню (до первой партии, после «В меню»/«Сдаться») и после перехвата сессии другой вкладкой они сразу отказывают «not_in_party: …», без запроса на сервер (ITGAME-131). Из меню — itd.click('menu.diff.normal') (при живом сейве меню спросит «Начать заново?» — itd.click('modal.btn.confirm'); или itd.click('menu.continue')), затем await itd.wait(s => s.connected); после перехвата меню нет — обновите страницу (F5). itd.journal() — без этого правила: журнал живёт на сервере; без sid он читается после «Сохранить и выйти»/«Выйти без сохранения», а после «Сдаться» и финала → «В меню» sid вкладки стёрт (no_journal) — берите sid из server().sid до выхода и читайте itd.journal({sid}).
+Вне партии: debug-вызовы (set, step, advanceDays, play {days}, ledger, scenario, snapshot, restore) идут только в живую партию вкладки (server().liveSid) — из меню (до первой партии, после «В меню»/«Сдаться») и после перехвата сессии другой вкладкой они сразу отказывают «not_in_party: …», без запроса на сервер (ITGAME-131). Из меню — itd.click('menu.diff.normal') (при живом сейве меню спросит «Начать заново?» — itd.click('modal.btn.confirm'); или itd.click('menu.continue')), затем await itd.wait(s => s.connected); после перехвата меню нет — обновите страницу (F5). itd.journal() — без этого правила: журнал живёт на сервере; без sid он читается после «Сохранить и выйти»/«Выйти без сохранения», а после «Сдаться» и финала → «В меню» sid вкладки стёрт (no_journal) — берите sid из server().sid до выхода и читайте itd.journal({sid}). itd.staleSave() — тоже: сейв помечают и из меню.
 Пример: await itd.scenario('soft_lock'); itd.state().day
 Пример: itd.set({money: 50000}); await itd.wait(s => s.balance === 50000)
 Пример: await itd.cmd('hire') → {ok:false, code:'no_free_pc'} — сервер отказал, ПК заняты`
@@ -2447,6 +2471,24 @@ function makeApi(game: Phaser.Game): ItdApi {
         client.reemit() // пуш уже нарисовал закрытый офис — перерисовываем
       }
       return r
+    },
+    async staleSave(opts) {
+      const format = opts?.format
+      if (format !== undefined && (!Number.isInteger(format) || format < 0)) {
+        throw new Error('staleSave: format — целое ≥ 0 (без него — на 1 новее формата сервера)')
+      }
+      // ITGAME-154: не debugFetch — тот требует живой партии (ITGAME-131), а сейв помечают и из меню
+      const sid = opts?.sid ?? client.liveSid() ?? sessionId()
+      const res = await fetch('/api/debug/format', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(format === undefined ? { sid } : { sid, format }),
+      })
+      const data = (await res.json().catch(() => null)) as Record<string, unknown> | null
+      if (!res.ok) {
+        throw new Error((data?.error as string | undefined) ?? `HTTP ${res.status}${res.status === 404 ? ' (сервер без ITGAME_DEBUG=1?)' : ''}`)
+      }
+      return data as unknown as StaleSaveResult
     },
     quiet() {
       // Заморозка визуального шума: мигание поломок, всплывающие циферки.

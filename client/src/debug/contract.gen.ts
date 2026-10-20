@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "7d3c3e1184a7",
+  "hash": "dd4478e208fd",
   "methods": {
     "version": {
       "kind": "prop",
@@ -607,6 +607,22 @@ export const CONTRACT = {
       "doc": "Вернуть состояние из snapshot().save (дельта над текущим). Партию не сбрасывает;\nесли активный офис в новом состоянии закрыт — вкладка переходит в О1 (ITGAME-63).\nОкна офиса и серверной (устройства, увольнение) закрывает: они собраны по прошлому\nстейту (ITGAME-69); оверлеи HUD не трогает.\nВне партии вкладки — reject «not_in_party: …» без запроса (ITGAME-131, см. scenario).",
       "examples": [
         "itd.restore(save)"
+      ]
+    },
+    "staleSave": {
+      "kind": "method",
+      "params": [
+        {
+          "name": "opts",
+          "type": "{ format?: number; sid?: string; }",
+          "optional": true
+        }
+      ],
+      "returns": "Promise<StaleSaveResult>",
+      "doc": "Пометить сейв другим форматом (ITGAME-154): POST /api/debug/format (сервер с ITGAME_DEBUG=1).\ngame.format сейва = format (по умолчанию на 1 новее сервера; формат самого сервера — отказ\nsame_format), версия сборки и остальное не трогаются, перезапуск стенда не нужен.\nsid по умолчанию — свой (liveSid ?? sid хранилища, как itd.journal): партии не требует\n(не ITGAME-131) — из меню помечает сейв, из которого вкладка вышла.\nОтвет {sid, was, format, live}: live false — сейв переписан в сторе, перезагрузите меню →\n«СЕЙВ НЕСОВМЕСТИМ»; live true — сейв держит живая партия, её актор пишет метку до выхода:\n«В меню» → карточка, переподключение (F5, itd.away) → новая партия молча (ITGAME-174).\nОтказы — в тексте ошибки: bad_sid, bad_format, same_format, no_save, no_saves; голое\nHTTP 404 — сервер без ITGAME_DEBUG=1.",
+      "examples": [
+        "await itd.staleSave()",
+        "await itd.staleSave({format: 0})"
       ]
     },
     "quiet": {
@@ -3123,6 +3139,31 @@ export const CONTRACT = {
           "type": "boolean",
           "optional": false,
           "doc": "ITGAME-88: метка «устарело, обнови» видна на экране после этой проверки (в DOM она живёт всегда, скрытая — display:none, 0×0); false и без #topbar (нет ?debug=1/itd.admin)"
+        }
+      }
+    },
+    "StaleSaveResult": {
+      "kind": "object",
+      "fields": {
+        "sid": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "was": {
+          "type": "number",
+          "optional": false,
+          "doc": "game.format сейва до метки"
+        },
+        "format": {
+          "type": "number",
+          "optional": false,
+          "doc": "game.format после — не формат сервера"
+        },
+        "live": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "true — сейв держит живая партия: её актор пишет метку до выхода, «В меню» → карточка, переподключение → новая партия молча (ITGAME-174); false — сейв переписан в сторе: меню после перезагрузки → «СЕЙВ НЕСОВМЕСТИМ»"
         }
       }
     },
