@@ -24,9 +24,9 @@ import { findLowContrast, findOffscreen, findOverlaps, findTiny } from './lint'
 import type { ContrastEntry, OffscreenEntry, OverlapEntry, OverlapOptions, TinyEntry } from './lint'
 import { startTelemetry } from './telemetry'
 import type { ErrorEntry, LogEntry } from './telemetry'
-import { notifyItdKey, runTrace, startTrace, stopTrace } from './trace'
-import type { PointerProbe, TracePointer, TraceResult, TraceStart, TraceStartOptions, TraceTarget } from './trace'
-export type { TracePointer, TraceResult, TraceStart, TraceStartOptions, TraceTarget }
+import { inItdCall, notifyItdKey, runTrace, startTrace, stopTrace, summaryTrace } from './trace'
+import type { PointerProbe, TracePointer, TraceResult, TraceSent, TraceStart, TraceStartOptions, TraceSummary, TraceTarget } from './trace'
+export type { TracePointer, TraceResult, TraceSent, TraceStart, TraceStartOptions, TraceSummary, TraceTarget }
 import {
   ACHIEVEMENTS,
   getAchievementsSummary,
@@ -709,15 +709,18 @@ export interface CmdReceipt {
   rev?: number // ITGAME-45: rev снапшота-ответа; у серверного отказа — текущий rev (не меняется)
 }
 
-// itd.trace (ITGAME-37/88) — функция с двумя методами, как itd.sandbox:
+// itd.trace (ITGAME-37/88/179) — функция с методами, как itd.sandbox:
 // itd.trace(action, windowMs) — окно вокруг действия; itd.trace.start() /
-// itd.trace.stop() — открытое окно на сколько угодно вызовов инструмента.
+// itd.trace.stop() — открытое окно на сколько угодно вызовов инструмента;
+// itd.trace.summary() — окно строками по времени.
 export interface TraceApi {
   (action: () => unknown, windowMs?: number): Promise<TraceResult>
   /** Открыть окно: подписки сразу, до stop(id?) или maxMs (1..600000, по умолчанию 120000) → {ok, id, t0, maxMs, open}; коды bad_max, too_many (больше 8 окон). */
   start: (opts?: TraceStartOptions) => TraceStart
   /** Закрыть окно id (без id — последнее открытое) → TraceResult того же вида, что у itd.trace(), с id, windowMs = длина окна, cut — закрылось само по maxMs; нет окна — {ok:false, code:'no_trace'}. */
   stop: (id?: number) => TraceResult | (AgentResult & { code: 'no_trace' })
+  /** Окно короткими строками по времени (ITGAME-179), не закрывая: summary(id?) — открытое (или cut) окно, без id — последнее; summary(tr) — любой TraceResult → {ok, id?, cut?, error?, lines['t<мс> ptr|key|sent|recv|state|trans|toast|sound …']}; нет окна / не TraceResult — {ok:false, code:'no_trace', lines: []}. */
+  summary: (src?: number | TraceResult) => TraceSummary
 }
 
 // ── Контракт API (ITGAME-39): формат itd.contract() ─────────────────────────
@@ -845,9 +848,13 @@ export interface ItdApi {
    * окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь
    * игрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().
    * ITGAME-45: sent — с id команды, states — снапшоты окна {rev, cause, re?}:
-   * ответ на команду — state с re = её id. ITGAME-88: pointer — настоящие
+   * ответ на команду — state с re = её id. ITGAME-179: sent[].src — itd (ушла внутри
+   * вызова itd.*: cmd/click/key/pause/resume/speed/step) или ui (настоящий клик/клавиша,
+   * реакция UI); itd.trace.summary(id? | tr) — окно строками по времени, не закрывая.
+   * ITGAME-88: pointer — настоящие
    * mousedown/mouseup в окне: {type: down|up, button, x, y (мировые 1280×720),
-   * onCanvas, wins/stack — хит-тест Phaser в момент события (как itd.stack),
+   * onCanvas, wins — метка победителя хит-теста Phaser в момент события, та же форма,
+   * что got (safe id или тип без id; полная строка — stack[0]), stack — как itd.stack,
    * got — до кого дошёл pointerdown/up (GAMEOBJECT_POINTER_DOWN/UP объекта; кнопка,
    * удалившая себя в pointerdown, в got на down есть, на up её нет)}; itd.click() сюда не попадает
    * (мимо input-слоя). Открытое окно для клика другим вызовом инструмента:
@@ -856,6 +863,7 @@ export interface ItdApi {
    * @example itd.trace(() => itd.click('btn.pc'), 1000)
    * @example itd.trace.start()
    * @example itd.trace.stop().pointer
+   * @example itd.trace.summary().lines
    */
   readonly trace: TraceApi
   /**
@@ -1752,6 +1760,7 @@ function makeTrace(game: Phaser.Game): TraceApi {
   const fn = ((action: () => unknown, windowMs = 1000) => runTrace(game, probe, action, windowMs)) as TraceApi
   fn.start = (opts) => startTrace(game, probe, opts)
   fn.stop = (id) => stopTrace(id)
+  fn.summary = (src) => summaryTrace(src)
   return fn
 }
 
@@ -1914,9 +1923,10 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.cmd('hire')                   — команда с квитанцией сервера ('abandon' — путём кнопки «Сдаться»: сейв удалён, вкладка в меню): Promise<{ok, code?, id, rev}> — ответ на ЭТУ команду по id (state|error с re = id; тики и чужие команды не в счёт), rev — версия снапшота-ответа; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
                                        Вирус (ITGAME-103): itd.cmd('virus_click', 0, {slot: 0}) — клик чистки заражённого места (3 на чистку, k в employees[i].virusClicks), здоровое — not_infected; на сломанном заражённом ЛКМ по месту сначала чинит (repair_click); подписка — itd.cmd('set_antivirus', 0, {slot: 1..3}) (0 — отключить), bad_tier, antivirus_already, повышение без денег — not_enough_money; кнопка btn.antivirus в серверной → окно с modal.av.1..3 / modal.av.off
                                        Админ (ITGAME-101): itd.cmd('buy_admin_dept') — отдел админов (admin_dept_already), без него hire_admin — admin_dept_locked; itd.cmd('hire_admin', 0) / itd.cmd('fire_admin', 0) — найм и увольнение админа офиса (admin_already, no_admin, not_enough_money); state.offices[i].admin, adminSlot/adminKind — его следующая цель (-1/'' — свободен), adminFirePrice; 2 клика в тик сами, сначала заражённые места, потом сломанное. Комната — вкладка nav.adminDept («АДМ», ITGAME-145): закрыта — dept.buy «Купить отдел», открыта — места dept.admin.0..2 (наведение — тултип, ПКМ — «Уволить админа?»), строки dept.name.N / dept.status.N («чинит место 5» / «чистит место 3» / «свободен»), найм — кнопки колонки btn.admin.0..2; в офисе у админа кнопки и слота нет, тултип места — «чинит админ» / «чистит админ»; фикстура admin_dept
-  itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, id, …}] по порядку, recv[error/day_report…] (у error info.re/rev), states[{rev, cause, re?}] — снапшоты окна, transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}], pointer[{type: down|up, button, x, y — мировые, onCanvas, wins/stack — хит-тест Phaser в момент события (как itd.stack), got — до кого дошёл pointerdown/up объекта, в т.ч. удалившегося в обработчике (✕ модалки) — на up его уже нет; [] — до объектов не дошло}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой); itd.click() в pointer не попадает (мимо input-слоя)
+  itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, id, src, …}] по порядку (src: itd — ушла синхронно внутри itd.* — cmd/click/key/pause/resume/speed/step; ui — настоящий клик/клавиша или реакция UI), recv[error/day_report…] (у error info.re/rev), states[{rev, cause, re?}] — снапшоты окна, transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}], pointer[{type: down|up, button, x, y — мировые, onCanvas, wins — метка победителя хит-теста Phaser в момент события, та же форма, что got (safe id или тип без id; полная строка — stack[0]), stack — как itd.stack, got — до кого дошёл pointerdown/up объекта, в т.ч. удалившегося в обработчике (✕ модалки) — на up его уже нет; [] — до объектов не дошло}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой); itd.click() в pointer не попадает (мимо input-слоя)
   itd.trace.start({maxMs?})          — открытое окно (ITGAME-88): подписки сразу → {ok, id, t0, maxMs, open}; настоящий клик/клавиша — другим вызовом инструмента; само закроется через maxMs (по умолчанию 120000, до 600000; cut: true); коды bad_max, too_many (больше 8 окон)
-  itd.trace.stop(id?)               — закрыть окно (без id — последнее) → тот же TraceResult, что у itd.trace() (+ id, windowMs = длина окна); нет окна — {ok:false, code:'no_trace'}. Пример: const {id} = itd.trace.start(); …клик…; const tr = itd.trace.stop(id); tr.pointer[0].wins, tr.sent
+  itd.trace.stop(id?)               — закрыть окно (без id — последнее) → тот же TraceResult, что у itd.trace() (+ id, windowMs = длина окна); нет окна — {ok:false, code:'no_trace'}. Пример: const {id} = itd.trace.start(); …клик…; const tr = itd.trace.stop(id); tr.pointer[0].wins — 'btn:pc', tr.sent[0].src, itd.trace.summary(tr).lines
+  itd.trace.summary(id? | tr)       — окно строками по времени (ITGAME-179), не закрывая: id / без id — открытое (или cut) окно, tr — любой TraceResult → {ok, id?, cut?, error?, lines}; строки «t812 ptr down 640,360 canvas wins btn:pc got [btn:pc]», «t815 sent buy_pc o0 id7 ui», «t930 recv error not_enough_money re8 rev12», «t841 state rev12 cmd re7», «t50 key ENTER dom handled [hud] acted [hud:next_day]», «t990 trans speed 0→1», «t931 toast "Не хватает денег"», «t842 sound select ok»; при равном t — ptr, key, sent, recv, state, trans, toast, sound; нет окна — {ok:false, code:'no_trace', lines: []}
   itd.warm()                        — прогреть кадр вручную (шаги лупа); в скрытой вкладке itd делает это сам
   itd.wait(s => s.day === 2)        — промис: поллинг state()/server() до условия (таймаут 5с, второй аргумент — свой); готовность меню — wait(s => s.menuReady), до старта партии state() null, но menuReady уже честен
   itd.overlaps({minAreaRatio}?)     — линтер вёрстки: kind: text — тексты одного depth (в т.ч. внутри контейнеров, depth ребёнка = depth верхнего контейнера); occlusion — текст под непрозрачной плашкой (плашка тоже может быть внутри контейнера); interactive — интерактив частично перекрыт интерактивом или текстом (вложенность целиком — не находка); пара {scene, kind, a, b, overlap{w,h}, at{x,y}, ratio, threshold}: ratio — площадь пересечения / площадь меньшего из пары (occlusion — / площадь текста), threshold — порог сравнения; minAreaRatio 0..1 заменяет пороги по умолчанию (text/interactive 0, occlusion 0.25 + >50% по каждой оси; заданный minAreaRatio заменяет и правило по осям — для occlusion находок может стать больше): 0 — строгий режим, 0.3 — порог по площади для всех kind; затемнение модалки (markDim: отчёт дня, финал, «Пока вас не было», окна, обрыв связи) — не перекрывающий при любой альфе: что оно закрывает от клика — itd.hit()/stack(); пара через затемнение (один объект под ним, другой — модалка над ним) — тоже не находка (ITGAME-141)
@@ -2084,7 +2094,8 @@ function makeApi(game: Phaser.Game): ItdApi {
       const hit = findById(game, id)
       if (!hit) return { ok: false, error: `id '${id}' не найден — см. itd.ids()` }
       clickRejection = null
-      hit.obj.emit('pointerdown', leftPointer, 0, 0, {})
+      // ITGAME-179: команда, ушедшая внутри вызова, — sent[].src 'itd'
+      inItdCall(() => hit.obj.emit('pointerdown', leftPointer, 0, 0, {}))
       const code = clickRejection
       clickRejection = null
       if (code) return { ok: false, code, error: `клик '${id}' отброшен: ${code}`, id, scene: hit.scene }
@@ -2113,13 +2124,15 @@ function makeApi(game: Phaser.Game): ItdApi {
       // handlerScenes в trace.ts, которому нужны сцены ДО обработки).
       notifyItdKey(def.code)
       const scenes: string[] = []
-      for (const scene of game.scene.getScenes(true)) {
-        const kb = scene.input.keyboard
-        if (!kb) continue
-        scenes.push(scene.scene.key)
-        kb.emit(`keydown-${def.code}`, event)
-        kb.emit('keydown', event)
-      }
+      inItdCall(() => {
+        for (const scene of game.scene.getScenes(true)) {
+          const kb = scene.input.keyboard
+          if (!kb) continue
+          scenes.push(scene.scene.key)
+          kb.emit(`keydown-${def.code}`, event)
+          kb.emit('keydown', event)
+        }
+      })
       return { ok: true, key: def.code, scenes }
     },
     cmd(type, office = 0, extra = {}) {
@@ -2139,11 +2152,10 @@ function makeApi(game: Phaser.Game): ItdApi {
         if (!game.scene.isActive('hud') || !hud?.abandonParty || !client.latest) {
           return Promise.resolve({ ok: false, code: 'not_connected', error: 'нет живой партии' })
         }
-        hud.abandonParty()
+        inItdCall(() => hud.abandonParty!())
         return Promise.resolve({ ok: true })
       }
-      return client
-        .sendWithReceipt(type, office, extra)
+      return inItdCall(() => client.sendWithReceipt(type, office, extra))
         .then((r) => (r.ok ? r : { ...r, error: r.code }))
     },
     trace: makeTrace(game),
@@ -2318,12 +2330,12 @@ function makeApi(game: Phaser.Game): ItdApi {
     },
     pause() {
       // Честный отказ до коннекта (ITGAME-30): раньше — тихий no-op c ok:true.
-      return client.send('set_speed', 0, { speed: 0 })
+      return inItdCall(() => client.send('set_speed', 0, { speed: 0 }))
         ? { ok: true }
         : { ok: false, code: 'not_connected', error: 'сокет не открыт — пауза не отправлена' }
     },
     resume() {
-      return client.send('set_speed', 0, { speed: 1 })
+      return inItdCall(() => client.send('set_speed', 0, { speed: 1 }))
         ? { ok: true }
         : { ok: false, code: 'not_connected', error: 'сокет не открыт — resume не отправлен' }
     },
@@ -2331,7 +2343,7 @@ function makeApi(game: Phaser.Game): ItdApi {
       if (!Number.isInteger(n) || n < 0 || n > 3) {
         return { ok: false, error: 'скорость — целое 0..3 (0 — пауза)' }
       }
-      return client.send('set_speed', 0, { speed: n })
+      return inItdCall(() => client.send('set_speed', 0, { speed: n }))
         ? { ok: true }
         : { ok: false, code: 'not_connected', error: 'сокет не открыт — скорость не отправлена' }
     },
@@ -2351,7 +2363,7 @@ function makeApi(game: Phaser.Game): ItdApi {
         }
       }
       partySid() // ITGAME-131: вне партии — отказ до паузы, без set_speed в закрытый сокет (HUD дал бы тост «нет связи»)
-      client.send('set_speed', 0, { speed: 0 }) // степпинг только на паузе
+      inItdCall(() => client.send('set_speed', 0, { speed: 0 })) // степпинг только на паузе
       return debugFetch<DebugAdvanceResult>('POST', '/advance', { ticks })
     },
     advanceDays(n) {

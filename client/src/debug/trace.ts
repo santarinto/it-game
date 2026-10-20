@@ -17,6 +17,7 @@ import { onUi } from '../uibus'
 // самих объектов; ITGAME-112). И открытое окно:
 // itd.trace.start() → … настоящий клик другим вызовом инструмента … →
 // itd.trace.stop(): фиксированное окно гонялось с кликом, пришедшим позже.
+// ITGAME-179: pointer.wins — метка, как got; sent[].src — itd|ui; summary() — окно строками.
 
 // Кто под указателем по хит-тесту Phaser (agentApi: stackAt) — без импорта
 // agentApi (он импортирует этот модуль): функцию передаёт фасад.
@@ -33,6 +34,15 @@ export interface TraceTarget {
 // вешает на них слушателей got ДО Phaser (ITGAME-112).
 export type PointerProbe = (ev: MouseEvent) => { x: number; y: number; wins: TraceTarget | null; stack: string[]; objs: Phaser.GameObjects.GameObject[] }
 
+// Запись sent (ITGAME-179): полная команда + src — кто её отправил.
+export interface TraceSent {
+  t: number
+  type: string
+  office?: number
+  src: 'itd' | 'ui' // itd — ушла синхронно внутри вызова itd.* (cmd, click, key, pause, resume, speed, step; play — через cmd); ui — всё прочее: настоящий клик/клавиша, реакция UI на снапшот
+  [k: string]: unknown
+}
+
 export interface TracePointer {
   t: number
   type: 'down' | 'up' // mousedown / mouseup (Phaser слушает именно их)
@@ -40,7 +50,7 @@ export interface TracePointer {
   x: number // мировые 1280×720 — как nodes().cx/cy и itd.stack(gx, gy)
   y: number
   onCanvas: boolean // событие пришло в канвас; false — мимо холста (#topbar, поля страницы)
-  wins: TraceTarget | null // кто получит событие по хит-тесту Phaser в момент события (как itd.stack().wins); null — ни одна hitArea не накрывает точку
+  wins: string | null // ITGAME-179: метка победителя хит-теста Phaser в момент события — та же форма, что got (safe id или тип без id); полная строка — stack[0]; null — ни одна hitArea не накрывает точку
   stack: string[] // все interactive под точкой сверху вниз, как itd.stack().stack
   got: string[] // до кого Phaser реально довёл pointerdown/up в этом событии (GAMEOBJECT_POINTER_DOWN/UP объекта): safe id или тип без id; [] — до объектов не дошло. Кнопка, удалившая себя в pointerdown, в got на down есть, на up её нет
 }
@@ -59,7 +69,7 @@ export interface TraceResult {
    * её отбросил.
    */
   keys: { t: number; key: string; source: 'dom' | 'itd'; repeat: boolean; handled: boolean; scenes: string[]; acted: { scene: string; action: string }[] }[]
-  sent: { t: number; type: string; office?: number; [k: string]: unknown }[] // полная команда, по порядку отправки
+  sent: TraceSent[] // полная команда, по порядку отправки; src — откуда (ITGAME-179)
   recv: { t: number; type: string; info: Record<string, unknown> }[] // не-state входящие: error/day_report/game_over/… (у error info.re/rev)
   /** ITGAME-45: снапшоты окна — rev, cause (tick|cmd|debug|start|resume), re — id своей команды-причины. */
   states: { t: number; rev: number; cause: string; re?: number }[]
@@ -68,7 +78,7 @@ export interface TraceResult {
   sounds: { t: number; name: string; key: string; volume: number; ok: boolean; scene: string }[]
   /**
    * ITGAME-88: настоящие нажатия указателя в окне (mousedown/mouseup): мировые x/y,
-   * wins/stack — хит-тест Phaser в момент события, got — до кого дошёл
+   * wins — метка победителя (как got), stack — хит-тест Phaser в момент события, got — до кого дошёл
    * pointerdown/up (GAMEOBJECT_POINTER_DOWN/UP самих объектов, ITGAME-112:
    * сценовый gameobjectdown терял объект, удаливший себя в обработчике).
    * itd.click() сюда не попадает: он мимо input-слоя.
@@ -110,6 +120,20 @@ for (const [name, code] of Object.entries(Phaser.Input.Keyboard.KeyCodes)) {
 // не связанный с window.addEventListener. Слушатели держатся в общем Set:
 // параллельные trace() независимы, каждый добавляет/снимает свой fn.
 const itdKeyListeners = new Set<(name: string) => void>()
+
+// ITGAME-179: идёт ли сейчас вызов фасада itd.* — тап эфира метит sent[].src. Счётчик,
+// не флаг: вложенные вызовы (play → cmd). client.send → logWire → tapWire синхронны
+// (net.ts sendCmd), так что метка честна для команд, ушедших внутри вызова; после await
+// (scenario, advanceDays) это уже реакция UI — 'ui'.
+let itdDepth = 0
+export function inItdCall<T>(fn: () => T): T {
+  itdDepth++
+  try {
+    return fn()
+  } finally {
+    itdDepth--
+  }
+}
 
 // Вызывается из agentApi.key() ДО цикла emit по сценам — обработчик клавиши
 // может остановить/сменить сцену, и handlerScenes() должен увидеть сцены
@@ -157,6 +181,12 @@ interface OpenTrace {
   close: () => void
 }
 
+// Метка объекта для got/wins: safe id (точки → «:») или тип без id (ITGAME-179).
+function labelOf(obj: Phaser.GameObjects.GameObject): string {
+  const id = obj.getData?.('id')
+  return typeof id === 'string' ? id.replace(/\./g, ':') : obj.type
+}
+
 // Подписки окна: ставятся сразу, снимаются close() (один раз).
 function openTrace(game: Phaser.Game, probe: PointerProbe, windowMs: number): OpenTrace {
   const t0 = Date.now()
@@ -202,7 +232,8 @@ function openTrace(game: Phaser.Game, probe: PointerProbe, windowMs: number): Op
   const untapWire = client.tapWire((e: WireEntry, raw: Record<string, unknown>) => {
     const t = rel()
     if (e.dir === 'out') {
-      r.sent.push({ t, ...raw, type: e.type })
+      // src последним: extra.src внутри самой команды его не перекроет
+      r.sent.push({ t, ...raw, type: e.type, src: itdDepth > 0 ? 'itd' : 'ui' })
     } else if (e.type === 'state') {
       const st: TraceResult['states'][number] = { t, rev: raw.rev as number, cause: raw.cause as string }
       if (typeof raw.re === 'number') st.re = raw.re
@@ -281,14 +312,15 @@ function openTrace(game: Phaser.Game, probe: PointerProbe, windowMs: number): Op
     const rec: TracePointer = {
       t: rel(), type: down ? 'down' : 'up', button: ev.button,
       x: Math.round(hit.x * 10) / 10, y: Math.round(hit.y * 10) / 10,
-      onCanvas: ev.target === game.canvas, wins: hit.wins, stack: hit.stack, got: [],
+      onCanvas: ev.target === game.canvas,
+      // ITGAME-179: метка победителя той же формы, что got (stackTarget: safe = id с «:», type)
+      wins: hit.wins ? (hit.wins.safe ?? hit.wins.type) : null, stack: hit.stack, got: [],
     }
     r.pointer.push(rec)
     const evName = down ? Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN : Phaser.Input.Events.GAMEOBJECT_POINTER_UP
     for (const obj of hit.objs) {
       // имя читаем сейчас: после destroy() в обработчике getData/type уже пусты
-      const id = obj.getData?.('id')
-      const label = typeof id === 'string' ? id.replace(/\./g, ':') : obj.type
+      const label = labelOf(obj)
       const on = () => { rec.got.push(label) }
       obj.on(evName, on)
       pending.push(() => obj.off(evName, on))
@@ -352,7 +384,9 @@ export async function runTrace(game: Phaser.Game, probe: PointerProbe, action: (
 const TRACE_MAX_OPEN = 8
 const TRACE_DEFAULT_MAX_MS = 120_000
 let traceSeq = 0
-const openTraces = new Map<number, { tr: OpenTrace; timer: ReturnType<typeof setTimeout> | null }>()
+type OpenEntry = { tr: OpenTrace; timer: ReturnType<typeof setTimeout> | null }
+type NoTrace = { ok: false; code: 'no_trace'; error: string }
+const openTraces = new Map<number, OpenEntry>()
 
 export function startTrace(game: Phaser.Game, probe: PointerProbe, opts: TraceStartOptions = {}): TraceStart {
   const maxMs = opts?.maxMs ?? TRACE_DEFAULT_MAX_MS
@@ -365,7 +399,7 @@ export function startTrace(game: Phaser.Game, probe: PointerProbe, opts: TraceSt
   const id = ++traceSeq
   const tr = openTrace(game, probe, 0)
   tr.r.id = id
-  const entry: { tr: OpenTrace; timer: ReturnType<typeof setTimeout> | null } = { tr, timer: null }
+  const entry: OpenEntry = { tr, timer: null }
   entry.timer = setTimeout(() => {
     entry.timer = null
     tr.r.cut = true
@@ -380,14 +414,104 @@ function finishOpen(tr: OpenTrace): void {
   tr.r.windowMs = tr.r.t1 - tr.r.t0
 }
 
-export function stopTrace(id?: number): TraceResult | { ok: false; code: 'no_trace'; error: string } {
+// Окно по id (без id — последнее открытое); cut-окно лежит в openTraces до stop().
+function findOpen(id?: number): { ok: true; key: number; entry: OpenEntry } | NoTrace {
   const key = id ?? [...openTraces.keys()].pop()
   const entry = key === undefined ? undefined : openTraces.get(key)
   if (key === undefined || !entry) {
     return { ok: false, code: 'no_trace', error: id === undefined ? 'нет открытого окна — сначала itd.trace.start()' : `нет окна ${id}: открыты [${[...openTraces.keys()].join(' ')}]` }
   }
-  openTraces.delete(key)
-  if (entry.timer) clearTimeout(entry.timer)
-  finishOpen(entry.tr)
-  return entry.tr.r
+  return { ok: true, key, entry }
+}
+
+export function stopTrace(id?: number): TraceResult | NoTrace {
+  const found = findOpen(id)
+  if (!found.ok) return found
+  openTraces.delete(found.key)
+  if (found.entry.timer) clearTimeout(found.entry.timer)
+  finishOpen(found.entry.tr)
+  return found.entry.tr.r
+}
+
+// ── summary (ITGAME-179) ──────────────────────────────────────────────────
+// Короткие строки вместо разбора TraceResult руками: по строке на запись окна,
+// одним списком по t. Формат закреплён qa:trace 16.
+export interface TraceSummary {
+  ok: boolean // как у TraceResult (false — action упал, см. error); нет окна — false и code no_trace
+  code?: 'no_trace'
+  error?: string // no_trace — почему; иначе ошибка action окна (TraceResult.error)
+  id?: number // окно itd.trace.start()
+  cut?: boolean // окно закрылось само по maxMs
+  /**
+   * По строке на запись окна по возрастанию t (при равном t: ptr, key, sent, recv,
+   * state, trans, toast, sound); [] при no_trace.
+   * 't<мс> ptr down|up [b<кнопка>] x,y canvas|page wins <метка>|- got [..]',
+   * 't<мс> key <KEY> dom|itd [repeat] handled [сцены]|unhandled [acted [сцена:действие ..]]',
+   * 't<мс> sent <type> [o<office>] [k=v ..] [id<id>] itd|ui',
+   * 't<мс> recv <type> [<code>] [re<id>] [rev<N>] [k=v ..]', 't<мс> state rev<N> <cause> [re<id>]',
+   * 't<мс> trans <kind> <from>→<to>' (null — '-'), 't<мс> toast "<текст>"', 't<мс> sound <name> ok|fail'.
+   */
+  lines: string[]
+}
+
+const val = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringify(v))
+const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim()
+
+export function summarizeTrace(r: TraceResult): string[] {
+  const out: { t: number; k: number; line: string }[] = []
+  const add = (k: number, t: number, parts: string[]) => out.push({ t, k, line: `t${Math.round(t)} ${parts.join(' ')}` })
+  for (const p of r.pointer ?? []) {
+    add(0, p.t, ['ptr', p.type, ...(p.button ? [`b${p.button}`] : []), `${Math.round(p.x)},${Math.round(p.y)}`,
+      p.onCanvas ? 'canvas' : 'page', 'wins', p.wins ?? '-', `got [${p.got.join(' ')}]`])
+  }
+  for (const e of r.keys ?? []) {
+    add(1, e.t, ['key', e.key, e.source, ...(e.repeat ? ['repeat'] : []),
+      e.handled ? `handled [${e.scenes.join(' ')}]` : 'unhandled',
+      ...(e.acted.length ? [`acted [${e.acted.map((a) => `${a.scene}:${a.action}`).join(' ')}]`] : [])])
+  }
+  for (const s of r.sent ?? []) {
+    const { t, type, office, id, src, ...rest } = s
+    const parts = ['sent', type]
+    if (office !== undefined) parts.push(`o${val(office)}`)
+    for (const [k, v] of Object.entries(rest)) if (v !== undefined) parts.push(`${k}=${val(v)}`)
+    if (id !== undefined) parts.push(`id${val(id)}`)
+    parts.push(src ?? '?')
+    add(2, t, parts)
+  }
+  for (const e of r.recv ?? []) {
+    const { code, re, rev, ...rest } = e.info
+    const parts = ['recv', e.type]
+    if (code !== undefined) parts.push(val(code))
+    if (re !== undefined) parts.push(`re${val(re)}`)
+    if (rev !== undefined) parts.push(`rev${val(rev)}`)
+    for (const [k, v] of Object.entries(rest)) if (v !== undefined) parts.push(`${k}=${val(v)}`)
+    add(3, e.t, parts)
+  }
+  for (const s of r.states ?? []) add(4, s.t, ['state', `rev${s.rev}`, s.cause, ...(s.re !== undefined ? [`re${s.re}`] : [])])
+  for (const e of r.transitions ?? []) add(5, e.t, ['trans', e.kind, `${e.from ?? '-'}→${e.to ?? '-'}`])
+  for (const e of r.toasts ?? []) add(6, e.t, ['toast', `"${oneLine(e.text)}"`])
+  for (const e of r.sounds ?? []) add(7, e.t, ['sound', e.name, e.ok ? 'ok' : 'fail'])
+  // sort стабилен (ES2019): внутри разновидности — порядок записи
+  return out.sort((a, b) => a.t - b.t || a.k - b.k).map((e) => e.line)
+}
+
+// summary(id?) — открытое (или cut) окно, не закрывая; summary(tr) — любой TraceResult.
+export function summaryTrace(src?: number | TraceResult): TraceSummary {
+  let r: TraceResult
+  if (src === undefined || typeof src === 'number') {
+    const found = findOpen(src)
+    if (!found.ok) return { ...found, lines: [] }
+    r = found.entry.tr.r
+  } else if (src && typeof src === 'object' && typeof src.t0 === 'number' && Array.isArray(src.pointer)) {
+    r = src
+  } else {
+    return { ok: false, code: 'no_trace', error: 'itd.trace.summary: это не TraceResult — id окна или результат itd.trace()/stop()', lines: [] }
+  }
+  return {
+    ok: r.ok,
+    ...(r.error !== undefined ? { error: r.error } : {}),
+    ...(r.id !== undefined ? { id: r.id } : {}),
+    ...(r.cut ? { cut: true } : {}),
+    lines: summarizeTrace(r),
+  }
 }

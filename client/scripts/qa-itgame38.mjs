@@ -588,7 +588,7 @@ async function run() {
       const tr = window.itd.trace.stop(id)
       window.__qaH3?.destroy()
       delete window.__qaH3
-      return tr.pointer.map((p) => ({ type: p.type, wins: p.wins?.id ?? null, got: p.got }))
+      return tr.pointer.map((p) => ({ type: p.type, wins: p.wins, got: p.got }))
     }, h3.id)
     check(
       'H3: объект, добавленный в этом кадре, — в _pendingInsertion: stack().wins null, mousedown в тот же момент Phaser ему не отдал (trace: wins null, got [])',
@@ -599,7 +599,7 @@ async function run() {
     check(
       'H3: через один requestAnimationFrame — в _list, stack().wins он; настоящий клик мышью Phaser отдал ему (trace: wins и got qa:h3)',
       !!h3 && h3.listed && h3.next.wins === 'qa.h3' && !!h3.next.stack[0]?.startsWith('qa:h3 hud ') &&
-        !!h3tr && h3tr.slice(2).every((p) => p.wins === 'qa.h3' && p.got.length === 1 && p.got[0] === 'qa:h3'),
+        !!h3tr && h3tr.slice(2).every((p) => p.wins === 'qa:h3' && p.got.length === 1 && p.got[0] === 'qa:h3'),
       JSON.stringify({ next: h3?.next, pointer: h3tr?.slice(2) }),
     )
 

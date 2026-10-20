@@ -6,7 +6,7 @@
 //   3  set({money:0}), trace(() => cmd('buy_pc'), 800) → recv
 //      {type:'error', info.code:'not_enough_money'}, тост из ERROR_TEXTS,
 //      звук 'error'
-//   4  trace(() => pause()) → sent set_speed{speed:0}, transition speed
+//   4  trace(() => pause()) → sent set_speed{speed:0} с src itd (ITGAME-179), transition speed
 //      1 → 0 (стартовая скорость сессии — 1, protocol_test.go)
 //   5  на паузе trace(() => {}, 500) → все массивы пустые, t1−t0 ≥ 500
 //   6  граница окна: resume() за окном (700мс > 300) → sent пуст;
@@ -21,13 +21,13 @@
 //      handled:true}; KeyA → {key:'A', handled:false}
 //  10  отчёт дня: speed(2), set({tickInDay:53}), ждём btn.next_day, затем
 //      DOM Enter внутри окна → keys ENTER dom handled:true, sent строго
-//      [set_speed{speed:2}, next_day] (proceedNextDay восстанавливает
-//      скорость ДО отчёта, затем next_day), transition phase
+//      [set_speed{speed:2}, next_day] c src ui — настоящая клавиша (proceedNextDay
+//      восстанавливает скорость ДО отчёта, затем next_day), transition phase
 //      day_report → running
 //  10b каноническая форма: key('enter') на открытом отчёте → ENTER itd
-//      handled:true, acted [{hud,next_day}], sent [set_speed, next_day]
+//      handled:true, acted [{hud,next_day}], sent [set_speed, next_day] c src itd
 //  10c каноническая форма: click('btn.next_day') → ok, sent
-//      [set_speed, next_day], keys пуст (клик — не клавиша)
+//      [set_speed, next_day] c src itd, keys пуст (клик — не клавиша)
 //  10d отчёт закрыт, игра идёт: key('enter') → handled:true, acted [],
 //      sent пуст (клавиша дошла до HUD, guard отбросил)
 //  11  trace(() => throw, 100) → {ok:false, error:'boom'}; проверка утечки:
@@ -45,15 +45,17 @@
 //      затем cmd с отказом → bad_speed; снапшот найма у вкладки без re
 //  14  (ITGAME-88) открытое окно + настоящий клик: itd.trace.start() → page.mouse.click
 //      по центру btn.pc (screen() x/y) ОТДЕЛЬНЫМ вызовом → itd.trace.stop(id): pointer
-//      down/up, onCanvas, x/y ≈ cx/cy, wins — btn.pc (хит-тест Phaser), got ['btn:pc'],
-//      sent buy_pc; клик по #build (#topbar) — onCanvas false, wins null, got []
+//      down/up, onCanvas, x/y ≈ cx/cy, wins — метка 'btn:pc' (хит-тест Phaser, как got; ITGAME-179),
+//      got ['btn:pc'], sent buy_pc с src ui; клик по #build (#topbar) — onCanvas false, wins null, got []
 //  14b (ITGAME-112) got у кнопки, удалившей себя в pointerdown: настоящий клик по ✕ «Выйти в меню?» —
 //      got на down [modal:close], на up его нет; тестовые прямоугольники в hud: удаляющий себя в
 //      pointerdown — got [probe:gone] на down и [] на up, второй — [probe:keep] на down и up
 //  15  (ITGAME-88) окно: stop() без окна — no_trace; start({maxMs:300}) само закрылось —
 //      cut, windowMs ≈ 300; bad_max; два окна — stop() закрывает последнее, stop(id) первое;
 //      itd.click() внутри окна — sent есть, pointer пуст (мимо input-слоя);
-//      классическая форма trace(action, ms) тоже несёт pointer []
+//      классическая форма trace(action, ms) тоже несёт pointer []; itd.click() — src itd
+//  16  (ITGAME-179) itd.trace.summary(id) открытого окна = summary(tr) после stop, строки по t,
+//      каждая разновидность по образцу; no_trace с lines [] без окна и для не-TraceResult
 //   + на странице нет pageerror
 //
 // Отклонения от буквального сценария в трекере (см. отчёт агента): нет —
@@ -180,6 +182,11 @@ async function run() {
     // ── 4: pause() — sent set_speed{0}, transition speed 1 → 0 (старт сессии)
     const t4 = await page.evaluate(() => window.itd.trace(() => window.itd.pause()))
     check('4: sent set_speed speed:0', speedSent(t4.sent).includes(0), JSON.stringify(t4.sent))
+    check(
+      '4: set_speed от itd.pause() — src itd (ITGAME-179)',
+      t4.sent.some((e) => e.type === 'set_speed') && t4.sent.filter((e) => e.type === 'set_speed').every((e) => e.src === 'itd'),
+      JSON.stringify(t4.sent),
+    )
     const speedT4 = t4.transitions.find((tr) => tr.kind === 'speed')
     check('4: transition speed 1 → 0', speedT4?.from === 1 && speedT4?.to === 0, JSON.stringify(speedT4))
     await page.waitForFunction(() => window.itd.state().speed === 0, { timeout: 5000 })
@@ -308,8 +315,8 @@ async function run() {
     )
     const sentTypesT10 = t10.sent.map((e) => e.type)
     check(
-      '10: sent строго [set_speed, next_day] (speed:2 → 0)',
-      JSON.stringify(sentTypesT10) === JSON.stringify(['set_speed', 'next_day']) && t10.sent[0]?.speed === 2,
+      '10: sent строго [set_speed, next_day] (speed:2 → 0), src ui — настоящая клавиша',
+      JSON.stringify(sentTypesT10) === JSON.stringify(['set_speed', 'next_day']) && t10.sent[0]?.speed === 2 && t10.sent.every((e) => e.src === 'ui'),
       JSON.stringify(t10.sent),
     )
     const phaseT10 = t10.transitions.find((tr) => tr.kind === 'phase')
@@ -337,8 +344,8 @@ async function run() {
       JSON.stringify(keyT10b),
     )
     check(
-      '10b: sent строго [set_speed, next_day], speed:2',
-      JSON.stringify(t10b.sent.map((e) => e.type)) === JSON.stringify(['set_speed', 'next_day']) && t10b.sent[0]?.speed === 2,
+      '10b: sent строго [set_speed, next_day], speed:2, src itd',
+      JSON.stringify(t10b.sent.map((e) => e.type)) === JSON.stringify(['set_speed', 'next_day']) && t10b.sent[0]?.speed === 2 && t10b.sent.every((e) => e.src === 'itd'),
       JSON.stringify(t10b.sent),
     )
     const phT10b = t10b.transitions.find((tr) => tr.kind === 'phase')
@@ -348,8 +355,8 @@ async function run() {
     const t10c = await page.evaluate(() => window.itd.trace(() => window.itd.click('btn.next_day'), 1000))
     check('10c: click(btn.next_day) ok', t10c.result?.ok === true, JSON.stringify(t10c.result))
     check(
-      '10c: sent строго [set_speed, next_day]',
-      JSON.stringify(t10c.sent.map((e) => e.type)) === JSON.stringify(['set_speed', 'next_day']),
+      '10c: sent строго [set_speed, next_day], src itd',
+      JSON.stringify(t10c.sent.map((e) => e.type)) === JSON.stringify(['set_speed', 'next_day']) && t10c.sent.every((e) => e.src === 'itd'),
       JSON.stringify(t10c.sent),
     )
     const phT10c = t10c.transitions.find((tr) => tr.kind === 'phase')
@@ -526,12 +533,12 @@ async function run() {
     const up14 = t14.pointer?.find((p) => p.type === 'up' && p.onCanvas)
     const bar14 = t14.pointer?.find((p) => p.type === 'down' && !p.onCanvas)
     check(
-      '14: trace.start() → настоящий клик по btn.pc → trace.stop(id): pointer down/up на канвасе, x/y ≈ cx/cy, wins btn.pc, got [btn:pc], sent buy_pc',
+      '14: trace.start() → настоящий клик по btn.pc → trace.stop(id): pointer down/up на канвасе, x/y ≈ cx/cy, wins \'btn:pc\' (метка, как got), got [btn:pc], sent buy_pc src ui',
       st14.ok === true && typeof st14.id === 'number' && t14.id === st14.id && !!down14 && !!up14 &&
         down14.button === 0 && Math.abs(down14.x - pt14.cx) <= 2 && Math.abs(down14.y - pt14.cy) <= 2 &&
-        down14.wins?.id === 'btn.pc' && down14.wins.safe === 'btn:pc' && down14.stack[0]?.startsWith('btn:pc ') &&
-        JSON.stringify(down14.got) === '["btn:pc"]' && up14.wins?.id === 'btn.pc' &&
-        t14.sent.some((e) => e.type === 'buy_pc') && t14.windowMs >= 400 && t14.actionMs === 0,
+        down14.wins === 'btn:pc' && down14.stack[0]?.startsWith('btn:pc ') &&
+        JSON.stringify(down14.got) === '["btn:pc"]' && up14.wins === 'btn:pc' &&
+        t14.sent.some((e) => e.type === 'buy_pc' && e.src === 'ui') && t14.windowMs >= 400 && t14.actionMs === 0,
       JSON.stringify({ st14, pt14, pointer: t14.pointer, sent: t14.sent, windowMs: t14.windowMs }),
     )
     check(
@@ -587,27 +594,27 @@ async function run() {
       delete window.__qaP14
       return tr
     }, st14b.id)
-    const ptr14b = (type, win) => t14b.pointer.find((p) => p.type === type && p.wins?.id === win)
+    const ptr14b = (type, win) => t14b.pointer.find((p) => p.type === type && p.wins === win)
     check(
       '14b: настоящий клик по ✕ «Выйти в меню?» (modal.close закрывает окно в pointerdown) — got на down содержит modal:close, окно закрылось',
-      !!x14b && x14b.title === 'Выйти в меню?' && !!ptr14b('down', 'modal.close') && ptr14b('down', 'modal.close').got.includes('modal:close'),
-      JSON.stringify({ x14b, pointer: t14b.pointer.map((p) => ({ type: p.type, wins: p.wins?.id ?? null, got: p.got })) }),
+      !!x14b && x14b.title === 'Выйти в меню?' && !!ptr14b('down', 'modal:close') && ptr14b('down', 'modal:close').got.includes('modal:close'),
+      JSON.stringify({ x14b, pointer: t14b.pointer.map((p) => ({ type: p.type, wins: p.wins, got: p.got })) }),
     )
     check(
       '14b: после закрытия окна ✕ нет в nodes(); на up got пуст/без modal:close (удалённый объект до отпускания не получает up)',
       !(await page.evaluate(() => window.itd.nodes().some((n) => n.id === 'modal.close' && n.visible))) &&
         t14b.pointer.filter((p) => p.type === 'up' && p.stack.every((s) => !s.startsWith('modal:close '))).length >= 1 &&
         t14b.pointer.filter((p) => p.type === 'up').every((p) => !p.got.includes('modal:close')),
-      JSON.stringify(t14b.pointer.map((p) => ({ type: p.type, wins: p.wins?.id ?? null, got: p.got }))),
+      JSON.stringify(t14b.pointer.map((p) => ({ type: p.type, wins: p.wins, got: p.got }))),
     )
     check(
       '14b: тестовые прямоугольники — удаливший себя в pointerdown: got [probe:gone] на down и [] на up; второй: [probe:keep] на down и up',
       !!probe14b &&
-        JSON.stringify(ptr14b('down', 'probe.gone')?.got) === '["probe:gone"]' &&
-        JSON.stringify(t14b.pointer.find((p) => p.type === 'up' && p.x === ptr14b('down', 'probe.gone')?.x)?.got) === '[]' &&
-        JSON.stringify(ptr14b('down', 'probe.keep')?.got) === '["probe:keep"]' &&
-        JSON.stringify(ptr14b('up', 'probe.keep')?.got) === '["probe:keep"]',
-      JSON.stringify(t14b.pointer.map((p) => ({ type: p.type, x: p.x, wins: p.wins?.id ?? null, got: p.got }))),
+        JSON.stringify(ptr14b('down', 'probe:gone')?.got) === '["probe:gone"]' &&
+        JSON.stringify(t14b.pointer.find((p) => p.type === 'up' && p.x === ptr14b('down', 'probe:gone')?.x)?.got) === '[]' &&
+        JSON.stringify(ptr14b('down', 'probe:keep')?.got) === '["probe:keep"]' &&
+        JSON.stringify(ptr14b('up', 'probe:keep')?.got) === '["probe:keep"]',
+      JSON.stringify(t14b.pointer.map((p) => ({ type: p.type, x: p.x, wins: p.wins, got: p.got }))),
     )
 
     // ── 15 (ITGAME-88): семантика открытого окна
@@ -629,7 +636,7 @@ async function run() {
       return {
         none, cut: { id: cut.id, res: { id: cutRes.id, cut: cutRes.cut, windowMs: cutRes.windowMs } }, bad,
         a: a.id, b: b.id, open: b.open, lastId: lastRes.id, firstId: firstRes.id,
-        firstSent: firstRes.sent.map((e) => e.type), firstPointer: firstRes.pointer.length, again: again.code,
+        firstSent: firstRes.sent.map((e) => e.type), firstSrc: firstRes.sent.filter((e) => e.type === 'buy_pc').map((e) => e.src), firstPointer: firstRes.pointer.length, again: again.code,
         classicPointer: classic.pointer,
       }
     })
@@ -639,9 +646,67 @@ async function run() {
         t15.cut.res.id === t15.cut.id && t15.cut.res.cut === true && t15.cut.res.windowMs >= 290 && t15.cut.res.windowMs < 600 &&
         t15.bad.ok === false && t15.bad.code === 'bad_max' &&
         JSON.stringify(t15.open) === JSON.stringify([t15.a, t15.b]) && t15.lastId === t15.b && t15.firstId === t15.a &&
-        t15.firstSent.includes('buy_pc') && t15.firstPointer === 0 && t15.again === 'no_trace' &&
+        t15.firstSent.includes('buy_pc') && JSON.stringify(t15.firstSrc) === '["itd"]' && t15.firstPointer === 0 && t15.again === 'no_trace' &&
         Array.isArray(t15.classicPointer) && t15.classicPointer.length === 0,
       JSON.stringify(t15),
+    )
+
+    // ── 16 (ITGAME-179): itd.trace.summary — окно строками по времени, по строке каждой разновидности
+    await page.evaluate(async () => {
+      const itd = window.itd
+      itd.pause()
+      await itd.set({ money: 50000 })
+      await itd.wait((s) => s.speed === 0 && s.balance === 50000)
+    })
+    const st16 = await page.evaluate(() => window.itd.trace.start())
+    const pt16 = await page.evaluate(() => {
+      const row = window.itd.screen().items.find((i) => i.startsWith('btn:pc|'))?.split('|')
+      return { x: Number(row?.[2]), y: Number(row?.[3]) }
+    })
+    await page.mouse.click(pt16.x, pt16.y) // ptr down/up, sent buy_pc ui, state cmd re, sound select
+    await delay(300)
+    const t16 = await page.evaluate(async (id) => {
+      const itd = window.itd
+      await itd.set({ money: 0 })
+      await itd.wait((s) => s.balance === 0)
+      await itd.cmd('buy_pc') // sent itd, recv error not_enough_money, тост, звук error
+      itd.key('1') // в игре клавишу 1 никто не слушает — key ONE itd unhandled
+      itd.resume()
+      await itd.wait((s) => s.speed === 1) // trans speed 0→1, sent set_speed itd
+      itd.pause()
+      await itd.wait((s) => s.speed === 0)
+      const live = itd.trace.summary(id) // открытое окно — не закрывая
+      const tr = itd.trace.stop(id)
+      const closed = itd.trace.summary(tr)
+      return { live, closed, last: itd.trace.summary(), shut: itd.trace.summary(id), bad: itd.trace.summary({}) }
+    }, st16.id)
+    const L16 = t16.closed.lines ?? []
+    const ts16 = L16.map((l) => Number(/^t(\d+) /.exec(l)?.[1]))
+    const pat16 = {
+      down: /^t\d+ ptr down \d+,\d+ canvas wins btn:pc got \[btn:pc\]$/,
+      up: /^t\d+ ptr up \d+,\d+ canvas wins btn:pc got \[btn:pc\]$/,
+      sentUi: /^t\d+ sent buy_pc o0 id\d+ ui$/,
+      sentItd: /^t\d+ sent buy_pc o0 id\d+ itd$/,
+      speed: /^t\d+ sent set_speed o0 speed=1 id\d+ itd$/,
+      recv: /^t\d+ recv error not_enough_money re\d+ rev\d+$/,
+      state: /^t\d+ state rev\d+ cmd re\d+$/,
+      trans: /^t\d+ trans speed 0→1$/,
+      toast: /^t\d+ toast "Не хватает денег"$/,
+      sound: /^t\d+ sound (select|error) (ok|fail)$/,
+      key: /^t\d+ key ONE itd unhandled$/,
+    }
+    const miss16 = Object.entries(pat16).filter(([, re]) => !L16.some((l) => re.test(l))).map(([k]) => k)
+    check(
+      '16: summary(id) открытого окна = summary(tr) после stop, строки по возрастанию t, каждая разновидность по образцу (ITGAME-179)',
+      t16.live.ok === true && t16.live.id === st16.id && t16.closed.id === st16.id &&
+        JSON.stringify(t16.live.lines) === JSON.stringify(L16) && L16.length > 0 &&
+        ts16.every((t, i) => Number.isFinite(t) && (i === 0 || t >= ts16[i - 1])) && miss16.length === 0,
+      JSON.stringify({ miss16, lines: L16, live: t16.live.lines?.length }),
+    )
+    check(
+      '16: summary() без открытых окон, summary(id) закрытого и summary({}) — {ok:false, code:no_trace, lines:[]}',
+      [t16.last, t16.shut, t16.bad].every((s) => s.ok === false && s.code === 'no_trace' && Array.isArray(s.lines) && s.lines.length === 0),
+      JSON.stringify({ last: t16.last, shut: t16.shut, bad: t16.bad }),
     )
 
     // ── нет ошибок на странице за весь прогон

@@ -17,6 +17,7 @@
 //       StaleInfo.shown; AgentOffline.seq/awayId; AwayResult.awayId; JournalRecord.conn/src;
 //       JournalView.lines расшифровывает end (evicted/read_timeout/debug_drop/disconnect);
 //       SandboxApi тоже с call; itd.trace.start/stop — функции
+//   A16 (ITGAME-179/148/160) трасса 20.10: TracePointer.wins — string | null, sent — TraceSent[] с src и doc, TraceApi.summary → TraceSummary.lines; itd.trace.summary — функция
 //   A12 (ITGAME-131) из меню (liveSid null, socket closed): set/step/advanceDays/ledger/scenario/
 //       snapshot/restore → reject «not_in_party: …» с подсказкой itd.click('menu.diff.normal'),
 //       play([{days:1}]) → «FAIL not_in_party»; ни одного запроса /api/debug/*
@@ -104,9 +105,10 @@ async function run() {
         itdVersion: window.itd.version,
         socketNow: window.itd.server().socket,
         itdTraceFns: [typeof window.itd.trace, typeof window.itd.trace.start, typeof window.itd.trace.stop].join(),
+        itdTraceMore: [typeof window.itd.trace.summary].join(),
       }
     })
-    const { c1: contract, c2Hash, c3StateDoc, itdKeys, itdVersion, socketNow, itdTraceFns } = data
+    const { c1: contract, c2Hash, c3StateDoc, itdKeys, itdVersion, socketNow, itdTraceFns, itdTraceMore } = data
 
     // ── A1: schema
     check('A1: schema === 1', contract.schema === 1, `schema=${contract.schema}`)
@@ -207,6 +209,24 @@ async function run() {
         Array.isArray(a11.sandboxCall) && a11.sandboxCall.length === 1 &&
         Object.values(a11.fields).every(Boolean) && a11.endDoc && a11.fns === 'function,function,function',
       JSON.stringify(a11),
+    )
+
+    // ── A16 (ITGAME-179/148/160): трасса волны 20.10 в контракте
+    const a16 = {
+      wins: T.TracePointer?.fields?.wins?.type,
+      sent: T.TraceResult?.fields?.sent?.type,
+      src: T.TraceSent?.fields?.src,
+      summary: T.TraceApi?.fields?.summary,
+      lines: T.TraceSummary?.fields?.lines,
+      fns: itdTraceMore,
+    }
+    check(
+      'A16: контракт трассы 20.10 — wins метка (string | null), sent: TraceSent[] с src itd|ui и doc, TraceApi.summary → TraceSummary.lines (ITGAME-179)',
+      a16.wins === 'string | null' && a16.sent === 'TraceSent[]' &&
+        a16.src?.type === "'itd' | 'ui'" && !!a16.src.doc &&
+        !!a16.summary?.doc && a16.summary.type.includes('TraceSummary') &&
+        a16.lines?.type === 'string[]' && !!a16.lines.doc && a16.fns === 'function',
+      JSON.stringify(a16),
     )
 
     // ── A12 (ITGAME-131): из меню debug-вызовы отказывают на клиенте, без запроса
