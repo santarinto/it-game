@@ -3,7 +3,8 @@
 //   J2  настоящие клики HUD (btn.pc, btn.hire), темп 3, команды через itd.cmd — в том
 //       числе отказ (fire несуществующего слота)
 //   J3  debug: itd.set({money}) и itd.step({ticks}) — тоже входы журнала
-//   J3b (ITGAME-138) вирус: itd.restore с заражённым местом и волной через 2 тика, живая
+//   J3b (ITGAME-138) вирус: itd.restore с заражённым местом, волной через 2 тика и сидом
+//       185 (ITGAME-185: роллы поломок до волны мимо — волна приходит всегда), живая
 //       волна на 3x (ролл цели — вход реплея), 6 virus_click чистят два места, 7-й —
 //       not_infected; J6b — эти команды в журнале с id и отказом
 //   J4  перезагрузка страницы на скорости 3 → «Продолжить»: первый снапшот resumed,
@@ -123,6 +124,12 @@ try {
   // J3b (ITGAME-138) — вирус: itd.restore заражает место 1 при двух сотрудниках и
   // волне через 2 тика, живые тики на 3x катят волну (ролл цели из PCG — вход
   // реплея), virus_click чистит оба места, лишний клик — отказ not_infected.
+  // Сид в той же дельте (ITGAME-185): Restore ресивит PCG по сиду сейва с начала
+  // потока, а до волны каждый из двух тиков роллит поломку офиса (2%) — со случайным
+  // сидом партии ~4% прогонов (1 − 0,98²) ломали ПК места 1 или 2, волна гасла (сид 4
+  // так и падает). У сида 185 первые роллы 82 и 79 из 100: дня 1 без событий и кофемашины
+  // других роллов до волны нет, она приходит при любом tickInDay. Сид — поле сейва в
+  // дельте restore, вход журнала: реплей ресивит так же.
   const j3b = await page.evaluate(async () => {
     const itd = window.itd
     const snap = await itd.snapshot()
@@ -130,7 +137,8 @@ try {
     o.PCs = Math.max(o.PCs, 2)
     o.Employees = [{ ...o.Employees[0], Infected: true, VirusClicks: 0, PCBroken: false }, { ...o.Employees[0], Name: 'Вирус Тестов', Infected: false, PCBroken: false }]
     snap.save.virusWaveIn = 2
-    await itd.restore(snap.save)
+    snap.save.seed = 185
+    const seed = (await itd.restore(snap.save)).state.seed
     itd.speed(3)
     await itd.wait((s) => s.virusPCs === 2, 8000).catch(() => null)
     itd.pause()
@@ -139,12 +147,12 @@ try {
     for (const slot of [0, 0, 0, 1, 1, 1]) clicks.push((await itd.cmd('virus_click', 0, { slot })).ok)
     const extra = await itd.cmd('virus_click', 0, { slot: 0 })
     itd.speed(3)
-    return { waved, clicks, extra: extra.code, left: itd.state().virusPCs }
+    return { seed, waved, clicks, extra: extra.code, left: itd.state().virusPCs }
   })
   await sleep(600)
   note(
     'J3b вирус: живая волна заразила второе место, 6 кликов вычистили оба, лишний — not_infected',
-    j3b.waved === 2 && j3b.clicks.every(Boolean) && j3b.extra === 'not_infected' && j3b.left === 0,
+    j3b.seed === '185' && j3b.waved === 2 && j3b.clicks.every(Boolean) && j3b.extra === 'not_infected' && j3b.left === 0,
     JSON.stringify(j3b),
   )
 
