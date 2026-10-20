@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "ba24fb6d5f78",
+  "hash": "539fbe9865a6",
   "methods": {
     "version": {
       "kind": "prop",
@@ -135,7 +135,7 @@ export const CONTRACT = {
       "kind": "prop",
       "type": "TraceApi",
       "readonly": true,
-      "doc": "Живая трассировка окна вокруг action (ITGAME-37): подписка ДО action,\nокно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь\nигрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().\nITGAME-45: sent — с id команды, states — снапшоты окна {rev, cause, re?}:\nответ на команду — state с re = её id. ITGAME-179: sent[].src — itd (ушла внутри\nвызова itd.*: cmd/click/key/pause/resume/speed/step) или ui (настоящий клик/клавиша,\nреакция UI); itd.trace.summary(id? | tr) — окно строками по времени, не закрывая.\nITGAME-88: pointer — настоящие\nmousedown/mouseup в окне: {type: down|up, button, x, y (мировые 1280×720),\nonCanvas, wins — метка победителя хит-теста Phaser в момент события, та же форма,\nчто got (safe id или тип без id; полная строка — stack[0]), stack — как itd.stack,\ngot — до кого дошёл pointerdown/up (GAMEOBJECT_POINTER_DOWN/UP объекта; кнопка,\nудалившая себя в pointerdown, в got на down есть, на up её нет)}; itd.click() сюда не попадает\n(мимо input-слоя). Открытое окно для клика другим вызовом инструмента:\nitd.trace.start() → {id} … клик … itd.trace.stop(id?) → тот же TraceResult\n(windowMs — длина окна; само закроется через maxMs, по умолчанию 120 с, cut: true).",
+      "doc": "Живая трассировка окна вокруг action (ITGAME-37): подписка ДО action,\nокно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь\nигрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().\nITGAME-45: sent — с id команды, states — снапшоты окна {rev, cause, re?}:\nответ на команду — state с re = её id. ITGAME-179: sent[].src — itd (ушла внутри\nвызова itd.*: cmd/click/key/pause/resume/speed/step) или ui (настоящий клик/клавиша,\nреакция UI); itd.trace.summary(id? | tr) — окно строками по времени, не закрывая.\nITGAME-88: pointer — настоящие\nmousedown/mouseup в окне: {type: down|up, button, x, y (мировые 1280×720),\nonCanvas, wins — метка победителя хит-теста Phaser в момент события, та же форма,\nчто got (safe id или тип без id; полная строка — stack[0]), stack — как itd.stack,\ngot — до кого дошёл pointerdown/up (GAMEOBJECT_POINTER_DOWN/UP объекта; кнопка,\nудалившая себя в pointerdown, в got на down есть, на up её нет; ITGAME-148: gone — на up: получившие этот\ndown и снятые до up (уничтожены, без input, скрыты, сцена не идёт) — «клик принят, цель ушла»; на down [])}; itd.click() сюда не попадает\n(мимо input-слоя). Открытое окно для клика другим вызовом инструмента:\nitd.trace.start() → {id} … клик … itd.trace.stop(id?) → тот же TraceResult\n(windowMs — длина окна; само закроется через maxMs, по умолчанию 120 с, cut: true).",
       "examples": [
         "itd.trace(() => itd.click('btn.pc'), 1000)",
         "itd.trace.start()",
@@ -232,8 +232,8 @@ export const CONTRACT = {
           "optional": true
         }
       ],
-      "returns": "ScreenMap",
-      "doc": "Карта экрана одним вызовом (ITGAME-72): {meta, n, items}. meta — sha, tab\n(sid), day, clock, t, bal, speed, phase, staff, pay, hudClock/hudBal (что\nнарисовано в HUD, рядом с серверными clock/bal), blocker, title (заголовок\nверхнего окна), stale (последний itd.stale()). items — строки 'safe|подпись|x|y|флаги' по видимым\nинтерактивам с id: подпись — тексты, целиком лежащие в рамке элемента (сосед,\nчей центр лёг на её кромку, — не подпись), x/y — центр в CSS px окна, с frame — в рамке снимка такой\nширины; флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), D —\nнеактивна (нет денег/мест). free — только без X, scene — одна сцена.",
+      "returns": "ScreenMap | (AgentResult & { code: 'bad_frame'; })",
+      "doc": "Карта экрана одним вызовом (ITGAME-72): {meta, n, items}. meta — sha, tab\n(sid), day, clock, t, bal, speed, phase, staff, pay, hudClock/hudBal (что\nнарисовано в HUD, рядом с серверными clock/bal), blocker, title (заголовок\nверхнего окна), stale (последний itd.stale()). items — строки 'safe|подпись|x|y|флаги' по видимым\nинтерактивам с id: подпись — тексты, целиком лежащие в рамке элемента (сосед,\nчей центр лёг на её кромку, — не подпись), x/y — центр в CSS px окна, с frame — в рамке снимка такой\nширины (frame — px, число ≥ 100; 1, 0, NaN, строка — {ok:false, code:'bad_frame'}, ITGAME-148); флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), D —\nнеактивна (нет денег/мест). free — только без X, scene — одна сцена.",
       "examples": [
         "itd.screen()",
         "itd.screen({ free: true, frame: 1280 })"
@@ -2693,6 +2693,11 @@ export const CONTRACT = {
     "ScreenMap": {
       "kind": "object",
       "fields": {
+        "ok": {
+          "type": "true",
+          "optional": false,
+          "doc": "ITGAME-148: карта; отказ — {ok:false, code:'bad_frame'} (привычное агенту if (!r.ok) карту отказом не считает)"
+        },
         "meta": {
           "type": "ScreenMeta",
           "optional": false,
@@ -2796,7 +2801,7 @@ export const CONTRACT = {
         "frame": {
           "type": "number",
           "optional": true,
-          "doc": "ширина рамки снимка инструмента, px: x/y сразу в ней (по умолчанию — CSS px окна)"
+          "doc": "ширина рамки снимка инструмента, px, число ≥ 100 (иначе отказ bad_frame, ITGAME-148): x/y сразу в ней (по умолчанию — CSS px окна)"
         },
         "free": {
           "type": "boolean",
@@ -3459,7 +3464,12 @@ export const CONTRACT = {
         "got": {
           "type": "string[]",
           "optional": false,
-          "doc": "до кого Phaser реально довёл pointerdown/up в этом событии (GAMEOBJECT_POINTER_DOWN/UP объекта): safe id или тип без id; [] — до объектов не дошло. Кнопка, удалившая себя в pointerdown, в got на down есть, на up её нет"
+          "doc": "до кого Phaser реально довёл pointerdown/up в этом событии (GAMEOBJECT_POINTER_DOWN/UP объекта): safe id или тип без id; [] — до объектов не дошло. Кнопка, удалившая себя в pointerdown, в got на down есть, на up её нет — она в gone"
+        },
+        "gone": {
+          "type": "string[]",
+          "optional": false,
+          "doc": "ITGAME-148: на up — получившие down этого нажатия и снятые до up (уничтожены, без input или input выключен, скрыты сами или контейнером, сцена не идёт): «клик принят, цель ушла»; на down — []; утащенный из-под указателя — не gone"
         }
       }
     },
@@ -3539,7 +3549,7 @@ export const CONTRACT = {
         "pointer": {
           "type": "TracePointer[]",
           "optional": false,
-          "doc": "ITGAME-88: настоящие нажатия указателя в окне (mousedown/mouseup): мировые x/y,\nwins — метка победителя (как got), stack — хит-тест Phaser в момент события, got — до кого дошёл\npointerdown/up (GAMEOBJECT_POINTER_DOWN/UP самих объектов, ITGAME-112:\nсценовый gameobjectdown терял объект, удаливший себя в обработчике).\nitd.click() сюда не попадает: он мимо input-слоя.\nПусто при «команда не ушла» — клик до страницы не дошёл; есть запись с\ngot [] — дошёл до хит-теста, цели нет; got с целью — до неё дошёл\npointerdown/up, обработчик сам решил не слать (или закрыл своё окно: такой\nобъект в got на down есть, а на up его уже нет — удалённый до отпускания\nне попадает в хит-тест Phaser)."
+          "doc": "ITGAME-88: настоящие нажатия указателя в окне (mousedown/mouseup): мировые x/y,\nwins — метка победителя (как got), stack — хит-тест Phaser в момент события, got — до кого дошёл\npointerdown/up (GAMEOBJECT_POINTER_DOWN/UP самих объектов, ITGAME-112:\nсценовый gameobjectdown терял объект, удаливший себя в обработчике).\nitd.click() сюда не попадает: он мимо input-слоя.\nПусто при «команда не ушла» — клик до страницы не дошёл; есть запись с\ngot [] — дошёл до хит-теста, цели нет; got с целью — до неё дошёл\npointerdown/up, обработчик сам решил не слать (или закрыл своё окно: такой\nобъект в got на down есть, а на up его уже нет — удалённый до отпускания\nне попадает в хит-тест Phaser).\nITGAME-148: на up — gone: получившие down и снятые до up; пустой up с gone [цель] — клик\nпринят, цель ушла (menu.diff.*, «Сохранить и выйти», btn.next_day, ✕), не «не дошёл»."
         },
         "id": {
           "type": "number",
@@ -3662,7 +3672,7 @@ export const CONTRACT = {
         "lines": {
           "type": "string[]",
           "optional": false,
-          "doc": "По строке на запись окна по возрастанию t (при равном t: ptr, key, sent, recv,\nstate, trans, toast, sound); [] при no_trace.\n't<мс> ptr down|up [b<кнопка>] x,y canvas|page wins <метка>|- got [..]',\n't<мс> key <KEY> dom|itd [repeat] handled [сцены]|unhandled [acted [сцена:действие ..]]',\n't<мс> sent <type> [o<office>] [k=v ..] [id<id>] itd|ui',\n't<мс> recv <type> [<code>] [re<id>] [rev<N>] [k=v ..]', 't<мс> state rev<N> <cause> [re<id>]',\n't<мс> trans <kind> <from>→<to>' (null — '-'), 't<мс> toast \"<текст>\"', 't<мс> sound <name> ok|fail'."
+          "doc": "По строке на запись окна по возрастанию t (при равном t: ptr, key, sent, recv,\nstate, trans, toast, sound); [] при no_trace.\n't<мс> ptr down|up [b<кнопка>] x,y canvas|page wins <метка>|- got [..] [gone [..]]',\n't<мс> key <KEY> dom|itd [repeat] handled [сцены]|unhandled [acted [сцена:действие ..]]',\n't<мс> sent <type> [o<office>] [k=v ..] [id<id>] itd|ui',\n't<мс> recv <type> [<code>] [re<id>] [rev<N>] [k=v ..]', 't<мс> state rev<N> <cause> [re<id>]',\n't<мс> trans <kind> <from>→<to>' (null — '-'), 't<мс> toast \"<текст>\"', 't<мс> sound <name> ok|fail'."
         }
       }
     },

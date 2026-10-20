@@ -13,6 +13,7 @@
 //   S1  itd.screen() на отчёте дня (ITGAME-72): meta.title — заголовок отчёта, blocker hud@50,
 //       hudClock/hudBal — нарисованное; blocker() отдаёт safe и title
 //   S2  btn:next_day — без X, точка = центр в CSS px; btn:menu под затемнением — X; free и frame
+//   S2c (ITGAME-148) screen({frame}) не число ≥ 100 → {ok:false, code:'bad_frame'}; frame 100 — карта; ok:true у карты
 //   S3  $100 — у btn:pc флаг D в screen() и disabled true в nodes() (ITGAME-72)
 //   S4  (ITGAME-113) подпись в screen() — тексты целиком в рамке кнопки: карточка события под окном
 //       «Выйти в меню?» — ✕ окна центром на верхней кромке btn.event.1 (по старому правилу приклеивался:
@@ -654,6 +655,7 @@ async function run() {
       return {
         sc, len: JSON.stringify(sc).length, day: window.itd.state().day, blocker: window.itd.blocker(),
         free: window.itd.screen({ free: true }), half: window.itd.screen({ frame: innerWidth / 2 }),
+        bad: [1, 0, -5, 99, Number.NaN, '1280'].map((f) => window.itd.screen({ frame: f })), f100: window.itd.screen({ frame: 100 }),
         next: window.itd.nodes().find((n) => n.id === 'btn.next_day'),
         pcHit: window.itd.hit('btn.pc').ok,
         rect: (() => { const r = document.querySelector('canvas').getBoundingClientRect(); return { left: r.left, top: r.top, k: r.width / 1280 } })(),
@@ -681,6 +683,12 @@ async function run() {
         s1.free.items.length > 0 && s1.free.items.every((i) => !i.split('|')[4].includes('X')) && !row(s1.free, 'btn:menu') &&
         !!halfNext && Math.abs(Number(halfNext[2]) - expX / 2) <= 1 && Math.abs(Number(halfNext[3]) - expY / 2) <= 1,
       JSON.stringify({ nextRow, menuRow, halfNext, expX, expY, free: s1.free.n, len: s1.len, n: s1.sc.n }),
+    )
+    check(
+      'S2c: screen({frame}) не число ≥ 100 → {ok:false, code:bad_frame, error про frame}, без items; frame 100 и innerWidth/2 — карта ok:true (ITGAME-148)',
+      s1.bad.every((b) => b.ok === false && b.code === 'bad_frame' && typeof b.error === 'string' && b.error.includes('frame') && !('items' in b)) &&
+        s1.f100.ok === true && s1.f100.n > 0 && s1.sc.ok === true && s1.half.ok === true,
+      JSON.stringify({ bad: s1.bad, f100: { ok: s1.f100.ok, n: s1.f100.n } }),
     )
     const pcRow = row(s1.sc, 'btn:pc')
     check(

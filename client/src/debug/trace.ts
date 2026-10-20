@@ -52,7 +52,8 @@ export interface TracePointer {
   onCanvas: boolean // событие пришло в канвас; false — мимо холста (#topbar, поля страницы)
   wins: string | null // ITGAME-179: метка победителя хит-теста Phaser в момент события — та же форма, что got (safe id или тип без id); полная строка — stack[0]; null — ни одна hitArea не накрывает точку
   stack: string[] // все interactive под точкой сверху вниз, как itd.stack().stack
-  got: string[] // до кого Phaser реально довёл pointerdown/up в этом событии (GAMEOBJECT_POINTER_DOWN/UP объекта): safe id или тип без id; [] — до объектов не дошло. Кнопка, удалившая себя в pointerdown, в got на down есть, на up её нет
+  got: string[] // до кого Phaser реально довёл pointerdown/up в этом событии (GAMEOBJECT_POINTER_DOWN/UP объекта): safe id или тип без id; [] — до объектов не дошло. Кнопка, удалившая себя в pointerdown, в got на down есть, на up её нет — она в gone
+  gone: string[] // ITGAME-148: на up — получившие down этого нажатия и снятые до up (уничтожены, без input или input выключен, скрыты сами или контейнером, сцена не идёт): «клик принят, цель ушла»; на down — []; утащенный из-под указателя — не gone
 }
 
 export interface TraceResult {
@@ -87,6 +88,8 @@ export interface TraceResult {
    * pointerdown/up, обработчик сам решил не слать (или закрыл своё окно: такой
    * объект в got на down есть, а на up его уже нет — удалённый до отпускания
    * не попадает в хит-тест Phaser).
+   * ITGAME-148: на up — gone: получившие down и снятые до up; пустой up с gone [цель] — клик
+   * принят, цель ушла (menu.diff.*, «Сохранить и выйти», btn.next_day, ✕), не «не дошёл».
    */
   pointer: TracePointer[]
   id?: number // ITGAME-88: открытое окно itd.trace.start() — его id
@@ -179,6 +182,22 @@ interface OpenTrace {
   r: TraceResult
   rel: () => number
   close: () => void
+}
+
+// ITGAME-148: объект, получивший down, к up больше не цель ввода Phaser — условия
+// InputManager.inputCandidate (Phaser 3.90) плюс уничтожение и сцена: destroy() обнуляет
+// scene/input; removeInteractive/disableInteractive — input; скрыт сам или контейнером
+// (setVisible(false), alpha 0 — willRender: так меню прячет menu.diff.* под «Начать заново?»);
+// сцена остановлена/усыплена/на паузе — не isActive(). Утащенный из-под указателя живой
+// объект — не gone.
+function goneObj(obj: Phaser.GameObjects.GameObject): boolean {
+  if (!obj.scene || !obj.input || !obj.input.enabled) return true
+  if (!obj.scene.sys.isActive()) return true
+  const cam = obj.scene.cameras?.main
+  if (!cam) return false
+  if (!obj.willRender(cam)) return true
+  for (let p = obj.parentContainer; p; p = p.parentContainer) if (!p.willRender(cam)) return true
+  return false
 }
 
 // Метка объекта для got/wins: safe id (точки → «:») или тип без id (ITGAME-179).
@@ -298,6 +317,7 @@ function openTrace(game: Phaser.Game, probe: PointerProbe, windowMs: number): Op
   // GAMEOBJECT_DOWN/UP Phaser шлёт, только если у объекта после его события ещё
   // есть input (InputPlugin.processDownEvents), так что объект, удаливший себя
   // в pointerdown (✕ модалки, «Продолжить»), оставался бы в got [].
+  let downGot: { obj: Phaser.GameObjects.GameObject; label: string }[] = [] // ITGAME-148: получившие последний down
   let pending: (() => void)[] = []
   const flush = () => { const fs = pending; pending = []; fs.forEach((f) => f()) }
   const onMouse = (ev: MouseEvent) => {
@@ -314,14 +334,21 @@ function openTrace(game: Phaser.Game, probe: PointerProbe, windowMs: number): Op
       x: Math.round(hit.x * 10) / 10, y: Math.round(hit.y * 10) / 10,
       onCanvas: ev.target === game.canvas,
       // ITGAME-179: метка победителя той же формы, что got (stackTarget: safe = id с «:», type)
-      wins: hit.wins ? (hit.wins.safe ?? hit.wins.type) : null, stack: hit.stack, got: [],
+      wins: hit.wins ? (hit.wins.safe ?? hit.wins.type) : null, stack: hit.stack, got: [], gone: [],
     }
     r.pointer.push(rec)
+    if (!down) {
+      // ITGAME-148: момент up до Phaser (capture) — тот же, что у хит-теста wins/stack
+      rec.gone = downGot.filter((d) => goneObj(d.obj)).map((d) => d.label)
+      downGot = []
+    }
+    if (down) downGot = []
+    const mine: typeof downGot | null = down ? downGot : null
     const evName = down ? Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN : Phaser.Input.Events.GAMEOBJECT_POINTER_UP
     for (const obj of hit.objs) {
       // имя читаем сейчас: после destroy() в обработчике getData/type уже пусты
       const label = labelOf(obj)
-      const on = () => { rec.got.push(label) }
+      const on = () => { rec.got.push(label); mine?.push({ obj, label }) }
       obj.on(evName, on)
       pending.push(() => obj.off(evName, on))
     }
@@ -335,6 +362,7 @@ function openTrace(game: Phaser.Game, probe: PointerProbe, windowMs: number): Op
     window.removeEventListener('mousedown', onMouse, true)
     window.removeEventListener('mouseup', onMouse, true)
     flush()
+    downGot = []
   })
   let closed = false
   return {
@@ -445,7 +473,7 @@ export interface TraceSummary {
   /**
    * По строке на запись окна по возрастанию t (при равном t: ptr, key, sent, recv,
    * state, trans, toast, sound); [] при no_trace.
-   * 't<мс> ptr down|up [b<кнопка>] x,y canvas|page wins <метка>|- got [..]',
+   * 't<мс> ptr down|up [b<кнопка>] x,y canvas|page wins <метка>|- got [..] [gone [..]]',
    * 't<мс> key <KEY> dom|itd [repeat] handled [сцены]|unhandled [acted [сцена:действие ..]]',
    * 't<мс> sent <type> [o<office>] [k=v ..] [id<id>] itd|ui',
    * 't<мс> recv <type> [<code>] [re<id>] [rev<N>] [k=v ..]', 't<мс> state rev<N> <cause> [re<id>]',
@@ -462,7 +490,7 @@ export function summarizeTrace(r: TraceResult): string[] {
   const add = (k: number, t: number, parts: string[]) => out.push({ t, k, line: `t${Math.round(t)} ${parts.join(' ')}` })
   for (const p of r.pointer ?? []) {
     add(0, p.t, ['ptr', p.type, ...(p.button ? [`b${p.button}`] : []), `${Math.round(p.x)},${Math.round(p.y)}`,
-      p.onCanvas ? 'canvas' : 'page', 'wins', p.wins ?? '-', `got [${p.got.join(' ')}]`])
+      p.onCanvas ? 'canvas' : 'page', 'wins', p.wins ?? '-', `got [${p.got.join(' ')}]`, ...(p.gone?.length ? [`gone [${p.gone.join(' ')}]`] : [])])
   }
   for (const e of r.keys ?? []) {
     add(1, e.t, ['key', e.key, e.source, ...(e.repeat ? ['repeat'] : []),

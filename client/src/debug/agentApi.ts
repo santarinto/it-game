@@ -599,7 +599,7 @@ export interface HitTarget {
 
 // itd.screen() (ITGAME-72): карта экрана одним вызовом.
 export interface ScreenOptions {
-  frame?: number // ширина рамки снимка инструмента, px: x/y сразу в ней (по умолчанию — CSS px окна)
+  frame?: number // ширина рамки снимка инструмента, px, число ≥ 100 (иначе отказ bad_frame, ITGAME-148): x/y сразу в ней (по умолчанию — CSS px окна)
   free?: boolean // только элементы, которые примут настоящий клик (без флага X)
   scene?: string // только эта сцена (hud, office, serverRoom, adminDept, menu)
 }
@@ -623,6 +623,7 @@ export interface ScreenMeta {
 }
 
 export interface ScreenMap {
+  ok: true // ITGAME-148: карта; отказ — {ok:false, code:'bad_frame'} (привычное агенту if (!r.ok) карту отказом не считает)
   meta: ScreenMeta
   n: number
   // 'safe|подпись|x|y|флаги': подпись — тексты, целиком лежащие внутри bounds (≤22 символа, «-» у
@@ -856,7 +857,8 @@ export interface ItdApi {
    * onCanvas, wins — метка победителя хит-теста Phaser в момент события, та же форма,
    * что got (safe id или тип без id; полная строка — stack[0]), stack — как itd.stack,
    * got — до кого дошёл pointerdown/up (GAMEOBJECT_POINTER_DOWN/UP объекта; кнопка,
-   * удалившая себя в pointerdown, в got на down есть, на up её нет)}; itd.click() сюда не попадает
+   * удалившая себя в pointerdown, в got на down есть, на up её нет; ITGAME-148: gone — на up: получившие этот
+   * down и снятые до up (уничтожены, без input, скрыты, сцена не идёт) — «клик принят, цель ушла»; на down [])}; itd.click() сюда не попадает
    * (мимо input-слоя). Открытое окно для клика другим вызовом инструмента:
    * itd.trace.start() → {id} … клик … itd.trace.stop(id?) → тот же TraceResult
    * (windowMs — длина окна; само закроется через maxMs, по умолчанию 120 с, cut: true).
@@ -931,12 +933,12 @@ export interface ItdApi {
    * верхнего окна), stale (последний itd.stale()). items — строки 'safe|подпись|x|y|флаги' по видимым
    * интерактивам с id: подпись — тексты, целиком лежащие в рамке элемента (сосед,
    * чей центр лёг на её кромку, — не подпись), x/y — центр в CSS px окна, с frame — в рамке снимка такой
-   * ширины; флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), D —
+   * ширины (frame — px, число ≥ 100; 1, 0, NaN, строка — {ok:false, code:'bad_frame'}, ITGAME-148); флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), D —
    * неактивна (нет денег/мест). free — только без X, scene — одна сцена.
    * @example itd.screen()
    * @example itd.screen({ free: true, frame: 1280 })
    */
-  screen(opts?: ScreenOptions): ScreenMap
+  screen(opts?: ScreenOptions): ScreenMap | (AgentResult & { code: 'bad_frame' })
   /**
    * Вкладка на старом JS? (ITGAME-78) Свежая проверка: {client, server, dist,
    * stale, at}. client — sha этой вкладки, dist — sha сборки, которую стенд
@@ -1641,7 +1643,7 @@ function buildScreen(game: Phaser.Game, opts: ScreenOptions = {}): ScreenMap {
     const flags = (n.active === true ? 'A' : '') + (ok ? '' : 'X') + (n.disabled === true ? 'D' : '')
     items.push([n.safe, label || '-', x, y, flags].join('|'))
   }
-  return { meta, n: items.length, items }
+  return { ok: true, meta, n: items.length, items }
 }
 
 // ── stack()/zones() (ITGAME-74): настоящий хит-тест Phaser ──────────────────
@@ -1923,17 +1925,17 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.cmd('hire')                   — команда с квитанцией сервера ('abandon' — путём кнопки «Сдаться»: сейв удалён, вкладка в меню): Promise<{ok, code?, id, rev}> — ответ на ЭТУ команду по id (state|error с re = id; тики и чужие команды не в счёт), rev — версия снапшота-ответа; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
                                        Вирус (ITGAME-103): itd.cmd('virus_click', 0, {slot: 0}) — клик чистки заражённого места (3 на чистку, k в employees[i].virusClicks), здоровое — not_infected; на сломанном заражённом ЛКМ по месту сначала чинит (repair_click); подписка — itd.cmd('set_antivirus', 0, {slot: 1..3}) (0 — отключить), bad_tier, antivirus_already, повышение без денег — not_enough_money; кнопка btn.antivirus в серверной → окно с modal.av.1..3 / modal.av.off
                                        Админ (ITGAME-101): itd.cmd('buy_admin_dept') — отдел админов (admin_dept_already), без него hire_admin — admin_dept_locked; itd.cmd('hire_admin', 0) / itd.cmd('fire_admin', 0) — найм и увольнение админа офиса (admin_already, no_admin, not_enough_money); state.offices[i].admin, adminSlot/adminKind — его следующая цель (-1/'' — свободен), adminFirePrice; 2 клика в тик сами, сначала заражённые места, потом сломанное. Комната — вкладка nav.adminDept («АДМ», ITGAME-145): закрыта — dept.buy «Купить отдел», открыта — места dept.admin.0..2 (наведение — тултип, ПКМ — «Уволить админа?»), строки dept.name.N / dept.status.N («чинит место 5» / «чистит место 3» / «свободен»), найм — кнопки колонки btn.admin.0..2; в офисе у админа кнопки и слота нет, тултип места — «чинит админ» / «чистит админ»; фикстура admin_dept
-  itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, id, src, …}] по порядку (src: itd — ушла синхронно внутри itd.* — cmd/click/key/pause/resume/speed/step; ui — настоящий клик/клавиша или реакция UI), recv[error/day_report…] (у error info.re/rev), states[{rev, cause, re?}] — снапшоты окна, transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}], pointer[{type: down|up, button, x, y — мировые, onCanvas, wins — метка победителя хит-теста Phaser в момент события, та же форма, что got (safe id или тип без id; полная строка — stack[0]), stack — как itd.stack, got — до кого дошёл pointerdown/up объекта, в т.ч. удалившегося в обработчике (✕ модалки) — на up его уже нет; [] — до объектов не дошло}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой); itd.click() в pointer не попадает (мимо input-слоя)
+  itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, id, src, …}] по порядку (src: itd — ушла синхронно внутри itd.* — cmd/click/key/pause/resume/speed/step; ui — настоящий клик/клавиша или реакция UI), recv[error/day_report…] (у error info.re/rev), states[{rev, cause, re?}] — снапшоты окна, transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}], pointer[{type: down|up, button, x, y — мировые, onCanvas, wins — метка победителя хит-теста Phaser в момент события, та же форма, что got (safe id или тип без id; полная строка — stack[0]), stack — как itd.stack, got — до кого дошёл pointerdown/up объекта, в т.ч. удалившегося в обработчике (✕ модалки) — на up его уже нет; [] — до объектов не дошло, gone — на up: получившие этот down и снятые до up (уничтожены, без input, скрыты, сцена не идёт) — «клик принят, цель ушла»; на down []}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой); itd.click() в pointer не попадает (мимо input-слоя)
   itd.trace.start({maxMs?})          — открытое окно (ITGAME-88): подписки сразу → {ok, id, t0, maxMs, open}; настоящий клик/клавиша — другим вызовом инструмента; само закроется через maxMs (по умолчанию 120000, до 600000; cut: true); коды bad_max, too_many (больше 8 окон)
   itd.trace.stop(id?)               — закрыть окно (без id — последнее) → тот же TraceResult, что у itd.trace() (+ id, windowMs = длина окна); нет окна — {ok:false, code:'no_trace'}. Пример: const {id} = itd.trace.start(); …клик…; const tr = itd.trace.stop(id); tr.pointer[0].wins — 'btn:pc', tr.sent[0].src, itd.trace.summary(tr).lines
-  itd.trace.summary(id? | tr)       — окно строками по времени (ITGAME-179), не закрывая: id / без id — открытое (или cut) окно, tr — любой TraceResult → {ok, id?, cut?, error?, lines}; строки «t812 ptr down 640,360 canvas wins btn:pc got [btn:pc]», «t815 sent buy_pc o0 id7 ui», «t930 recv error not_enough_money re8 rev12», «t841 state rev12 cmd re7», «t50 key ENTER dom handled [hud] acted [hud:next_day]», «t990 trans speed 0→1», «t931 toast "Не хватает денег"», «t842 sound select ok»; при равном t — ptr, key, sent, recv, state, trans, toast, sound; нет окна — {ok:false, code:'no_trace', lines: []}
+  itd.trace.summary(id? | tr)       — окно строками по времени (ITGAME-179), не закрывая: id / без id — открытое (или cut) окно, tr — любой TraceResult → {ok, id?, cut?, error?, lines}; строки «t812 ptr down 640,360 canvas wins btn:pc got [btn:pc]», «t815 sent buy_pc o0 id7 ui», «t930 recv error not_enough_money re8 rev12», «t841 state rev12 cmd re7», «t50 key ENTER dom handled [hud] acted [hud:next_day]», «t813 ptr up 640,360 canvas wins - got [] gone [modal:close]», «t990 trans speed 0→1», «t931 toast "Не хватает денег"», «t842 sound select ok»; при равном t — ptr, key, sent, recv, state, trans, toast, sound; нет окна — {ok:false, code:'no_trace', lines: []}
   itd.warm()                        — прогреть кадр вручную (шаги лупа); в скрытой вкладке itd делает это сам
   itd.wait(s => s.day === 2)        — промис: поллинг state()/server() до условия (таймаут 5с, второй аргумент — свой); готовность меню — wait(s => s.menuReady), до старта партии state() null, но menuReady уже честен
   itd.overlaps({minAreaRatio}?)     — линтер вёрстки: kind: text — тексты одного depth (в т.ч. внутри контейнеров, depth ребёнка = depth верхнего контейнера); occlusion — текст под непрозрачной плашкой (плашка тоже может быть внутри контейнера); interactive — интерактив частично перекрыт интерактивом или текстом (вложенность целиком — не находка); пара {scene, kind, a, b, overlap{w,h}, at{x,y}, ratio, threshold}: ratio — площадь пересечения / площадь меньшего из пары (occlusion — / площадь текста), threshold — порог сравнения; minAreaRatio 0..1 заменяет пороги по умолчанию (text/interactive 0, occlusion 0.25 + >50% по каждой оси; заданный minAreaRatio заменяет и правило по осям — для occlusion находок может стать больше): 0 — строгий режим, 0.3 — порог по площади для всех kind; затемнение модалки (markDim: отчёт дня, финал, «Пока вас не было», окна, обрыв связи) — не перекрывающий при любой альфе: что оно закрывает от клика — itd.hit()/stack(); пара через затемнение (один объект под ним, другой — модалка над ним) — тоже не находка (ITGAME-141)
   itd.offscreen()                   — линтер: вылезание за канвас 1280×720; + {scene:'page', type:'canvas'} — канвас не влез в окно (CSS px)
   itd.hit('btn.menu')               — попадёт ли НАСТОЯЩИЙ клик в центр объекта в него (хит-тест Phaser, как stack): {ok, at{x,y}, top{scene,id,safe,type,depth,title}} — top перехватит (затемнение отчёта поверх HUD); itd.click этого не видит
   itd.blocker()                     — что перекрывает ввод во весь холст (затемнение отчёта, модалка) или null: {scene, type, id, safe, depth, title — заголовок окна}
-  itd.screen({frame?, free?, scene?}) — карта экрана: {meta:{sha, tab, day, clock, t, bal, speed, phase, staff, pay, hudClock, hudBal, blocker, title, stale}, n, items:['safe|подпись|x|y|флаги']}; подпись — тексты целиком в рамке элемента; x/y — центр в CSS px окна (frame — в рамке снимка такой ширины); флаги A выбрана, X перекрыта, D неактивна; free — только без X
+  itd.screen({frame?, free?, scene?}) — карта экрана: {ok: true, meta:{sha, tab, day, clock, t, bal, speed, phase, staff, pay, hudClock, hudBal, blocker, title, stale}, n, items:['safe|подпись|x|y|флаги']}; подпись — тексты целиком в рамке элемента; x/y — центр в CSS px окна (frame — в рамке снимка такой ширины, px, число ≥ 100, иначе {ok:false, code:'bad_frame'}); флаги A выбрана, X перекрыта, D неактивна; free — только без X
   itd.stack('office:slot:0')      — стек под центром объекта (или itd.stack(gx, gy)) по НАСТОЯЩЕМУ хит-тесту Phaser (hitArea, renderList, topOnly): {ok, at{x,y}, stack['safe scene dN Type WxH'], wins{scene,id,safe,type,depth,title}} — wins получит pointerdown; '!' — сцена под забравшей клик; объект, добавленный в этом кадре, виден со следующего кадра (и настоящий клик в тот же момент его не видит)
   itd.zones('office:slot:0', 'office:master:0') — где зона A перекрыта B и наоборот (сетка 1 px, тот же хит-тест): {aUnderB[{x,y,w,h}], bUnderA[…], area{a, aUnderB, b, bUnderA}}
   itd.offline()                     — последний офлайн-догон страницы {ticks, days, shown, at, droppedAt, leftAt, liveTicks, open, paused, seq, awayId} — liveTicks: шло вживую, пока сервер не заметил уход: shown:false — догон внутри дня, окна «Пока вас не было» не было; пока окно открыто, партия на паузе; ПОСЛЕДНИЙ, не «текущий»: seq — номер догона на странице, awayId — itd.away, во время которого пришёл (null — F5/реконнект); сверять по ключу, не по at
@@ -2206,6 +2208,11 @@ function makeApi(game: Phaser.Game): ItdApi {
       return blockerOf(game)
     },
     screen(opts) {
+      // ITGAME-148: рамка — ширина снимка в px; frame: 1 молча давал координаты для кадра шириной 1
+      const fr = opts?.frame
+      if (fr != null && !(typeof fr === 'number' && Number.isFinite(fr) && fr >= 100)) {
+        return { ok: false, code: 'bad_frame', error: `itd.screen: frame — ширина рамки снимка, px, число ≥ 100 (получено ${String(fr)})` }
+      }
       warmIfHidden()
       return buildScreen(game, opts)
     },

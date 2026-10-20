@@ -49,7 +49,9 @@
 //      got ['btn:pc'], sent buy_pc с src ui; клик по #build (#topbar) — onCanvas false, wins null, got []
 //  14b (ITGAME-112) got у кнопки, удалившей себя в pointerdown: настоящий клик по ✕ «Выйти в меню?» —
 //      got на down [modal:close], на up его нет; тестовые прямоугольники в hud: удаляющий себя в
-//      pointerdown — got [probe:gone] на down и [] на up, второй — [probe:keep] на down и up
+//      pointerdown — got [probe:gone] на down и [] на up, второй — [probe:keep] на down и up;
+//      на up — gone: ✕ [modal:close], probe.gone [probe:gone], probe.hide (прячет себя)
+//      [probe:hide], probe.keep и btn:menu [] (ITGAME-148)
 //  15  (ITGAME-88) окно: stop() без окна — no_trace; start({maxMs:300}) само закрылось —
 //      cut, windowMs ≈ 300; bad_max; два окна — stop() закрывает последнее, stop(id) первое;
 //      itd.click() внутри окна — sent есть, pointer пуст (мимо input-слоя);
@@ -570,30 +572,35 @@ async function run() {
     const probe14b = await page.evaluate(async () => {
       const game = window.__itd
       const sc = game.scene.getScene('hud')
-      const free = [[24, 700], [640, 700], [1256, 700], [24, 400], [640, 400], [1000, 400]].filter(([px, py]) => window.itd.stack(px, py).stack.length === 0)
-      if (free.length < 2) return null
-      const mk = (pt, id, selfRemove) => {
+      const free = [[24, 700], [640, 700], [1256, 700], [24, 400], [640, 400], [1000, 400], [320, 700], [960, 700], [1256, 400]].filter(([px, py]) => window.itd.stack(px, py).stack.length === 0)
+      if (free.length < 3) return null
+      const mk = (pt, id, mode) => {
         const r = sc.add.rectangle(pt[0], pt[1], 40, 30, 0xff00ff).setDepth(999).setInteractive()
         r.setData('id', id)
-        if (selfRemove) r.on('pointerdown', () => r.destroy())
+        if (mode === 'gone') r.on('pointerdown', () => r.destroy())
+        if (mode === 'hide') r.on('pointerdown', () => r.setVisible(false))
         return r
       }
-      window.__qaP14 = [mk(free[0], 'probe.gone', true), mk(free[1], 'probe.keep', false)]
+      window.__qaP14 = [mk(free[0], 'probe.gone', 'gone'), mk(free[1], 'probe.keep', 'keep'), mk(free[2], 'probe.hide', 'hide')]
       await new Promise((r) => requestAnimationFrame(r)) // объект виден хит-тесту со следующего кадра
       const c = game.canvas.getBoundingClientRect()
       const k = c.width / 1280
-      return free.slice(0, 2).map(([px, py]) => ({ x: c.left + px * k, y: c.top + py * k }))
+      return free.slice(0, 3).map(([px, py]) => ({ x: c.left + px * k, y: c.top + py * k }))
     })
     if (probe14b) {
       await page.mouse.click(probe14b[0].x, probe14b[0].y)
       await page.mouse.click(probe14b[1].x, probe14b[1].y)
+      await page.mouse.click(probe14b[2].x, probe14b[2].y)
     }
-    const t14b = await page.evaluate((id) => {
+    const t14bRes = await page.evaluate((id) => {
       const tr = window.itd.trace.stop(id)
+      const sum = window.itd.trace.summary(tr).lines
       for (const r of window.__qaP14 ?? []) r.destroy()
       delete window.__qaP14
-      return tr
+      return { tr, sum }
     }, st14b.id)
+    const { tr: t14b, sum: sum14b } = t14bRes
+    const upAfter = (d) => (d ? t14b.pointer[t14b.pointer.indexOf(d) + 1] : undefined)
     const ptr14b = (type, win) => t14b.pointer.find((p) => p.type === type && p.wins === win)
     check(
       '14b: настоящий клик по ✕ «Выйти в меню?» (modal.close закрывает окно в pointerdown) — got на down содержит modal:close, окно закрылось',
@@ -615,6 +622,25 @@ async function run() {
         JSON.stringify(ptr14b('down', 'probe:keep')?.got) === '["probe:keep"]' &&
         JSON.stringify(ptr14b('up', 'probe:keep')?.got) === '["probe:keep"]',
       JSON.stringify(t14b.pointer.map((p) => ({ type: p.type, x: p.x, wins: p.wins, got: p.got }))),
+    )
+
+    const dX = ptr14b('down', 'modal:close'), dG = ptr14b('down', 'probe:gone')
+    const dH = ptr14b('down', 'probe:hide'), dK = ptr14b('down', 'probe:keep'), dM = ptr14b('down', 'btn:menu')
+    check(
+      '14b: gone на up (ITGAME-148) — ✕ [modal:close], probe.gone [probe:gone], probe.hide [probe:hide]; probe.keep и btn:menu []; у down gone []',
+      !!dX && !!dG && !!dH && !!dK && !!dM &&
+        JSON.stringify(upAfter(dX)?.gone) === '["modal:close"]' &&
+        JSON.stringify(upAfter(dG)?.gone) === '["probe:gone"]' && JSON.stringify(upAfter(dG)?.got) === '[]' &&
+        JSON.stringify(upAfter(dH)?.gone) === '["probe:hide"]' && JSON.stringify(upAfter(dH)?.got) === '[]' &&
+        JSON.stringify(upAfter(dK)?.gone) === '[]' && JSON.stringify(upAfter(dM)?.gone) === '[]' &&
+        t14b.pointer.filter((p) => p.type === 'down').every((p) => Array.isArray(p.gone) && p.gone.length === 0),
+      JSON.stringify(t14b.pointer.map((p) => ({ type: p.type, wins: p.wins, got: p.got, gone: p.gone }))),
+    )
+    check(
+      '14b: summary печатает gone на up — «… got [] gone [probe:gone]», «… gone [modal:close]»',
+      sum14b.some((l) => /^t\d+ ptr up \d+,\d+ canvas wins - got \[\] gone \[probe:gone\]$/.test(l)) &&
+        sum14b.some((l) => /^t\d+ ptr up -?\d+,-?\d+ canvas wins \S+ got \[[^\]]*\] gone \[modal:close\]$/.test(l)),
+      JSON.stringify(sum14b.filter((l) => l.includes(' ptr '))),
     )
 
     // ── 15 (ITGAME-88): семантика открытого окна
