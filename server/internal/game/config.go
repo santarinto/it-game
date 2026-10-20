@@ -234,7 +234,7 @@ func DefaultConfig() Config {
 		PCPriceGrowth: 1.15,
 
 		PCLevels:    []PCLevel{{Name: "ЭЛТ", Mult: 1.0, Price: 0}, {Name: "ЖК", Mult: 1.1, Price: 350}, {Name: "2×ЖК", Mult: 1.2, Price: 600}},
-		PCWearLimit: 3,
+		PCWearLimit: 8,
 
 		VirusWeightK:      1,
 		DeadlineGoalShare: 0.7,

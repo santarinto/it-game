@@ -927,11 +927,11 @@ on normal one evening in overdraft and bankruptcy the next, most often on day 3;
 on hard credit carries it to day 10–15) — the price of being away;
 `delegate` clicks an office until it has an admin and hires one into every
 office that grows to 4 as soon as the money allows (the department first) — the
-price of delegating: normal greedy median $135,061, handsoff $38,218 (0
-bankrupt: 19 parties dip into overdraft for one evening, −$5…−$83, and climb
-out — before the ITGAME-156 overdraft they were 19 bankruptcies and $37,680),
-delegate $125,018; hard $35,994 / $1,196 / $27,794 (median money on the last
-row of each party).
+price of delegating: normal greedy median $156,385, handsoff $36,917, delegate
+$144,342 (3 bankrupt of 300 each — parties where a PC died while in debt);
+hard $29,190 / $1,186 / $18,862 (median money on the last row of each party;
+re-measured with ITGAME-135 workplaces, 20.10 — before them normal $135,061 /
+$38,218 / $125,018 and hard $35,994 / $1,196 / $27,794).
 
 The department room (ITGAME-145, `AdminDeptScene`, scene key `adminDept`): the
 fifth nav tab «АДМ» (`nav.adminDept`) under «СРВ» — while not bought a lock
@@ -1602,8 +1602,12 @@ the `events` column instead of their count, `--audit-share <f>` overrides
 the audit fine share (`AuditFineShare`; `-1` keeps the config value) and
 `--audit-stats` prints one extra stderr line with the bankruptcies on a
 failed-audit day versus all bankruptcies and failed audits. Reference
-(300 seeds × 30 days, greedy): normal 0/300 bankrupt, easy 300/300 wins,
-hard 0/300 bankrupt, hardcore 12/300 bankrupt (the other 288 `time_up`).
+(300 seeds × 30 days, greedy, re-measured with ITGAME-135 workplaces, 20.10):
+normal 3/300 bankrupt (median $156,385; $135,061 before), easy 300/300 wins
+($60,164), hard 0/300 bankrupt (median $29,190; $35,994 before — the cost of the
+replacement expense on a thin margin, accepted), hardcore 12/300 bankrupt (the
+other 288 `time_up`, $678). The random counts below stay as history; normal
+random with workplaces: bankrupt 90, deadlock 210, unchanged.
 ITGAME-156 (overdraft on Easy/Normal, 18.10, `--policy all`): normal random
 bankrupt 90 → 90 and deadlock 210 → 210 — the counts stay, but every one of
 the 90 bankruptcies moves exactly one day later (day 2–5 → day 3–6: the

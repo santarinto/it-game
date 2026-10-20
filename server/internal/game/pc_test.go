@@ -41,8 +41,8 @@ func TestPCLevelsByDifficulty(t *testing.T) {
 	cfg := DefaultConfig()
 	names := []string{"ЭЛТ", "ЖК", "2×ЖК"}
 	mults := []float64{1.0, 1.1, 1.2}
-	if len(cfg.PCLevels) != 3 || cfg.PCWearLimit != 3 {
-		t.Fatalf("уровней %d, износ %d; хотим 3 и 3", len(cfg.PCLevels), cfg.PCWearLimit)
+	if len(cfg.PCLevels) != 3 || cfg.PCWearLimit != 8 {
+		t.Fatalf("уровней %d, износ %d; хотим 3 и 8", len(cfg.PCLevels), cfg.PCWearLimit)
 	}
 	for i, l := range cfg.PCLevels {
 		if l.Name != names[i] || l.Mult != mults[i] {
@@ -61,6 +61,12 @@ func TestPCLevelsByDifficulty(t *testing.T) {
 			if c.PCLevels[i].Price != want[i] {
 				t.Errorf("%s: цена уровня %d = %d, хотим %d", d, i, c.PCLevels[i].Price, want[i])
 			}
+		}
+	}
+	wear := map[Difficulty]int{DiffEasy: 8, DiffNormal: 8, DiffHard: 24, DiffHardcore: 40}
+	for d, want := range wear {
+		if got := ConfigForDifficulty(d).PCWearLimit; got != want {
+			t.Errorf("%s: предел износа %d, хотим %d", d, got, want)
 		}
 	}
 	c1 := ConfigForDifficulty(DiffNormal)
@@ -212,7 +218,7 @@ func TestPCWearPerBreakdown(t *testing.T) {
 func TestPCDiesAtWearLimit(t *testing.T) {
 	g := pcGameCfg(breakCfg(), 1)
 	o := &g.Offices[0]
-	o.Workplaces[0].Wear = 3
+	o.Workplaces[0].Wear = g.cfg.PCWearLimit
 	g.Tick()
 	e := &o.Employees[0]
 	if !o.Workplaces[0].Dead || e.PCBroken || e.RepairNeeded != 0 || g.DayIncidents != 1 {
@@ -303,7 +309,7 @@ func TestPCDeadSeatOutOfVirusAndAdmin(t *testing.T) {
 func TestPCDeathTakesInfection(t *testing.T) {
 	g := pcGameCfg(breakCfg(), 1)
 	o := &g.Offices[0]
-	o.Workplaces[0].Wear = 3
+	o.Workplaces[0].Wear = g.cfg.PCWearLimit
 	g.infect(&o.Employees[0])
 	g.VirusWaveIn = 18
 	g.Tick()
@@ -510,7 +516,7 @@ func TestPCSaveRoundtrip(t *testing.T) {
 	if got := r.Offices[0].Workplaces; !slices.Equal(got, []Workplace{{Level: 1, Wear: 2}}) {
 		t.Errorf("места после реплея сейва: %+v", got)
 	}
-	if c := r.Config(); len(c.PCLevels) != 3 || c.PCLevels[1].Name != "ЖК" || c.PCWearLimit != 3 {
+	if c := r.Config(); len(c.PCLevels) != 3 || c.PCLevels[1].Name != "ЖК" || c.PCWearLimit != 8 {
 		t.Errorf("конфиг после сейва: %+v / %d", c.PCLevels, c.PCWearLimit)
 	}
 }
