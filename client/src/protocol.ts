@@ -60,11 +60,21 @@ export interface EmployeeInfo {
   hiredToday: boolean // нанят в текущий день (компенсация ниже)
 }
 
+// Рабочее место (ITGAME-135): ПК стола — уровень и износ живут на месте, не на сотруднике.
+export interface WorkplaceInfo {
+  level: number // индекс в prices.pcLevels: 0 — ЭЛТ
+  wear: number // поломок пережито; предел — state.pcWearLimit
+  dead: boolean // «требуется замена»: доход 0, клики не чинят, только replace_pc
+  nextPrice: number // апгрейд до следующего уровня; 0 — максимум или ПК мёртв
+}
+
 export interface OfficeInfo {
   unlocked: boolean
   price: number
   pcs: number
   nextPC: number // цена следующего ПК офиса (растёт ×1.15); 0 — мест нет
+  // По ПК офиса (len = pcs, сотрудник i сидит за i; свободные столы тоже); [] у закрытого офиса.
+  workplaces: WorkplaceInfo[]
   routerTier: number
   ports: number
   nextRouter: number
@@ -126,6 +136,7 @@ export interface StateMessage {
   adminSalaryPerDay: number // зарплата админа офиса (ITGAME-101)
   forecastEndOfDay: number
   staffLimit: number
+  pcWearLimit: number // поломок, которые ПК переживает; следующая — «требуется замена»; 0 — не изнашивается (ITGAME-135)
   officeSlots: number
   phase: 'running' | 'day_report' | 'game_over' | 'won'
   speed: number // темп сессии: 0 — пауза, 1..3
@@ -164,6 +175,8 @@ export interface StateMessage {
     fridge: number
     coffeeMachine: number
     repair: number // «вызвать мастера» для сломанного ПК
+    pcLevels: { name: string; mult: number; price: number }[] // уровни ПК места (ITGAME-135); price — апгрейд до уровня
+    pcReplace: number // замена ПК: цена базового ПК без роста
     serverLevels: { mult: number; price: number }[]
     coreLevels: { capacity: number; price: number; mult: number }[]
     antivirusTiers: { name: string; seats: number; price: number }[] // по возрастанию цены; seats 0 — все места (ITGAME-137)

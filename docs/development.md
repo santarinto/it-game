@@ -353,7 +353,7 @@ for a save that would decode wrongly or hold values the new code cannot
 honour. Config fields added to format 1 before the rule (audit, repair
 clicks, antivirus tiers, admin prices) are filled by `Restore` from the
 save's difficulty. Format 1 is the virus on seats — a save from before it
-has no `format`.
+has no `format`; format 2 is the workplaces (ITGAME-135, owner 20.10).
 
 A save of another format behaves like a broken one, except that the menu says
 why: the peek reads the sid, the version and `game.format` before the rest (a
@@ -704,7 +704,7 @@ party (ITGAME-69). The scenes open them through `partyModals()`
 Fixtures (`server/internal/game/fixtures/*.json`, `?scenario=X` or
 `itd.scenario(X)`): `fresh`, `broke_day3`, `mid_day10`, `full_office`,
 `soft_lock`, `pre_victory`, `spare_pcs`, `broken_pc`, `doomed_debt`,
-`virus_outbreak`. `broken_pc`
+`virus_outbreak`, `admin_dept`, `worn_pcs`. `broken_pc`
 (ITGAME-74): day 4, 11:00, three employees in office 1, all online, slot 0's
 PC broken (0/3 repair clicks: the fixture pins `RepairNeeded: 3`) — the only
 way to get a broken PC on demand (breakdowns roll at random; at most one per
@@ -721,7 +721,11 @@ a couple of days (two on Normal, three on Easy). `virus_outbreak`
 (both offices' seats 1–4 in core); seats 1 and 6 of office 1 and seat 2 of
 office 2 infected (0/3), the «Вирус в сети» card open, the wave at 12:00
 (`virusWaveIn` 6) — one wave shows all three channels and an office-to-office
-jump.
+jump. `worn_pcs` (ITGAME-135): day 6, 11:00, $5000, office 1 with 6 PCs and 5
+employees on a tier-2 router; seat 0 is «ЖК» and seat 1 «2×ЖК», both at the
+wear limit, seat 2 is a dead PC («требуется замена», «ЭЛТ»), seats 3 and 4 are
+worn «ЭЛТ», desk 5 is a free «ЭЛТ» without wear — every live seat is at the
+limit, so the first breakdown of the office kills a PC (keep it paused).
 
 **Doomed party** (ITGAME-118): `Game.BankruptInDays()` is the number of day
 closes until bankruptcy, 0 when the party is not doomed, sent as
@@ -784,6 +788,38 @@ and the 3..15 range. `make sim` models clicks as free (greedy clicks until
 repaired), so N does not move its economics — what it changes is the player's
 choice between clicking 3..15 times (≈ 9 on average, was 3) and the $150
 master.
+
+**Workplaces** (ITGAME-135, design in the GDD «Рабочее место: уровни ПК и
+износ»): the PC level and wear live on the desk, not on the employee —
+`game.Workplace{Level, Wear, Dead}`, `Office.Workplaces` one per PC (employee i
+sits at desk i; `BuyPC` appends a zero one, `Restore` pads or cuts to `PCs` and
+rejects a bad level, negative wear or a dead seat whose employee is broken or
+infected). `Fire` rotates the workplaces so every remaining employee keeps their
+PC and the fired desk becomes the first free one; `Hire` sits at desk
+`len(Employees)` even if it is dead (`MinCostToEarn` then adds the replacement).
+`Config.PCLevels` («ЭЛТ» ×1.0 / «ЖК» ×1.1 $350 / «2×ЖК» ×1.2 $600, ×PriceK, level 0
+free) multiplies the personal output before the day effects and the network;
+`Config.PCWearLimit` (8, Hard 24, Hardcore 40 via `difficultySpec.WearLimit`; 0 —
+PCs never die) is the breakdowns a PC survives: wear is counted in
+`rollBreakdowns` at the breakdown, and a breakdown on a seat at the limit kills
+the PC without any new roll (same PCG draws as before while nobody is dead). A
+dead seat earns 0 (counted in `lost`), gets no XP, is out of the breakdown,
+virus and admin pools, is not the office's one broken PC, its infection goes
+with it, and night, offline catch-up, forecast and `BankruptInDays` keep it
+dead. Commands `upgrade_pc` / `replace_pc` (slot = desk, free desks allowed;
+`Config.PCPrice` for the replacement, no ×1.15 growth; the level is lost) and
+codes `pc_max_level` / `pc_dead` / `pc_fresh`. Protocol: `officeInfo.workplaces`
+(`level`, `wear`, `dead`, `nextPrice`, one per PC), `prices.pcLevels` /
+`pcReplace`, `state.pcWearLimit`; `employeeInfo.effectiveIncomePerTick` includes
+the PC multiplier; `itd.state().deadPCs`. The office draws the level label
+`office.pc.i` on every desk with a live PC (it opens the workplace window
+«Рабочее место N — офис M» with `modal.pc.upgrade` / `modal.pc.replace`); a dead
+seat is a grey `desk_pc_broken` with «✖ замена» (`office.dead.i`) and the button
+«заменить $500» (`office.replace.i`). `make sim`: the greedy family replaces a
+dead PC before anything else and upgrades one seat an hour only when no
+expansion was left unaffordable; `random` knows both commands. The visreg
+baselines (`fresh`, `mid_day10`, `full_office`, `spare_pcs`, `broken_pc`, …)
+drift by the new desk labels — re-recording them is the owner's call.
 
 **Virus on seats** (ITGAME-103, design in the GDD «Вирус (ITGAME-103)»): the
 infection lives on the occupied seat like a breakdown — `Employee.Infected`
@@ -1545,6 +1581,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:report-pause` | the day report pauses the party (speed 0, time and balance stand still); Enter/Space/`btn.next_day`/`itd.cmd('next_day')` restore the pre-report speed; F5 with the report open keeps `itd.speedBeforeReport`, «Продолжить» reopens it paused and closing restores 3×; an outside `itd.speed(0)` over the report survives; `itd.set({tickInDay})` refused in `day_report`; `skipReports` changes the day without a modal or a stuck 0 (ITGAME-18, self-serve since ITGAME-70); R1–R2 a long journal (ITGAME-141, `eventLog` by `itd.restore`, viewport 1920×1080): lines wider than the panel wrap with a hanging indent `  ` under «·» and glue back to the server's lines, 30 two-line events give «· … раньше: ещё k» on top with the evening line kept, the text stays ≥ 16 px inside the panel frame, the panel inside 16..704, `itd.overlaps()`/`offscreen()` empty; Z0 with no staff the report reads «Зарплата:  $0», no minus (ITGAME-147); R3–R4 the `hud.log` strip after the report (ITGAME-150): a server journal line goes in with its own «HH:MM» and no arrival clock before it, the day summary last; the report the server re-sends after an early reconnect in `day_report` (`itd.away` `net` 1 s, timeout 5 s) arrives a second time and puts no line into the strip (counted on `logLine` calls — the strip keeps 5 lines, so a 5-line report repeated gives the same tail) | :4182, self-serve + temp saves dir |
 | `npm run qa:journal` | the journal of a live browser party (HUD clicks, `itd.cmd`, a rejection, `itd.set`/`itd.step`, F5 → «Продолжить» with offline catch-up) from `/api/debug/journal` replays with `cmd/replay -json` without divergence or warnings, and the replayed save equals the live one; `itd.journal({tail, sid})` gives the same journal from the tab — tail lines, kinds/total, ids, saves stripped (ITGAME-46); a `/ws/agent` command with its own id 1 after the F5: `conn`/`src` on every command, `start c1`, `resume c2`, the bridge on its own conn, ids repeat but (conn, id) pairs don't, replay `conns`; lines `end disconnect`, `c3 bridge id1` (ITGAME-91); J3b/J6b `itd.restore` infects seat 1 of two with the wave in 2 ticks, a live wave infects seat 2, six `virus_click` clean both and a seventh is `not_infected` — all in the journal and the replay (ITGAME-138) | :4186, self-serve + temp saves dir |
 | `npm run qa:admins` | the admin department (ITGAME-145), real mouse clicks at `itd.screen()` points: D1 the «АДМ» tab with its lock and $3,000, the closed room «Отдел админов закрыт» with `dept.buy` and no hire column; D2 `dept.buy` at $600 — sent, refused, still closed; D3 bought — `buy_admin_dept`, −$3,000, three seats, the tab «0/3» without a lock; D4 `btn.admin.0` enabled «Админ О1 / $600», О2/О3 disabled with «Офис 2 не куплен»; D5 a click on a disabled button sends nothing; D6 `hire_admin 0`, «Админ О1 ✓», the admin seated, «свободен», «1/3»; D7 `admin_dept` with live ticks — the target line goes «чистит место 2» → «чистит место 7» → «чинит место 4» → «свободен»; D8 the admin's tooltip, D8b it survives a snapshot under the cursor and does not stick once the cursor left in one move (no `pointerout` reaches the re-created sprite — the bounds check `OfficeScene` has since ITGAME-89); D9 a right click — «Уволить админа?» with «Компенсация: $300», the confirm sends `fire_admin 0`, the seat is empty; D10 the office seat tooltip «чистит админ» on the admin's target and not on a clean seat; D11 `not_infected` in an office with an admin raises no toast, `not_broken` in an office without one does; D12 the day report's admin lines (ITGAME-159), once the admin is free so both parts are there: «Админы:    починили k ПК,» and «           вычистили m мест» under the value column, k and m the day's counts from the save, a Russian plural, each line ≤ 392 px by the report Text's own `measureText`, the body inside the panel with ≥ 16 px margins, no `hud` overlaps/offscreen; D13 three admins with long names — overlaps/offscreen empty at both zooms; no pageerror | :4192, self-serve |
+| `npm run qa:pc` | workplaces (ITGAME-135) on `worn_pcs`, paused, real mouse clicks at `itd.screen()` points: W1 level labels `office.pc.i` «ЖК»/«2×ЖК»/«ЭЛТ», none on the dead desk, `deadPCs` 1; W2 the dead seat — «✖ замена», «заменить $500», a grey-tinted `desk_pc_broken`, one grey flashing zone; W3 the worn label orange; W4 the tooltip «ПК: ЭЛТ ×1.0 · износ k/N — следующая поломка: замена», kept over the label; W5–W6 the label opens «Рабочее место 4 — офис 1», «Апгрейд до ЖК $350» sends `upgrade_pc`, the label and income follow; W7 a free desk upgrades, no replace button at wear 0; W8 a disabled upgrade sends nothing; W9 a right click on the label fires; W10 `pc_fresh`, `pc_max_level`, `pc_dead` refusals; W11 a left click on the dead seat opens the window, no repair or motivate; W12 «заменить $500» sends `replace_pc`, the desk is back to ЭЛТ and earns; W13 a dead seat at lunch has no «обед», no overlaps; W14 overlaps/offscreen empty at both zooms; no pageerror | :4193, self-serve |
 | `npm run qa:version` | the build version and save compatibility (ITGAME-140, ITGAME-169): V1 `/api/version` → `version` год.мес.день.час.мин = `itd.version.version` = the menu's «версия X» (`menu.version`, inside the field); V2 a party → «Сохранить и выйти»: the save file carries the server's version and `game.format`, the menu shows «ПРОДОЛЖИТЬ»; V3 the server restarted on the same saves dir with the file's version set to 2000.01.01.00.00 (a deploy of a new build of the same format): «ПРОДОЛЖИТЬ» with $4,321 and no `menu.stale`, «Продолжить» resumes the party with $4321 and its save carries the server's version again; V4 a save without `version` (before ITGAME-140) — «ПРОДОЛЖИТЬ» too; V5/V6 `game.format` one below / one above the server's, set by the route without a restart (V5 `itd.staleSave` from the menu, V6 a raw `POST /api/debug/format`): `{sid, was, format, live: false}`, only `game.format` changed and `savedAt` kept (ITGAME-154); then no `menu.continue`, the card `menu.stale` «СЕЙВ НЕСОВМЕСТИМ», «начните новую партию:», overlaps/offscreen empty; the card's line is the owner's sentence (two lines joined by a space), no menu text but `menu.version` matches a build version, «от версии», «от старой версии», «, игра » or «формат», the title and the line inside `menu.stale` (≥ 16 px left and right, ≥ 8 px top and bottom), the title above the line, «начните новую партию:» below the card, the corner still «версия X» (ITGAME-149); V7 a real mouse click on «НОРМА» from the card: no «Начать заново?», a new sid, day 1, its save carries the server's version and format, the old file untouched; V8 a live party marked (`live: true`, the file at once FORMAT+1 with the server's version) — `itd.away(1)` answers `not_resumed`, a new party day 1 under the same sid, no card, the file back to the server's format (ITGAME-174, today's silent behaviour); V9 a live mark then «Сохранить и выйти» → the card; V10 no pageerror | :4189, self-serve on its own saves dir (restarted for V3/V4 only — the build version is set by a file edit; the format by the route) |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |
 | `npm run visreg` | screenshot diff + layout linter per fixture scenario | :4173, self-serve, `VISREG_PORT` overrides |

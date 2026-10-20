@@ -21,7 +21,7 @@ type clientMessage struct {
 	// — только отправителю. 0/нет — команда без квитанции (старые бандлы).
 	ID     int64 `json:"id"`
 	Office int   `json:"office"`
-	Slot   int   `json:"slot"`  // стойка для upgrade_server
+	Slot   int   `json:"slot"`  // стойка для upgrade_server; место для motivate/repair_click/…; стол для upgrade_pc/replace_pc
 	Speed  int   `json:"speed"` // параметр set_speed: 0 — пауза, 1..3 — множитель темпа; у exit — скорость возврата
 
 	// Агентский мост (ITGAME-29): типы status, debug_patch, debug_advance,
@@ -76,6 +76,7 @@ type stateMessage struct {
 	AdminSalaryPerDay int              `json:"adminSalaryPerDay"` // зарплата админа офиса (ITGAME-101)
 	ForecastEndOfDay  int              `json:"forecastEndOfDay"`
 	StaffLimit        int              `json:"staffLimit"`
+	PCWearLimit       int              `json:"pcWearLimit"` // поломок, которые ПК переживает; следующая — «требуется замена»; 0 — не изнашивается (ITGAME-135)
 	OfficeSlots       int              `json:"officeSlots"`
 	Phase             string           `json:"phase"`          // running | day_report | game_over
 	Speed             int              `json:"speed"`          // темп сессии: 0 — пауза, 1..3
@@ -109,18 +110,21 @@ type stateMessage struct {
 
 // officeInfo — офис в снапшоте: всё для отрисовки комнаты и панели.
 type officeInfo struct {
-	Unlocked        bool         `json:"unlocked"`
-	Price           int          `json:"price"` // цена покупки; 0 для открытых
-	PCs             int          `json:"pcs"`
-	NextPC          int          `json:"nextPC"` // цена следующего ПК офиса; 0 — мест нет
-	RouterTier      int          `json:"routerTier"`
-	Ports           int          `json:"ports"`
-	NextRouter      int          `json:"nextRouter"` // 0 — тир максимальный
-	NextPorts       int          `json:"nextPorts"`  // порты следующего тира; 0 — тир максимальный
-	Servers         []serverInfo `json:"servers"`
-	ServerSlots     int          `json:"serverSlots"`
-	Boss            string       `json:"boss"` // "" — начальника нет
-	BossUnpaidToday bool         `json:"bossUnpaidToday"`
+	Unlocked bool `json:"unlocked"`
+	Price    int  `json:"price"` // цена покупки; 0 для открытых
+	PCs      int  `json:"pcs"`
+	NextPC   int  `json:"nextPC"` // цена следующего ПК офиса; 0 — мест нет
+	// Рабочие места (ITGAME-135): по ПК офиса, len = pcs, сотрудник i сидит за i; свободные столы
+	// тоже. Не nil — у закрытого офиса [].
+	Workplaces      []workplaceInfo `json:"workplaces"`
+	RouterTier      int             `json:"routerTier"`
+	Ports           int             `json:"ports"`
+	NextRouter      int             `json:"nextRouter"` // 0 — тир максимальный
+	NextPorts       int             `json:"nextPorts"`  // порты следующего тира; 0 — тир максимальный
+	Servers         []serverInfo    `json:"servers"`
+	ServerSlots     int             `json:"serverSlots"`
+	Boss            string          `json:"boss"` // "" — начальника нет
+	BossUnpaidToday bool            `json:"bossUnpaidToday"`
 	// Админ офиса (ITGAME-101): не сотрудник — места не занимает.
 	Admin            string         `json:"admin"` // "" — админа нет
 	AdminUnpaidToday bool           `json:"adminUnpaidToday"`
@@ -225,6 +229,21 @@ type activeEventInfo struct {
 	Options []string `json:"options"`
 }
 
+// workplaceInfo — рабочее место (ITGAME-135): ПК стола с уровнем и износом.
+type workplaceInfo struct {
+	Level     int  `json:"level"`     // индекс в prices.pcLevels
+	Wear      int  `json:"wear"`      // поломок пережито, из state.pcWearLimit
+	Dead      bool `json:"dead"`      // «требуется замена»: доход 0, только replace_pc
+	NextPrice int  `json:"nextPrice"` // апгрейд до следующего уровня; 0 — максимум или ПК мёртв
+}
+
+// pcLevelPrice — уровень ПК места: имя на подписи стола, множитель выработки, цена апгрейда до него.
+type pcLevelPrice struct {
+	Name  string  `json:"name"`
+	Mult  float64 `json:"mult"`
+	Price int     `json:"price"`
+}
+
 type prices struct {
 	PC             int                  `json:"pc"`
 	Hire           int                  `json:"hire"`
@@ -235,7 +254,9 @@ type prices struct {
 	Cooler         int                  `json:"cooler"`
 	Fridge         int                  `json:"fridge"`
 	CoffeeMachine  int                  `json:"coffeeMachine"`
-	Repair         int                  `json:"repair"` // «вызвать мастера» для сломанного ПК
+	Repair         int                  `json:"repair"`    // «вызвать мастера» для сломанного ПК
+	PCLevels       []pcLevelPrice       `json:"pcLevels"`  // уровни ПК места (ITGAME-135)
+	PCReplace      int                  `json:"pcReplace"` // замена ПК: цена базового ПК без роста
 	ServerLevels   []serverLevelPrice   `json:"serverLevels"`
 	CoreLevels     []coreLevelPrice     `json:"coreLevels"`
 	AntivirusTiers []antivirusTierPrice `json:"antivirusTiers"` // тарифы подписки по возрастанию цены (ITGAME-137)
@@ -381,8 +402,13 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 			adminSlot, adminKind = o.AdminTarget()
 			adminFire = g.AdminFireCompensation(oi)
 		}
+		workplaces := make([]workplaceInfo, 0, o.PCs)
+		for i := 0; i < o.PCs; i++ {
+			w := o.Workplace(i)
+			workplaces = append(workplaces, workplaceInfo{Level: w.Level, Wear: w.Wear, Dead: w.Dead, NextPrice: g.NextPCLevelPrice(oi, i)})
+		}
 		offices[oi] = officeInfo{
-			Unlocked: o.Unlocked, Price: price, PCs: o.PCs, NextPC: g.NextPCPrice(oi),
+			Unlocked: o.Unlocked, Price: price, PCs: o.PCs, NextPC: g.NextPCPrice(oi), Workplaces: workplaces,
 			RouterTier: o.RouterTier, Ports: o.Ports(cfg),
 			NextRouter: g.NextRouterPrice(oi), NextPorts: g.NextRouterPorts(oi),
 			Servers: servers, ServerSlots: cfg.ServerSlotsPerOffice(),
@@ -415,6 +441,10 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 	for _, t := range cfg.AntivirusTiers {
 		avTiers = append(avTiers, antivirusTierPrice{Name: t.Name, Seats: t.Seats, Price: t.PricePerDay})
 	}
+	pcLevels := make([]pcLevelPrice, 0, len(cfg.PCLevels))
+	for _, l := range cfg.PCLevels {
+		pcLevels = append(pcLevels, pcLevelPrice{Name: l.Name, Mult: l.Mult, Price: l.Price})
+	}
 	av := antivirusInfo{Tier: g.AVTier, Name: g.AntivirusName(), Covered: g.AVCoveredCount(), BilledToday: g.AntivirusOpex()}
 	if g.AVTier > 0 {
 		av.Seats = cfg.AntivirusTiers[g.AVTier-1].Seats
@@ -433,7 +463,7 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 		Day: g.Day, Clock: g.Clock(), IsLunch: g.IsLunch(),
 		TicksPerHour: cfg.TicksPerHour, PayrollPerDay: g.PayrollPerDay(),
 		SalaryPerDay: cfg.SalaryPerDay, BossSalaryPerDay: cfg.BossSalaryPerDay, AdminSalaryPerDay: cfg.AdminSalaryPerDay,
-		ForecastEndOfDay: g.ForecastEndOfDay(), StaffLimit: cfg.StaffLimit,
+		ForecastEndOfDay: g.ForecastEndOfDay(), StaffLimit: cfg.StaffLimit, PCWearLimit: cfg.PCWearLimit,
 		OfficeSlots: cfg.OfficeSlots, Phase: string(g.Phase), Speed: speed,
 		Resumed: resumed, Difficulty: string(cfg.Difficulty), WinTarget: cfg.WinTarget,
 		WinStaff: cfg.WinStaff, WinCore: cfg.WinCore, WinDayLimit: cfg.WinDayLimit,
@@ -446,7 +476,7 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 		TickInDay: g.TickInDay, DayIncome: g.DayIncome, DayProfit: g.DayProfit(),
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice,
 			Boss: cfg.BossPrice, Admin: cfg.AdminPrice, AdminDept: cfg.AdminDeptPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,
-			Fridge: cfg.FridgePrice, CoffeeMachine: cfg.CoffeeMachinePrice, Repair: cfg.MasterCallPrice,
+			Fridge: cfg.FridgePrice, CoffeeMachine: cfg.CoffeeMachinePrice, Repair: cfg.MasterCallPrice, PCLevels: pcLevels, PCReplace: g.PCReplacePrice(),
 			ServerLevels: serverLevels, CoreLevels: coreLevels, AntivirusTiers: avTiers},
 	}
 }

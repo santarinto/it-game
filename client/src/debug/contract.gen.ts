@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "014b0fcdb085",
+  "hash": "4e91ef1afa2b",
   "methods": {
     "version": {
       "kind": "prop",
@@ -580,7 +580,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<DebugState>",
-      "doc": "Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|\nsoft_lock|pre_victory|spare_pcs|broken_pc|doomed_debt|virus_outbreak|admin_dept. Сбрасывает клиентское состояние партии: активный\nофис → О1 (ITGAME-55), оверлеи HUD — отчёт дня, событие, «Пока вас не было», финал,\nокно выхода — и учёт паузы отчёта (ITGAME-64), окна офиса и серверной — устройства,\nувольнение (ITGAME-69). Скорость сессии не трогает: вызванный\nиз открытого отчёта или окна выхода, оставляет новую партию на паузе — itd.resume(). Работает и после\nфинала (сессия жива до «В меню»). Ошибка (неизвестная фикстура) партию не трогает.\nТолько в партии вкладки (ITGAME-131): из меню — до первой партии, после «В меню»/«Сдаться» — и\nпосле перехвата сессии другой вкладкой отказ сразу, без запроса: reject «not_in_party: …».\nИз меню — itd.click('menu.diff.normal') (при живом сейве меню спросит «Начать заново?» —\nitd.click('modal.btn.confirm'); или itd.click('menu.continue')), затем await itd.wait(s => s.connected);\nпосле перехвата меню нет — обновите страницу (F5). Так же set, step, advanceDays, ledger,\nsnapshot, restore; itd.journal() — без этого правила.",
+      "doc": "Пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|\nsoft_lock|pre_victory|spare_pcs|broken_pc|doomed_debt|virus_outbreak|admin_dept|worn_pcs. Сбрасывает клиентское состояние партии: активный\nофис → О1 (ITGAME-55), оверлеи HUD — отчёт дня, событие, «Пока вас не было», финал,\nокно выхода — и учёт паузы отчёта (ITGAME-64), окна офиса и серверной — устройства,\nувольнение (ITGAME-69). Скорость сессии не трогает: вызванный\nиз открытого отчёта или окна выхода, оставляет новую партию на паузе — itd.resume(). Работает и после\nфинала (сессия жива до «В меню»). Ошибка (неизвестная фикстура) партию не трогает.\nТолько в партии вкладки (ITGAME-131): из меню — до первой партии, после «В меню»/«Сдаться» — и\nпосле перехвата сессии другой вкладкой отказ сразу, без запроса: reject «not_in_party: …».\nИз меню — itd.click('menu.diff.normal') (при живом сейве меню спросит «Начать заново?» —\nitd.click('modal.btn.confirm'); или itd.click('menu.continue')), затем await itd.wait(s => s.connected);\nпосле перехвата меню нет — обновите страницу (F5). Так же set, step, advanceDays, ledger,\nsnapshot, restore; itd.journal() — без этого правила.",
       "examples": [
         "itd.scenario('soft_lock')"
       ]
@@ -1114,6 +1114,11 @@ export const CONTRACT = {
           "type": "number | null",
           "optional": false,
           "doc": "заражённых мест по компании (ITGAME-103); по офисам — snapshot().state.offices[i].virusPCs"
+        },
+        "deadPCs": {
+          "type": "number | null",
+          "optional": false,
+          "doc": "ПК «требуется замена» по компании (ITGAME-135); по местам — snapshot().state.offices[i].workplaces"
         },
         "virusWaveAt": {
           "type": "string | null",
@@ -2367,6 +2372,11 @@ export const CONTRACT = {
           "optional": false,
           "doc": "цена следующего ПК офиса (растёт ×1.15); 0 — мест нет"
         },
+        "workplaces": {
+          "type": "WorkplaceInfo[]",
+          "optional": false,
+          "doc": ""
+        },
         "routerTier": {
           "type": "number",
           "optional": false,
@@ -3285,6 +3295,11 @@ export const CONTRACT = {
           "optional": false,
           "doc": ""
         },
+        "pcWearLimit": {
+          "type": "number",
+          "optional": false,
+          "doc": "поломок, которые ПК переживает; следующая — «требуется замена»; 0 — не изнашивается (ITGAME-135)"
+        },
         "officeSlots": {
           "type": "number",
           "optional": false,
@@ -3411,7 +3426,7 @@ export const CONTRACT = {
           "doc": ""
         },
         "prices": {
-          "type": "{ pc: number; hire: number; boss: number; admin: number; adminDept: number; gateway: number; cooler: number; fridge: number; coffeeMachine: number; repair: number; serverLevels: { mult: number; price: number; }[]; coreLevels: { capacity: number; price: number; mult: number; }[]; antivirusTiers: { name: string; seats: number; price: number; }[]; }",
+          "type": "{ pc: number; hire: number; boss: number; admin: number; adminDept: number; gateway: number; cooler: number; fridge: number; coffeeMachine: number; repair: number; pcLevels: { name: string; mult: number; price: number; }[]; pcReplace: number; serverLevels: { mult: number; price: number; }[]; coreLevels: { capacity: number; price: number; mult: number; }[]; antivirusTiers: { name: string; seats: number; price: number; }[]; }",
           "optional": false,
           "doc": ""
         }
@@ -3739,6 +3754,31 @@ export const CONTRACT = {
     "TypeSpec": {
       "kind": "alias",
       "type": "{ kind: 'object'; fields: Record<string, FieldSpec>; index?: string[]; call?: string[]; } | { kind: 'enum'; values: string[]; } | { kind: 'alias'; type: string; }"
+    },
+    "WorkplaceInfo": {
+      "kind": "object",
+      "fields": {
+        "level": {
+          "type": "number",
+          "optional": false,
+          "doc": "индекс в prices.pcLevels: 0 — ЭЛТ"
+        },
+        "wear": {
+          "type": "number",
+          "optional": false,
+          "doc": "поломок пережито; предел — state.pcWearLimit"
+        },
+        "dead": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "«требуется замена»: доход 0, клики не чинят, только replace_pc"
+        },
+        "nextPrice": {
+          "type": "number",
+          "optional": false,
+          "doc": "апгрейд до следующего уровня; 0 — максимум или ПК мёртв"
+        }
+      }
     },
     "ZoneRect": {
       "kind": "object",

@@ -6,7 +6,7 @@ import { nav } from '../rooms'
 import type { CommandType, EmployeeInfo, OfficeInfo, StateMessage } from '../protocol'
 import { drawDebugFrames } from '../debug'
 import { markDisabled, tag } from '../debug/agentApi'
-import { partyModals } from '../ui/modal'
+import { partyModals, type ModalButton } from '../ui/modal'
 import { ACTION_COL_CX, ActionBar, actionColY, type ActionButton } from '../ui/actionButton'
 import { coreFree, routerGain } from '../network-preview'
 import { playSfx } from '../audio'
@@ -32,11 +32,22 @@ const GRID = { cols: 4, startX: 260, startY: 220, stepX: 270, stepY: 170 }
 // office.virus.i оставлены для itd.click/itd.hover и узлов itd.nodes():
 // события с них переадресуются зоне. Явный depth — над столом и
 // сотрудником при любом порядке create().
+// Рабочее место (ITGAME-135): у каждого стола с живым ПК — подпись уровня
+// office.pc.i («ЭЛТ» / «ЖК» / «2×ЖК»); клик по ней открывает окно места, а
+// наведение и правый клик она отдаёт зоне. ПК «требуется замена» — серый
+// desk_pc_broken, метка office.dead.i «✖ замена» и кнопка office.replace.i;
+// ЛКМ по такому месту открывает то же окно (чинить и мотивировать нечего).
 const SLOT_ZONE_DEPTH = 5
 
 // Цвета состояния места: поломка — красный, вирус — зелёный (sweetie16).
 const BROKEN_COLOR = 0xb13e53
 const VIRUS_COLOR = 0xa7f070
+// ПК «требуется замена» (ITGAME-135): заливка мигающей зоны и тон стола — серые.
+const DEAD_COLOR = 0x94b0c2
+const DEAD_TINT = 0x5d7275
+// Подпись уровня ПК: цвет по уровню; оранжевый — износ на пределе, следующая поломка убьёт ПК.
+const PC_LEVEL_COLORS = ['#94b0c2', '#41a6f6', '#38b764']
+const PC_WORN_COLOR = '#ef7d57'
 
 // Верх колонки действий офиса (ITGAME-94): под слотом начальника (бокс до y 362).
 const ACTIONS_TOP = 384
@@ -119,6 +130,10 @@ const SLOT_LAYOUT_HD = {
   // бокс кончается на y+32) — соседних слотов/подписей не задевает:
   // ближайшие ряды разнесены на GRID.stepY=170px.
   masterButton: { y: 46 },
+  // Подпись уровня ПК (ITGAME-135): ЦЕЛИКОМ ВНУТРИ бокса ±32 — «2×ЖК» при 9px ≈ 24px, с
+  // подложкой (padding 2/1) ≈ 28×13 → x ±14, y +15..+29; у нижнего края под креслом других
+  // текстов нет; «обед» (y+40, 12px) начинается ниже +32.
+  pcLabel: { x: 0, y: 22 },
 }
 
 // Легаси (includesDesk=true): старый 64px worker.png уже содержит
@@ -133,6 +148,7 @@ const SLOT_LAYOUT_LEGACY = {
   star: { x: -28, y: -58 },
   repairText: { y: -48 },
   masterButton: { y: 46 },
+  pcLabel: { x: 0, y: 22 },
 }
 
 export class OfficeScene extends Phaser.Scene {
@@ -340,6 +356,8 @@ export class OfficeScene extends Phaser.Scene {
       }
       const e = office.employees[i]
       const hasPc = i < office.pcs
+      const w = hasPc ? office.workplaces?.[i] : undefined // рабочее место стола (ITGAME-135)
+      const dead = !!w?.dead
       // includesDesk=true — старый 64px worker.png уже содержит свой
       // стол/монитор/системник/кресло (легаси-раскладка, живёт для отката
       // на старые PNG): занятое место рисует ТОЛЬКО его, без отдельного
@@ -362,12 +380,15 @@ export class OfficeScene extends Phaser.Scene {
       if (!showWorkerOnly) {
         const deskKey = !hasPc
           ? 'desk_empty'
-          : s.isLunch
+          : dead
+            ? 'desk_pc_broken' // «требуется замена» (ITGAME-135): серый стол поломки
+            : s.isLunch
             ? 'desk_pc'
             : !e
               ? 'desk_pc_off'
               : e.pcBroken ? 'desk_pc_broken' : 'desk_pc'
         deskImg = addSprite(this, x, y, deskKey, 'desk')
+        if (dead) deskImg.setTint(DEAD_TINT)
         this.objects.push(deskImg)
       }
       // Сломанный ПК: доход места 0; клики по месту чинят, мастер чинит за деньги.
@@ -375,8 +396,31 @@ export class OfficeScene extends Phaser.Scene {
       // строится ниже, когда известны bounds сотрудника.
       let repairLabel: Phaser.GameObjects.Text | null = null
       let virusLabel: Phaser.GameObjects.Text | null = null
+      let deadLabel: Phaser.GameObjects.Text | null = null
       let repairBounds: Phaser.Geom.Rectangle | null = null
-      if (e?.pcBroken) {
+      if (dead) {
+        // ПК «требуется замена» (ITGAME-135): доход 0, клики и мастер не чинят — только замена
+        // за деньги. Кнопка и метка — на местах «мастера» и «✖ чинить» поломки.
+        const replaceBg = tag(
+          this.add.rectangle(x, y + layout.masterButton.y, 108, 22, 0x3b5dc9)
+            .setOrigin(0.5).setInteractive({ useHandCursor: true }),
+          `office.replace.${i}`,
+        )
+        const replaceTxt = this.add.text(x, y + layout.masterButton.y, `заменить ${fmtMoney(s.prices.pcReplace)}`, {
+          fontFamily: FONT, fontSize: '10px', color: '#f4f4f4',
+        }).setOrigin(0.5)
+        replaceBg.on('pointerdown', () => {
+          playSfx(this, 'select')
+          client.send('replace_pc', nav.activeOffice, { slot: i })
+        })
+        deadLabel = this.add.text(x, y + layout.repairText.y, '✖ замена', {
+          fontFamily: FONT, fontSize: '11px', color: '#94b0c2',
+        }).setOrigin(0.5)
+        repairBounds = deadLabel.getBounds()
+        this.objects.push(deadLabel, replaceBg, replaceTxt)
+        // Свободный стол: зоны места нет — метку не к чему переадресовать.
+        if (!e) tag(deadLabel, `office.dead.${i}`)
+      } else if (e?.pcBroken) {
         const masterBg = tag(
           this.add.rectangle(x, y + layout.masterButton.y, 108, 22, 0x3b5dc9)
             .setOrigin(0.5).setInteractive({ useHandCursor: true }),
@@ -410,6 +454,7 @@ export class OfficeScene extends Phaser.Scene {
         virusLabel.setText(`☣ вирус ${e.virusClicks}/${need}`)
         this.objects.push(virusLabel)
       }
+      let slotZone: Phaser.GameObjects.Rectangle | null = null
       if (e) {
         // Слот-картинка занятого места (id office.worker.i, без ввода):
         // на обеде — тот же стол desk_pc, что уже нарисован выше (без
@@ -425,13 +470,17 @@ export class OfficeScene extends Phaser.Scene {
           // deskImg гарантированно создан выше: showWorkerOnly требует
           // !s.isLunch, значит на обеде всегда проходим ветку !showWorkerOnly.
           slotImg = deskImg as Phaser.GameObjects.Image
-          this.objects.push(this.add.text(x, y + 40, 'обед', {
-            fontFamily: FONT, fontSize: '12px', color: '#94b0c2',
-          }).setOrigin(0.5))
+          // Мёртвое место «обеда» не знает: подпись легла бы на кнопку «заменить» (ITGAME-135).
+          if (!dead) {
+            this.objects.push(this.add.text(x, y + 40, 'обед', {
+              fontFamily: FONT, fontSize: '12px', color: '#94b0c2',
+            }).setOrigin(0.5))
+          }
         } else if (workerIncludesDesk) {
           wx = x
           wy = y
           slotImg = addSprite(this, wx, wy, 'worker', 'desk')
+          if (dead) slotImg.setTint(DEAD_TINT) // легаси: стол запечён в спрайт сотрудника
         } else {
           wx = x
           wy = y
@@ -451,13 +500,14 @@ export class OfficeScene extends Phaser.Scene {
         if (repairBounds) Phaser.Geom.Rectangle.Union(r, repairBounds, r)
         const zx = Math.floor(r.x)
         const zy = Math.floor(r.y)
-        const flagged = e.pcBroken || e.infected
+        const flagged = e.pcBroken || e.infected || dead
         const zone = tag(
           this.add.rectangle(zx, zy, Math.ceil(r.right) - zx, Math.ceil(r.bottom) - zy,
-            e.pcBroken ? BROKEN_COLOR : VIRUS_COLOR, flagged ? 0.3 : 0)
+            dead ? DEAD_COLOR : e.pcBroken ? BROKEN_COLOR : VIRUS_COLOR, flagged ? 0.3 : 0)
             .setOrigin(0).setInteractive({ useHandCursor: true }).setDepth(SLOT_ZONE_DEPTH),
           `office.slot.${i}`,
         )
+        slotZone = zone
         this.objects.push(zone)
         if (flagged) {
           // Твин держит alpha ≥ 0.15 — при alpha 0 Phaser не считает объект
@@ -471,7 +521,12 @@ export class OfficeScene extends Phaser.Scene {
         // (итерация 15).
         zone.on('pointerdown', (p: Phaser.Input.Pointer) => {
           if (p.rightButtonDown()) {
-            this.openFireModal(e, i)
+            this.openFireModal(e, i, dead)
+            return
+          }
+          if (dead) { // ПК «требуется замена»: чинить и мотивировать нечего — окно места
+            playSfx(this, 'select')
+            this.openWorkplaceModal(office, i, s)
             return
           }
           playSfx(this, 'click')
@@ -494,6 +549,7 @@ export class OfficeScene extends Phaser.Scene {
         forward(slotImg)
         if (repairLabel) forward(tag(repairLabel, `office.repair.${i}`))
         if (virusLabel) forward(tag(virusLabel, `office.virus.${i}`))
+        if (deadLabel) forward(tag(deadLabel, `office.dead.${i}`))
         // Спрайт пересоздан — восстанавливаем тултип, но только если курсор
         // реально над зоной: pointerout не срабатывает по уничтоженному
         // объекту, и без этой проверки hoveredSlot «залипает».
@@ -533,6 +589,36 @@ export class OfficeScene extends Phaser.Scene {
             fontFamily: FONT, fontSize: '14px', color: '#ffcd75',
           }).setOrigin(0.5))
         }
+      }
+      // Подпись уровня ПК (ITGAME-135) — на каждом столе с живым ПК, и на свободном тоже:
+      // апгрейд живёт на месте. Лежит над зоной (SLOT_ZONE_DEPTH + 1), чтобы получить свой
+      // клик (окно места); наведение и правый клик отдаёт зоне — тултип сотрудника и
+      // «Уволить» работают и над подписью. Целиком внутри бокса зоны (линтер: вложенность в порядке).
+      if (hasPc && w && !dead) {
+        const lvl = s.prices.pcLevels?.[w.level]
+        const worn = s.pcWearLimit > 0 && w.wear >= s.pcWearLimit
+        const pcLabel = tag(
+          this.add.text(x + layout.pcLabel.x, y + layout.pcLabel.y, lvl?.name ?? 'ЭЛТ', {
+            fontFamily: FONT, fontSize: '9px',
+            color: worn ? PC_WORN_COLOR : PC_LEVEL_COLORS[w.level] ?? PC_LEVEL_COLORS[0],
+            backgroundColor: '#14162b', padding: { x: 2, y: 1 },
+          }).setOrigin(0.5).setDepth(SLOT_ZONE_DEPTH + 1).setInteractive({ useHandCursor: true }),
+          `office.pc.${i}`,
+        )
+        pcLabel.on('pointerdown', (p: Phaser.Input.Pointer) => {
+          if (p.rightButtonDown()) {
+            slotZone?.emit('pointerdown', p) // занятое место — «Уволить», свободный стол — ничего
+            return
+          }
+          playSfx(this, 'select')
+          this.openWorkplaceModal(office, i, s)
+        })
+        if (slotZone) {
+          const zone = slotZone
+          pcLabel.on('pointerover', (...a: unknown[]) => zone.emit('pointerover', ...a))
+          pcLabel.on('pointerout', (...a: unknown[]) => zone.emit('pointerout', ...a))
+        }
+        this.objects.push(pcLabel)
       }
     }
 
@@ -638,6 +724,8 @@ export class OfficeScene extends Phaser.Scene {
 
   private showTooltip(e: EmployeeInfo, slot: number, s: StateMessage, x: number, y: number) {
     if (this.windowOpen()) return // ITGAME-89: тултип не просвечивает рядом с окном
+    const office = s.offices[nav.activeOffice]
+    const w = office.workplaces?.[slot]
     // Выработка — эффективная (с прибавкой уровня и дебаффами/баффами);
     // база в скобках, когда эффекты её меняют.
     const base = (e.incomePerTick + (e.level > 0 ? LEVEL_BONUS[e.level] : 0)) * s.ticksPerHour
@@ -656,6 +744,14 @@ export class OfficeScene extends Phaser.Scene {
       lines.push('★ звезда: выработка ×1.5 при найме')
     }
     lines.push(e.serverSlot > 0 ? `сервер ${e.serverSlot} · ×${e.netMult.toFixed(1)}` : 'без сервера')
+    // Рабочее место (ITGAME-135): уровень ПК и износ — или «требуется замена».
+    if (w?.dead) {
+      lines.push(`ПК ТРЕБУЕТ ЗАМЕНЫ — доход 0; заменить ${fmtMoney(s.prices.pcReplace)}`)
+    } else if (w) {
+      const lvl = s.prices.pcLevels?.[w.level]
+      const atLimit = s.pcWearLimit > 0 && w.wear >= s.pcWearLimit
+      lines.push(`ПК: ${lvl?.name ?? 'ЭЛТ'} ×${(lvl?.mult ?? 1).toFixed(1)}${s.pcWearLimit > 0 ? ` · износ ${w.wear}/${s.pcWearLimit}` : ''}${atLimit ? ' — следующая поломка: замена' : ''}`)
+    }
     // Подписка (ITGAME-137): защищены первые места компании по тарифу.
     lines.push(e.avCovered
       ? `антивирус: ${s.antivirus.name}`
@@ -678,13 +774,14 @@ export class OfficeScene extends Phaser.Scene {
         : `ЗАРАЖЁН — выработка −30%; кликайте по месту: ${e.virusClicks}/${e.virusNeeded > 0 ? e.virusNeeded : 3}`)
     }
     // Админ офиса (ITGAME-145) кликает это место сам — его клики растут в той же «k/N».
-    const office = s.offices[nav.activeOffice]
     if (office.admin !== '' && office.adminSlot === slot) {
       lines.push(office.adminKind === 'repair' ? 'чинит админ' : 'чистит админ')
     }
     // ITGAME-75: пока ПК сломан, ЛКМ по месту — ремонт, мотивации кликом нет;
     // пока заражён — чистка (ITGAME-103).
-    lines.push(e.pcBroken
+    lines.push(w?.dead
+      ? 'мотивация: после замены ПК'
+      : e.pcBroken
       ? 'мотивация: после починки ПК'
       : e.infected
         ? 'мотивация: после чистки'
@@ -716,7 +813,7 @@ export class OfficeScene extends Phaser.Scene {
 
   // Модалка увольнения (итерация 15): ПК освобождается, опыт теряется.
   // Отдельная от motivate модалка — случайный клик не должен увольнять.
-  private openFireModal(e: EmployeeInfo, slot: number) {
+  private openFireModal(e: EmployeeInfo, slot: number, dead: boolean) {
     const lost = [
       e.level > 0 ? `уровень ${e.level} и опыт ${e.xp}` : null,
       e.star ? 'статус звезды ★' : null,
@@ -724,7 +821,7 @@ export class OfficeScene extends Phaser.Scene {
     const lines = [
       `${e.name}`,
       `Компенсация: ${fmtMoney(e.firePrice)}${e.hiredToday ? ' (день найма — испытательный срок)' : ''}`,
-      'ПК останется в офисе — свободен для нового найма.',
+      dead ? 'ПК останется в офисе — требует замены.' : 'ПК останется в офисе — свободен для нового найма.',
       lost.length ? `Теряется: ${lost.join(', ')}.` : 'Опыт теряется (его пока нет).',
     ]
     this.modal('Уволить сотрудника?', lines, [
@@ -733,6 +830,45 @@ export class OfficeScene extends Phaser.Scene {
         onClick: () => client.send('fire', nav.activeOffice, { slot }),
       },
     ])
+  }
+
+  // Окно рабочего места (ITGAME-135): уровень ПК, износ, апгрейд и замена. Строки ≤ 40 знаков
+  // (панель 460px, шрифт 14px). Свободный стол с ПК апгрейдится так же — уровень живёт на месте.
+  private openWorkplaceModal(o: OfficeInfo, slot: number, s: StateMessage) {
+    const w = o.workplaces?.[slot]
+    if (!w) return
+    const levels = s.prices.pcLevels ?? []
+    const cur = levels[w.level]
+    const next = levels[w.level + 1]
+    const base = levels[0]?.name ?? 'ЭЛТ'
+    const lines: string[] = []
+    if (w.dead) {
+      lines.push('ПК выработал ресурс — доход места 0', 'клики и мастер не чинят', `Замена: новый ПК ${base}, износ 0`)
+    } else {
+      const atLimit = s.pcWearLimit > 0 && w.wear >= s.pcWearLimit
+      lines.push(`Монитор: ${cur?.name ?? base} — выработка ×${(cur?.mult ?? 1).toFixed(1)}`)
+      lines.push(`Износ: ${w.wear}/${s.pcWearLimit}${atLimit ? ' — следующая поломка: замена' : ''}`)
+      if (w.wear > 0) lines.push(`Замена: новый ПК ${base}, уровень теряется`)
+      if (w.nextPrice === 0) lines.push('Уровень максимальный')
+    }
+    const buttons: ModalButton[] = []
+    if (!w.dead && w.nextPrice > 0) {
+      buttons.push({
+        id: 'modal.pc.upgrade',
+        label: `Апгрейд до ${next?.name ?? '…'} ${fmtMoney(w.nextPrice)}`,
+        disabled: s.money < w.nextPrice,
+        onClick: () => client.send('upgrade_pc', nav.activeOffice, { slot }),
+      })
+    }
+    if (w.dead || w.wear > 0) {
+      buttons.push({
+        id: 'modal.pc.replace',
+        label: `Заменить ПК ${fmtMoney(s.prices.pcReplace)}`,
+        disabled: s.money < s.prices.pcReplace,
+        onClick: () => client.send('replace_pc', nav.activeOffice, { slot }),
+      })
+    }
+    this.modal(`Рабочее место ${slot + 1} — офис ${nav.activeOffice + 1}`, lines, buttons)
   }
 
   // Модалка роутера: апгрейд переехал сюда из кнопки HUD (заявка И4).

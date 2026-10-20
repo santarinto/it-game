@@ -267,3 +267,58 @@ func TestProtocolDebtLimit(t *testing.T) {
 		})
 	}
 }
+
+// Рабочие места (ITGAME-135): officeInfo.workplaces по каждому ПК офиса, уровни и цена замены в prices,
+// предел износа в state, выработка в тултипе — с множителем ПК.
+func TestSnapshotWorkplaces(t *testing.T) {
+	g := game.New(game.DefaultConfig())
+	o := &g.Offices[0]
+	o.PCs = 3
+	o.Employees = []game.Employee{{Name: "А", IncomePerTick: 10}, {Name: "Б", IncomePerTick: 10}}
+	o.Workplaces = []game.Workplace{{Level: 1, Wear: 2}, {Dead: true}, {Level: 2}}
+	raw, err := json.Marshal(snapshot(g, 1, false, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st struct {
+		PCWearLimit int `json:"pcWearLimit"`
+		Offices     []struct {
+			Workplaces []map[string]any `json:"workplaces"`
+			Employees  []struct {
+				Effective int `json:"effectiveIncomePerTick"`
+			} `json:"employees"`
+		} `json:"offices"`
+		Prices struct {
+			PCLevels  []struct{ Name string } `json:"pcLevels"`
+			PCReplace int                     `json:"pcReplace"`
+		} `json:"prices"`
+	}
+	if err := json.Unmarshal(raw, &st); err != nil {
+		t.Fatal(err)
+	}
+	want := []map[string]any{
+		{"level": 1.0, "wear": 2.0, "dead": false, "nextPrice": 600.0},
+		{"level": 0.0, "wear": 0.0, "dead": true, "nextPrice": 0.0},
+		{"level": 2.0, "wear": 0.0, "dead": false, "nextPrice": 0.0},
+	}
+	got := st.Offices[0].Workplaces
+	if len(got) != 3 {
+		t.Fatalf("workplaces: %v", got)
+	}
+	for i := range want {
+		for k, v := range want[i] {
+			if got[i][k] != v {
+				t.Errorf("workplaces[%d].%s = %v, хотим %v", i, k, got[i][k], v)
+			}
+		}
+	}
+	if !strings.Contains(string(raw), `"workplaces":[]`) {
+		t.Error("закрытый офис должен отдавать workplaces: []")
+	}
+	if len(st.Prices.PCLevels) != 3 || st.Prices.PCLevels[2].Name != "2×ЖК" || st.Prices.PCReplace != 500 || st.PCWearLimit != 8 {
+		t.Errorf("prices/state: %+v, wear %d", st.Prices, st.PCWearLimit)
+	}
+	if e := st.Offices[0].Employees[0].Effective; e != 11 {
+		t.Errorf("effectiveIncomePerTick = %d, хотим 11 (ЖК ×1.1)", e)
+	}
+}
