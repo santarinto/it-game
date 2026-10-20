@@ -24,6 +24,10 @@ type Store struct {
 
 	mu      sync.Mutex
 	entries map[string]*entry
+
+	// beforeCommit — тестовый крючок: Put решил писать, но файл сейва ещё не
+	// встал на место <sid>.json (ITGAME-183).
+	beforeCommit func(sid string)
 }
 
 // entry — сейв в памяти. gen — поколение владельца: растёт на Begin,
@@ -153,39 +157,74 @@ func (s *Store) Begin(sid string) (uint64, <-chan struct{}) {
 
 // Put — записать сейв от имени поколения gen. false — сессию уже забрал
 // другой актор, писавший обязан завершиться.
+//
+// Файл пишется до замка (диск не держит остальные сессии), а на место
+// <sid>.json встаёт под ним — вместе с проверкой gen и записью в память
+// (ITGAME-183). Раньше проверка и память шли под замком, а файл после: Put
+// вытесненного актора ложился на диск поверх сейва нового, Put перед Delete
+// воскрешал удалённый файл, и после рестарта игрок получал старую партию.
 func (s *Store) Put(sid string, gen uint64, data []byte, at time.Time) bool {
 	if !ValidSID(sid) {
 		return false
 	}
+	tmp := s.writeTmp(sid, data, at)
+	if s.beforeCommit != nil {
+		s.beforeCommit(sid)
+	}
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	e, ok := s.entries[sid]
 	if !ok || e.gen != gen {
-		s.mu.Unlock()
+		s.dropTmp(tmp)
 		return false
 	}
 	e.data = append([]byte(nil), data...)
 	e.savedAt = at
-	s.mu.Unlock()
-
-	s.writeDisk(sid, data, at)
+	s.commitTmp(sid, tmp)
 	return true
 }
 
-// writeDisk — запись сейва на диск через временный файл (общая у Put и Rewrite).
+// writeTmp — сейв во временный файл рядом с <sid>.json, имя своё на каждую
+// запись: вытесненный и новый актор не пишут в один файл. "" — не вышло.
 // Ошибки только в лог: данные в памяти живы, игра продолжается.
-func (s *Store) writeDisk(sid string, data []byte, at time.Time) {
+func (s *Store) writeTmp(sid string, data []byte, at time.Time) string {
 	env, err := json.Marshal(diskEnvelope{SavedAt: at, Data: data})
 	if err != nil {
 		log.Printf("сейв %s: сериализация: %v", sid, err)
-		return
+		return ""
 	}
-	tmp := s.path(sid) + ".tmp"
-	if err := os.WriteFile(tmp, env, 0o600); err != nil {
+	f, err := os.CreateTemp(s.dir, sid+".json.*.tmp")
+	if err != nil {
 		log.Printf("сейв %s: запись: %v", sid, err)
+		return ""
+	}
+	_, werr := f.Write(env)
+	if err := errors.Join(werr, f.Close()); err != nil {
+		log.Printf("сейв %s: запись: %v", sid, err)
+		s.dropTmp(f.Name())
+		return ""
+	}
+	return f.Name()
+}
+
+// commitTmp — временный файл на место <sid>.json. Только под s.mu: иначе
+// переименование разойдётся с проверкой поколения и с Delete/Finish.
+func (s *Store) commitTmp(sid, tmp string) {
+	if tmp == "" {
 		return
 	}
 	if err := os.Rename(tmp, s.path(sid)); err != nil {
 		log.Printf("сейв %s: переименование: %v", sid, err)
+		s.dropTmp(tmp)
+	}
+}
+
+func (s *Store) dropTmp(tmp string) {
+	if tmp == "" {
+		return
+	}
+	if err := os.Remove(tmp); err != nil && !os.IsNotExist(err) {
+		log.Printf("сейв: удаление %s: %v", filepath.Base(tmp), err)
 	}
 }
 
@@ -221,7 +260,7 @@ func (s *Store) Rewrite(sid string, old, data []byte) bool {
 		return false
 	}
 	e.data = append([]byte(nil), data...)
-	s.writeDisk(sid, data, e.savedAt)
+	s.commitTmp(sid, s.writeTmp(sid, data, e.savedAt))
 	return true
 }
 
@@ -277,8 +316,14 @@ func (s *Store) removeFile(sid string) {
 
 func (s *Store) expired(e *entry) bool { return time.Since(e.savedAt) > s.ttl }
 
-// pruneDisk — стартовая чистка: протухшие и битые файлы со старта процесса.
+// pruneDisk — стартовая чистка: протухшие и битые файлы со старта процесса
+// и временные, брошенные падением между записью и переименованием (имена у
+// записей свои — сами они не перезапишутся).
 func (s *Store) pruneDisk() {
+	tmps, _ := filepath.Glob(filepath.Join(s.dir, "*.tmp"))
+	for _, p := range tmps {
+		os.Remove(p)
+	}
 	matches, _ := filepath.Glob(filepath.Join(s.dir, "*.json"))
 	for _, p := range matches {
 		base := strings.TrimSuffix(filepath.Base(p), ".json")

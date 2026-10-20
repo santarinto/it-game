@@ -341,3 +341,85 @@ func TestRewriteKeepsOwnerAndSavedAt(t *testing.T) {
 		t.Fatal("Rewrite после Finish вернул true")
 	}
 }
+
+// tmpLeft — временные файлы сейвов, оставшиеся в каталоге.
+func tmpLeft(t *testing.T, dir string) []string {
+	t.Helper()
+	m, err := filepath.Glob(filepath.Join(dir, "*.tmp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// Вытесненный актор прошёл проверку gen, но файл ещё не записал — в это время
+// вкладку забрал новый актор и сохранился (ITGAME-183). Его запись не должна
+// лечь на диск поверх свежего сейва: после рестарта игрок получил бы старую партию.
+func TestStalePutLosesDiskToNewOwner(t *testing.T) {
+	s := newTestStore(t, time.Hour)
+	const sid = "takeover-123"
+	gen1, _ := s.Begin(sid)
+	s.Put(sid, gen1, []byte(`"v1"`), time.Now())
+
+	s.beforeCommit = func(string) {
+		s.beforeCommit = nil
+		gen2, _ := s.Begin(sid)
+		if !s.Put(sid, gen2, []byte(`"fresh"`), time.Now()) {
+			t.Error("новый владелец не записал")
+		}
+	}
+	if s.Put(sid, gen1, []byte(`"stale"`), time.Now()) {
+		t.Error("Put вытесненного владельца принят")
+	}
+	if data, _ := s.Load(sid); string(data) != `"fresh"` {
+		t.Fatalf("в памяти %s, хотим fresh", data)
+	}
+	s2, err := New(s.dir, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, ok := s2.Load(sid); !ok || string(data) != `"fresh"` {
+		t.Fatalf("после рестарта %s %v, хотим fresh", data, ok)
+	}
+	if left := tmpLeft(t, s.dir); len(left) > 0 {
+		t.Fatalf("остались временные файлы: %v", left)
+	}
+}
+
+// Сейв удалили (abandon, финал по TTL), пока Put владельца был в полёте: файл
+// не должен воскреснуть и подняться после рестарта.
+func TestPutRacingDeleteLeavesNoFile(t *testing.T) {
+	s := newTestStore(t, time.Hour)
+	const sid = "deleted-1234"
+	gen, _ := s.Begin(sid)
+	s.Put(sid, gen, []byte(`"v1"`), time.Now())
+
+	s.beforeCommit = func(string) {
+		s.beforeCommit = nil
+		s.Delete(sid)
+	}
+	if s.Put(sid, gen, []byte(`"v2"`), time.Now()) {
+		t.Error("Put в удалённый сейв принят")
+	}
+	if _, err := os.Stat(s.path(sid)); !os.IsNotExist(err) {
+		t.Fatalf("удалённый сейв воскрес на диске (err=%v)", err)
+	}
+	if left := tmpLeft(t, s.dir); len(left) > 0 {
+		t.Fatalf("остались временные файлы: %v", left)
+	}
+}
+
+// Временный файл, брошенный падением процесса между записью и переименованием,
+// стартовая чистка убирает: имена у записей свои, сами они не перезапишутся.
+func TestPruneRemovesTmp(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"crash-1234.json.tmp", "crash-1234.json.123456.tmp"} {
+		os.WriteFile(filepath.Join(dir, name), []byte(`{"savedAt":"2999-01-01T00:00:00Z","da`), 0o600)
+	}
+	if _, err := New(dir, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if left := tmpLeft(t, dir); len(left) > 0 {
+		t.Fatalf("временные файлы пережили старт: %v", left)
+	}
+}

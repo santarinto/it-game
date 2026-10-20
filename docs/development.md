@@ -190,7 +190,12 @@ ITGAME-30), then the shared `localStorage` `itd.sid` (never under
 **Blocked storage** below). Starting a party (`connect`) writes the mirror
 always and the shared key only for a sid that came from it or was freshly
 generated. The server saves after every command and tick — in memory plus
-an atomically written `<sid>.json`. On reconnect with the same `sid` within
+an atomically written `<sid>.json`: each save goes to its own temp file
+outside the store lock and is renamed into place under it, together with the
+owner (`gen`) check and the memory write, so an evicted actor never lands its
+save over the new owner's and a save racing a delete never brings the file
+back (ITGAME-183); startup removes temp files a crash left behind. On
+reconnect with the same `sid` within
 the TTL (default 24 h, `-save-ttl`):
 
 - the game resumes; a short drop (e.g. a deploy) continues silently;
