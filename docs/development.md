@@ -168,6 +168,9 @@ Notes:
   `unknown`, which counts as `null` too).
 - A deploy drops live WebSocket connections; saves live in `shared/saves`,
   and clients reconnect and resume.
+- PostgreSQL runs on the box since 20.10 (minipc MINIPC-276, ITGAME-168):
+  see [Database](#database). The release itself needs nothing for it — the
+  server applies migrations on start.
 - nginx must not SPA-fallback `/assets/`, or a missing asset returns
   `index.html` with 200:
 
@@ -1788,6 +1791,22 @@ connects on start and applies migrations from
 connection or migration error is fatal. Without it, the server starts
 normally and `/admin` shows a database-unavailable notice instead of the
 catalog.
+
+**On the game box** (since 20.10, minipc MINIPC-276; ITGAME-168): PostgreSQL
+18 on localhost only, one database and role per instance — `itgame` for
+production, `itgame_stage` for stage, neither can connect to the other's.
+`DATABASE_URL` reaches the units through `EnvironmentFile` —
+`/etc/itgame/prod.env` and `/etc/itgame/stage.env` (root 0600, outside git;
+the units are minipc's, `deploy/itgame/systemd/`). The units carry
+`Wants=postgresql.service`, not `Requires=`, so a running game survives the
+database going away — but since a connection error at start is fatal, a
+restart or deploy while PostgreSQL is down keeps the server in its
+`Restart=on-failure` loop until the database is back. Backups: the provider's
+external backup of the box, no `pg_dump` of our own (owner decision).
+Checked 20.10: both instances log «БД подключена, миграции применены» with
+the two tables (`lib_equipment`, `schema_migrations`); on an empty
+PostgreSQL 18.6 the current `main` applies both migrations, seeds the nine
+catalog rows and `/admin` lists them.
 
 ## Local stand (`:15555`)
 
