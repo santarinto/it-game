@@ -238,6 +238,8 @@ func TestDebugFormatRefusals(t *testing.T) {
 	}{
 		{"негодный sid", `{"sid":"x"}`, "bad_sid", 400},
 		{"формат сервера", fmt.Sprintf(`{"sid":"refuse-1234","format":%d}`, game.SaveFormat), "same_format", 400},
+		{"не целый формат", `{"sid":"refuse-1234","format":1.5}`, "bad_format", 400},
+		{"огромный формат", `{"sid":"refuse-1234","format":1e30}`, "bad_format", 400},
 		{"отрицательный формат", `{"sid":"refuse-1234","format":-1}`, "bad_format", 400},
 		{"нет сейва", `{"sid":"refuse-1234"}`, "no_save", 404},
 		{"не JSON", `не json`, "тело не JSON", 400},

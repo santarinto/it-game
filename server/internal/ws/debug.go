@@ -3,6 +3,7 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -438,6 +439,12 @@ type formatReply struct {
 func (h *Handler) serveDebugFormat(w http.ResponseWriter, r *http.Request) {
 	var body formatPostBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		var ute *json.UnmarshalTypeError
+		if errors.As(err, &ute) && ute.Field == "format" {
+			// JSON, но format не целое (1.5, 1e30): не «тело не JSON»
+			writeDebugErr(w, http.StatusBadRequest, "bad_format: format — целое ≥ 0")
+			return
+		}
 		writeDebugErr(w, http.StatusBadRequest, "тело не JSON: "+err.Error())
 		return
 	}
@@ -477,7 +484,16 @@ func (h *Handler) serveDebugFormat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out, was, ok := withSaveFormat(raw, sid, format)
-	if !ok || !h.Saves.Rewrite(sid, out) {
+	if !ok {
+		noSave()
+		return
+	}
+	if !h.Saves.Rewrite(sid, raw, out) {
+		if _, still := h.Saves.Load(sid); still {
+			// сейв сменился после чтения — вкладка подключилась и пишет прогресс
+			writeDebugErr(w, http.StatusConflict, "busy: сейв "+sid+" изменился во время правки — повторите")
+			return
+		}
 		noSave()
 		return
 	}
@@ -485,7 +501,7 @@ func (h *Handler) serveDebugFormat(w http.ResponseWriter, r *http.Request) {
 	writeDebugJSON(w, http.StatusOK, formatReply{SID: sid, Was: was, Format: format, Live: false})
 }
 
-// withSaveFormat — сейв raw с game.format = format (ITGAME-154), остальное байт в байт:
+// withSaveFormat — сейв raw с game.format = format (ITGAME-154), остальное — те же значения (ключи по алфавиту, <>& экранируются):
 // json.RawMessage, не map[string]any (uint64-сид стал бы float64) и не sessionSave (сейв новее
 // может не лечь в него). was — прежний формат; ok=false — не сейв этого sid (не JSON, чужой
 // sid, нет game).

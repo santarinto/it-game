@@ -378,7 +378,7 @@ To see the card without a restart (ITGAME-154): `POST /api/debug/format`
 `{sid, format?}` (`ITGAME_DEBUG` only) marks the save of `sid` with another
 `game.format` — by default `SaveFormat + 1`, `0` is the oldest, the server's
 own format → `400 same_format`, below 0 → `400 bad_format`. It keeps `version`,
-every other byte and `savedAt`; the answer is `{sid, was, format, live}`.
+every other value and `savedAt`; the answer is `{sid, was, format, live}`.
 `live: false` — nobody holds the sid, the store is rewritten, memory and file
 (`store.Rewrite`: no `Begin`, so the owner's generation and kick are kept; a
 hand-edited file stays invisible on a live server because `Load` serves memory
@@ -388,7 +388,9 @@ first). `live: true` — the actor of a live party (owner, 20.10: «порча �
 sees it). «В меню» then shows the card, and a reconnect goes through `resume` →
 another format → a new party under the same sid, silent in the tab today
 (ITGAME-174). A finished party → `404 no_save`, a server without saves →
-`409 no_saves`; the errors are free text, not protocol codes. Client:
+`409 no_saves`; a save that changed while the route was editing it (a tab
+connected and wrote) → `409 busy`, retry; the errors are free text, not
+protocol codes. Client:
 `itd.staleSave()`.
 
 **Build version** (ITGAME-140): the session save (`sessionSave.version`, next to

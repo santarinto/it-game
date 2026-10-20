@@ -4,6 +4,7 @@
 package store
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -190,38 +191,37 @@ func (s *Store) writeDisk(sid string, data []byte, at time.Time) {
 
 // Rewrite — переписать сейв sid без владения (ITGAME-154, POST /api/debug/format):
 // данные в памяти и на диске, savedAt прежний, поколение и kick владельца не
-// трогаются — его следующий Put перепишет правку. Не Begin: тот пинает владельца.
-// false — сейва нет (нет записи и файла, Begin без Put, Finish, истёк). Только для
-// отладки: вкладка, подключившаяся между проверкой «актора нет» и Rewrite, либо
-// продолжит старый сейв и затрёт правку своим Put, либо прочтёт правленый и начнёт
-// новую партию — оба исхода согласованы.
-func (s *Store) Rewrite(sid string, data []byte) bool {
+// трогаются. Не Begin: тот пинает владельца. old — байты, которые вызывающий прочёл и
+// правил: если сейв с тех пор изменился (вкладка подключилась и её актор записал
+// прогресс), правка отклоняется, а не затирает его. false — сейва нет (нет записи и
+// файла, Begin без Put, Finish, истёк) либо он не равен old. Запись файла под замком,
+// чтобы память и диск не разошлись. Остаток гонки: актор, подключившийся после чтения, но
+// ещё не писавший, затрёт метку своим первым Put — исход согласован. Только для отладки.
+func (s *Store) Rewrite(sid string, old, data []byte) bool {
 	if !ValidSID(sid) {
 		return false
 	}
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	e, ok := s.entries[sid]
 	if !ok {
 		if e, ok = s.loadDiskLocked(sid); !ok {
-			s.mu.Unlock()
 			return false
 		}
 		s.entries[sid] = e
 	}
 	if len(e.data) == 0 {
-		s.mu.Unlock()
 		return false
 	}
 	if s.expired(e) {
 		s.deleteLocked(sid)
-		s.mu.Unlock()
+		return false
+	}
+	if !bytes.Equal(e.data, old) {
 		return false
 	}
 	e.data = append([]byte(nil), data...)
-	at := e.savedAt
-	s.mu.Unlock()
-
-	s.writeDisk(sid, data, at)
+	s.writeDisk(sid, data, e.savedAt)
 	return true
 }
 

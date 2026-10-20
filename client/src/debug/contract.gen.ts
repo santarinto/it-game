@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "dd4478e208fd",
+  "hash": "7f195e2afb3d",
   "methods": {
     "version": {
       "kind": "prop",
@@ -619,7 +619,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<StaleSaveResult>",
-      "doc": "Пометить сейв другим форматом (ITGAME-154): POST /api/debug/format (сервер с ITGAME_DEBUG=1).\ngame.format сейва = format (по умолчанию на 1 новее сервера; формат самого сервера — отказ\nsame_format), версия сборки и остальное не трогаются, перезапуск стенда не нужен.\nsid по умолчанию — свой (liveSid ?? sid хранилища, как itd.journal): партии не требует\n(не ITGAME-131) — из меню помечает сейв, из которого вкладка вышла.\nОтвет {sid, was, format, live}: live false — сейв переписан в сторе, перезагрузите меню →\n«СЕЙВ НЕСОВМЕСТИМ»; live true — сейв держит живая партия, её актор пишет метку до выхода:\n«В меню» → карточка, переподключение (F5, itd.away) → новая партия молча (ITGAME-174).\nОтказы — в тексте ошибки: bad_sid, bad_format, same_format, no_save, no_saves; голое\nHTTP 404 — сервер без ITGAME_DEBUG=1.",
+      "doc": "Пометить сейв другим форматом (ITGAME-154): POST /api/debug/format (сервер с ITGAME_DEBUG=1).\ngame.format сейва = format (по умолчанию на 1 новее сервера; формат самого сервера — отказ\nsame_format), версия сборки и остальное не трогаются, перезапуск стенда не нужен.\nsid по умолчанию — свой (liveSid ?? sid хранилища, как itd.journal): партии не требует\n(не ITGAME-131) — из меню помечает сейв, из которого вкладка вышла.\nОтвет {sid, was, format, live}: live false — сейв переписан в сторе, перезагрузите меню →\n«СЕЙВ НЕСОВМЕСТИМ»; live true — сейв держит живая партия, её актор пишет метку до выхода:\n«В меню» → карточка, переподключение (F5, itd.away) → новая партия молча (ITGAME-174).\nОтказы — в тексте ошибки: bad_sid, bad_format, same_format, no_save, no_saves, busy (сейв изменился во время правки — повторить); голое\nHTTP 404 — сервер без ITGAME_DEBUG=1.",
       "examples": [
         "await itd.staleSave()",
         "await itd.staleSave({format: 0})"

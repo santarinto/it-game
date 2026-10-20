@@ -267,7 +267,7 @@ func TestRewriteKeepsOwnerAndSavedAt(t *testing.T) {
 	old := time.Now().Add(-time.Minute)
 	s.Put(sid, gen, []byte(`{"a":1}`), old)
 
-	if !s.Rewrite(sid, []byte(`{"a":2}`)) {
+	if !s.Rewrite(sid, []byte(`{"a":1}`), []byte(`{"a":2}`)) {
 		t.Fatal("Rewrite существующего сейва отклонён")
 	}
 	if data, ok := s.Load(sid); !ok || string(data) != `{"a":2}` {
@@ -297,7 +297,7 @@ func TestRewriteKeepsOwnerAndSavedAt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !s3.Rewrite(sid, []byte(`{"a":3}`)) {
+	if !s3.Rewrite(sid, []byte(`{"a":2}`), []byte(`{"a":3}`)) {
 		t.Fatal("Rewrite без записи в памяти (с диска) отклонён")
 	}
 	if data, ok := s3.Load(sid); !ok || string(data) != `{"a":3}` {
@@ -318,19 +318,26 @@ func TestRewriteKeepsOwnerAndSavedAt(t *testing.T) {
 	}
 
 	// нет сейва — нет и файла
-	if s.Rewrite("rewrite-none-1", []byte(`{}`)) {
+	if s.Rewrite("rewrite-none-1", []byte(`{}`), []byte(`{}`)) {
 		t.Fatal("Rewrite без сейва вернул true")
 	}
 	if _, err := os.Stat(s.path("rewrite-none-1")); err == nil {
 		t.Fatal("Rewrite без сейва создал файл")
 	}
-	if s.Rewrite("x", []byte(`{}`)) {
+	if s.Rewrite("x", []byte(`{}`), []byte(`{}`)) {
 		t.Fatal("Rewrite с негодным sid вернул true")
+	}
+	// сейв сменился после чтения (актор записал прогресс): правка по старым байтам отклоняется
+	if s.Rewrite(sid, []byte(`{"a":2}`), []byte(`{"a":9}`)) {
+		t.Fatal("Rewrite по устаревшим байтам затёр новый сейв")
+	}
+	if data, _ := s.Load(sid); string(data) != `{"a":4}` {
+		t.Fatalf("после отказа Rewrite: %q, хотим {\"a\":4}", data)
 	}
 	if !s.Finish(sid, gen) {
 		t.Fatal("Finish владельца отклонён")
 	}
-	if s.Rewrite(sid, []byte(`{}`)) {
+	if s.Rewrite(sid, []byte(`{"a":4}`), []byte(`{}`)) {
 		t.Fatal("Rewrite после Finish вернул true")
 	}
 }

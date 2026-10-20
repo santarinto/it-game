@@ -1290,7 +1290,7 @@ export interface ItdApi {
    * Ответ {sid, was, format, live}: live false — сейв переписан в сторе, перезагрузите меню →
    * «СЕЙВ НЕСОВМЕСТИМ»; live true — сейв держит живая партия, её актор пишет метку до выхода:
    * «В меню» → карточка, переподключение (F5, itd.away) → новая партия молча (ITGAME-174).
-   * Отказы — в тексте ошибки: bad_sid, bad_format, same_format, no_save, no_saves; голое
+   * Отказы — в тексте ошибки: bad_sid, bad_format, same_format, no_save, no_saves, busy (сейв изменился во время правки — повторить); голое
    * HTTP 404 — сервер без ITGAME_DEBUG=1.
    * @example await itd.staleSave()
    * @example await itd.staleSave({format: 0})
