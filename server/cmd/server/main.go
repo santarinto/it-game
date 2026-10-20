@@ -133,6 +133,9 @@ func newMux(cfg game.Config, database *db.Conn, saves *store.Store, staticDir st
 	// /api/debug/*: на проде у игроков не пишется.
 	wsHandler := &ws.Handler{Config: cfg, TickInterval: time.Second, Saves: saves, ReadTimeout: readTimeout, Journal: debugRoutes}
 	mux.Handle("GET /ws", wsHandler)
+	// Чит денег (ITGAME-194): без гейта ITGAME_DEBUG — хендлер сам пускает
+	// только запрос с localhost.
+	mux.Handle("POST /api/cheat/money", http.HandlerFunc(wsHandler.ServeCheat))
 	if debugRoutes {
 		// WS-мост агента (ITGAME-29) и HTTP debug-API (ITGAME-26): только
 		// при ITGAME_DEBUG=1. Без флага маршруты не регистрируются вовсе —

@@ -506,6 +506,12 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		case <-kick:
 			return true
 		case req := <-debugC:
+			if req.kind == kindCheatMoney {
+				// чит (ITGAME-194) — патч с абсолютным балансом: журнал и реплей
+				// видят обычный debug-патч, и прибавка считается здесь, в акторе
+				money := g.Money + req.add
+				req = debugRequest{kind: kindPatch, patch: debugPatch{Money: &money}, Reply: req.Reply}
+			}
 			rev := rv.rev
 			if h.applyDebug(ctx, hub, req, sid, gen, withSaves,
 				&g, &speed, resumeSpeed, &lastReport, journal, &scenario, rv, &saveFormat) {

@@ -69,14 +69,15 @@ func (j *eventJournal) last(n int) []string {
 
 // Kind'ы запросов к актору сессии.
 const (
-	kindState    = "state"    // полный снапшот + сейв
-	kindPatch    = "patch"    // точечный чит {money, day, tickInDay}
-	kindRestore  = "restore"  // полное состояние (itd.restore)
-	kindScenario = "scenario" // пересоздать партию фикстурой
-	kindAdvance  = "advance"  // промотка днями/тиками (движок offline)
-	kindEvents   = "events"   // хвост журнала событий
-	kindLedger   = "ledger"   // книга дня (ITGAME-73)
-	kindFormat   = "format"   // метка формата сейва (ITGAME-154): сейв, не игра
+	kindState      = "state"       // полный снапшот + сейв
+	kindPatch      = "patch"       // точечный чит {money, day, tickInDay}
+	kindCheatMoney = "cheat_money" // +деньги с localhost (ITGAME-194); актор переводит в kindPatch
+	kindRestore    = "restore"     // полное состояние (itd.restore)
+	kindScenario   = "scenario"    // пересоздать партию фикстурой
+	kindAdvance    = "advance"     // промотка днями/тиками (движок offline)
+	kindEvents     = "events"      // хвост журнала событий
+	kindLedger     = "ledger"      // книга дня (ITGAME-73)
+	kindFormat     = "format"      // метка формата сейва (ITGAME-154): сейв, не игра
 )
 
 // debugRequest — запрос HTTP-хендлера к актору. Reply буферизован: актор
@@ -84,6 +85,7 @@ const (
 type debugRequest struct {
 	kind     string
 	patch    debugPatch
+	add      int             // kind=cheat_money: сколько прибавить к балансу
 	state    json.RawMessage // kind=restore: дельта над текущим состоянием
 	scenario string          // kind=scenario
 	days     int             // kind=advance

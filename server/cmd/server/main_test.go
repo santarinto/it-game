@@ -225,3 +225,22 @@ func TestMetricsMux(t *testing.T) {
 		t.Fatalf("основной mux /metrics: %d, ожидался 404", resp.StatusCode)
 	}
 }
+
+// Чит денег (ITGAME-194) зарегистрирован и без ITGAME_DEBUG: на запрос без
+// живой партии отвечает своим JSON 404, а не 404 ServeMux «page not found».
+func TestCheatRouteWithoutDebug(t *testing.T) {
+	srv := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, "", false, 0, spriteproxy.Upstream{}))
+	defer srv.Close()
+	resp, err := http.Post(srv.URL+"/api/cheat/money", "application/json", strings.NewReader(`{"sid":"cheat-route-01","amount":100}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("ответ не JSON — маршрута нет: %v", err)
+	}
+	if resp.StatusCode != http.StatusNotFound || !strings.Contains(out["error"], "session_not_live") {
+		t.Fatalf("ждали 404 session_not_live, получили %d %v", resp.StatusCode, out)
+	}
+}
