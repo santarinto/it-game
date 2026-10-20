@@ -162,7 +162,8 @@ func (g *Game) starOffice() int {
 
 // baseIncomePerTick — суммарная базовая выработка компании без эффектов
 // и сети: точка отсчёта цели дедлайна (баффы помогают перевыполнить).
-// Прибавка уровней входит: цель растёт вместе с тенюрой (итерация 15).
+// Прибавка уровней входит: цель растёт вместе с тенюрой (итерация 15); множитель
+// уровня ПК тоже, а место «требуется замена» ничего не производит (ITGAME-135).
 func (g *Game) baseIncomePerTick() int {
 	total := 0
 	for oi := range g.Offices {
@@ -171,7 +172,11 @@ func (g *Game) baseIncomePerTick() int {
 			continue
 		}
 		for i := range o.Employees {
-			total += o.Employees[i].IncomePerTick + g.levelBonus(&o.Employees[i])
+			if o.Workplace(i).Dead {
+				continue
+			}
+			e := &o.Employees[i]
+			total += int(math.Round(float64(e.IncomePerTick+g.levelBonus(e)) * g.pcMult(o, i)))
 		}
 	}
 	return total

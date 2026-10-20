@@ -55,8 +55,12 @@ func pct(mult float64) int { return int(math.Round((mult - 1) * 100)) }
 
 // EffectiveIncomePerTick — личная выработка сотрудника стола slot с учётом
 // прибавки уровня, множителя уровня ПК (ITGAME-135) и активных эффектов (без
-// сетевого множителя). Для тултипа: сервер считает, клиент показывает.
+// сетевого множителя). Для тултипа: сервер считает, клиент показывает. Место
+// «требуется замена» не производит — 0.
 func (g *Game) EffectiveIncomePerTick(o *Office, slot int) int {
+	if o.Workplace(slot).Dead {
+		return 0
+	}
 	e := &o.Employees[slot]
 	return int(math.Round(float64(e.IncomePerTick+g.levelBonus(e)) * g.pcMult(o, slot) * g.effectMult(o, e, g.TickInDay)))
 }
