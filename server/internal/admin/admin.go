@@ -16,11 +16,11 @@ var pageHTML string
 
 var page = template.Must(template.New("admin").Parse(pageHTML))
 
-// Handler отдаёт страницу админки. DB может быть nil — тогда каталог
-// заменяется сообщением «БД недоступна».
+// Handler отдаёт страницу админки. DB nil (DATABASE_URL не задан) или ещё
+// не подключилась (ITGAME-190) — каталог заменяется сообщением «БД недоступна».
 type Handler struct {
 	Config game.Config
-	DB     *db.DB
+	DB     *db.Conn
 }
 
 type row struct {
@@ -77,8 +77,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	data := pageData{ConfigRows: configRows(h.Config)}
 	if h.DB == nil {
 		data.DBError = "DATABASE_URL не задан"
+	} else if d, err := h.DB.Get(); err != nil {
+		data.DBError = err.Error()
 	} else {
-		items, err := h.DB.ListEquipment(r.Context())
+		items, err := d.ListEquipment(r.Context())
 		if err != nil {
 			data.DBError = err.Error()
 		} else {

@@ -1787,10 +1787,17 @@ Put `DATABASE_URL=postgres://user:pass@localhost:5432/itdirector` into
 `.env` in the repo root (gitignored); the `Makefile` loads it and exports
 `DATABASE_URL` / `TEST_DATABASE_URL`. With `DATABASE_URL` set, the server
 connects on start and applies migrations from
-`server/internal/db/migrations` (tracked in `schema_migrations`); a
-connection or migration error is fatal. Without it, the server starts
-normally and `/admin` shows a database-unavailable notice instead of the
-catalog.
+`server/internal/db/migrations` (tracked in `schema_migrations`). Neither a
+connection nor a migration error stops the game (ITGAME-190, `db.Open`): the
+server logs «ВНИМАНИЕ: БД недоступна: …», starts as usual, and retries in the
+background — 5 s, doubling up to a minute, logging only when the error
+changes — until the database connects and takes the migrations («БД
+подключена с попытки N»); until then `/admin` shows «БД недоступна: <error>»
+instead of the catalog. A `DATABASE_URL` that does not parse is a config
+error: logged once, shown on `/admin`, never retried. Once connected the
+server no longer watches the database: a later outage shows up as the same
+notice on `/admin`, and pgx reconnects by itself on the next query. Without `DATABASE_URL` the server
+starts normally and `/admin` shows «БД недоступна: DATABASE_URL не задан».
 
 **On the game box** (since 20.10, minipc MINIPC-276; ITGAME-168): PostgreSQL
 18 on localhost only, one database and role per instance — `itgame` for
@@ -1799,9 +1806,10 @@ production, `itgame_stage` for stage, neither can connect to the other's.
 `/etc/itgame/prod.env` and `/etc/itgame/stage.env` (root 0600, outside git;
 the units are minipc's, `deploy/itgame/systemd/`). The units carry
 `Wants=postgresql.service`, not `Requires=`, so a running game survives the
-database going away — but since a connection error at start is fatal, a
-restart or deploy while PostgreSQL is down keeps the server in its
-`Restart=on-failure` loop until the database is back. Backups: the provider's
+database going away, and since ITGAME-190 a restart or deploy while
+PostgreSQL is down starts the game too — only `/admin` waits for the
+database (before it, a connection error at start was fatal and kept the
+server in its `Restart=on-failure` loop). Backups: the provider's
 external backup of the box, no `pg_dump` of our own (owner decision).
 Checked 20.10: both instances log «БД подключена, миграции применены» with
 the two tables (`lib_equipment`, `schema_migrations`); on an empty
@@ -1860,8 +1868,9 @@ The database is `itdirector_dev` on the host's PostgreSQL, reached over the
 unix socket with peer auth (`postgres:///itdirector_dev?host=/run/postgresql`,
 no password). An optional `~/.config/itgame-dev/env` (`KEY=VALUE` lines)
 overrides the unit's environment, for example a `DATABASE_URL` with a
-password. The unit restarts on failure, which also covers PostgreSQL coming up
-after it at boot. Logs: `journalctl --user -u itgame-dev`.
+password. The unit restarts on failure; PostgreSQL coming up after it at boot
+needs no restart — the server picks the database up in the background (see
+[Database](#database)). Logs: `journalctl --user -u itgame-dev`.
 
 Agents read the same database through the MCP server `itd-db` (DBHub,
 `@bytebase/dbhub`, local scope of this project): config

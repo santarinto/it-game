@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"flag"
 	"log"
@@ -48,20 +47,12 @@ func main() {
 	flag.Parse()
 
 	// БД опциональна: геймплей от неё не зависит, каталог читает админка.
-	var database *db.DB
+	// Недоступная база сервер не роняет (ITGAME-190): db.Open повторяет
+	// попытки в фоне, /admin до тех пор пишет «БД недоступна».
+	var database *db.Conn
 	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		d, err := db.Connect(ctx, dsn)
-		if err != nil {
-			log.Fatalf("БД: %v", err)
-		}
-		if err := d.Migrate(ctx); err != nil {
-			log.Fatalf("миграции: %v", err)
-		}
-		cancel()
-		database = d
-		defer d.Close()
-		log.Printf("БД подключена, миграции применены")
+		database = db.Open(dsn, log.Printf)
+		defer database.Close()
 	} else {
 		log.Printf("ВНИМАНИЕ: DATABASE_URL не задан — игра работает, админка без каталога")
 	}
@@ -127,7 +118,7 @@ func newMetricsMux() *http.ServeMux {
 // debugRoutes — гейт отладочных маршрутов (ITGAME_DEBUG=1 в main): выключен
 // по умолчанию, флаг передаётся явно параметром (а не читается из env здесь),
 // чтобы тесты управляли им напрямую, без глобального состояния.
-func newMux(cfg game.Config, database *db.DB, saves *store.Store, staticDir string, debugRoutes bool, readTimeout time.Duration) *http.ServeMux {
+func newMux(cfg game.Config, database *db.Conn, saves *store.Store, staticDir string, debugRoutes bool, readTimeout time.Duration) *http.ServeMux {
 	mux := http.NewServeMux()
 	// Журнал партии для реплея (ITGAME-46) — под тем же гейтом, что и
 	// /api/debug/*: на проде у игроков не пишется.
