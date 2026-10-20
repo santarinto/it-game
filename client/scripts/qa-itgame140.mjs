@@ -6,7 +6,7 @@
 //       того же формата): «ПРОДОЛЖИТЬ» с $4,321, карточки menu.stale нет; «Продолжить» поднимает партию
 //       с $4321, её сейв снова с version сервера
 //   V4  сейв без version (до ITGAME-140) — тоже «ПРОДОЛЖИТЬ» с $4,321
-//   V5  itd.staleSave из меню (sid вкладки по умолчанию): game.format на 1 меньше, маршрутом
+//   V5  itd.staleSave({sid}) из меню (без {sid} вне песочницы — отказ owner_sid, файл не тронут): game.format на 1 меньше, маршрутом
 //       POST /api/debug/format без перезапуска (ITGAME-154): {sid, was, format, live:false}, в файле
 //       изменился только game.format, savedAt тот же. Сейв старого формата: «ПРОДОЛЖИТЬ» нет, карточка
 //       menu.stale «СЕЙВ НЕСОВМЕСТИМ», «начните новую партию:», overlaps/offscreen пусты; строка карточки —
@@ -202,11 +202,15 @@ try {
 
   // V5/V6 сейв другого формата — старше и новее, маршрутом без перезапуска (ITGAME-154): карточка
   // вместо «ПРОДОЛЖИТЬ». Версию маршрут не трогает (после V4 её в файле нет) — это пинует sameButFormat.
+  // Без {sid} из меню вне песочницы — общий ключ владельца: отказ owner_sid, сейв не тронут
+  const refused = await page.evaluate(() => window.itd.staleSave().then(() => null, (e) => String(e.message)))
+  check('V5 itd.staleSave() без {sid} из меню вне песочницы — отказ owner_sid, формат сейва не тронут',
+    /owner_sid/.test(refused ?? '') && fileFormat() === FORMAT, JSON.stringify({ refused, file: fileFormat() }))
   for (const [name, format, via] of [['V5 старше', FORMAT - 1, 'itd'], ['V6 новее', FORMAT + 1, 'http']]) {
     const before = fileEnv()
     const was = fileFormat()
     const r = via === 'itd'
-      ? await page.evaluate((f) => window.itd.staleSave({ format: f }), format)
+      ? await page.evaluate(([f, s]) => window.itd.staleSave({ format: f, sid: s }), [format, sid])
       : await (await fetch(`${BASE}/api/debug/format`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sid, format }),
       })).json()

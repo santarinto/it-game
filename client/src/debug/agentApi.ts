@@ -939,7 +939,7 @@ export interface ItdApi {
    */
   blocker(): HitTarget | null
   /**
-   * Карта экрана одним вызовом (ITGAME-72): {meta, n, items}. meta — sha, tab
+   * Карта экрана одним вызовом (ITGAME-72): {ok: true, meta, n, items}. meta — sha, tab
    * (sid), day, clock, t, bal, speed, phase, staff, pay, hudClock/hudBal (что
    * нарисовано в HUD, рядом с серверными clock/bal), blocker, title (заголовок
    * верхнего окна), stale (последний itd.stale()). items — строки 'safe|подпись|x|y|флаги' по видимым
@@ -1285,12 +1285,14 @@ export interface ItdApi {
    * Пометить сейв другим форматом (ITGAME-154): POST /api/debug/format (сервер с ITGAME_DEBUG=1).
    * game.format сейва = format (по умолчанию на 1 новее сервера; формат самого сервера — отказ
    * same_format), версия сборки и остальное не трогаются, перезапуск стенда не нужен.
-   * sid по умолчанию — свой (liveSid ?? sid хранилища, как itd.journal): партии не требует
-   * (не ITGAME-131) — из меню помечает сейв, из которого вкладка вышла.
+   * sid по умолчанию — liveSid своей партии или sid песочницы (a-…): партии не требует
+   * (не ITGAME-131), из песочницы-меню помечает сейв, из которого вкладка вышла. Вне партии и вне
+   * песочницы sid по умолчанию — общий ключ владельца, метка необратима (same_format): без явного
+   * {sid} — отказ owner_sid («передайте {sid} явно или войдите в itd.sandbox(...)»).
    * Ответ {sid, was, format, live}: live false — сейв переписан в сторе, перезагрузите меню →
    * «СЕЙВ НЕСОВМЕСТИМ»; live true — сейв держит живая партия, её актор пишет метку до выхода:
    * «В меню» → карточка, переподключение (F5, itd.away) → новая партия молча (ITGAME-174).
-   * Отказы — в тексте ошибки: bad_sid, bad_format, same_format, no_save, no_saves, busy (сейв изменился во время правки — повторить); голое
+   * Отказы — в тексте ошибки: owner_sid (клиент, см. выше), bad_sid, bad_format, same_format, no_save, no_saves, busy (сейв изменился во время правки — повторить), session_taken (410, партию перехватили); голое
    * HTTP 404 — сервер без ITGAME_DEBUG=1.
    * @example await itd.staleSave()
    * @example await itd.staleSave({format: 0})
@@ -1996,7 +1998,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.scenario('soft_lock')         — пересоздать партию фикстурой: fresh|broke_day3|mid_day10|full_office|soft_lock|pre_victory|spare_pcs|broken_pc|doomed_debt|virus_outbreak|admin_dept; сбрасывает клиентское состояние партии (офис → О1, оверлеи HUD, окна офиса/серверной, пауза отчёта); скорость не трогает — из отчёта или окна выхода партия остаётся на паузе: itd.resume(); работает и после финала; из меню — сразу not_in_party (ниже)
   itd.snapshot()                    — полный стейт с сервера: {state, save, events}; сид нового старта — ?seed=1234 в URL страницы
   itd.restore(save)                 — вернуть состояние из snapshot().save (дельта над текущим); закрытый в новом состоянии активный офис → О1; окна офиса/серверной закрывает
-  await itd.staleSave({format?, sid?}) — пометить сейв чужим форматом (ITGAME-154, /api/debug/format): game.format = format (по умолчанию на 1 новее сервера), версия не трогается, без перезапуска; sid — свой (liveSid ?? хранилище), из меню тоже → {sid, was, format, live}; live:false — сейв переписан, перезагрузите меню → «СЕЙВ НЕСОВМЕСТИМ»; live:true — метку держит актор партии: «В меню» → карточка, переподключение → новая партия молча (ITGAME-174)
+  await itd.staleSave({format?, sid?}) — пометить сейв чужим форматом (ITGAME-154, /api/debug/format): game.format = format (по умолчанию на 1 новее сервера), версия не трогается, без перезапуска; sid — liveSid своей партии или sid песочницы (a-…), иначе без явного {sid} отказ owner_sid (общий ключ владельца, метка необратима); из меню тоже → {sid, was, format, live}; live:false — сейв переписан, перезагрузите меню → «СЕЙВ НЕСОВМЕСТИМ»; live:true — метку держит актор партии: «В меню» → карточка, переподключение → новая партия молча (ITGAME-174)
   itd.quiet()                       — стоп твитов/миганий для стабильных скриншотов
   itd.meta()                        — статистика прогонов и состояние достижений (localStorage)
   itd.resetMeta()                   — сбросить мета-статистику и достижения
@@ -2478,7 +2480,13 @@ function makeApi(game: Phaser.Game): ItdApi {
         throw new Error('staleSave: format — целое ≥ 0 (без него — на 1 новее формата сервера)')
       }
       // ITGAME-154: не debugFetch — тот требует живой партии (ITGAME-131), а сейв помечают и из меню
-      const sid = opts?.sid ?? client.liveSid() ?? sessionId()
+      const live = client.liveSid()
+      // Без явного sid и вне своей партии вкладки sid по умолчанию — общий ключ владельца
+      // (localStorage itd.sid), а метка необратима: отказываем, если это не песочница (a-…).
+      if (opts?.sid === undefined && live === null && !sessionId().startsWith('a-')) {
+        throw new Error('staleSave: owner_sid — sid по умолчанию здесь общий ключ владельца, метка необратима; передайте {sid} явно или войдите в itd.sandbox(...)')
+      }
+      const sid = opts?.sid ?? live ?? sessionId()
       const res = await fetch('/api/debug/format', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

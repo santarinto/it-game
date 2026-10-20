@@ -391,7 +391,7 @@ another format → a new party under the same sid, silent in the tab today
 `409 no_saves`; a save that changed while the route was editing it (a tab
 connected and wrote) → `409 busy`, retry; the errors are free text, not
 protocol codes. Client:
-`itd.staleSave()`.
+`itd.staleSave({sid})` (without `{sid}` — only in a party or a sandbox, else `owner_sid`).
 
 **Build version** (ITGAME-140): the session save (`sessionSave.version`, next to
 `game`) records the server's build version (see [Deploy](#deploy)) for people:
@@ -1319,12 +1319,16 @@ documenting separately:
 - **`await itd.staleSave({format?, sid?})`** (ITGAME-154) — the wrapper over
   `POST /api/debug/format` (see [Sessions and saves](#sessions-and-saves)):
   `format` defaults to one above the server's (`{format: 0}` — older), `sid` to
-  the tab's own (`liveSid ?? stored sid`, like `itd.journal()`), so it works from
-  the menu (`live: false`: reload the menu to see the card) and in a party
+  the live party's (`liveSid`) or a sandbox sid (`a-…`), so it works in a party
   (`live: true`: «В меню» → the card, F5 or `itd.away` → a new party with no
-  word, ITGAME-174). Rejections carry the code in the text (`bad_sid`,
-  `bad_format`, `same_format`, `no_save`, `no_saves`); a bare `HTTP 404` is a
-  server without `ITGAME_DEBUG=1`.
+  word, ITGAME-174) and from a sandbox menu (`live: false`: reload the menu to
+  see the card). Outside a party and a sandbox the default sid is the owner's
+  shared key and the mark cannot be undone (`same_format`): without an explicit
+  `{sid}` the client refuses with `owner_sid`. Rejections carry the code in the
+  text (`owner_sid`, `bad_sid`, `bad_format`, `same_format`, `no_save`,
+  `no_saves`, `busy` — the save changed under the route, retry,
+  `session_taken` — the party was taken over); a bare `HTTP 404` is a server
+  without `ITGAME_DEBUG=1`.
 - **`itd.play(steps)` / `itd.ledger(day?)`** (ITGAME-73) — a party and its
   books from the console. `play` runs steps in order — `{cmd, office?, extra?}`
   (an `itd.cmd` with its receipt) or `{days: n}` (an `itd.advanceDays`) — and

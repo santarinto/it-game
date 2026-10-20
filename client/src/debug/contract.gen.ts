@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "7f195e2afb3d",
+  "hash": "54f912cfb188",
   "methods": {
     "version": {
       "kind": "prop",
@@ -234,7 +234,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "ScreenMap | (AgentResult & { code: 'bad_frame'; })",
-      "doc": "Карта экрана одним вызовом (ITGAME-72): {meta, n, items}. meta — sha, tab\n(sid), day, clock, t, bal, speed, phase, staff, pay, hudClock/hudBal (что\nнарисовано в HUD, рядом с серверными clock/bal), blocker, title (заголовок\nверхнего окна), stale (последний itd.stale()). items — строки 'safe|подпись|x|y|флаги' по видимым\nинтерактивам с id: подпись — тексты, целиком лежащие в рамке элемента (сосед,\nчей центр лёг на её кромку, — не подпись), x/y — центр в CSS px окна, с frame — в рамке снимка такой\nширины (frame — px, число ≥ 100; 1, 0, NaN, строка — {ok:false, code:'bad_frame'}, ITGAME-148); флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), D —\nнеактивна (нет денег/мест). free — только без X, scene — одна сцена.",
+      "doc": "Карта экрана одним вызовом (ITGAME-72): {ok: true, meta, n, items}. meta — sha, tab\n(sid), day, clock, t, bal, speed, phase, staff, pay, hudClock/hudBal (что\nнарисовано в HUD, рядом с серверными clock/bal), blocker, title (заголовок\nверхнего окна), stale (последний itd.stale()). items — строки 'safe|подпись|x|y|флаги' по видимым\nинтерактивам с id: подпись — тексты, целиком лежащие в рамке элемента (сосед,\nчей центр лёг на её кромку, — не подпись), x/y — центр в CSS px окна, с frame — в рамке снимка такой\nширины (frame — px, число ≥ 100; 1, 0, NaN, строка — {ok:false, code:'bad_frame'}, ITGAME-148); флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), D —\nнеактивна (нет денег/мест). free — только без X, scene — одна сцена.",
       "examples": [
         "itd.screen()",
         "itd.screen({ free: true, frame: 1280 })"
@@ -619,7 +619,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<StaleSaveResult>",
-      "doc": "Пометить сейв другим форматом (ITGAME-154): POST /api/debug/format (сервер с ITGAME_DEBUG=1).\ngame.format сейва = format (по умолчанию на 1 новее сервера; формат самого сервера — отказ\nsame_format), версия сборки и остальное не трогаются, перезапуск стенда не нужен.\nsid по умолчанию — свой (liveSid ?? sid хранилища, как itd.journal): партии не требует\n(не ITGAME-131) — из меню помечает сейв, из которого вкладка вышла.\nОтвет {sid, was, format, live}: live false — сейв переписан в сторе, перезагрузите меню →\n«СЕЙВ НЕСОВМЕСТИМ»; live true — сейв держит живая партия, её актор пишет метку до выхода:\n«В меню» → карточка, переподключение (F5, itd.away) → новая партия молча (ITGAME-174).\nОтказы — в тексте ошибки: bad_sid, bad_format, same_format, no_save, no_saves, busy (сейв изменился во время правки — повторить); голое\nHTTP 404 — сервер без ITGAME_DEBUG=1.",
+      "doc": "Пометить сейв другим форматом (ITGAME-154): POST /api/debug/format (сервер с ITGAME_DEBUG=1).\ngame.format сейва = format (по умолчанию на 1 новее сервера; формат самого сервера — отказ\nsame_format), версия сборки и остальное не трогаются, перезапуск стенда не нужен.\nsid по умолчанию — liveSid своей партии или sid песочницы (a-…): партии не требует\n(не ITGAME-131), из песочницы-меню помечает сейв, из которого вкладка вышла. Вне партии и вне\nпесочницы sid по умолчанию — общий ключ владельца, метка необратима (same_format): без явного\n{sid} — отказ owner_sid («передайте {sid} явно или войдите в itd.sandbox(...)»).\nОтвет {sid, was, format, live}: live false — сейв переписан в сторе, перезагрузите меню →\n«СЕЙВ НЕСОВМЕСТИМ»; live true — сейв держит живая партия, её актор пишет метку до выхода:\n«В меню» → карточка, переподключение (F5, itd.away) → новая партия молча (ITGAME-174).\nОтказы — в тексте ошибки: owner_sid (клиент, см. выше), bad_sid, bad_format, same_format, no_save, no_saves, busy (сейв изменился во время правки — повторить), session_taken (410, партию перехватили); голое\nHTTP 404 — сервер без ITGAME_DEBUG=1.",
       "examples": [
         "await itd.staleSave()",
         "await itd.staleSave({format: 0})"
