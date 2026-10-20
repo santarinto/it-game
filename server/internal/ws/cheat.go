@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -17,9 +18,24 @@ import (
 
 const maxCheatMoney = 10_000_000
 
+// localHost — имя хоста (без порта и скобок IPv6) локальное: localhost,
+// 127.0.0.1, ::1 или *.localhost. Одно правило и для Host, и для Origin.
+func localHost(host string) bool {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.ToLower(strings.Trim(host, "[]"))
+	return host == "localhost" || host == "127.0.0.1" || host == "::1" || strings.HasSuffix(host, ".localhost")
+}
+
 // localRequest — запрос с этой же машины напрямую, не через прокси:
 // loopback-адрес, Host — localhost, 127.0.0.1, ::1 или *.localhost, и ни
-// одного заголовка прокси.
+// одного заголовка прокси. Второй рубеж — Origin: браузер всегда шлёт его на
+// кросс-сайтовом POST, так что страница чужого сайта, открытая у разработчика,
+// не достучится до localhost, а запрос из браузера со страницы прода
+// (Origin https://itgame.santarinto.ru) отказан, даже если nginx однажды
+// перестанет ставить X-Real-IP. Origin есть — его хост тоже должен быть
+// локальным; нечитаемый или «null» — не локальный. Origin нет (curl) — как было.
 func localRequest(r *http.Request) bool {
 	for _, h := range []string{"X-Real-IP", "X-Forwarded-For", "Forwarded"} {
 		if r.Header.Get(h) != "" {
@@ -33,12 +49,16 @@ func localRequest(r *http.Request) bool {
 	if ip := net.ParseIP(addr); ip == nil || !ip.IsLoopback() {
 		return false
 	}
-	host := r.Host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
+	if !localHost(r.Host) {
+		return false
 	}
-	host = strings.ToLower(strings.Trim(host, "[]"))
-	return host == "localhost" || host == "127.0.0.1" || host == "::1" || strings.HasSuffix(host, ".localhost")
+	if origin := r.Header.Get("Origin"); origin != "" {
+		u, err := url.Parse(origin)
+		if err != nil || u.Hostname() == "" || !localHost(u.Hostname()) {
+			return false
+		}
+	}
+	return true
 }
 
 // ServeCheat — POST /api/cheat/money. Отказы — {error} как у /api/debug/*.

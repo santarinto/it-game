@@ -41,6 +41,13 @@ func TestLocalRequest(t *testing.T) {
 		{"чужой Host", req("127.0.0.1:5555", "itgame.santarinto.ru"), false},
 		{"не loopback", req("192.0.2.10:5555", "localhost:15555"), false},
 		{"localhost.evil.com", req("127.0.0.1:5555", "localhost.evil.com"), false},
+		{"Origin localhost", req("127.0.0.1:5555", "localhost:15555", "Origin", "http://localhost:15555"), true},
+		{"Origin 127.0.0.1", req("127.0.0.1:5555", "127.0.0.1:4421", "Origin", "http://127.0.0.1:4421"), true},
+		{"Origin [::1]", req("[::1]:5555", "[::1]:15555", "Origin", "http://[::1]:15555"), true},
+		{"Origin прода", req("127.0.0.1:5555", "localhost:15555", "Origin", "https://itgame.santarinto.ru"), false},
+		{"Origin чужой сайт", req("127.0.0.1:5555", "localhost:15555", "Origin", "https://evil.example"), false},
+		{"Origin null", req("127.0.0.1:5555", "localhost:15555", "Origin", "null"), false},
+		{"Origin localhost.evil.com", req("127.0.0.1:5555", "localhost:15555", "Origin", "http://localhost.evil.com"), false},
 	} {
 		if got := localRequest(tc.r); got != tc.want {
 			t.Errorf("%s: localRequest = %v, ждали %v", tc.name, got, tc.want)

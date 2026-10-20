@@ -7,8 +7,8 @@ the README; game design — `docs/design/gdd.md`.
 
 Two instances run on one box (the game box `90.156.129.221` since 18.10,
 MINIPC-256 / ITGAME-128 — Arch, 1 core, 869 MB RAM + 2 GB swap; the first
-box ci-cd-srv died on 16.10), each behind nginx (TLS, static files, `/ws`)
-→ Go binary: production on `127.0.0.1:8080`, systemd unit `itgame`, root
+box ci-cd-srv died on 16.10), each behind nginx (TLS, static files, and a proxy to Go for
+`/ws`, `/api/` and `/admin`) → Go binary: production on `127.0.0.1:8080`, systemd unit `itgame`, root
 `/opt/itgame`, `https://itgame.santarinto.ru`; stage on `127.0.0.1:8081`,
 unit `itgame-stage`, root `/opt/itgame-stage`,
 `https://stage.itgame.santarinto.ru`. The box has docker but no Go or Node
@@ -150,22 +150,19 @@ Notes:
   computes it from `$CHECKOUT` before the build; unstamped, Vite falls back to
   the same `git log`, then `dev`, and the server to `vcs.time` converted to
   Moscow time, then `""` (`go run`, `go test`: no version).
-- Production nginx answers `/api/*` with the SPA's `index.html`; the one
-  exception is `/api/version`, proxied to Go by a block on the box (both
-  vhosts, installed 13.10.2026; nginx config is not in this repo). An
-  exact-match location wins over any `/api/` prefix or SPA fallback, and the
-  Go handler already sends `Cache-Control: no-store`:
-
-  ```nginx
-  location = /api/version {
-      proxy_pass http://127.0.0.1:8080;   # the stage instance: 8081
-  }
-  ```
-
-  A vhost rebuilt without it answers `/api/version` with `index.html`:
-  `itd.stale()` then compares the tab with the `<meta name="build">` of a
-  fresh `/` only, and `server` stays `null` (an unstamped server answers
-  `unknown`, which counts as `null` too).
+- Production nginx proxies `location /ws`, `location /api/` and
+  `location = /admin` (behind basic auth) to the Go server (`127.0.0.1:8080`
+  prod, `:8081` stage), and `= /metrics` to `9181` / `9182`; everything else is
+  static files. The three proxied locations include `proxy-ws-itgame.inc`,
+  which sets `Host $host` and `X-Real-IP $remote_addr` (plus the Upgrade
+  headers and hour-long timeouts). `X-Real-IP` is what keeps the localhost
+  cheat shut on prod (see [Cheats (localhost)](#cheats-localhost)). The
+  source of truth is the minipc repo's `deploy/itgame/nginx/https.conf`
+  (and `proxy-ws-itgame.inc` next to it); this repo holds no nginx config.
+  Go already sends `Cache-Control: no-store` on `/api/version`; if `/api/` is
+  not proxied, `/api/version` is missing and `itd.stale()` compares the tab
+  with the `<meta name="build">` of a fresh `/` only, and `server` stays `null`
+  (an unstamped server answers `unknown`, which counts as `null` too).
 - A deploy drops live WebSocket connections; saves live in `shared/saves`,
   and clients reconnect and resume.
 - PostgreSQL runs on the box since 20.10 (minipc MINIPC-276, ITGAME-168):
@@ -296,9 +293,8 @@ The start menu reads the save's facts through `/ws?peek=1&sid=…`
 `day`, `money`, `difficulty`, `outcome` won/lost, `reason`) and closes
 the socket. It counts missed time offline the same way a reconnect does,
 but on a copy: nothing is written, no session is taken over. It rides on
-`/ws` because that is the only path production nginx proxies to Go (plus
-`/api/version`, see [Deploy](#deploy)) —
-the rest of `/api/*` there falls through to the SPA's `index.html`. The menu shows
+`/ws` because it needs no `/api/` route; production nginx proxies both to Go (see
+[Deploy](#deploy)). The menu shows
 «ПРОДОЛЖИТЬ — День 3 · $60 · НОРМА» for a live save, «ИТОГ: …» for a
 game that ended while the player was away, hides the card when the
 server has no save, and asks for confirmation before a new game
@@ -483,7 +479,9 @@ reads it once and passes it into `newMux` as an explicit parameter (not
 read from env inside `newMux`, so tests can control it directly). Without
 it, `ServeMux` itself has no route for either path, so requests get a
 plain 404 — the handlers never run and never get a chance to check
-anything. It's off by default and **not** set in production (the box's
+anything. The one deliberate exception is `POST /api/cheat/money`, registered
+without the flag and admitting only a local request (see
+[Cheats (localhost)](#cheats-localhost)). The flag is off by default and **not** set in production (the box's
 `itgame` unit; `tools/deploy` only restarts it and sets no env), and the
 Forgejo CI starts no server (see [CI](#ci)); it's set only where local
 tooling needs it: `make dev`/`dev-server` and
@@ -1541,10 +1539,16 @@ installs a global `cheat` in every build, without `?debug=1`:
 `cheat.money(50000)` adds $50 000. The call resolves to the new balance and
 logs it. It goes to `POST /api/cheat/money {sid, amount}` (amount 1..10 000 000).
 That route is registered without `ITGAME_DEBUG`, but it accepts only a local
-request: a loopback RemoteAddr, a localhost `Host`, and no `X-Real-IP` /
-`X-Forwarded-For` / `Forwarded` header. Everything else gets
-`403 not_local`. Prod nginx always sets `X-Real-IP`, so players there cannot
-reach it. The actor applies the cheat as the same money patch `itd.set` uses,
+request: a loopback RemoteAddr, a localhost `Host`, no `X-Real-IP` /
+`X-Forwarded-For` / `Forwarded` header, and, if the request carries an
+`Origin`, a local `Origin` host too (a browser always sends `Origin` on a
+cross-site POST, so a foreign page open in the developer's browser cannot post
+to localhost, and a browser request from a prod page is refused even if nginx
+stopped setting `X-Real-IP`; a plain `curl` has no `Origin` and passes).
+Everything else gets `403 not_local`. Prod nginx always sets `X-Real-IP`, so
+players there cannot reach it. «Local» means the server machine's own
+loopback: an SSH tunnel to the box (`ssh -L 8080:127.0.0.1:8080 …`) would
+reach prod parties — accepted, it takes SSH access to the box. The actor applies the cheat as the same money patch `itd.set` uses,
 so with `ITGAME_DEBUG` the replay journal records it as a debug patch.
 
 ## Tests
