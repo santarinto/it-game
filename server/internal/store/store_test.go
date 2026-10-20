@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -254,5 +255,82 @@ func TestBeginForgetsExpired(t *testing.T) {
 	}
 	if !s.Put("expire-1234", gen2, []byte(`{}`), time.Now()) {
 		t.Fatal("новый владелец потерял запись")
+	}
+}
+
+// TestRewriteKeepsOwnerAndSavedAt — Rewrite (ITGAME-154) правит данные в памяти и
+// на диске, но не savedAt, не поколение и не kick владельца; сейва нет — false.
+func TestRewriteKeepsOwnerAndSavedAt(t *testing.T) {
+	s := newTestStore(t, time.Hour)
+	const sid = "rewrite-1234"
+	gen, kick := s.Begin(sid)
+	old := time.Now().Add(-time.Minute)
+	s.Put(sid, gen, []byte(`{"a":1}`), old)
+
+	if !s.Rewrite(sid, []byte(`{"a":2}`)) {
+		t.Fatal("Rewrite существующего сейва отклонён")
+	}
+	if data, ok := s.Load(sid); !ok || string(data) != `{"a":2}` {
+		t.Fatalf("память после Rewrite: %q %v", data, ok)
+	}
+	raw, err := os.ReadFile(s.path(sid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env diskEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatal(err)
+	}
+	if string(env.Data) != `{"a":2}` || !env.SavedAt.Equal(old) {
+		t.Fatalf("файл после Rewrite: data=%s savedAt=%v (ждали %v)", env.Data, env.SavedAt, old)
+	}
+
+	// рестарт: записи в памяти нет — Rewrite поднимает сейв с диска
+	s2, err := New(s.dir, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, ok := s2.Load(sid); !ok || string(data) != `{"a":2}` {
+		t.Fatalf("после рестарта: %q %v", data, ok)
+	}
+	s3, err := New(s.dir, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s3.Rewrite(sid, []byte(`{"a":3}`)) {
+		t.Fatal("Rewrite без записи в памяти (с диска) отклонён")
+	}
+	if data, ok := s3.Load(sid); !ok || string(data) != `{"a":3}` {
+		t.Fatalf("после Rewrite с диска: %q %v", data, ok)
+	}
+
+	// владелец не тронут: kick открыт, его Put проходит
+	select {
+	case <-kick:
+		t.Fatal("Rewrite пнул владельца")
+	default:
+	}
+	if !s.Put(sid, gen, []byte(`{"a":4}`), time.Now()) {
+		t.Fatal("после Rewrite владелец потерял право писать")
+	}
+	if data, ok := s.Load(sid); !ok || string(data) != `{"a":4}` {
+		t.Fatalf("Put после Rewrite: %q %v", data, ok)
+	}
+
+	// нет сейва — нет и файла
+	if s.Rewrite("rewrite-none-1", []byte(`{}`)) {
+		t.Fatal("Rewrite без сейва вернул true")
+	}
+	if _, err := os.Stat(s.path("rewrite-none-1")); err == nil {
+		t.Fatal("Rewrite без сейва создал файл")
+	}
+	if s.Rewrite("x", []byte(`{}`)) {
+		t.Fatal("Rewrite с негодным sid вернул true")
+	}
+	if !s.Finish(sid, gen) {
+		t.Fatal("Finish владельца отклонён")
+	}
+	if s.Rewrite(sid, []byte(`{}`)) {
+		t.Fatal("Rewrite после Finish вернул true")
 	}
 }

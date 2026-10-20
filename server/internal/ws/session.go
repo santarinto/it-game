@@ -322,10 +322,14 @@ type sessionOpts struct {
 }
 
 // persist — записать сейв сессии. false — сессию забрал другой актор.
-func (h *Handler) persist(sid string, gen uint64, g *game.Game, speed, resumeSpeed int, last *game.DayReport, scenario string, events []string, rev uint64) bool {
+// format — game.format сейва: game.SaveFormat, другой — debug-метка /api/debug/format
+// (ITGAME-154) до выхода актора.
+func (h *Handler) persist(sid string, gen uint64, g *game.Game, speed, resumeSpeed int, last *game.DayReport, scenario string, events []string, rev uint64, format int) bool {
 	at := time.Now()
+	gs := g.Export()
+	gs.Format = format
 	data, err := json.Marshal(sessionSave{
-		SID: sid, Speed: speed, ResumeSpeed: resumeSpeed, SavedAt: at, Game: g.Export(), LastReport: last,
+		SID: sid, Speed: speed, ResumeSpeed: resumeSpeed, SavedAt: at, Game: gs, LastReport: last,
 		Scenario: scenario, Events: events, Rev: rev, Version: BuildVersion(),
 	})
 	if err != nil {
@@ -366,10 +370,11 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		gen         uint64
 		kick        <-chan struct{}
 		journal     = newEventJournal(500)
-		scenario    string        // применённая фиксура (только новой партии)
-		resumeSpeed int           // скорость возврата после exit; 0 — нет
-		savedAt     time.Time     // время последнего сейва — для offline_report.savedAt
-		rv          = &revClock{} // версия состояния (ITGAME-45)
+		scenario    string            // применённая фиксура (только новой партии)
+		resumeSpeed int               // скорость возврата после exit; 0 — нет
+		savedAt     time.Time         // время последнего сейва — для offline_report.savedAt
+		rv          = &revClock{}     // версия состояния (ITGAME-45)
+		saveFormat  = game.SaveFormat // формат, которым актор пишет сейв; debug-метка (ITGAME-154) меняет его до выхода актора
 	)
 	withSaves := h.Saves != nil && store.ValidSID(sid)
 	var rt *resumeTrace // журнал партии (ITGAME-46): сейв до офлайн-догона
@@ -400,7 +405,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 				// Офлайн привёл к финалу: сейв не нужен, доигрывают без него.
 				// Finish, не Delete: своё удаление — не захват (ITGAME-51).
 				h.Saves.Finish(sid, gen)
-			} else if !h.persist(sid, gen, g, speed, 0, lastReport, scenario, journal.last(journal.cap), rv.rev) {
+			} else if !h.persist(sid, gen, g, speed, 0, lastReport, scenario, journal.last(journal.cap), rv.rev, saveFormat) {
 				// сессию уже забрал следующий актор
 				return true
 			}
@@ -421,7 +426,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		default:
 			g = newGame(cfg, opts.Seed)
 		}
-		if withSaves && !h.persist(sid, gen, g, speed, 0, lastReport, scenario, journal.last(journal.cap), rv.rev) {
+		if withSaves && !h.persist(sid, gen, g, speed, 0, lastReport, scenario, journal.last(journal.cap), rv.rev, saveFormat) {
 			return true
 		}
 	}
@@ -491,7 +496,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		case req := <-debugC:
 			rev := rv.rev
 			if h.applyDebug(ctx, hub, req, sid, gen, withSaves,
-				&g, &speed, resumeSpeed, &lastReport, journal, &scenario, rv) {
+				&g, &speed, resumeSpeed, &lastReport, journal, &scenario, rv, &saveFormat) {
 				return true // сейв не прошёл — мутации в партии нет, в журнал не пишем
 			}
 			jn.debug(req, rv.rev != rev) // мутация = новая версия состояния
@@ -537,7 +542,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 			if withSaves {
 				if g.Phase == game.PhaseGameOver || g.Phase == game.PhaseWon {
 					h.Saves.Finish(sid, gen)
-				} else if !h.persist(sid, gen, g, speed, resumeSpeed, lastReport, scenario, journal.last(journal.cap), rv.rev) {
+				} else if !h.persist(sid, gen, g, speed, resumeSpeed, lastReport, scenario, journal.last(journal.cap), rv.rev, saveFormat) {
 					return true
 				}
 			}
@@ -571,7 +576,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 					// удаление не захват, вкладка живёт до «В меню» (ITGAME-51)
 					h.Saves.Finish(sid, gen)
 				} else if g.Phase != game.PhaseGameOver && g.Phase != game.PhaseWon {
-					if !h.persist(sid, gen, g, speed, resumeSpeed, lastReport, scenario, journal.last(journal.cap), rv.rev) {
+					if !h.persist(sid, gen, g, speed, resumeSpeed, lastReport, scenario, journal.last(journal.cap), rv.rev, saveFormat) {
 						return true
 					}
 				}

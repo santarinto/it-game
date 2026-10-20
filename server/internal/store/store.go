@@ -166,19 +166,62 @@ func (s *Store) Put(sid string, gen uint64, data []byte, at time.Time) bool {
 	e.savedAt = at
 	s.mu.Unlock()
 
+	s.writeDisk(sid, data, at)
+	return true
+}
+
+// writeDisk — запись сейва на диск через временный файл (общая у Put и Rewrite).
+// Ошибки только в лог: данные в памяти живы, игра продолжается.
+func (s *Store) writeDisk(sid string, data []byte, at time.Time) {
 	env, err := json.Marshal(diskEnvelope{SavedAt: at, Data: data})
 	if err != nil {
 		log.Printf("сейв %s: сериализация: %v", sid, err)
-		return true // данные в памяти живы, игра продолжается
+		return
 	}
 	tmp := s.path(sid) + ".tmp"
 	if err := os.WriteFile(tmp, env, 0o600); err != nil {
 		log.Printf("сейв %s: запись: %v", sid, err)
-		return true
+		return
 	}
 	if err := os.Rename(tmp, s.path(sid)); err != nil {
 		log.Printf("сейв %s: переименование: %v", sid, err)
 	}
+}
+
+// Rewrite — переписать сейв sid без владения (ITGAME-154, POST /api/debug/format):
+// данные в памяти и на диске, savedAt прежний, поколение и kick владельца не
+// трогаются — его следующий Put перепишет правку. Не Begin: тот пинает владельца.
+// false — сейва нет (нет записи и файла, Begin без Put, Finish, истёк). Только для
+// отладки: вкладка, подключившаяся между проверкой «актора нет» и Rewrite, либо
+// продолжит старый сейв и затрёт правку своим Put, либо прочтёт правленый и начнёт
+// новую партию — оба исхода согласованы.
+func (s *Store) Rewrite(sid string, data []byte) bool {
+	if !ValidSID(sid) {
+		return false
+	}
+	s.mu.Lock()
+	e, ok := s.entries[sid]
+	if !ok {
+		if e, ok = s.loadDiskLocked(sid); !ok {
+			s.mu.Unlock()
+			return false
+		}
+		s.entries[sid] = e
+	}
+	if len(e.data) == 0 {
+		s.mu.Unlock()
+		return false
+	}
+	if s.expired(e) {
+		s.deleteLocked(sid)
+		s.mu.Unlock()
+		return false
+	}
+	e.data = append([]byte(nil), data...)
+	at := e.savedAt
+	s.mu.Unlock()
+
+	s.writeDisk(sid, data, at)
 	return true
 }
 

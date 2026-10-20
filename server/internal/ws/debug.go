@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,6 +74,7 @@ const (
 	kindAdvance  = "advance"  // промотка днями/тиками (движок offline)
 	kindEvents   = "events"   // хвост журнала событий
 	kindLedger   = "ledger"   // книга дня (ITGAME-73)
+	kindFormat   = "format"   // метка формата сейва (ITGAME-154): сейв, не игра
 )
 
 // debugRequest — запрос HTTP-хендлера к актору. Reply буферизован: актор
@@ -86,6 +88,7 @@ type debugRequest struct {
 	ticks    int             // kind=advance
 	n        int             // kind=events
 	day      int             // kind=ledger: 0 — текущий день
+	format   int             // kind=format: game.format, которым актор пишет сейв
 	Reply    chan debugReply
 }
 
@@ -200,6 +203,12 @@ func (h *Handler) ServeDebug(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.serveDebugDrop(w, r)
+	case "/api/debug/format":
+		if r.Method != http.MethodPost {
+			writeDebugErr(w, http.StatusMethodNotAllowed, "метод не тот")
+			return
+		}
+		h.serveDebugFormat(w, r)
 	case "/api/debug/journal":
 		if r.Method != http.MethodGet {
 			writeDebugErr(w, http.StatusMethodNotAllowed, "метод не тот")
@@ -405,6 +414,107 @@ func (h *Handler) serveDebugDrop(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// formatPostBody — тело POST /api/debug/format.
+type formatPostBody struct {
+	SID    string `json:"sid"`
+	Format *int   `json:"format"` // game.format сейва; не задан — на 1 новее формата сервера
+}
+
+// formatReply — ответ POST /api/debug/format.
+type formatReply struct {
+	SID    string `json:"sid"`
+	Was    int    `json:"was"`    // game.format, который нёс сейв до метки
+	Format int    `json:"format"` // game.format после метки
+	Live   bool   `json:"live"`   // true — метку держит актор живой партии; false — сейв переписан в сторе
+}
+
+// serveDebugFormat — POST /api/debug/format {sid, format?} (ITGAME-154): сейв sid другого
+// формата без перезапуска стенда — карточка «СЕЙВ НЕСОВМЕСТИМ» и новая партия на подключении
+// (ITGAME-169). Версию сборки и остальное не трогает. Живую партию помечает её актор (он пишет
+// сейв каждым тиком и командой): метка живёт до его выхода, переподключение вкладки начнёт
+// новую партию (владелец 20.10, «порча до переподключения» — так воспроизводится ITGAME-174).
+// Без актора — правка стора: Load отдаёт память раньше диска, правка файла на живом сервере
+// не видна.
+func (h *Handler) serveDebugFormat(w http.ResponseWriter, r *http.Request) {
+	var body formatPostBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeDebugErr(w, http.StatusBadRequest, "тело не JSON: "+err.Error())
+		return
+	}
+	if h.Saves == nil {
+		writeDebugErr(w, http.StatusConflict, "no_saves: сервер без хранилища сейвов")
+		return
+	}
+	sid := body.SID
+	if !store.ValidSID(sid) {
+		writeDebugErr(w, http.StatusBadRequest, "bad_sid")
+		return
+	}
+	format := game.SaveFormat + 1
+	if body.Format != nil {
+		format = *body.Format
+	}
+	if format < 0 {
+		writeDebugErr(w, http.StatusBadRequest, "bad_format: format — целое ≥ 0")
+		return
+	}
+	if format == game.SaveFormat {
+		writeDebugErr(w, http.StatusBadRequest,
+			fmt.Sprintf("same_format: %d — формат самого сервера, сейв не станет несовместимым", format))
+		return
+	}
+	rep, live := h.sendDebug(sid, debugRequest{kind: kindFormat, format: format})
+	if live {
+		finishDebug(w, rep)
+		return
+	}
+	noSave := func() {
+		writeDebugErr(w, http.StatusNotFound, "no_save: у "+sid+" нет сейва (ни живой партии, ни файла этой сборки)")
+	}
+	raw, ok := h.Saves.Load(sid)
+	if !ok {
+		noSave()
+		return
+	}
+	out, was, ok := withSaveFormat(raw, sid, format)
+	if !ok || !h.Saves.Rewrite(sid, out) {
+		noSave()
+		return
+	}
+	log.Printf("сессия %s: debug-метка формата %d (был %d), в сторе", sid, format, was)
+	writeDebugJSON(w, http.StatusOK, formatReply{SID: sid, Was: was, Format: format, Live: false})
+}
+
+// withSaveFormat — сейв raw с game.format = format (ITGAME-154), остальное байт в байт:
+// json.RawMessage, не map[string]any (uint64-сид стал бы float64) и не sessionSave (сейв новее
+// может не лечь в него). was — прежний формат; ok=false — не сейв этого sid (не JSON, чужой
+// sid, нет game).
+func withSaveFormat(raw []byte, sid string, format int) (out []byte, was int, ok bool) {
+	var head saveHead
+	if json.Unmarshal(raw, &head) != nil || head.SID != sid {
+		return nil, 0, false
+	}
+	var top map[string]json.RawMessage
+	if json.Unmarshal(raw, &top) != nil || len(top["game"]) == 0 {
+		return nil, 0, false
+	}
+	var gm map[string]json.RawMessage
+	if json.Unmarshal(top["game"], &gm) != nil || gm == nil {
+		return nil, 0, false
+	}
+	gm["format"] = json.RawMessage(strconv.Itoa(format))
+	gb, err := json.Marshal(gm)
+	if err != nil {
+		return nil, 0, false
+	}
+	top["game"] = gb
+	out, err = json.Marshal(top)
+	if err != nil {
+		return nil, 0, false
+	}
+	return out, head.Game.Format, true
+}
+
 func writeDebugErr(w http.ResponseWriter, code int, msg string) {
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
@@ -443,12 +553,12 @@ type stateReply struct {
 // applyDebug — обработка debug-запроса в актор-горутине. Меняет игру через
 // указатели (restore/фикстура заменяют её целиком), персистит сейв и
 // проталкивает снапшот всем соединениям сессии (ITGAME-29), чтобы UI
-// отразил чит мгновенно. Возвращает true, если сессию забрал другой актор.
+// отразил чит мгновенно (метка формата сейва пишется без новой версии и без push). Возвращает true, если сессию забрал другой актор.
 func (h *Handler) applyDebug(
 	ctx context.Context, hub *connHub, req debugRequest,
 	sid string, gen uint64, withSaves bool,
 	gp **game.Game, speed *int, resumeSpeed int, last **game.DayReport,
-	jr *eventJournal, scenario *string, rv *revClock,
+	jr *eventJournal, scenario *string, rv *revClock, saveFormat *int,
 ) bool {
 	g := *gp
 	// snap — снапшот с текущими rev/cause: и для рассылки, и для HTTP-ответа
@@ -478,7 +588,7 @@ func (h *Handler) applyDebug(
 			h.Saves.Finish(sid, gen)
 			return true
 		}
-		return h.persist(sid, gen, g, *speed, resumeSpeed, *last, *scenario, jr.last(jr.cap), rv.rev)
+		return h.persist(sid, gen, g, *speed, resumeSpeed, *last, *scenario, jr.last(jr.cap), rv.rev, *saveFormat)
 	}
 
 	switch req.kind {
@@ -500,6 +610,29 @@ func (h *Handler) applyDebug(
 			return false
 		}
 		reply(debugReply{Code: http.StatusOK, Body: newLedgerReply(l, g.LedgerDayList())})
+		return false
+
+	case kindFormat:
+		// Метка формата (ITGAME-154): меняется сейв, не игра — ни rev, ни снапшота, ни записи в
+		// журнал партии (jn.debug пишет только мутации; реплей её не знает). Этот актор пишет сейв
+		// форматом req.format каждым persist до выхода; следующий (переподключение) увидит чужой
+		// формат в resume.
+		if !withSaves {
+			reply(debugReply{Code: http.StatusConflict, Err: "no_saves: сервер без хранилища сейвов"})
+			return false
+		}
+		if g.Phase == game.PhaseGameOver || g.Phase == game.PhaseWon {
+			reply(debugReply{Code: http.StatusNotFound, Err: "no_save: партия окончена, сейва нет"})
+			return false
+		}
+		was := *saveFormat
+		*saveFormat = req.format
+		jr.add(fmt.Sprintf("debug · формат сейва %d (сервер %d) — до переподключения", req.format, game.SaveFormat))
+		if !h.persist(sid, gen, g, *speed, resumeSpeed, *last, *scenario, jr.last(jr.cap), rv.rev, *saveFormat) {
+			reply(debugReply{Code: http.StatusGone, Err: "session_taken"})
+			return true
+		}
+		reply(debugReply{Code: http.StatusOK, Body: formatReply{SID: sid, Was: was, Format: req.format, Live: true}})
 		return false
 	}
 
