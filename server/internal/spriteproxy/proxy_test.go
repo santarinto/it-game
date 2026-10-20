@@ -16,22 +16,38 @@ const goToken = "go-token"
 
 // fakeMinipc — заглушка API заданий minipc (MINIPC-231): задание 7 с ключом
 // icon_trophy и двумя ревизиями; latest — вторая. lie подменяет заявленный
-// sha256 у ревизии 2 — проверка sha_mismatch. Токен — только goToken.
+// sha256 у ревизии 2 — проверка sha_mismatch. Токен — только goToken. Формы
+// ответов и отказов — настоящего minipc (сверено 20.10, ITGAME-182): задание с
+// items[]/ctx/status_at/revisions, отказы {error}, у 403 — detail, путь вне
+// маршрутов — HTML-страница 404.
 type fakeMinipc struct {
-	revs   map[string][]byte
-	lie    bool
-	noSha  bool // ревизия без X-Sprite-Sha256
-	status int  // не 0 — minipc отвечает этим кодом на всё
-	paths  []string
+	revs      map[string][]byte
+	lie       bool
+	noSha     bool // ревизия без X-Sprite-Sha256
+	status    int  // не 0 — minipc отвечает этим кодом на всё
+	forbidden bool // токен узнан, но роли мало — 403 с detail
+	paths     []string
 }
+
+const fakeJob = `{"taskId":"7","about":"ITGAME-83","profile":{"version":"graphics@9e94e68","sha256":"a","text":"t"},` +
+	`"class":{"name":"icon","screenPx":32,"sourcePx":64,"palette":"sweetie16","colors":["1a1c2c"]},"created_at":"2026-10-16T22:39:16+00:00",` +
+	`"items":[{"key":"icon_trophy","brief":"кубок","ctx":{"text":"12px","bg":"232640"},"status":"draft","status_at":"2026-10-16T22:39:29+00:00",` +
+	`"revisions":2,"latest":{"rev":2,"sha256":"b"},"final":null}]}`
 
 func sum(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
 
 func (f *fakeMinipc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.paths = append(f.paths, r.URL.Path)
 	if r.Header.Get("Authorization") != "Bearer "+goToken {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = io.WriteString(w, `{"error":"unauthorized"}`)
+		return
+	}
+	if f.forbidden {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"error":"forbidden","detail":"the itgame-cli token is required for this handle"}`)
 		return
 	}
 	if f.status != 0 {
@@ -42,12 +58,18 @@ func (f *fakeMinipc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/api/itgame/jobs/7":
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"taskId":"7","about":"ITGAME-83","keys":[{"key":"icon_trophy","status":"draft","latest":{"rev":2}}]}`)
+		_, _ = io.WriteString(w, fakeJob)
 		return
 	case strings.HasPrefix(r.URL.Path, "/api/itgame/jobs/7/keys/icon_trophy/"):
-	default:
+	case strings.HasPrefix(r.URL.Path, "/api/itgame/jobs/"):
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		_, _ = io.WriteString(w, `{"error":"not found"}`)
+		_, _ = io.WriteString(w, `{"error":"task 8 not found"}`)
+		return
+	default:
+		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `<!DOCTYPE html><html><head><title>An Error Occurred: Not Found</title></head></html>`)
 		return
 	}
 	rev := strings.TrimPrefix(r.URL.Path, "/api/itgame/jobs/7/keys/icon_trophy/")
@@ -58,8 +80,9 @@ func (f *fakeMinipc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	png, ok := f.revs[rev]
 	if !ok {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		_, _ = io.WriteString(w, `{"error":"no such revision"}`)
+		_, _ = io.WriteString(w, `{"error":"revision `+rev+` of 'icon_trophy' not found"}`)
 		return
 	}
 	sha := sum(png)
@@ -162,8 +185,8 @@ func TestJob(t *testing.T) {
 	_, up := newFake(t)
 	srv := setup(t, up)
 	resp, body := get(t, srv.URL+"/api/debug/sprite/7")
-	if resp.StatusCode != http.StatusOK || !bytes.Contains(body, []byte(`"icon_trophy"`)) {
-		t.Fatalf("задание: %d %s", resp.StatusCode, body)
+	if resp.StatusCode != http.StatusOK || string(body) != fakeJob {
+		t.Fatalf("задание: %d %s — ждали тело minipc как есть", resp.StatusCode, body)
 	}
 	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
 		t.Fatalf("Content-Type %q", ct)
@@ -247,6 +270,33 @@ func TestUpstream5xx(t *testing.T) {
 	wantCode(t, resp, body, http.StatusBadGateway, "minipc_error")
 	if !strings.Contains(string(body), "упал") {
 		t.Fatalf("причина minipc потерялась: %s", body)
+	}
+}
+
+// Адрес без /api/itgame: minipc отвечает HTML-страницей 404 на любой путь — это
+// неверный ITGAME_MINIPC_URL, а не «нет задания»: not_found watch считает
+// «ревизий ещё нет» и молчал бы.
+func TestRouteNotFoundIsNotNotFound(t *testing.T) {
+	_, up := newFake(t)
+	srv := setup(t, Upstream{URL: strings.TrimSuffix(up.URL, "/api/itgame"), Token: goToken})
+	for _, path := range []string{"/api/debug/sprite/7", "/api/debug/sprite/7/icon_trophy?rev=1", "/api/debug/sprite/7/icon_trophy/latest"} {
+		resp, body := get(t, srv.URL+path)
+		wantCode(t, resp, body, http.StatusBadGateway, "minipc_error")
+		if !strings.Contains(string(body), "ITGAME_MINIPC_URL") {
+			t.Fatalf("%s: отказ не называет адрес: %s", path, body)
+		}
+	}
+}
+
+// 403 роли minipc несёт detail — он доходит до текста отказа.
+func TestForbiddenCarriesDetail(t *testing.T) {
+	f, up := newFake(t)
+	f.forbidden = true
+	srv := setup(t, up)
+	resp, body := get(t, srv.URL+"/api/debug/sprite/7")
+	wantCode(t, resp, body, http.StatusBadGateway, "minipc_auth")
+	if !strings.Contains(string(body), "the itgame-cli token is required") {
+		t.Fatalf("detail потерялся: %s", body)
 	}
 }
 

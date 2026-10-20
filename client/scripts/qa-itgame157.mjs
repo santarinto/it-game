@@ -11,7 +11,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 import { waitMenuReady } from './lib/menu.mjs'
-import { startMinipcStub } from './lib/minipc-stub.mjs'
+import { jobBody, startMinipcStub } from './lib/minipc-stub.mjs'
 import { selfServe } from './lib/selfserve.mjs'
 import { makePng, rgbaSha, sha256 } from './lib/sprite-fixtures.mjs'
 
@@ -29,10 +29,7 @@ const green2 = makePng({ size: 128, fill: 'ef7d57' })
 const green3 = makePng({ size: 128, fill: '38b764' })
 const offPalette = makePng({ size: 64, fill: 'ff00ff' }) // icon_money: пиксельный sweetie16 — вне палитры
 const small = makePng({ size: 32 }) // icon_trophy 64px — bad_size
-const job = stub.createJob({
-  about: 'ITGAME-157',
-  items: [{ key: 'cooler' }, { key: 'icon_money' }, { key: 'icon_trophy' }, { key: 'not_in_manifest' }],
-})
+const job = stub.createJob(jobBody(['cooler', 'icon_money', 'icon_trophy', 'not_in_manifest']))
 const T = job.taskId
 stub.addRevision(T, 'cooler', green1)
 stub.addRevision(T, 'icon_money', offPalette)

@@ -9,7 +9,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { startMinipcStub } from './lib/minipc-stub.mjs'
+import { jobBody, startMinipcStub } from './lib/minipc-stub.mjs'
 import { makePng, sha256 } from './lib/sprite-fixtures.mjs'
 
 const CLIENT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -33,7 +33,8 @@ const env = {
   QA_PORT: process.env.QA_PORT || '4196',
 }
 // Асинхронно: заглушка живёт в этом процессе, spawnSync заморозил бы её цикл событий.
-const run = (script, ...args) =>
+const run = (script, ...args) => runEnv(env, script, ...args)
+const runEnv = (env, script, ...args) =>
   new Promise((resolve) => {
     const p = spawn('node', [join(CLIENT, 'scripts', script), ...args], { env })
     let out = ''
@@ -69,7 +70,10 @@ git('add', '-A')
 git('-c', 'user.name=qa', '-c', 'user.email=qa@localhost', 'commit', '-q', '-m', 'sprites')
 const origPng = pngInRepo()
 
-const job = stub.createJob({ about: 'ITGAME-157', profile: { version: 'v1', sha256: 'p', text: '…' }, class: { name: 'amenity' }, items: [{ key: KEY }] })
+const job = stub.createJob(jobBody([KEY], {
+  profile: { version: 'v1', sha256: sha256(Buffer.from('…')), text: '…' },
+  class: { name: 'amenity', screenPx: 64, sourcePx: 128, palette: 'hd32', colors: ['1a1c2c', 'f4f4f4'] },
+}))
 const T = job.taskId
 const off = makePng({ size: 128, fill: 'ff00ff' })
 const green = makePng({ size: 128 })
@@ -80,6 +84,16 @@ try {
   // R1: ревизия вне палитры → returned с причиной и кропом.
   stub.addRevision(T, KEY, off, { kind: 'generated', seed: 11, prompt: 'кулер' })
   stub.setFinal(T, KEY, 1)
+
+  // R0: Go-серверу прогона — только свой токен itgame-go: без него или с токеном
+  // координатора вместо него qa:sprite отказывает до сервера, вердиктов нет (ITGAME-182).
+  const { ITGAME_MINIPC_TOKEN: _go, ...noGo } = env
+  const r0a = await runEnv(noGo, 'qa-sprite.mjs', '--task', T, '--out', out)
+  const r0b = await runEnv({ ...env, ITGAME_MINIPC_TOKEN: stub.tokens.cli }, 'qa-sprite.mjs', '--task', T, '--out', out)
+  check('R0: без ITGAME_MINIPC_TOKEN и с токеном координатора на его месте — отказ, вердиктов нет',
+    r0a.code === 1 && /ITGAME_MINIPC_TOKEN \(роль itgame-go\) не задан/.test(r0a.out) && r0b.code === 1 && /совпал с токеном координатора/.test(r0b.out) && stub.statusLog.length === 0,
+    { a: r0a.out.trim().slice(-200), b: r0b.out.trim().slice(-200), log: stub.statusLog.length })
+
   const r1 = await qaSprite()
   const r1log = stub.statusLog.at(-1)
   check('R1: вне палитры — qa:sprite выносит returned с причиной «палитр» и кропом',
@@ -104,11 +118,13 @@ try {
   writeFileSync(join(out, 'report.json'), good)
   check('T1: sha256 файла ≠ отчёт — отказ, PNG не тронут', t1.code === 1 && /sha256 файла .* ≠ sha256 в отчёте/.test(t1.out) && pngInRepo() === origPng, { code: t1.code, out: t1.out.trim().slice(-300) })
 
-  // R3: замена после accepted — ключ в draft, забор ревизии 2 отказывает по статусу и финалу.
+  // R3: замена после accepted — ключ в draft, забор ревизии 2 отказывает по статусу. Указатель
+  // final minipc при новой ревизии не сбрасывает (сверено 20.10, ITGAME-182) — он всё ещё 2, и
+  // отказ держится на статусе.
   stub.addRevision(T, KEY, green3, { kind: 'edited', from: 2 })
   const t2 = await take(2)
-  check('T2: ревизия заменена после accepted — забор 2 отказывает (draft, финал не выбран), PNG не тронут',
-    t2.code === 1 && /статус ключа draft/.test(t2.out) && /финал ключа — ревизия не выбрана/.test(t2.out) && pngInRepo() === origPng,
+  check('T2: ревизия заменена после accepted — забор 2 отказывает (draft), PNG не тронут',
+    t2.code === 1 && /статус ключа draft, нужен accepted/.test(t2.out) && stub.job(T).items[0].final?.rev === 2 && pngInRepo() === origPng,
     { code: t2.code, out: t2.out.trim().slice(-400) })
 
   // R3 → final → accepted → забор → коммит → committed.

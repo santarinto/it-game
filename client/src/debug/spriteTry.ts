@@ -311,8 +311,10 @@ async function fetchRevision(path: string, ifNoneMatch?: string | null, rev?: nu
   }
 }
 
-// Ключи задания minipc: items[] (как в заглушке) или keys[]; элемент — {key} или строка.
-// Форму GET /jobs/{taskId} письмо 4123 не приводит — сверить на шаге 5 (ITGAME-182).
+// Ключи задания minipc: items[].key — форма настоящего minipc (сверено 20.10, ITGAME-182:
+// {taskId, about, profile, class, created_at, items: [{key, brief, ctx, status, status_at,
+// revisions, latest, final}]}); keys[] и строки вместо объектов — догадка заглушки
+// ITGAME-157, принимаются по-прежнему.
 function jobKeys(job: unknown): string[] {
   const j = job as { items?: unknown[]; keys?: unknown[] } | null
   const list = Array.isArray(j?.items) ? j.items : Array.isArray(j?.keys) ? j.keys : []

@@ -2,7 +2,8 @@
 
 **Статус: на вычитке владельца, 14.10.2026.** Согласовано в обсуждении
 14.10.2026 по секциям. Шаги 1, 2 и 4 сделаны (ITGAME-83, ITGAME-119,
-ITGAME-157, 20.10.2026), шаг 5 — ITGAME-182. Стиль и инвентарь — в
+ITGAME-157, 20.10.2026); в шаге 5 стыковка с настоящим minipc сделана
+(ITGAME-182, 20.10.2026), первый груз ещё не определён. Стиль и инвентарь — в
 [graphics.md](graphics.md), здесь только конвейер; как пользоваться — в
 `docs/development.md`, «Sprite pipeline (minipc)».
 
@@ -81,8 +82,11 @@ ITGAME-157, 20.10.2026), шаг 5 — ITGAME-182. Стиль и инвентар
 | `committed` | координатор | в репо, приложен хеш коммита |
 
 Новая ревизия у ключа в статусе `final`, `returned` или `accepted` переводит
-его в `draft`. Из `committed` ключ не выходит: правка принятого спрайта —
-новое задание.
+его в `draft`; указатель `final` minipc при этом не сбрасывает (сверено
+20.10), так что «ревизия — не финал» стережёт статус. Финал выбирается из
+`draft` или `final`. Из `committed` ключ не выходит: правка принятого спрайта
+— новое задание. Хеш коммита в `committed` minipc не проверяет — любой
+непустой `reason` годится, — поэтому его проверяет наша сторона.
 
 ### Чего в контракте нет
 
@@ -190,7 +194,10 @@ ITGAME-157, 20.10.2026), шаг 5 — ITGAME-182. Стиль и инвентар
 `scripts/sprites/minipc/<key>.json` — рядом с исходниками HD-конвейера, не в
 `client/public` (иначе файл уехал бы в `dist`). Состояний у ключей конвейера
 пока нет — собирать на шаге 3 нечего. Токен координатора для `qa:sprite` и
-`sprite:take` — `ITGAME_MINIPC_CLI_TOKEN`.
+`sprite:take` — `ITGAME_MINIPC_CLI_TOKEN`; без него в окружении скрипты берут
+его из `~/.config/itgame-dev/minipc-cli.env`, а адрес — из
+`~/.config/itgame-dev/env` (только адрес: токен itgame-go там серверный).
+Go-сервер токен координатора не получает никогда (ITGAME-182).
 
 ## 3. Чужие доски
 
@@ -251,9 +258,50 @@ ITGAME-157, 20.10.2026), шаг 5 — ITGAME-182. Стиль и инвентар
 3. Письма: minipc — контракт и список ручек; localmind — поправка к 4031.
 4. Сторона игры против заглушки minipc: Go-ручки, `pull`/`watch`,
    `qa:sprite`, `sprite:take` — **сделано** (ITGAME-157); заглушка —
-   `client/scripts/lib/minipc-stub.mjs`, форму `GET /jobs/{taskId}` сверить
-   с настоящим minipc на шаге 5.
-5. Стыковка с настоящим minipc; первый груз — 15 иконок ITGAME-83.
+   `client/scripts/lib/minipc-stub.mjs`.
+5. Стыковка с настоящим minipc — **сделана** (ITGAME-182, 20.10.2026).
+   Формы ответов сверены живыми запросами; заглушка отвечает так же, читатели
+   (`spriteTry.ts`, `minipc-client.mjs`, `spriteproxy`, `qa:sprite`,
+   `sprite:take`) работают по настоящей форме и принимают прежнюю. Где
+   догадка заглушки разошлась с minipc:
+   - задание: `ctx` вместо `context` (в теле `POST /jobs` — `context`, кроп
+     сохраняется, но не возвращается), `created_at`, `status_at`,
+     `revisions` (число); `GET /jobs` — сводка `{items: [{taskId, about,
+     created_at, keys}]}`;
+   - каталог ревизий обёрнут — `{taskId, key, items: […]}`, у ключа без
+     ревизий — 404: `sprite:take` против minipc молча терял бы `origin` в
+     происхождении;
+   - ответы `POST …/revisions` (`{taskId, key, rev, sha256, origin}`, по
+     умолчанию `{kind: edited, from: null}`) и `POST …/final`
+     (`{key, status, final_rev}`); финал — только из `draft`/`final`;
+   - указатель `final` при новой ревизии остаётся; `committed` берёт любой
+     непустой `reason` — без хеша клиент его теперь не шлёт;
+   - `reason` — до 1000 **байт**: русская причина `returned` в 900 знаков
+     получила бы 422, `qa:sprite` режет по байтам UTF-8;
+   - отказы — `{error, field?}`, у 403 — `detail`; путь вне маршрутов —
+     HTML-страница 404: Go-сервер теперь отдаёт на неё `minipc_error`
+     (неверный `ITGAME_MINIPC_URL`), а не `not_found`, на котором `watch`
+     молчал бы.
+
+   Токены: `~/.config/itgame-dev/env` (стенд, itgame-go) и
+   `~/.config/itgame-dev/minipc-cli.env` (координатор, itgame-cli), правило
+   подхвата — в `docs/development.md`, «Sprite pipeline (minipc)».
+
+   Прогоны на настоящем minipc. Чтение — задание 1 (смоук minipc):
+   `pull(1, 'icon_trophy', 1)` и `watch(1)` через свою копию Go-сервера —
+   ручки, sha256, ETag/304 и отказы в порядке; ревизия смоука — 23 байта,
+   не PNG, вкладка отказывает `bad_src` и ничего не ставит. Полный цикл —
+   задание-репетиция 3 (`about: ITGAME-182`, `icon_trophy`, ревизия 1 —
+   байты `icon_trophy.png` из репо, `edited`): `open → draft → final`,
+   `qa:sprite` → `accepted`, `sprite:take` — три совпадения, PNG не
+   изменился. Ключ ушёл в `committed` с `reason` «не хеш» от пробного
+   запроса координатора, а не от `sprite:take --committed` (тот после этого
+   честно отказал: статус не `accepted`): так и выяснилось, что minipc хеш не
+   проверяет. Запись note и `scripts/sprites/minipc/icon_trophy.json`, которую
+   сделал забор, в репо не идёт — `icon_trophy` пришёл из пилота ITGAME-83, а
+   не из minipc.
+
+   Первый настоящий груз — **ещё не определён** (допишет координатор).
 
 Шаги 1, 2 и 4 идут параллельно с работой minipc и localmind.
 

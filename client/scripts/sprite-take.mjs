@@ -16,8 +16,10 @@
 // --committed — после коммита: HEAD содержит этот PNG с sha256 ревизии N → статус
 // committed с хешем HEAD в minipc.
 //
-// Окружение: ITGAME_MINIPC_URL, ITGAME_MINIPC_CLI_TOKEN. --root <dir> — корень другого
-// репо (прогон против заглушки minipc пишет во временную копию, не в этот репо).
+// Окружение: ITGAME_MINIPC_URL, ITGAME_MINIPC_CLI_TOKEN — без них из файлов владельца
+// (~/.config/itgame-dev/env — только адрес, ~/.config/itgame-dev/minipc-cli.env — токен;
+// lib/minipc-client.mjs, minipcFromEnv). --root <dir> — корень другого репо (прогон против
+// заглушки minipc пишет во временную копию, не в этот репо).
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'

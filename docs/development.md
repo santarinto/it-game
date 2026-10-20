@@ -1573,7 +1573,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 
 | Command | Checks | Port (`QA_PORT`/…) |
 |---|---|---|
-| `npm test` | `node --test` over `client/scripts/lib/*.test.mjs`: the sprite contract core (pixel and `render: smooth` profiles, no `node:*` imports) and `sprite-smooth` (fractional-step area resampling, alpha-weighted colour, centre/bottom placement, chroma key, `chroma: 'auto'` by corners with a noise-derived tolerance, background zeroing), `emoji-check` (what counts as an emoji), `format` (the day report's «Админы» lines — both parts, one, none — and the `seatsLabel` plural, ITGAME-159) and `daylog` (the HUD feed over `src/eventlog.ts`, type-only imports so no Phaser: `parseLogLine` splits the server's «HH:MM», `takeDayLog` puts only the new tail of a growing day log into the feed and starts over on another day or after a shorter log, `newDayLine` gives «Утро, день N» at the day's start hour, ITGAME-163) — no browser, no server | — |
+| `npm test` | `node --test` over `client/scripts/lib/*.test.mjs`: the sprite contract core (pixel and `render: smooth` profiles, no `node:*` imports) and `sprite-smooth` (fractional-step area resampling, alpha-weighted colour, centre/bottom placement, chroma key, `chroma: 'auto'` by corners with a noise-derived tolerance, background zeroing), `emoji-check` (what counts as an emoji), `format` (the day report's «Админы» lines — both parts, one, none — and the `seatsLabel` plural, ITGAME-159) and `daylog` (the HUD feed over `src/eventlog.ts`, type-only imports so no Phaser: `parseLogLine` splits the server's «HH:MM», `takeDayLog` puts only the new tail of a growing day log into the feed and starts over on another day or after a shorter log, `newDayLine` gives «Утро, день N» at the day's start hour, ITGAME-163), `minipc-stub` (roles, routes, answer shapes and status machine of the real minipc, refusals leave the state alone, ITGAME-157/182) and `minipc-client` (credential auto-load from temp files — the itgame-go token never taken, errors name the file and variable, no values —, the real shapes, `clipUtf8`, `committed` without a hash not sent, ITGAME-182) — no browser, no game server | — |
 | `npm run check:emoji` | no emoji in `client/src` — strings, comments, the manifest (ITGAME-83): a `\p{Extended_Pictographic}` character or U+FE0F, except the glyphs our own fonts carry (`FONT_PICTOGRAPHS` in `client/scripts/lib/emoji-check.mjs`, the cmap of both woff2 by `fc-query`); an icon is a sprite next to a Text (`attachIcon`), a text symbol is a glyph of our fonts; last step of `npm run build` | — |
 | `npm run qa:meta` | stats/achievements modals; ITGAME-83 icons: the menu buttons (16) and modal titles (24) — `icon_trophy`, `icon_chart`, `icon_warning` on «Начать заново?» / «Партия в другой вкладке»; each achievement card's own `ach_*` (16) left of its title, dimmed while locked (alpha 0.6 and a grayscale `ColorMatrix` in `preFX`), `icon_lock` (12) left of every «Заблокировано», no emoji in the modal | :4173, `vite preview` — needs a Go server already on :8080 |
 | `npm run qa:buttons` | buy-button enabled/tooltip/alpha states (ITGAME-17); R1–R7 the room action column (ITGAME-94): `btn.pc`/`hire`/`boss` in the `office` scene at x 1142, 128×44, y 384/438/492, no overlap with any office object; the `room.tooltip` sits left of the column; a real mouse click at the `screen()` point buys a PC; under the router window `hit()` fails, `X`, no tooltip; in a locked office the column is hidden and `itd.click` answers `code: 'hidden'`; `btn.gateway` in `serverRoom` at x 1142 y 452; AV1–AV8 the antivirus (ITGAME-137): `btn.antivirus` in `serverRoom` at x 1142 y 506 128×44, a real click opens «Антивирус» with three tiers and «Отключить» disabled (`D`, a click sends nothing), a real click on SOHO Edition sends `set_antivirus` slot 1 (button «Антивирус / SOHO Edition», first seats covered, billed $12), at $10 the current tier and the upgrades are `D` and «Отключить» sends slot 0 with the day still billed $12, a shield per covered seat in the office, the day report line «Антивирус: -$12» | :4180, self-serve |
@@ -1584,7 +1584,7 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:slots` | office/server-room slot rendering — lunch, boss, gateway, router, amenities, racks; `broken_pc`: one zone `office.slot.0` covers the worker and the «✖ чинить k/N» label, real clicks repair 0/3 → 1/3 → 2/3 → repaired, then the same zone motivates; right click and tooltip shared (ITGAME-75/92/93); `virus_outbreak` (ITGAME-138): a real click on «Чистить вручную» closes the card, «☣ вирус 0/3» on seats 1 and 6 only, the plate «☣ вирус: 2 из 9 мест · волна в 12:00», tab badges «☣ 2»/«☣ 1», the zone covers the worker and the label, exactly two lime-blinking zones and no red one, `itd.stack` wins `office.slot.0` at the label and the worker, no overlaps, the tooltip «ЗАРАЖЁН … 0/3», «вирус -30%», «мотивация: после чистки», right click opens the fire dialog and sends nothing, real clicks send `virus_click` 1/3 → 2/3 → clean (zone back to 64×64, plate «1 из 9», badge «☣ 1»), then the zone motivates; a broken infected seat (by `itd.restore`) shows «✖ чинить 0/3» in a red zone, the tooltip «после ремонта вирус останется», clicks send `repair_click`, and after the repair «☣ вирус 0/3» is back; the tooltip hides when the router/fire window opens and stays hidden after a snapshot and `itd.hover` (ITGAME-89); 3в with `?debug=1` frames: under the router window, the HUD exit dialog and the day report no frame of a covered object lies above the dim, every frame sits at its object's depth + 0.5, the window's own buttons are framed above it, also after a snapshot (ITGAME-84); EV1–EV4 the event card: `btn.event.0`/`btn.event.1` framed once each at 41.5 with the frames in `eventUI`, still once after a snapshot rebuilds the card, under the exit dialog's dim 70 together with the header, none left after the event is cleared; OF1–OF4 «Пока вас не было»: the final `btn.offline.menu`, then the ordinary report over it — `btn.offline.continue` framed once at 56.5 and the dim at 55.5 (frames in `offlineUI`, the final window's frames gone), header frames under 55 also after a snapshot, «Продолжить →» leaves no `btn.offline.*` frame or id (ITGAME-97); shelf (`spare_pcs`, no amenities): without a cooler `office.amenity.fridge`/`coffee_machine` are disabled, no hand cursor, «нужен кулер», hover shows «Сначала купите кулер» and real clicks send nothing; a real click on the cooler sends `buy_cooler`, then both cells open and real clicks send `buy_fridge`, `buy_coffee` with no server error (ITGAME-102) | :4177, self-serve |
 | `npm run qa:sprite-try` | `itd.sprite.try/reset/list` (ITGAME-119): a clean swap re-points live objects and reports `sha256`; an off-palette PNG is applied and named in `problems`; a sleeping scene's key; fallback keys stay independent; `unknown_key`/`bad_src`/`bad_size`/`not_tried`; no `crypto.subtle` → `sha256: null`; `reset()` restores the original pixels after two tries; `assets()`/`assetSet()` mark the key `tried`; `{filter: 'linear'}` sets LINEAR on the GL texture, the default stays NEAREST, `bad_filter`, `reset()` brings back NEAREST; the menu `icon_trophy` (ITGAME-83) keeps 16×16 under a 64px try, loads LINEAR as a `render: smooth` key, `try` defaults to linear for it and `assets()` reports it `smooth` with no off-palette colours | :4187, self-serve |
 | `npm run qa:sprite-pull` | `itd.sprite.pull/watch/unwatch` (ITGAME-157) against the minipc stub through `/api/debug/sprite/*`: P1 `pull(cooler, 1)` puts the revision — the texture's RGBA equals the PNG's, the receipt clean with `source: 'pull'`, `taskId`, `rev`, minipc's `sha256`; P2 `list()` carries them, `assets()` says `tried`; P3 an off-palette revision is applied and named; P4 `bad_size`; P5 `unknown_key`, `not_found`, `bad_rev`, `bad_task`; P6 `reset()` brings the original pixels back; W1 `watch` — the manifest's keys, `not_in_manifest` in `skipped`, a first receipt per key; W2 a new revision arrives by polling in ≤ 4 s; W3 `unwatch` returns it in `updates` and the next revision does not arrive; W4 `not_watching`; no pageerror | :4194, self-serve + the stub |
-| `npm run qa:sprite-pipeline` | `qa:sprite` and `sprite:take` against the stub (ITGAME-157), key `cooler`, `take` into a temporary git copy of the manifest and sprites: R1 an off-palette revision → `returned` with «вне палитры» and a crop; R2 a clean one → `accepted`, the report carries its sha256; T1 a forged report sha → refused, PNG untouched; T2 a revision added after `accepted` → taking the old one refused (`draft`, no final), untouched; T2b `check:sprites` fails (a dangling `fallback`) → the PNG, the manifest and the provenance rolled back; T3 the third revision accepted and taken — the PNG, the provenance (origin, profile), the note keeps its reason with the minipc tail; T4 `--committed` before the commit refused; T4b a fourth revision after the commit → `--committed 3` refused, the status untouched; T4c the fourth taken, the note has one minipc tail; T5 `--committed 4` → `committed` with the `HEAD` hash | qa:sprite on :4196, self-serve + the stub |
+| `npm run qa:sprite-pipeline` | `qa:sprite` and `sprite:take` against the stub (ITGAME-157), key `cooler`, `take` into a temporary git copy of the manifest and sprites: R0 without `ITGAME_MINIPC_TOKEN`, or with the coordinator's token in its place → refused before the server, nothing posted (ITGAME-182); R1 an off-palette revision → `returned` with «вне палитры» and a crop; R2 a clean one → `accepted`, the report carries its sha256; T1 a forged report sha → refused, PNG untouched; T2 a revision added after `accepted` → taking the old one refused (`draft`; the final pointer stays, as in minipc), untouched; T2b `check:sprites` fails (a dangling `fallback`) → the PNG, the manifest and the provenance rolled back; T3 the third revision accepted and taken — the PNG, the provenance (origin, profile), the note keeps its reason with the minipc tail; T4 `--committed` before the commit refused; T4b a fourth revision after the commit → `--committed 3` refused, the status untouched; T4c the fourth taken, the note has one minipc tail; T5 `--committed 4` → `committed` with the `HEAD` hash | qa:sprite on :4196, self-serve + the stub |
 | `npm run qa:trace` | `itd.trace()` live window (ITGAME-37); receipts by command id — `id`/`rev` in `cmd()`, `trace().sent`/`states`, `net()`, and no false receipt with a tick or an observer's (`/ws/agent`) snapshot in flight (ITGAME-45); `itd.trace.start()` → a real `page.mouse.click` on `btn.pc` → `stop(id)`: `pointer` down/up with world x/y = cx/cy, `wins` `'btn:pc'`, `got` [btn:pc], `sent` buy_pc; a click on `#build` — `onCanvas` false; `no_trace`, `cut` by `maxMs`, `bad_max`, two windows, `itd.click()` leaves `pointer` empty (ITGAME-88); `got` of a button that removes itself on `pointerdown` — a real click on the ✕ of «Выйти в меню?» gives `modal:close` on down and nothing on up, same for a self-removing probe rectangle (ITGAME-112); `gone` on the up (ITGAME-148): ✕ `[modal:close]`, a self-removing probe `[probe:gone]`, a self-hiding one `[probe:hide]`, the keeping probe and `btn:menu` `[]`, down entries `[]`, `summary()` prints `gone [...]`; 15b `itd.trace.peek()` (ITGAME-160): `no_trace` without a window, the copy grows between two clicks and a mutation of it does not leak, the window stays in `start().open`, `stop(id)` returns the same id, `peek` after `stop` → `no_trace`, `peek` on a `maxMs`-cut window → `cut: true` with the final `windowMs`; `src` — `itd` from `pause()`/`key()`/`click()` (4, 10b, 10c, 15), `ui` from a DOM Enter and a real click (10, 14); 16 `itd.trace.summary(id)` on an open window equals `summary(tr)` after `stop`, sorted by `t`, one line of each kind pinned by its pattern, `no_trace` with `lines: []` without a window or for a non-`TraceResult` (ITGAME-179) | :4176, self-serve |
 | `npm run qa:contract` | `itd.contract()` shape/hash (ITGAME-39); A11 the 10.10-b fields: `TraceApi.call` + `start`/`stop`, `pointer`, `fill`, `shown`, `seq`/`awayId`, journal `conn`/`src`, `end` spelled out (ITGAME-87/88/91); A12–A15 debug calls outside a party (ITGAME-131): from the menu `set`/`step`/`advanceDays`/`ledger`/`scenario`/`snapshot`/`restore` reject `not_in_party` with no `/api/debug/*` request (`play` `{days}` → `FAIL not_in_party`), `itd.journal()` is not gated, after `menu.diff.normal` `snapshot()`/`scenario()` go through under `liveSid`, after «Сохранить и выйти» they refuse again and the left party's journal still reads; A16 the 20.10 trace contract (ITGAME-179/148/160): `TracePointer.wins` `string | null`, `sent` as `TraceSent[]` with `src` documented, `TraceApi.summary` → `TraceSummary.lines`, `TracePointer.gone`, `screen` → the `bad_frame` union, `ScreenMap.ok`, `TraceApi.peek` | :4178, self-serve |
 | `npm run qa:party` | two parties in one tab: fresh party after leaving in a locked office / fast exit opens office 0, nav works, buy not `office_locked`; «Continue» keeps sid/day/money (ITGAME-47); expired save on «Continue» and `itd.scenario()` from Office 2 land in office 0 (ITGAME-54/55); overlays/report pause after `itd.scenario()` incl. from the finale, `itd.restore()` locking the active office (ITGAME-64/63); explicit exit freezes the party: the exit dialog pauses, Отмена/Esc/✕ restore the speed, «Сохранить и выйти» → «Продолжить» keeps tick/day/money and the speed, also from an open day report (ITGAME-65); on the victory screen (storage sid cleared) `itd.server().sid`/`liveSid` stay the live party's sid (ITGAME-68); office/server-room windows (router, fire dialog via a real right click on `broken_pc`, core, rack) close on `itd.scenario()`/`itd.restore()`, a click where «Уволить» was sends nothing (ITGAME-69); A1–A7 `itd.away` (ITGAME-76): `close` — while away the socket is `reconnecting`, commands `not_connected`, the server session is gone at once, the return resumes the same sid with `droppedAt` ≈ `leftAt`; `net` with `timeout: 1500` — the server session lives (200) until its read timeout and is gone (404) after, `droppedAt − drop.at` ≈ 1.5 s, `liveTicks` ≈ 3 at 2x, catch-up from `droppedAt`; `net` shorter than the timeout — no catch-up, ticks ran live; the owner key untouched; inside `itd.sandbox` the return lands in the sandbox party; N1–N6 with the socket dropped (`itd.away` net) and real mouse clicks: «Купить ПК» twice — one «Нет связи» toast, `error` sound each, no `buy_pc` (ITGAME-90); «Сохранить и выйти» → «Нет связи — сохранение не дойдёт», no `exit`, Esc back; «Подождать» → «Ждём связь…» → after the return `exit {speed:2}` and the menu, «Продолжить» 3 s later on the same day/clock; «Подождать» → ✕ sends nothing; «Выйти без сохранения» → menu, the party ran on; open socket unchanged (ITGAME-85); D1–D3 «Сдаться» → «Удалить партию навсегда?»: Enter/«Отмена» keep the sid and the save, «Удалить» sends `abandon`, 404 (ITGAME-86); A8 the catch-up key: `awayId` 1, 2, 3, `offline.awayId === awayId`, `seq` grows, after an away without a catch-up `itd.offline()` is the previous one (its `awayId`, same `seq`) (ITGAME-87) | :4181, self-serve + temp saves dir |
@@ -1868,9 +1868,11 @@ while one runs.
 
 The database is `itdirector_dev` on the host's PostgreSQL, reached over the
 unix socket with peer auth (`postgres:///itdirector_dev?host=/run/postgresql`,
-no password). An optional `~/.config/itgame-dev/env` (`KEY=VALUE` lines)
-overrides the unit's environment, for example a `DATABASE_URL` with a
-password. The unit restarts on failure; PostgreSQL coming up after it at boot
+no password). An optional `~/.config/itgame-dev/env` (`KEY=VALUE` lines,
+mode 600) overrides the unit's environment, for example a `DATABASE_URL` with a
+password; since 20.10 it carries `ITGAME_MINIPC_URL` and `ITGAME_MINIPC_TOKEN`,
+so the stand's `/api/debug/sprite/*` read the real minipc (see [Sprite
+pipeline (minipc)](#sprite-pipeline-minipc)). The unit restarts on failure; PostgreSQL coming up after it at boot
 needs no restart — the server picks the database up in the background (see
 [Database](#database)). Logs: `journalctl --user -u itgame-dev`.
 
@@ -2301,17 +2303,39 @@ The pipeline this is the first step of: `docs/design/sprite-pipeline.md`.
 
 ### Sprite pipeline (minipc)
 
-Step 4 of `docs/design/sprite-pipeline.md` (ITGAME-157): a sprite goes from a
-minipc job to the tab, through the acceptance run, into the repo. minipc owns
+Steps 4–5 of `docs/design/sprite-pipeline.md` (ITGAME-157 against a stub,
+ITGAME-182 docked to the real minipc): a sprite goes from a minipc job to the
+tab, through the acceptance run, into the repo. minipc owns
 jobs, revisions and per-key statuses (`open → draft → final → returned |
 accepted → committed`); the game side reads them and gives verdicts.
 
 **Environment.** `ITGAME_MINIPC_URL` — the API base (`…/api/itgame`, ends
 before `/jobs`); `ITGAME_MINIPC_TOKEN` — the Go server's token (role
 `itgame-go`, read only); `ITGAME_MINIPC_CLI_TOKEN` — the coordinator's token
-(role `itgame-cli`: reads and verdicts) for `qa:sprite` and `sprite:take`. The
-tokens live in the environment only, never in the repo or the tracker (where
-they are kept on the stand is ITGAME-182).
+(role `itgame-cli`: creates jobs, bootstrap revisions, `final`, verdicts) for
+`qa:sprite` and `sprite:take`. Token values never go into the repo, the
+tracker, commit messages, fixtures or logs; refer to them by variable name.
+
+Where they live (owner's decision 20.10, ITGAME-182), both files mode 600:
+`~/.config/itgame-dev/env` — the stand's `EnvironmentFile`
+(`itgame-dev.service`), holds `ITGAME_MINIPC_URL` and `ITGAME_MINIPC_TOKEN`;
+`~/.config/itgame-dev/minipc-cli.env` — `ITGAME_MINIPC_CLI_TOKEN` only. The Go
+server never gets the itgame-cli token.
+
+**Auto-load** (`client/scripts/lib/minipc-client.mjs`, `minipcFromEnv`): when
+`ITGAME_MINIPC_CLI_TOKEN` is not in the environment, `qa:sprite` and
+`sprite:take` read it from `minipc-cli.env`; when `ITGAME_MINIPC_URL` is not,
+they read **only that key** from `~/.config/itgame-dev/env` — the itgame-go
+token there is the server's and is never taken. The environment wins over the
+files. Lines are `KEY=VALUE` (blank lines and `#` comments skipped, `export `
+and surrounding quotes allowed); a missing file, a missing or empty variable
+is an error naming the file and the variable, never a value.
+`ITGAME_MINIPC_CLI_ENV_FILE` / `ITGAME_DEV_ENV_FILE` override the two paths
+(tests). `qa:sprite` self-serves a Go server, which reads minipc with its own
+token: `ITGAME_MINIPC_TOKEN` must come from the caller's environment (`set -a;
+. ~/.config/itgame-dev/env; set +a`), the run refuses without it or when it
+equals the coordinator's token, and `selfServe` strips
+`ITGAME_MINIPC_CLI_TOKEN` from the environment of every self-served server.
 
 **Go routes** (`server/internal/spriteproxy`, registered only with
 `ITGAME_DEBUG=1`; without the URL or the token they answer `503
@@ -2325,8 +2349,12 @@ the bytes and answer `502 sha_mismatch` when it differs from minipc's
 `X-Sprite-Sha256`; they pass `X-Sprite-Rev`/`X-Sprite-Sha256` on. Arguments
 are checked before minipc is asked: `bad_task` (not a number), `bad_key`
 (not `[a-z0-9_]+`), `bad_rev` (not ≥ 1). minipc's answers map to `not_found`
-(404), `minipc_auth` (401/403 — the server's token), `minipc_unreachable`,
-`minipc_error`, `too_large` (over 8 MB). Every refusal is `{code, error}`.
+(404 with minipc's JSON `{error}`), `minipc_auth` (401/403 — the server's
+token; a 403 carries minipc's `detail`), `minipc_unreachable`, `minipc_error`
+(also a 404 that is not JSON: minipc's framework page for a path outside its
+routes — `ITGAME_MINIPC_URL` without `/api/itgame` — which as `not_found` would
+make `watch` read «no revisions yet» and stay silent), `too_large` (over
+8 MB). Every refusal is `{code, error}`.
 
 **In the tab** (`client/src/debug/spriteTry.ts`): `itd.sprite.pull(taskId,
 key, rev)` puts a frozen revision in place the way `try` does — same receipt
@@ -2361,7 +2389,9 @@ plate) is noise of the frame — kept in the report as `noise`, never a
 `returned`, which minipc cannot take back. Today the verdict therefore rests
 mostly on the contract. Verdict: `accepted` when the contract is clean and
 nothing is new in the place, otherwise `returned` with the reason and the
-first crop as `cropPng`. `--dry` posts nothing. The report goes to
+first crop as `cropPng`. The reason is clipped to 1000 bytes of UTF-8 —
+minipc's limit is bytes, a Russian reason of 900 characters would be ~1800
+and refused with 422. `--dry` posts nothing. The report goes to
 `client/.qa/sprite/<task>/report.json` with the crops (gitignored); a run
 merges into it by key, so `--key A` keeps an earlier verdict for B. Exit 1
 means no verdict could be given — minipc or the server refused, the key is not
@@ -2385,12 +2415,54 @@ failed). After the commit, `npm run sprite:take -- --task <id> --key <k> --rev
 <N> --committed` checks that `HEAD` holds that PNG with the revision's sha256
 and that minipc still has the key `accepted` with this revision as its final
 (a newer revision since the take refuses), then posts `committed` with the
-`HEAD` hash. No key
+`HEAD` hash. minipc takes any non-empty reason for `committed` and the status
+is terminal, so the client lib refuses to send a `committed` whose reason is
+not a 7–40 hex hash. No key
 of the pipeline has derived states yet (`sprite-recolor`), so take builds none.
 
 **Stub.** `client/scripts/lib/minipc-stub.mjs` serves the same routes, token
-roles and status machine as minipc (letter 4123) from memory: `node
+roles, status machine and answer shapes as minipc from memory: `node
 client/scripts/lib/minipc-stub.mjs [--port 4199]` prints the three variables
-to export. The shape of `GET /jobs/{taskId}` is not in the letter — the stub
-answers `{taskId, about, profile, class, items: [{key, status, latest, final}]}`
-and the readers also take `keys[]`; check it against minipc in ITGAME-182.
+to export; `jobBody(keys)` gives a job body the real minipc would accept.
+
+**Real minipc vs the stub's first guess** (checked live 20.10, ITGAME-182; the
+stub and the readers now follow the real one, the readers still take the old
+forms):
+
+- `GET /jobs/{taskId}` — `{taskId, about, profile, class, created_at, items:
+  [{key, brief, ctx: {text, bg}, status, status_at, revisions, latest: {rev,
+  sha256} | null, final: … | null}]}`: `ctx`, not `context` (the POST body
+  keeps `context`; its `cropPng` is stored and never returned), `created_at`
+  instead of `createdAt`, plus `status_at` and `revisions` (a count). `POST
+  /jobs` answers 201 with the same shape.
+- `GET /jobs` — `{items: [{taskId, about, created_at, keys}]}`, `keys` a count;
+  the stub returned an array of full jobs.
+- `GET …/revisions` — wrapped: `{taskId, key, items: [{rev, sha256, origin,
+  size, created_at}]}`; the stub's bare array made `sprite:take` read it with
+  `.find` — against minipc the provenance would have lost `origin` silently.
+  A key without revisions answers 404 («has no revisions yet»), not `[]`.
+- `POST …/revisions` → 201 `{taskId, key, rev, sha256, origin}`; `origin`
+  defaults to `{kind: edited, from: null}` (a bootstrap revision has no
+  `from`); `generated` needs `X-Sprite-Seed` and `X-Sprite-Prompt`; only the
+  PNG signature is checked. Header values are bytes: a non-ASCII prompt does
+  not fit `X-Sprite-Prompt` as is.
+- `POST …/final` → `{key, status, final_rev}`; an unknown revision is 404, a
+  key without revisions 409; a pick is allowed from `draft` or `final` only
+  (`returned`/`accepted` need a new revision first).
+- A new revision returns the key to `draft` but keeps the `final` pointer (the
+  stub cleared it): a refusal of `sprite:take` after a newer revision rests on
+  the status, not on the pointer.
+- `POST …/status` → `{key, status}`; `returned` needs a reason, `accepted`
+  does not, `committed` needs any non-empty reason (no hash check — the stub
+  had one); reason ≤ 1000 bytes; `cropPng` only on `returned`, strict base64
+  of a PNG ≤ 2 MiB; a body that is not JSON is 400.
+- Refusals are `{error, field?}` (422 with `field` for a bad body), 401
+  `{error: "unauthorized"}`, 403 `{error: "forbidden", detail: "the itgame-cli
+  token is required for this handle"}`, 404 texts like «task N not found»,
+  «key 'k' not found in the job», «revision N of 'k' not found». A path
+  outside the routes (`taskId`/`rev` not a number, a key with capitals, a
+  wrong base) is an HTML page 404.
+
+Against the real one (20.10): `itd.sprite.pull`/`watch` on job 1 through a
+self-served server with the itgame-go token, `qa:sprite` → `accepted` and
+`sprite:take`'s three matches on rehearsal job 3 (the spec, «Порядок», step 5).

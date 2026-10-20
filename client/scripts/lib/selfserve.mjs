@@ -129,9 +129,12 @@ export async function selfServe({ port, saves = 'off', label }) {
   // ITGAME_DEBUG=1: QA/visreg говорят с /api/debug/* (itd.set/advance/…) и
   // могут понадобиться /ws/agent — без флага main.go не регистрирует эти
   // маршруты вовсе (гейт ITGAME-26/29, см. server/cmd/server/main.go).
+  // Токен координатора minipc (itgame-cli: вердикты, финал) Go-серверу не отдаётся никогда
+  // (ITGAME-182): у сервера свой ITGAME_MINIPC_TOKEN роли itgame-go — только чтение.
+  const { ITGAME_MINIPC_CLI_TOKEN: _cli, ...env } = process.env
   const proc = spawn(BIN_PATH, ['-addr', `127.0.0.1:${port}`, '-static', DIST_DIR, '-saves', savesArg], {
     stdio: ['ignore', 'ignore', 'pipe'],
-    env: { ...process.env, ITGAME_DEBUG: '1' },
+    env: { ...env, ITGAME_DEBUG: '1' },
   })
   proc.stderr.on('data', (d) => {
     stderrBuf = (stderrBuf + d.toString()).slice(-STDERR_TAIL)

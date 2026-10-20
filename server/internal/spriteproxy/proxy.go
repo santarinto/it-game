@@ -153,7 +153,10 @@ func (p *proxy) png(w http.ResponseWriter, r *http.Request, ifNoneMatch string, 
 }
 
 // fetch — GET в minipc. Ответ, отличный от 200 и 304, уже записан в w кодом
-// отказа: 404 — not_found, 401/403 — minipc_auth, сеть — minipc_unreachable.
+// отказа: 404 с JSON {error} — not_found, 401/403 — minipc_auth, сеть —
+// minipc_unreachable. 404 не JSON — страница фреймворка minipc: такой ручки нет
+// (ITGAME_MINIPC_URL без /api/itgame), это minipc_error, а не not_found — иначе
+// watch принял бы неверный адрес за «ревизий ещё нет» и молчал (ITGAME-182).
 func (p *proxy) fetch(w http.ResponseWriter, r *http.Request, limit int64, ifNoneMatch string, path ...string) (*http.Response, []byte, bool) {
 	target, err := url.JoinPath(p.up.URL, path...)
 	if err != nil {
@@ -187,6 +190,8 @@ func (p *proxy) fetch(w http.ResponseWriter, r *http.Request, limit int64, ifNon
 			return nil, nil, false
 		}
 		return resp, body, true
+	case resp.StatusCode == http.StatusNotFound && !machineError(body):
+		fail(w, http.StatusBadGateway, "minipc_error", "minipc ответил 404 не JSON — такой ручки нет, проверьте ITGAME_MINIPC_URL (…/api/itgame)")
 	case resp.StatusCode == http.StatusNotFound:
 		fail(w, http.StatusNotFound, "not_found", "minipc: "+upstreamError(body, "нет такого задания, ключа или ревизии"))
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
@@ -197,17 +202,32 @@ func (p *proxy) fetch(w http.ResponseWriter, r *http.Request, limit int64, ifNon
 	return nil, nil, false
 }
 
-// upstreamError — поле error машинного ответа minipc ({error, field?}).
+// minipcError — машинный ответ minipc: {error, field?}, у отказа роли (403) ещё
+// detail (сверено 20.10, ITGAME-182).
+type minipcError struct {
+	Error  string `json:"error"`
+	Field  string `json:"field"`
+	Detail string `json:"detail"`
+}
+
+// machineError — тело это машинный отказ minipc, а не страница фреймворка.
+func machineError(body []byte) bool {
+	var e minipcError
+	return json.Unmarshal(body, &e) == nil && e.Error != ""
+}
+
+// upstreamError — текст машинного ответа minipc: error, (field), — detail.
 func upstreamError(body []byte, fallback string) string {
-	var e struct {
-		Error string `json:"error"`
-		Field string `json:"field"`
-	}
+	var e minipcError
 	if err := json.Unmarshal(body, &e); err != nil || e.Error == "" {
 		return fallback
 	}
+	out := e.Error
 	if e.Field != "" {
-		return e.Error + " (" + e.Field + ")"
+		out += " (" + e.Field + ")"
 	}
-	return e.Error
+	if e.Detail != "" {
+		out += " — " + e.Detail
+	}
+	return out
 }

@@ -7,10 +7,12 @@
 //
 //   npm run qa:sprite -- --task <id> [--key <k>] [--dry] [--out <dir>]
 //
-// Окружение: ITGAME_MINIPC_URL, ITGAME_MINIPC_CLI_TOKEN (вердикты); Go-серверу —
-// ITGAME_MINIPC_TOKEN (без него берётся тот же токен координатора). --dry — без
-// вердиктов. Отчёт: <out>/report.json (по умолчанию client/.qa/sprite/<task>/) — его
-// sha256 сверяет sprite:take. Self-serve: Go-сервер на QA_PORT (default 4195) поверх
+// Окружение: ITGAME_MINIPC_URL, ITGAME_MINIPC_CLI_TOKEN (вердикты) — без них из файлов
+// владельца (lib/minipc-client.mjs, minipcFromEnv); Go-серверу — ITGAME_MINIPC_TOKEN (роль
+// itgame-go) только из окружения: токен координатора серверу не отдаётся (ITGAME-182),
+// а из ~/.config/itgame-dev/env скрипт берёт только адрес. --dry — без вердиктов.
+// Отчёт: <out>/report.json (по умолчанию client/.qa/sprite/<task>/) — его sha256 сверяет
+// sprite:take. Self-serve: Go-сервер на QA_PORT (default 4195) поверх
 // client/dist (npm run build — заранее).
 //
 // Выход 0 — у каждого ключа вердикт (accepted или returned). 1 — прогон не смог
@@ -24,13 +26,12 @@ import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 import { waitMenuReady } from './lib/menu.mjs'
-import { getJob, jobItems, minipcFromEnv, postStatus } from './lib/minipc-client.mjs'
+import { clipUtf8, getJob, jobItems, minipcFromEnv, postStatus } from './lib/minipc-client.mjs'
 import { selfServe } from './lib/selfserve.mjs'
 import { loadManifest } from './lib/sprite-check.mjs'
 
 const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 const SCALES = ['1', '1.4']
-const REASON_MAX = 900
 
 function arg(name) {
   const i = process.argv.indexOf(name)
@@ -75,8 +76,13 @@ for (const it of targets) {
   if (!Number.isInteger(it.final?.rev)) die(`у ${it.key} в final нет указателя final.rev`)
 }
 
+// Go-сервер прогона читает minipc своим токеном itgame-go; токен координатора к нему не
+// попадает ни подменой, ни окружением (selfServe его вычищает).
+if (!process.env.ITGAME_MINIPC_TOKEN) {
+  die('ITGAME_MINIPC_TOKEN (роль itgame-go) не задан — Go-серверу прогона нужен свой токен чтения, токен координатора ему не отдаётся. Стенд держит его в ~/.config/itgame-dev/env: set -a; . ~/.config/itgame-dev/env; set +a')
+}
+if (process.env.ITGAME_MINIPC_TOKEN === mp.token) die('ITGAME_MINIPC_TOKEN совпал с токеном координатора (itgame-cli) — Go-серверу нужен токен роли itgame-go')
 process.env.ITGAME_MINIPC_URL = mp.url
-process.env.ITGAME_MINIPC_TOKEN = process.env.ITGAME_MINIPC_TOKEN || mp.token
 let stopServer = async () => {}
 let base
 try {
@@ -237,7 +243,7 @@ try {
     entry.verdict = entry.problems.length === 0 && entry.findings.length === 0 ? 'accepted' : 'returned'
     const reason = entry.verdict === 'accepted'
       ? `qa:sprite: контракт чист, новых находок линтеров в месте ключа нет (${entry.crops.length} кадр.)`
-      : `qa:sprite: ${[...entry.problems.map((p) => `контракт — ${p}`), ...entry.findings.map((f) => `${f.linter} — ${JSON.stringify(f)}`)].join('; ')}`.slice(0, REASON_MAX)
+      : clipUtf8(`qa:sprite: ${[...entry.problems.map((p) => `контракт — ${p}`), ...entry.findings.map((f) => `${f.linter} — ${JSON.stringify(f)}`)].join('; ')}`)
     console.log(`${entry.verdict === 'accepted' ? 'ACCEPTED' : 'RETURNED'} ${it.key}#${rev}: ${reason}`)
     if (!DRY) {
       const body = { status: entry.verdict, reason }
