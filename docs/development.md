@@ -1804,6 +1804,54 @@ vanishes from the dashboard. On stage on 20.10 «Партий начато» sho
 `TestMetricsPresetSeries` checks the scrape before any event. A new
 difficulty must be added to the list in `ws/metrics.go` `init`.
 
+### Load test
+
+ITGAME-193. `client/scripts/load-bots.mjs` plays parties over `/ws`. Each bot
+has its own sid (`loadbot-<run>-<i>-<gen>`), difficulties rotate, and the
+speed is 3. On each snapshot a bot sends at most one command:
+
+- `next_day` on the day report;
+- an event option, moving to the next option when the server answers
+  `not_enough_money`;
+- virus and repair clicks;
+- `replace_pc` for a dead PC;
+- PCs and hires within `staffLimit`;
+- `restart` after a bankruptcy, and a fresh sid after a win.
+
+No snapshots arrive during the day report pause. A command sent just before
+the day ended gets `wrong_phase`, and without a watchdog the bot would stay
+silent from then on. So once a second the bot decides on its last snapshot
+if it has heard nothing for 1.5 s. Steps are `bots:seconds`. Every 10 s the
+script prints one summary line: live bots, snapshots/s, commands/s,
+rejections by `command:code`, reconnects, restarts, wins. A host that is not
+stage or localhost needs `--allow-prod`.
+
+```bash
+cd client && node scripts/load-bots.mjs --base wss://stage.itgame.santarinto.ru --steps 10:120,25:120,50:300
+```
+
+Watch the result on the `itgame-app` dashboard, or query it through the
+Grafana proxy (see [Metrics](#metrics)). Prod and stage share the
+single-core box `90.156.129.221`, so also watch prod's tick and the box CPU.
+
+Numbers on stage, 20.10.2026, build 46eeab2, steady-state samples per step:
+
+| Bots | Ticks/s | Tick p95 / p99, ms | Save p95, ms | Stage CPU | Stage RSS | Box CPU | Box MemAvailable |
+|---|---|---|---|---|---|---|---|
+| 0 | 0 | — | — | 0% | 17 MB | 0.2% | 530 MB |
+| 10 | 30 | 2.3–2.5 / 3.1 | 1.2 | 3% | 21 MB | 2–3% | 525 MB |
+| 25 | 75 | 1.9–2.0 / 3.0 | 1.2 | 7% | 22 MB | 6–7% | 521 MB |
+| 50 | 150 | 2.0–2.8 / 3.0–6.5 | 1.2–2.2 | 12–16% | 25–26 MB | 13–19% | 513–520 MB |
+
+At 50 bots the box sent about 0.86 MB/s (≈17 KB/s per party at speed 3).
+There were about 168 saves/s, one per tick plus commands, with no save errors,
+no `stale` saves, no read timeouts and no reconnects. Goroutines: 158, about
+three per session. Prod stayed idle and unaffected. That is roughly 0.3% of
+one core per party at speed 3, so the box holds 50 parties with a wide
+margin. CPU puts the ceiling somewhere in the hundreds of parties, not
+measured. At that scale the save rate is the first thing to watch: every tick
+writes a file.
+
 ## Database
 
 PostgreSQL is optional: gameplay and saves don't use it. It backs the
