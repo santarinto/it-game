@@ -996,13 +996,26 @@ export interface ItdApi {
    * render: smooth в манифесте, иначе nearest), в квитанции
    * и list() — filter. Отказы: unknown_key (ключа нет в sprites.json),
    * bad_src (не data:image/png;base64 или PNG битый), bad_size (не size·frames ×
-   * size ключа), bad_filter (не nearest/linear). itd.sprite.list() → [{key, w, h,
-   * filter, sha256, problems}];
+   * size ключа), bad_filter (не nearest/linear).
+   * Ревизии minipc (ITGAME-157, через Go-ручки /api/debug/sprite/*, сервер с
+   * ITGAME_MINIPC_URL/TOKEN): itd.sprite.pull(taskId, key, rev) ставит замороженную
+   * ревизию — квитанция та же плюс source: 'pull', taskId, rev, sha256 minipc;
+   * itd.sprite.watch(taskId) → {ok, taskId, keys, skipped, receipts} ставит latest
+   * каждого ключа задания из манифеста и опрашивает раз в секунду (ключи не из
+   * sprites.json — в skipped); itd.sprite.unwatch() → {ok, taskId, polls, updates,
+   * errors, lastError}. Отказы: bad_task, bad_rev, not_found, sha_mismatch, too_large,
+   * minipc_not_configured, minipc_unreachable, minipc_auth, minipc_error, debug_off,
+   * server_unreachable. itd.sprite.list() → [{key, w, h, filter, sha256, problems,
+   * source, taskId?, rev?}];
    * itd.sprite.reset(key?) → {ok, reset[]} — вернуть исходную текстуру (без ключа —
-   * все), not_tried — ключ не подменён. В репо, dist и сейв ничего не пишется,
-   * перезагрузка страницы снимает подмену.
+   * все), not_tried — ключ не подменён; опрос watch reset не снимает, следующая
+   * ревизия встанет снова. В репо, dist и сейв ничего не пишется, перезагрузка
+   * страницы снимает подмену и опрос.
    * @example await itd.sprite.try('desk_pc', dataUrl)
    * @example await itd.sprite.try('icon_money', dataUrl, { filter: 'linear' })
+   * @example await itd.sprite.pull(1, 'icon_trophy', 3)
+   * @example await itd.sprite.watch(1)
+   * @example itd.sprite.unwatch()
    * @example itd.sprite.list()
    * @example itd.sprite.reset()
    */
@@ -1989,7 +2002,9 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне палитры манифеста ключа (hd32/sweetie16; у render: smooth не считаются), дубли ключей; source: tried — проба itd.sprite.try
   itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк); active: tried — проба itd.sprite.try
   await itd.sprite.try(key, dataUrl, {filter?}) — примерка спрайта: PNG (data:image/png;base64,…) вместо текстуры ключа манифеста во вкладке → {ok, key, w, h, filter, sha256, objects, problems, warnings, stats}; filter 'nearest' | 'linear' (гладкое сжатие только этой текстуры), по умолчанию — как ключ рисуется в игре (linear у render: smooth); problems — контракт check:sprites, текстура стоит и с нарушениями; отказы unknown_key | bad_src | bad_size | bad_filter; в репо и сейв ничего не пишется
-  itd.sprite.list() / reset(key?)   — что подменено [{key, w, h, filter, sha256, problems}] / вернуть исходную текстуру (без ключа — все), not_tried — ключ не подменён
+  await itd.sprite.pull(taskId, key, rev) — ревизия minipc (ITGAME-157) через /api/debug/sprite/*: квитанция try + {source: 'pull', taskId, rev, sha256 minipc}; отказы bad_task | bad_rev | not_found | sha_mismatch | too_large | minipc_not_configured | minipc_unreachable | minipc_auth | minipc_error | debug_off | server_unreachable
+  await itd.sprite.watch(taskId)    — latest всех ключей задания из манифеста, опрос раз в секунду → {ok, taskId, keys, skipped, receipts}; itd.sprite.unwatch() → {ok, taskId, polls, updates, errors, lastError}, not_watching
+  itd.sprite.list() / reset(key?)   — что подменено [{key, w, h, filter, sha256, problems, source: try|pull|watch, taskId?, rev?}] / вернуть исходную текстуру (без ключа — все), not_tried — ключ не подменён
   itd.reset()                       — снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум, отчёты)
   itd.pause() / resume() / speed(n) — темп сессии: set_speed 0/1/0..3 (серверный, живёт в сейве); до коннекта — {ok:false, code:'not_connected'}
   itd.step(2000) / step({ticks:60}) — пауза + промотка офлайн-движком (без кофе/событий/поломок/волн вируса/XP, день закрывается без day_report; таймер волны стоит — волну видно только живыми тиками): мс (1 тик = 1000 мс, до 10 тиков) или {ticks: 1..10000}; из фазы отчёта — сначала next_day; сводка — в .advance и «debug · advance» в itd.snapshot().events; вне running (game_over) — 200 с advance.ticks 0, ничего не промотано

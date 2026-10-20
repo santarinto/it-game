@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	"itdirector/internal/game"
+	"itdirector/internal/spriteproxy"
 	"itdirector/internal/store"
 	"itdirector/internal/ws"
 )
@@ -21,7 +22,7 @@ import (
 // партия через /ws пишет журнал, GET /api/debug/journal отдаёт его, реплей
 // сходится; без флага маршрута нет (честный 404 ServeMux).
 func TestJournalThroughMux(t *testing.T) {
-	off := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, "", false, 0))
+	off := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, "", false, 0, spriteproxy.Upstream{}))
 	t.Cleanup(off.Close)
 	if resp, err := http.Get(off.URL + "/api/debug/journal?sid=journal-mux-1"); err != nil {
 		t.Fatal(err)
@@ -35,7 +36,7 @@ func TestJournalThroughMux(t *testing.T) {
 	}
 	cfg := game.DefaultConfig()
 	cfg.StartMoney = 100000
-	srv := httptest.NewServer(newMux(cfg, nil, saves, "", true, 0))
+	srv := httptest.NewServer(newMux(cfg, nil, saves, "", true, 0, spriteproxy.Upstream{}))
 	t.Cleanup(srv.Close)
 
 	const sid = "journal-mux-1"

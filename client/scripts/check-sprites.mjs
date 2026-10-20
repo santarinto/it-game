@@ -23,16 +23,30 @@
 //     спек — компонента площадью ≤ 4·(size/64)²; проваливаем, если
 //     спеков больше maxSpecks ключа (по умолчанию 0);
 //   • только предупреждение (не фейл): доля внутренних пикселей (все 8
-//     соседей непрозрачны), ни один из соседей не совпадает по цвету, >10%.
+//     соседей непрозрачны), ни один из соседей не совпадает по цвету, >10%;
+//   • seenIn (ITGAME-157, где ключ виден — для qa:sprite): массив шагов
+//     {fixture, scene, open?}; fixture — фикстура сервера
+//     (server/internal/game/fixtures), scene — ключ сцены клиента, open — id
+//     для itd.click; других полей нет.
 //
 // Запуск: node scripts/check-sprites.mjs (входит в npm run build).
+// --client <dir> — проверить манифест и PNG другого корня client/ (sprite:take
+// в прогоне против заглушки minipc); фикстуры и сцены — всегда этого репо.
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PNG } from 'pngjs'
 import { checkSpriteImage, WHITE_HEX } from './lib/sprite-check.mjs'
 
-const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
+const OWN_CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
+const clientArg = process.argv.indexOf('--client')
+if (clientArg > 0 && !process.argv[clientArg + 1]) {
+  console.error('CHECK-SPRITES FAIL: --client без каталога')
+  process.exit(1)
+}
+const CLIENT_DIR = clientArg > 0 ? process.argv[clientArg + 1] : OWN_CLIENT_DIR
+const FIXTURES_DIR = join(OWN_CLIENT_DIR, '..', 'server', 'internal', 'game', 'fixtures')
+const SCENES_DIR = join(OWN_CLIENT_DIR, 'src', 'scenes')
 const SPRITES_DIR = join(CLIENT_DIR, 'public', 'assets', 'sprites')
 const MANIFEST_PATH = join(CLIENT_DIR, 'src', 'assets', 'sprites.json')
 
@@ -90,6 +104,29 @@ for (const key of spriteKeys) {
   if (fb && !spriteKeys.includes(fb)) {
     fail(`sprites.${key}.fallback → '${fb}' — нет такого ключа в sprites`)
   }
+}
+
+// ── seenIn: шаги, которыми qa:sprite находит ключ на сцене (ITGAME-157) ─────
+const fixtures = new Set(readdirSync(FIXTURES_DIR).filter((f) => f.endsWith('.json')).map((f) => f.replace(/\.json$/, '')))
+const scenes = new Set()
+for (const f of readdirSync(SCENES_DIR).filter((f) => f.endsWith('.ts'))) {
+  for (const m of readFileSync(join(SCENES_DIR, f), 'utf8').matchAll(/super\(\{\s*key:\s*'(\w+)'/g)) scenes.add(m[1])
+}
+for (const key of spriteKeys) {
+  const seenIn = sprites[key].seenIn
+  if (seenIn === undefined) continue
+  if (!Array.isArray(seenIn) || seenIn.length === 0) {
+    fail(`sprites.${key}.seenIn — непустой массив шагов {fixture, scene, open?}`)
+    continue
+  }
+  seenIn.forEach((step, i) => {
+    const at = `sprites.${key}.seenIn[${i}]`
+    const extra = Object.keys(step ?? {}).filter((f) => !['fixture', 'scene', 'open'].includes(f))
+    if (extra.length) fail(`${at}: лишние поля ${extra.join(', ')}`)
+    if (!fixtures.has(step?.fixture)) fail(`${at}.fixture '${step?.fixture}' — нет такой фикстуры (есть: ${[...fixtures].sort().join(', ')})`)
+    if (!scenes.has(step?.scene)) fail(`${at}.scene '${step?.scene}' — нет такой сцены (есть: ${[...scenes].sort().join(', ')})`)
+    if (step?.open !== undefined && (typeof step.open !== 'string' || step.open === '')) fail(`${at}.open — id для itd.click, строка`)
+  })
 }
 
 // ── Ключ ⇔ файл в обе стороны ───────────────────────────────────────────────

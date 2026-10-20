@@ -29,7 +29,10 @@
     "rack_server": { "size": 128, "frames": 1, "palette": "hd32", "class": "rack" },
     "rack_empty": { "size": 128, "frames": 1, "palette": "hd32", "class": "rack" },
     "gateway": { "size": 128, "frames": 1, "palette": "hd32", "class": "rack", "fallback": "router" },
-    "cooler": { "size": 128, "frames": 1, "palette": "hd32", "class": "amenity" },
+    "cooler": {
+      "size": 128, "frames": 1, "palette": "hd32", "class": "amenity",
+      "seenIn": [{ "fixture": "full_office", "scene": "office" }]
+    },
     "fridge": { "size": 128, "frames": 1, "palette": "hd32", "class": "amenity" },
     "coffee_machine": { "size": 128, "frames": 1, "palette": "hd32", "class": "amenity" },
     "office_floor_tile": {
@@ -41,10 +44,12 @@
     "icon_network": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon" },
     "icon_trophy": {
       "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "seenIn": [{ "fixture": "fresh", "scene": "menu" }],
       "note": "пилот ITGAME-83: генерация владельца → sprite-remap --smooth (площадная выборка с весом альфы до 64, поле 4); smooth — LINEAR на 16px в меню, палитра не проверяется (в sweetie16 нет золота fbcc58 — ремап давал медь)"
     },
     "icon_chart": {
       "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "seenIn": [{ "fixture": "fresh", "scene": "menu" }],
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/icon_chart.png --key icon_chart --smooth --chroma auto; кнопка «Статистика» 16px, заголовок окна 24px"
     },
     "icon_warning": {

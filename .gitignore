@@ -11,6 +11,8 @@ iter8-smoke-menu.png
 client/smoke-menu.png
 client/smoke-office.png
 client/smoke-*.png
+# отчёты и кропы qa:sprite (ITGAME-157) — их читает sprite:take, в репо не идут
+client/.qa/
 
 # сейвы сессий (dev по умолчанию, ITGAME-8)
 saves/

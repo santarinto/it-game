@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"itdirector/internal/game"
+	"itdirector/internal/spriteproxy"
 	"itdirector/internal/ws"
 	"net/http"
 	"net/http/httptest"
@@ -33,7 +34,7 @@ func writeStatic(t *testing.T) string {
 }
 
 func TestStaticHonest404(t *testing.T) {
-	srv := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, writeStatic(t), false, 0))
+	srv := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, writeStatic(t), false, 0, spriteproxy.Upstream{}))
 	t.Cleanup(srv.Close)
 
 	// существующий ассет — отдаётся
@@ -60,7 +61,7 @@ func TestStaticHonest404(t *testing.T) {
 }
 
 func TestSourcemapGate(t *testing.T) {
-	srv := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, writeStatic(t), false, 0))
+	srv := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, writeStatic(t), false, 0, spriteproxy.Upstream{}))
 	t.Cleanup(srv.Close)
 	get := func(url string) *http.Response {
 		resp, err := http.Get(url)
@@ -102,7 +103,7 @@ func TestSourcemapGate(t *testing.T) {
 // без флага (значение false) ServeMux их не регистрирует, и запрос падает
 // на честный 404 самого мультиплексора, а не на отказ внутри хендлера.
 func TestDebugRoutesGate(t *testing.T) {
-	srvOff := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, "", false, 0))
+	srvOff := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, "", false, 0, spriteproxy.Upstream{}))
 	t.Cleanup(srvOff.Close)
 
 	if resp, err := http.Get(srvOff.URL + "/api/debug/fixtures"); err != nil {
@@ -135,8 +136,29 @@ func TestDebugRoutesGate(t *testing.T) {
 		}
 	}
 
-	srvOn := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, "", true, 0))
+	// Ручки конвейера спрайтов (ITGAME-157) — под тем же гейтом.
+	if resp, err := http.Get(srvOff.URL + "/api/debug/sprite/7/icon_trophy/latest"); err != nil {
+		t.Fatal(err)
+	} else {
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("без ITGAME_DEBUG /api/debug/sprite: %d, ожидался 404", resp.StatusCode)
+		}
+	}
+
+	srvOn := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, "", true, 0, spriteproxy.Upstream{}))
 	t.Cleanup(srvOn.Close)
+
+	// С флагом, но без ITGAME_MINIPC_URL/TOKEN — ручка есть и честно говорит, чего ей не хватает.
+	if resp, err := http.Get(srvOn.URL + "/api/debug/sprite/7/icon_trophy/latest"); err != nil {
+		t.Fatal(err)
+	} else {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(body), "minipc_not_configured") {
+			t.Fatalf("с ITGAME_DEBUG=1 без minipc /api/debug/sprite: %d %s, ожидался 503 minipc_not_configured", resp.StatusCode, body)
+		}
+	}
 
 	if resp, err := http.Get(srvOn.URL + "/api/debug/fixtures"); err != nil {
 		t.Fatal(err)
@@ -150,7 +172,7 @@ func TestDebugRoutesGate(t *testing.T) {
 
 // GET /api/version (ITGAME-78): sha сервера без гейта ITGAME_DEBUG, JSON, no-store.
 func TestVersionEndpoint(t *testing.T) {
-	srv := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, "", false, 0))
+	srv := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, "", false, 0, spriteproxy.Upstream{}))
 	t.Cleanup(srv.Close)
 	resp, err := http.Get(srv.URL + "/api/version")
 	if err != nil {
@@ -195,7 +217,7 @@ func TestMetricsMux(t *testing.T) {
 		t.Fatalf("в /metrics нет %s", want)
 	}
 
-	pub := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, "", false, 0))
+	pub := httptest.NewServer(newMux(game.DefaultConfig(), nil, nil, "", false, 0, spriteproxy.Upstream{}))
 	t.Cleanup(pub.Close)
 	if resp, err := http.Get(pub.URL + "/metrics"); err != nil {
 		t.Fatal(err)

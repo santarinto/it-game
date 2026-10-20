@@ -36,8 +36,18 @@ export interface SpriteSpec {
   // NEAREST, контракт с палитрой и альфой 0|255; 'smooth' — детальный исходник крупнее
   // слота, фильтр LINEAR, контракт без палитры и с полутонами альфы.
   render?: 'pixel' | 'smooth'
+  // Где ключ виден (ITGAME-157, конвейер спрайтов): шаги, которыми qa:sprite ставит
+  // сцену для примерки ревизии minipc — фикстура сервера, сцена, необязательный id
+  // для itd.click (окно, вкладка). Проверяет check:sprites.
+  seenIn?: SeenStep[]
   // Почему порог выше нуля/дефолта — коротко, по-русски, для ревью.
   note?: string
+}
+
+export interface SeenStep {
+  fixture: string // server/internal/game/fixtures/<fixture>.json
+  scene: string // ключ сцены Phaser, где лежат объекты ключа
+  open?: string // id для itd.click после загрузки: окно или вкладка, где ключ виден
 }
 
 export interface Manifest {

@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "4e91ef1afa2b",
+  "hash": "5825c86e8cbd",
   "methods": {
     "version": {
       "kind": "prop",
@@ -265,10 +265,13 @@ export const CONTRACT = {
       "kind": "prop",
       "type": "SpriteApi",
       "readonly": true,
-      "doc": "Примерка спрайта (ITGAME-119): itd.sprite.try(key, dataUrl) ставит PNG вместо\nтекстуры ключа манифеста во вкладке и перевешивает живые объекты сцен →\n{ok, key, w, h, sha256, objects, problems, warnings, stats} — problems считает\nтот же контракт, что npm run check:sprites (палитра, альфа, шум), текстура при\nнарушениях всё равно стоит. Третий аргумент {filter: 'linear'} — билинейный\nфильтр только этой текстуре (вся игра — NEAREST по pixelArt): детальный\nисходник крупнее слота сжимается гладко; по умолчанию — фильтр ключа (linear у\nrender: smooth в манифесте, иначе nearest), в квитанции\nи list() — filter. Отказы: unknown_key (ключа нет в sprites.json),\nbad_src (не data:image/png;base64 или PNG битый), bad_size (не size·frames ×\nsize ключа), bad_filter (не nearest/linear). itd.sprite.list() → [{key, w, h,\nfilter, sha256, problems}];\nitd.sprite.reset(key?) → {ok, reset[]} — вернуть исходную текстуру (без ключа —\nвсе), not_tried — ключ не подменён. В репо, dist и сейв ничего не пишется,\nперезагрузка страницы снимает подмену.",
+      "doc": "Примерка спрайта (ITGAME-119): itd.sprite.try(key, dataUrl) ставит PNG вместо\nтекстуры ключа манифеста во вкладке и перевешивает живые объекты сцен →\n{ok, key, w, h, sha256, objects, problems, warnings, stats} — problems считает\nтот же контракт, что npm run check:sprites (палитра, альфа, шум), текстура при\nнарушениях всё равно стоит. Третий аргумент {filter: 'linear'} — билинейный\nфильтр только этой текстуре (вся игра — NEAREST по pixelArt): детальный\nисходник крупнее слота сжимается гладко; по умолчанию — фильтр ключа (linear у\nrender: smooth в манифесте, иначе nearest), в квитанции\nи list() — filter. Отказы: unknown_key (ключа нет в sprites.json),\nbad_src (не data:image/png;base64 или PNG битый), bad_size (не size·frames ×\nsize ключа), bad_filter (не nearest/linear).\nРевизии minipc (ITGAME-157, через Go-ручки /api/debug/sprite/*, сервер с\nITGAME_MINIPC_URL/TOKEN): itd.sprite.pull(taskId, key, rev) ставит замороженную\nревизию — квитанция та же плюс source: 'pull', taskId, rev, sha256 minipc;\nitd.sprite.watch(taskId) → {ok, taskId, keys, skipped, receipts} ставит latest\nкаждого ключа задания из манифеста и опрашивает раз в секунду (ключи не из\nsprites.json — в skipped); itd.sprite.unwatch() → {ok, taskId, polls, updates,\nerrors, lastError}. Отказы: bad_task, bad_rev, not_found, sha_mismatch, too_large,\nminipc_not_configured, minipc_unreachable, minipc_auth, minipc_error, debug_off,\nserver_unreachable. itd.sprite.list() → [{key, w, h, filter, sha256, problems,\nsource, taskId?, rev?}];\nitd.sprite.reset(key?) → {ok, reset[]} — вернуть исходную текстуру (без ключа —\nвсе), not_tried — ключ не подменён; опрос watch reset не снимает, следующая\nревизия встанет снова. В репо, dist и сейв ничего не пишется, перезагрузка\nстраницы снимает подмену и опрос.",
       "examples": [
         "await itd.sprite.try('desk_pc', dataUrl)",
         "await itd.sprite.try('icon_money', dataUrl, { filter: 'linear' })",
+        "await itd.sprite.pull(1, 'icon_trophy', 3)",
+        "await itd.sprite.watch(1)",
+        "itd.sprite.unwatch()",
         "itd.sprite.list()",
         "itd.sprite.reset()"
       ]
@@ -2938,6 +2941,21 @@ export const CONTRACT = {
           "optional": false,
           "doc": ""
         },
+        "pull": {
+          "type": "Promise<SpriteReceipt>",
+          "optional": false,
+          "doc": ""
+        },
+        "watch": {
+          "type": "Promise<SpriteWatchResult>",
+          "optional": false,
+          "doc": ""
+        },
+        "unwatch": {
+          "type": "SpriteUnwatchResult",
+          "optional": false,
+          "doc": ""
+        },
         "reset": {
           "type": "SpriteResetResult",
           "optional": false,
@@ -2955,6 +2973,23 @@ export const CONTRACT = {
       "values": [
         "linear",
         "nearest"
+      ]
+    },
+    "SpritePullCode": {
+      "kind": "enum",
+      "values": [
+        "bad_key",
+        "bad_rev",
+        "bad_task",
+        "debug_off",
+        "minipc_auth",
+        "minipc_error",
+        "minipc_not_configured",
+        "minipc_unreachable",
+        "not_found",
+        "server_unreachable",
+        "sha_mismatch",
+        "too_large"
       ]
     },
     "SpriteReceipt": {
@@ -2988,7 +3023,7 @@ export const CONTRACT = {
         "sha256": {
           "type": "string | null",
           "optional": true,
-          "doc": "null — страница не в secure context, crypto.subtle нет"
+          "doc": "null — страница не в secure context, crypto.subtle нет (у pull/watch — всегда sha minipc, сверенный сервером)"
         },
         "objects": {
           "type": "number",
@@ -3010,8 +3045,23 @@ export const CONTRACT = {
           "optional": true,
           "doc": ""
         },
+        "source": {
+          "type": "SpriteSource",
+          "optional": true,
+          "doc": ""
+        },
+        "taskId": {
+          "type": "string",
+          "optional": true,
+          "doc": "задание minipc — у pull/watch"
+        },
+        "rev": {
+          "type": "number",
+          "optional": true,
+          "doc": "ревизия ключа — у pull/watch"
+        },
         "code": {
-          "type": "'unknown_key' | 'bad_src' | 'bad_size' | 'bad_filter'",
+          "type": "'unknown_key' | 'bad_src' | 'bad_size' | 'bad_filter' | SpritePullCode",
           "optional": true,
           "doc": ""
         },
@@ -3047,6 +3097,14 @@ export const CONTRACT = {
         }
       }
     },
+    "SpriteSource": {
+      "kind": "enum",
+      "values": [
+        "pull",
+        "try",
+        "watch"
+      ]
+    },
     "SpriteTried": {
       "kind": "object",
       "fields": {
@@ -3079,6 +3137,21 @@ export const CONTRACT = {
           "type": "string[]",
           "optional": false,
           "doc": ""
+        },
+        "source": {
+          "type": "SpriteSource",
+          "optional": false,
+          "doc": ""
+        },
+        "taskId": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
+        },
+        "rev": {
+          "type": "number",
+          "optional": true,
+          "doc": ""
         }
       }
     },
@@ -3089,6 +3162,96 @@ export const CONTRACT = {
           "type": "SpriteFilter",
           "optional": true,
           "doc": "по умолчанию — как ключ рисуется в игре: linear у render: smooth, иначе nearest"
+        }
+      }
+    },
+    "SpriteUnwatchResult": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "optional": false,
+          "doc": ""
+        },
+        "taskId": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
+        },
+        "polls": {
+          "type": "number",
+          "optional": true,
+          "doc": "кругов опроса"
+        },
+        "updates": {
+          "type": "SpriteReceipt[]",
+          "optional": true,
+          "doc": "квитанции новых ревизий после первого круга, по порядку"
+        },
+        "errors": {
+          "type": "number",
+          "optional": true,
+          "doc": "кругов с отказом ручки (сеть, minipc) — опрос при этом шёл дальше"
+        },
+        "lastError": {
+          "type": "string | null",
+          "optional": true,
+          "doc": ""
+        },
+        "code": {
+          "type": "'not_watching'",
+          "optional": true,
+          "doc": ""
+        },
+        "error": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
+        }
+      }
+    },
+    "SpriteWatchResult": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "optional": false,
+          "doc": ""
+        },
+        "taskId": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
+        },
+        "keys": {
+          "type": "string[]",
+          "optional": true,
+          "doc": "ключи задания из манифеста — их latest опрашивается раз в секунду"
+        },
+        "skipped": {
+          "type": "{ key: string; code: 'unknown_key'; }[]",
+          "optional": true,
+          "doc": "ключи задания, которых нет в sprites.json"
+        },
+        "receipts": {
+          "type": "SpriteReceipt[]",
+          "optional": true,
+          "doc": "первый круг: квитанция по каждому ключу (not_found — ревизий ещё нет)"
+        },
+        "replaced": {
+          "type": "string",
+          "optional": true,
+          "doc": "taskId прежнего watch, который этот вызов остановил"
+        },
+        "code": {
+          "type": "SpritePullCode",
+          "optional": true,
+          "doc": ""
+        },
+        "error": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
         }
       }
     },

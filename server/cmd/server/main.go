@@ -14,6 +14,7 @@ import (
 	"itdirector/internal/db"
 	"itdirector/internal/game"
 	"itdirector/internal/metrics"
+	"itdirector/internal/spriteproxy"
 	"itdirector/internal/store"
 	"itdirector/internal/ws"
 )
@@ -99,7 +100,14 @@ func main() {
 		}()
 	}
 
-	mux := newMux(cfg, database, saves, *static, debugRoutes, readTimeout)
+	// Конвейер спрайтов (ITGAME-157): адрес и токен API заданий minipc — только
+	// для ручек /api/debug/sprite/* под ITGAME_DEBUG=1.
+	minipc := spriteproxy.FromEnv()
+	if debugRoutes && minipc.URL != "" {
+		log.Printf("конвейер спрайтов: minipc %s", minipc.URL)
+	}
+
+	mux := newMux(cfg, database, saves, *static, debugRoutes, readTimeout, minipc)
 	log.Printf("IT Director: слушаю %s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, mux))
 }
@@ -117,8 +125,9 @@ func newMetricsMux() *http.ServeMux {
 // staticDir пуст — статику не раздаём (dev: её раздаёт Vite).
 // debugRoutes — гейт отладочных маршрутов (ITGAME_DEBUG=1 в main): выключен
 // по умолчанию, флаг передаётся явно параметром (а не читается из env здесь),
-// чтобы тесты управляли им напрямую, без глобального состояния.
-func newMux(cfg game.Config, database *db.Conn, saves *store.Store, staticDir string, debugRoutes bool, readTimeout time.Duration) *http.ServeMux {
+// чтобы тесты управляли им напрямую, без глобального состояния. minipc — API
+// заданий конвейера спрайтов (ITGAME-157), нужен только при debugRoutes.
+func newMux(cfg game.Config, database *db.Conn, saves *store.Store, staticDir string, debugRoutes bool, readTimeout time.Duration, minipc spriteproxy.Upstream) *http.ServeMux {
 	mux := http.NewServeMux()
 	// Журнал партии для реплея (ITGAME-46) — под тем же гейтом, что и
 	// /api/debug/*: на проде у игроков не пишется.
@@ -130,6 +139,9 @@ func newMux(cfg game.Config, database *db.Conn, saves *store.Store, staticDir st
 		// значит честный 404 у ServeMux, а не отказ внутри хендлера.
 		mux.Handle("GET /ws/agent", http.HandlerFunc(wsHandler.ServeAgent))
 		mux.Handle("/api/debug/", http.HandlerFunc(wsHandler.ServeDebug))
+		// Ревизии спрайтов из minipc (ITGAME-157): без адреса и токена — 503
+		// minipc_not_configured, а не 404 — вкладка видит, чего не хватает.
+		spriteproxy.Register(mux, minipc)
 	}
 	mux.Handle("GET /admin", &admin.Handler{Config: cfg, DB: database})
 	// Штамп сборки (ITGAME-78): sha бинаря сервера для itd.stale() и метки
