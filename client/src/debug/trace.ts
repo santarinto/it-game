@@ -207,6 +207,37 @@ function labelOf(obj: Phaser.GameObjects.GameObject): string {
   return typeof id === 'string' ? id.replace(/\./g, ':') : obj.type
 }
 
+// ITGAME-112/151: слушатели got — кому Phaser довёл pointerdown/up. Ставятся на объекты
+// под точкой ДО Phaser (capture-слушатель окна), снимаются, когда Phaser разослал событие:
+// следующим arm()/flush() или setTimeout 0 — страховка, если следующего события не будет.
+// Общие для itd.trace и itd.claim.
+export interface GotCatcher {
+  arm: (objs: Phaser.GameObjects.GameObject[], down: boolean, onGot: (label: string, obj: Phaser.GameObjects.GameObject) => void) => void
+  flush: () => void
+}
+
+export function makeGotCatcher(): GotCatcher {
+  let pending: (() => void)[] = []
+  const flush = () => {
+    const fs = pending
+    pending = []
+    fs.forEach((f) => f())
+  }
+  const arm: GotCatcher['arm'] = (objs, down, onGot) => {
+    flush()
+    const evName = down ? Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN : Phaser.Input.Events.GAMEOBJECT_POINTER_UP
+    for (const obj of objs) {
+      // имя читаем сейчас: после destroy() в обработчике getData/type уже пусты
+      const label = labelOf(obj)
+      const on = () => onGot(label, obj)
+      obj.on(evName, on)
+      pending.push(() => obj.off(evName, on))
+    }
+    setTimeout(flush, 0)
+  }
+  return { arm, flush }
+}
+
 // Подписки окна: ставятся сразу, снимаются close() (один раз).
 function openTrace(game: Phaser.Game, probe: PointerProbe, windowMs: number): OpenTrace {
   const t0 = Date.now()
@@ -321,10 +352,9 @@ function openTrace(game: Phaser.Game, probe: PointerProbe, windowMs: number): Op
   // ITGAME-148: получившие down, по кнопке мыши — левый down → правый down → левый up не теряет gone левой.
   // Окно, открытое посреди нажатия, gone для него не покажет (down не видели)
   const downGot = new Map<number, { obj: Phaser.GameObjects.GameObject; label: string }[]>()
-  let pending: (() => void)[] = []
-  const flush = () => { const fs = pending; pending = []; fs.forEach((f) => f()) }
+  const got = makeGotCatcher()
   const onMouse = (ev: MouseEvent) => {
-    flush() // слушатели прошлого события: Phaser разослал его синхронно, они отработали
+    got.flush() // слушатели прошлого события: Phaser разослал его синхронно, они отработали
     let hit: ReturnType<PointerProbe> = { x: 0, y: 0, wins: null, stack: [], objs: [] }
     try {
       hit = probe(ev)
@@ -347,24 +377,18 @@ function openTrace(game: Phaser.Game, probe: PointerProbe, windowMs: number): Op
     }
     const mine: { obj: Phaser.GameObjects.GameObject; label: string }[] | null = down ? [] : null
     if (mine) downGot.set(ev.button, mine)
-    const evName = down ? Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN : Phaser.Input.Events.GAMEOBJECT_POINTER_UP
-    for (const obj of hit.objs) {
-      // имя читаем сейчас: после destroy() в обработчике getData/type уже пусты
-      const label = labelOf(obj)
-      const on = () => { rec.got.push(label); mine?.push({ obj, label }) }
-      obj.on(evName, on)
-      pending.push(() => obj.off(evName, on))
-    }
-    // Phaser отрабатывает событие синхронно сразу за capture-слушателем; страховка
-    // для случая, когда следующего события не будет.
-    setTimeout(flush, 0)
+    // Phaser отрабатывает событие синхронно сразу за capture-слушателем (makeGotCatcher)
+    got.arm(hit.objs, down, (label, obj) => {
+      rec.got.push(label)
+      mine?.push({ obj, label })
+    })
   }
   window.addEventListener('mousedown', onMouse, true)
   window.addEventListener('mouseup', onMouse, true)
   offs.push(() => {
     window.removeEventListener('mousedown', onMouse, true)
     window.removeEventListener('mouseup', onMouse, true)
-    flush()
+    got.flush()
     downGot.clear()
   })
   let closed = false
