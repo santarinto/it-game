@@ -181,7 +181,7 @@ func TestFirstSnapshotTellsWhyPartyIsNew(t *testing.T) {
 			saves.Put(sid, gen, []byte("{не json"), time.Now())
 		}, false, false},
 		{"сейв другого sid", func(saves *store.Store) {
-			putEditedSave(t, saves, sid, cur, func(g map[string]any) { g["format"] = game.SaveFormat })
+			putEditedSave(t, saves, sid, cur, func(g map[string]any) { g["format"] = game.SaveFormat + 1 })
 			raw, _ := saves.Load(sid)
 			var m map[string]any
 			_ = json.Unmarshal(raw, &m)

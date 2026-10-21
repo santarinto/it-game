@@ -374,7 +374,8 @@ in permille (`BreakdownChancePermille`), `EventBudget`, the raise percent
 company's `incomeCarry`.
 
 A save of another format behaves like a broken one, except that the menu says
-why: the peek reads the sid, the version and `game.format` before the rest (a
+why (and, since ITGAME-174, the live tab too: see the ITGAME-174 bullet in the
+`/ws` resume list — the first snapshot carries `incompatible: true`): the peek reads the sid, the version and `game.format` before the rest (a
 newer save whose changed field no longer decodes still gets the card) and
 answers `exists: false, incompatible: true, saveVersion, version`; the menu
 shows a card without a click or focus — «СЕЙВ НЕСОВМЕСТИМ» and the owner's line
@@ -386,7 +387,8 @@ card is 88 px tall instead of 64) — with «начните новую парт�
 over the levels; a level starts a new party with no «Начать заново?» (the save
 is not alive) under a new sid, as any new party from the menu, and the old file
 lives out its TTL. A `/ws` connect with that sid (an agent tab's explicit sid)
-starts a new party under it and its first save overwrites the file.
+starts a new party under it (its first snapshot carries `incompatible: true`,
+ITGAME-174) and its first save overwrites the file.
 `game.Restore` refuses any other format with `ErrBadSave` too, so fixtures,
 `itd.restore` and `make replay` (journal checkpoints are built over `Export` and
 carry the format) take a save or a journal of any build of the same format; a
