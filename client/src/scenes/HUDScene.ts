@@ -74,6 +74,7 @@ const ERROR_TEXTS: Record<ServerErrorCode, string> = {
   pc_dead: 'ПК выработал ресурс — только замена',
   pc_fresh: 'ПК новый — менять нечего',
   pc_max_level: 'Рабочее место уже максимального уровня',
+  no_action_points: 'Очки действий кончились — мастер или админ; утром очки восполнятся',
 }
 
 // Правый край левого блока панели (ITGAME-16): правая колонка (цель/день/рынок)
@@ -106,6 +107,7 @@ const doomLine = (n: number) => `До банкротства ${n} ${daysWord(n)}
 
 export class HUDScene extends Phaser.Scene {
   private moneyText!: Phaser.GameObjects.Text
+  private pointsText!: Phaser.GameObjects.Text
   private incomeText!: Phaser.GameObjects.Text
   private netText!: Phaser.GameObjects.Text
   private payrollText!: Phaser.GameObjects.Text
@@ -258,6 +260,10 @@ export class HUDScene extends Phaser.Scene {
     this.moneyText = tag(this.add.text(16, 10, '$…', {
       fontFamily: FONT, fontSize: '26px', color: '#ffcd75',
     }), 'hud.money')
+    // Очки действий директора (ITGAME-127): в ряду денег, справа от суммы.
+    this.pointsText = tag(this.add.text(200, 14, '', {
+      fontFamily: FONT, fontSize: '15px', color: '#f4f4f4',
+    }), 'hud.points')
     this.incomeText = tag(this.add.text(16, 44, '', {
       fontFamily: FONT, fontSize: '15px', color: '#38b764',
     }), 'hud.income')
@@ -827,7 +833,10 @@ export class HUDScene extends Phaser.Scene {
   // внутри строк — layoutRow (x-старт/gap/maxRight из прежней раскладки).
   // Долг — за «Расходы» (ITGAME-178): худший ряд Кошмара ≈ 630 px < PANEL_LEFT_MAX.
   private layoutPanel() {
-    layoutColumn(4, [[this.moneyText], [this.incomeText, this.payrollText, this.debtText], [this.netText], [this.dayProfitText]], 0, HUD_H)
+    layoutColumn(4, [[this.moneyText, this.pointsText], [this.incomeText, this.payrollText, this.debtText], [this.netText], [this.dayProfitText]], 0, HUD_H)
+    layoutRow(16, 16, [this.moneyText, this.pointsText], PANEL_LEFT_MAX)
+    // Мелкая строка очков — по низу крупной суммы, а не по верху ряда.
+    this.pointsText.setY(this.moneyText.y + this.moneyText.height - this.pointsText.height)
     layoutRow(16, 16, [this.incomeText, this.payrollText, this.debtText], PANEL_LEFT_MAX)
     layoutRow(16, 12, [this.dayProfitText], PANEL_LEFT_MAX)
     layoutColumn(43, [[this.goalText], [this.dayText], [this.marketText]], 2, HUD_H)
@@ -899,6 +908,8 @@ export class HUDScene extends Phaser.Scene {
     const employees = s.offices.flatMap((o) => o.employees)
     this.moneyText.setText(fmtMoney(s.money))
     this.moneyText.setColor(s.money < 0 ? '#b13e53' : '#ffcd75')
+    this.pointsText.setText(`Очки: ${s.actionPoints}/${s.actionPointsMax}`)
+    this.pointsText.setColor(s.actionPoints > 0 ? '#f4f4f4' : '#b13e53')
     this.incomeText.setText(`+${fmtMoney(s.incomePerTick)}/сек`)
     this.payrollText.setText(`Расходы ${fmtMoney(s.payrollPerDay)}/день`)
     // Прогноз считает сервер: клиент не знает про обеденные тики.

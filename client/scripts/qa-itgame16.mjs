@@ -53,7 +53,7 @@ const GAME_H = 720
 
 // Правый край левого блока: PANEL_LEFT_MAX в HUDScene (ITGAME-94 — кнопки ушли из шапки).
 const LEFT_MAX = 832
-const LEFT_IDS = ['hud.money', 'hud.income', 'hud.payroll', 'hud.net', 'hud.dayProfit', 'hud.debt']
+const LEFT_IDS = ['hud.money', 'hud.points', 'hud.income', 'hud.payroll', 'hud.net', 'hud.dayProfit', 'hud.debt']
 const RIGHT_IDS = ['hud.goal', 'hud.day', 'hud.market']
 const HUD_IDS = [...LEFT_IDS, ...RIGHT_IDS]
 

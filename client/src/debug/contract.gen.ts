@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "1a093add9805",
+  "hash": "65a2044a0efe",
   "methods": {
     "version": {
       "kind": "prop",
@@ -1656,7 +1656,7 @@ export const CONTRACT = {
           "doc": ""
         },
         "code": {
-          "type": "'not_enough_money' | 'no_free_office_slot' | 'no_free_pc' | 'no_free_rack_slot' | 'router_maxed' | 'wrong_phase' | 'staff_limit' | 'office_locked' | 'boss_already' | 'offices_maxed' | 'gateway_already' | 'bad_office' | 'equipment_already' | 'bad_slot' | 'server_maxed' | 'core_maxed' | 'motivate_cooldown' | 'not_broken' | 'not_infected' | 'no_event' | 'bad_option' | 'need_cooler' | 'bad_tier' | 'antivirus_already' | 'admin_already' | 'no_admin' | 'admin_dept_already' | 'admin_dept_locked' | 'pc_dead' | 'pc_fresh' | 'pc_max_level' | 'unknown_command' | 'bad_speed' | 'not_connected' | 'receipt_timeout' | 'disconnected'",
+          "type": "'not_enough_money' | 'no_free_office_slot' | 'no_free_pc' | 'no_free_rack_slot' | 'router_maxed' | 'wrong_phase' | 'staff_limit' | 'office_locked' | 'boss_already' | 'offices_maxed' | 'gateway_already' | 'bad_office' | 'equipment_already' | 'bad_slot' | 'server_maxed' | 'core_maxed' | 'motivate_cooldown' | 'not_broken' | 'not_infected' | 'no_event' | 'bad_option' | 'need_cooler' | 'bad_tier' | 'antivirus_already' | 'admin_already' | 'no_admin' | 'admin_dept_already' | 'admin_dept_locked' | 'pc_dead' | 'pc_fresh' | 'pc_max_level' | 'no_action_points' | 'unknown_command' | 'bad_speed' | 'not_connected' | 'receipt_timeout' | 'disconnected'",
           "optional": true,
           "doc": ""
         },
@@ -3135,6 +3135,7 @@ export const CONTRACT = {
         "gateway_already",
         "motivate_cooldown",
         "need_cooler",
+        "no_action_points",
         "no_admin",
         "no_event",
         "no_free_office_slot",
@@ -3852,6 +3853,16 @@ export const CONTRACT = {
           "type": "AntivirusInfo",
           "optional": false,
           "doc": "подписка на антивирус (ITGAME-137)"
+        },
+        "actionPoints": {
+          "type": "number",
+          "optional": false,
+          "doc": "очков действий директора осталось на сегодня (ITGAME-127)"
+        },
+        "actionPointsMax": {
+          "type": "number",
+          "optional": false,
+          "doc": "запас дня: столько утром"
         },
         "activeEvent": {
           "type": "ActiveEventInfo | null",

@@ -232,6 +232,7 @@ export const SERVER_ERROR_CODES = [
   'pc_dead',
   'pc_fresh',
   'pc_max_level',
+  'no_action_points',
   'unknown_command',
   'bad_speed',
 ] as const

@@ -440,8 +440,13 @@ export class OfficeScene extends Phaser.Scene {
         repairLabel = this.add.text(x, y + layout.repairText.y, `✖ чинить ${need}/${need}`, {
           fontFamily: FONT, fontSize: '11px', color: '#b13e53',
         }).setOrigin(0.5)
+        // Не начатый ремонт стоит очко действий (ITGAME-127): метка называет цену,
+        // после первого клика — «k/N». Зона — объединение bounds обеих меток.
+        const repairIdle = '✖ чинить · 1 очко'
         repairBounds = repairLabel.getBounds()
-        repairLabel.setText(`✖ чинить ${e.repairClicks}/${need}`)
+        repairLabel.setText(repairIdle)
+        repairBounds = Phaser.Geom.Rectangle.Union(repairBounds, repairLabel.getBounds())
+        repairLabel.setText(e.repairClicks > 0 ? `✖ чинить ${e.repairClicks}/${need}` : repairIdle)
         this.objects.push(repairLabel, masterBg, masterTxt)
       } else if (e?.infected) {
         // Заражённое место (ITGAME-103): −30% выработки, три клика по месту
@@ -450,8 +455,11 @@ export class OfficeScene extends Phaser.Scene {
         virusLabel = this.add.text(x, y + layout.repairText.y, `☣ вирус ${need}/${need}`, {
           fontFamily: FONT, fontSize: '11px', color: '#a7f070',
         }).setOrigin(0.5)
+        const virusIdle = '☣ вирус · 1 очко'
         repairBounds = virusLabel.getBounds()
-        virusLabel.setText(`☣ вирус ${e.virusClicks}/${need}`)
+        virusLabel.setText(virusIdle)
+        repairBounds = Phaser.Geom.Rectangle.Union(repairBounds, virusLabel.getBounds())
+        virusLabel.setText(e.virusClicks > 0 ? `☣ вирус ${e.virusClicks}/${need}` : virusIdle)
         this.objects.push(virusLabel)
       }
       let slotZone: Phaser.GameObjects.Rectangle | null = null
@@ -766,6 +774,8 @@ export class OfficeScene extends Phaser.Scene {
     }
     if (e.pcBroken) {
       lines.push(`ПК СЛОМАН — доход 0; кликайте по месту: ${e.repairClicks}/${e.repairNeeded > 0 ? e.repairNeeded : 3}`)
+      // Первый клик стоит очко действий (ITGAME-127).
+      if (e.repairClicks === 0) lines.push('начать ремонт — 1 очко действий')
     }
     // Сломанное заражённое: строка вируса тоже есть, но ЛКМ сначала чинит.
     if (e.infected) {
@@ -773,6 +783,7 @@ export class OfficeScene extends Phaser.Scene {
         ? 'ЗАРАЖЁН — после ремонта вирус останется'
         : `ЗАРАЖЁН — выработка −30%; кликайте по месту: ${e.virusClicks}/${e.virusNeeded > 0 ? e.virusNeeded : 3}`)
     }
+    if (e.infected && !e.pcBroken && e.virusClicks === 0) lines.push('начать чистку — 1 очко действий')
     // Админ офиса (ITGAME-145) кликает это место сам — его клики растут в той же «k/N».
     if (office.admin !== '' && office.adminSlot === slot) {
       lines.push(office.adminKind === 'repair' ? 'чинит админ' : 'чистит админ')
