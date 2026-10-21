@@ -1,9 +1,11 @@
 package game
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"slices"
 	"strconv"
 )
 
@@ -405,6 +407,63 @@ func (g *Game) IsDeadlocked() bool {
 // растёт так медленно, сигналом «выхода нет» не является.
 const doomHorizonDays = 365
 
+// doomFix — пункт очереди ремонта прогноза банкротства (ITGAME-127): место и
+// что на нём начать — ремонт или чистку; каждый пункт стоит очко действий.
+// value — что пункт возвращает: ремонт — всю личную выработку места, чистка —
+// долю, которую забирает вирус.
+type doomFix struct {
+	office, slot int
+	virus        bool
+	value        float64
+}
+
+// doomRepairQueue — на шаблоне прогноза снимает бесплатное и возвращает
+// платную очередь. Бесплатно всё в офисах с админом (он чинит и чистит сам,
+// ITGAME-101) и начатое — клики уже есть (игроком, админом или вчера). Платное
+// идёт по value по убыванию; при равенстве — офис, место, ремонт раньше
+// чистки: так чинил бы лучший игрок.
+func (g *Game) doomRepairQueue() []doomFix {
+	var q []doomFix
+	for oi := range g.Offices {
+		o := &g.Offices[oi]
+		for i := range o.Employees {
+			e := &o.Employees[i]
+			free := o.Admin != ""
+			if e.PCBroken {
+				if free || e.RepairClicks > 0 {
+					e.PCBroken = false
+				} else {
+					q = append(q, doomFix{oi, i, false, g.baseOutput(o, i)})
+				}
+			}
+			if e.Infected {
+				if free || e.VirusClicks > 0 {
+					e.Infected = false
+				} else {
+					q = append(q, doomFix{oi, i, true, g.baseOutput(o, i) * (1 - g.cfg.VirusMult)})
+				}
+			}
+		}
+	}
+	slices.SortStableFunc(q, func(a, b doomFix) int { return cmp.Compare(b.value, a.value) })
+	return q
+}
+
+// doomRepair — чинит на шаблоне столько первых пунктов очереди, на сколько
+// хватает points очков; возвращает хвост и число починенных.
+func (g *Game) doomRepair(q []doomFix, points int) ([]doomFix, int) {
+	n := min(max(points, 0)/actionPointCost, len(q))
+	for _, f := range q[:n] {
+		e := &g.Offices[f.office].Employees[f.slot]
+		if f.virus {
+			e.Infected = false
+		} else {
+			e.PCBroken = false
+		}
+	}
+	return q[n:], n
+}
+
 // BankruptInDays — через сколько закрытий дня обречённая партия обанкротится
 // (ITGAME-118); 0 — не обречена. Обречена: партия идёт, баланс в минусе (ни
 // покупки, ни увольнения: всё требует Money >= цена) и доход штата не
@@ -412,9 +471,11 @@ const doomHorizonDays = 365
 // CreditLimit или, без кредита, расходы вечера (овердрафт, ITGAME-156:
 // сегодня PayrollPerDay живой игры, дальше — шаблона). Доход — по шаблону
 // офлайн-движка и в деньги так же, как он (точная сумма с остатком компании,
-// ITGAME-222), но с целыми и чистыми ПК: ремонт и чистка кликами бесплатны,
-// сломанный ПК — не тупик, хотя ночью он сам больше не чинится (ITGAME-136),
-// заражённое место — тоже, хотя вирус сам не проходит (ITGAME-103). ПК «требуется
+// ITGAME-222). Сломанные и заражённые места чинит лучший игрок (ITGAME-127):
+// в офисах с админом и начатое — сразу, остальное — за очки действий: сегодня
+// столько самых выгодных пунктов, сколько осталось очков, каждое утро ещё
+// ActionPointsPerDay (doomRepairQueue). Мастера нет — баланс в минусе. Ночью ПК
+// сам не чинится (ITGAME-136), вирус сам не проходит (ITGAME-103). ПК «требуется
 // замена» (ITGAME-135) — нет: замена стоит денег, шаблон держит его мёртвым. Без баффов и
 // событий, рынок нейтрален. Сегодня — остаток дня от текущего тика,
 // поэтому прогноз не скачет в течение дня. Дедлайн уровня раньше банкротства
@@ -423,23 +484,19 @@ func (g *Game) BankruptInDays() int {
 	if g.Phase != PhaseRunning || g.Money >= 0 {
 		return 0
 	}
-	tpl := g.offlineTemplate()
+	tpl := g.offlineTemplate() // своя копия шаблона, живую игру не трогает
 	tpl.MarketToday = 0
-	for i := range tpl.Offices {
-		for j := range tpl.Offices[i].Employees { // своя копия шаблона, живую игру не трогает
-			tpl.Offices[i].Employees[j].PCBroken = false
-			tpl.Offices[i].Employees[j].Infected = false
-		}
-	}
+	// Сегодня — на оставшиеся очки, каждое утро — ещё запас дня (ITGAME-127).
+	queue, _ := tpl.doomRepair(tpl.doomRepairQueue(), g.ActionPoints)
 	dayTicks := g.cfg.DayTicks()
 	tplPayroll := tpl.PayrollPerDay()
-	dayExact := tpl.exactIncome(0, dayTicks, nil)
 	payroll := g.PayrollPerDay() // сегодняшний вечер: без нанятых после обеда
 	// Доход зачисляется как в офлайн-движке: точная сумма с остатком компании
 	// (ITGAME-222); остаток гоняем на своей копии, живой не трогаем.
 	carry := g.IncomeCarry
 	inc, carry := carryIncome(carry, tpl.exactIncome(g.TickInDay, dayTicks, nil))
 	money := g.Money + inc - payroll
+	dayExact, stale := 0.0, true
 	for d := 1; d <= doomHorizonDays; d++ {
 		if g.cfg.WinDayLimit > 0 && g.Day+d-1 > g.cfg.WinDayLimit {
 			return 0
@@ -450,6 +507,12 @@ func (g *Game) BankruptInDays() int {
 		money -= int(math.Ceil(float64(-money) * g.cfg.CreditRate))
 		if -money > g.debtLimit(payroll) {
 			return d
+		}
+		// Утро: очки снова полные — чиним следующие пункты; доход дня
+		// пересчитываем, только когда шаблон изменился.
+		var fixed int
+		if queue, fixed = tpl.doomRepair(queue, g.cfg.ActionPointsPerDay); fixed > 0 || stale {
+			dayExact, stale = tpl.exactIncome(0, dayTicks, nil), false
 		}
 		inc, carry = carryIncome(carry, dayExact)
 		money += inc - tplPayroll
@@ -519,7 +582,7 @@ func (g *Game) incomeAtTickDetail(tick int) (exact float64, lost, virusLost int)
 			// Прибавка уровня и множитель уровня ПК (ITGAME-135) входят в личную
 			// выработку до эффектов и сети: тенюра и железо масштабируются
 			// инфраструктурой (итерация 15).
-			clean := float64(e.IncomePerTick+g.levelBonus(e)) * raiseMult(e) * g.pcMult(o, i) * g.dayEffectMult(o, e, tick)
+			clean := g.baseOutput(o, i) * g.dayEffectMult(o, e, tick)
 			x := clean * net.Mults[oi][i]
 			v := int(math.Round(x))
 			healthy := v
@@ -543,6 +606,13 @@ func (g *Game) incomeAtTickDetail(tick int) (exact float64, lost, virusLost int)
 		virusLost = int(math.Round(float64(virusLost) * m))
 	}
 	return exact, lost, virusLost
+}
+
+// baseOutput — личная выработка места i до эффектов дня и сети: доход и
+// прибавка уровня, × накопленное повышение, × уровень ПК (ITGAME-135).
+func (g *Game) baseOutput(o *Office, i int) float64 {
+	e := &o.Employees[i]
+	return float64(e.IncomePerTick+g.levelBonus(e)) * raiseMult(e) * g.pcMult(o, i)
 }
 
 // incomeEps — допуск целой части: точная сумма — произведение десятичных

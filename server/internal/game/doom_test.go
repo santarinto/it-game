@@ -133,23 +133,127 @@ func TestBankruptInDaysDebtButProfitable(t *testing.T) {
 	}
 }
 
-func TestBankruptInDaysBrokenPCsCountAsRepaired(t *testing.T) {
-	g := doomedGame(t, DiffHard)
+// brokenPair — doomedGame без начальника: три места по $14, два сломаны
+// (ремонт не начат); очков действий points.
+func brokenPair(t *testing.T, d Difficulty, points int) *Game {
+	t.Helper()
+	g := doomedGame(t, d)
 	o := &g.Offices[0]
 	o.Boss = ""
 	o.PCs = 3
+	o.syncWorkplaces()
 	o.Employees = []Employee{
 		{Name: "Артём Никитин", IncomePerTick: 14, HireDay: 1, PCBroken: true, RepairNeeded: 3},
 		{Name: "Мария Фёдорова", IncomePerTick: 14, HireDay: 1, PCBroken: true, RepairNeeded: 3},
 		{Name: "Дмитрий Смирнов", IncomePerTick: 14, HireDay: 1},
 	}
-	// Ремонт кликами бесплатный — это не тупик, хотя ночью ПК сами больше
-	// не чинятся (ITGAME-136): прогноз обречённости считает их починенными.
+	g.ActionPoints = points
+	return g
+}
+
+func TestBankruptInDaysBrokenPCsRepairedWithPoints(t *testing.T) {
+	g := brokenPair(t, DiffHard, 8)
+	// Очков на оба ремонта хватает (ITGAME-127): прогноз считает места
+	// починенными, хотя ночью ПК сами не чинятся (ITGAME-136).
 	if got := g.BankruptInDays(); got != 0 {
-		t.Fatalf("сломанные ПК чинятся бесплатно — сигнала нет, получили %d", got)
+		t.Fatalf("очков хватает на оба ремонта — сигнала нет, получили %d", got)
 	}
-	if !o.Employees[0].PCBroken || !o.Employees[1].PCBroken {
-		t.Fatal("прогноз обречённости починил ПК в живой игре")
+	if o := &g.Offices[0]; !o.Employees[0].PCBroken || !o.Employees[1].PCBroken || g.ActionPoints != 8 {
+		t.Fatal("прогноз обречённости починил ПК или потратил очки в живой игре")
+	}
+}
+
+// Без очков сегодня два места стоят до утра: недобранный доход решает,
+// переживёт ли партия сегодняшний вечер на овердрафте (ITGAME-127).
+func TestBankruptInDaysNoPointsTodayKeepsPlacesBroken(t *testing.T) {
+	probe := brokenPair(t, DiffNormal, 8)
+	dayTicks := probe.cfg.DayTicks()
+	tpl := probe.offlineTemplate()
+	tpl.MarketToday = 0
+	one := tpl.exactIncome(0, dayTicks, nil) // два места сломаны
+	for i := range tpl.Offices[0].Employees {
+		tpl.Offices[0].Employees[i].PCBroken = false
+	}
+	all := tpl.exactIncome(0, dayTicks, nil)
+	inAll, _ := carryIncome(0, all)
+	inOne, _ := carryIncome(0, one)
+	if inAll <= inOne {
+		t.Fatalf("доход со всеми местами %d не больше, чем с одним %d", inAll, inOne)
+	}
+	payroll := probe.PayrollPerDay()
+	// Вечером ровно на пороге долга, если работают все три места.
+	money := payroll - probe.debtLimit(payroll) - inAll
+	if money >= 0 {
+		t.Fatalf("баланс %d не в минусе — прогноз не запустится", money)
+	}
+
+	withPoints := brokenPair(t, DiffNormal, 8)
+	withPoints.Money = money
+	if got := withPoints.BankruptInDays(); got == 1 {
+		t.Fatalf("с очками места чинятся сегодня — вечер переживаем, получили %d", got)
+	}
+	noPoints := brokenPair(t, DiffNormal, 0)
+	noPoints.Money = money
+	if got := noPoints.BankruptInDays(); got != 1 {
+		t.Fatalf("без очков два места стоят до утра — банкротство сегодня, получили %d", got)
+	}
+}
+
+func TestBankruptInDaysAdminOfficeIgnoresPoints(t *testing.T) {
+	a := brokenPair(t, DiffHard, 0)
+	b := brokenPair(t, DiffHard, 8)
+	for _, g := range []*Game{a, b} {
+		g.Offices[0].Admin = "Пётр Админов"
+	}
+	if ga, gb := a.BankruptInDays(), b.BankruptInDays(); ga != gb {
+		t.Fatalf("в офисе с админом очки ни при чём: без очков %d, с очками %d", ga, gb)
+	}
+}
+
+func TestDoomRepairQueueOrder(t *testing.T) {
+	g := doomedGame(t, DiffHard)
+	o := &g.Offices[0]
+	o.Boss = ""
+	o.PCs = 4
+	o.syncWorkplaces()
+	o.Employees = []Employee{
+		{Name: "А", IncomePerTick: 10, HireDay: 1, PCBroken: true, RepairNeeded: 3},
+		{Name: "Б", IncomePerTick: 14, HireDay: 1, Infected: true},
+		{Name: "В", IncomePerTick: 14, HireDay: 1, PCBroken: true, RepairNeeded: 3, Infected: true},
+		{Name: "Г", IncomePerTick: 20, HireDay: 1, PCBroken: true, RepairNeeded: 3, RepairClicks: 2},
+	}
+	tpl := g.offlineTemplate()
+	q := tpl.doomRepairQueue()
+	type item struct {
+		slot  int
+		virus bool
+	}
+	var got []item
+	for _, f := range q {
+		got = append(got, item{f.slot, f.virus})
+	}
+	// Ремонт возвращает всю выработку места, чистка — долю вируса (1 − VirusMult):
+	// В-ремонт 14, А-ремонт 10, Б-чистка 4.2, В-чистка 4.2 (порядок мест при равенстве).
+	// Г начат — бесплатен: в очереди его нет, на шаблоне он уже цел.
+	want := []item{{2, false}, {0, false}, {1, true}, {2, true}}
+	if len(got) != len(want) {
+		t.Fatalf("очередь %v, хотим %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("очередь %v, хотим %v", got, want)
+		}
+	}
+	if tpl.Offices[0].Employees[3].PCBroken {
+		t.Error("начатый ремонт должен считаться сделанным на шаблоне")
+	}
+	rest, n := tpl.doomRepair(q, 3)
+	if n != 3 || len(rest) != 1 || tpl.Offices[0].Employees[1].Infected || !tpl.Offices[0].Employees[2].Infected {
+		t.Fatalf("3 очка: починено %d, хвост %d, Б заражён %v, В заражён %v",
+			n, len(rest), tpl.Offices[0].Employees[1].Infected, tpl.Offices[0].Employees[2].Infected)
+	}
+	if !g.Offices[0].Employees[0].PCBroken {
+		t.Error("очередь прогноза тронула живую игру")
 	}
 }
 
