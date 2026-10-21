@@ -428,9 +428,12 @@ try {
   await reportWith(FEED)
   const feed3 = await feedText()
   const lines3 = feed3.split('\n')
+  const feedAt = lines3.indexOf(FEED[0])
   check('R3 лента: строки журнала со своим временем, одно время на строку, итог дня последним',
-    // за подложенными строками — вечерние итоги активных событий самого сервера
-    lines3[0] === FEED[0] && lines3[1] === FEED[1] && lines3.every((l) => /^\d\d:\d\d (?!· )(?!\d\d:\d\d)\S/.test(l))
+    // подложенные строки ищем, а не пинаем по индексу: перед ними может остаться только утренняя строка
+    // клиента («10:00 Утро, день 9»), за ними — вечерние итоги активных событий самого сервера
+    feedAt >= 0 && feedAt <= 1 && lines3[feedAt + 1] === FEED[1]
+      && (feedAt === 0 || /^\d\d:\d\d Утро, день 9$/.test(lines3[0])) && lines3.every((l) => /^\d\d:\d\d (?!· )(?!\d\d:\d\d)\S/.test(l))
       && /^\d\d:\d\d День 9: прибыль /.test(lines3.at(-1) ?? ''),
     JSON.stringify(lines3))
   const before4 = await reportsIn()

@@ -4,7 +4,7 @@
 // Другой порт сервера — PORT=8191.
 //
 // Детерминированная часть: день 1 без событий, event_choice/no_event,
-// поле salary, events в отчёте. Само событие — шанс 75%/день: ждём до
+// поле salary, events в отчёте. Само событие — шанс 65%/день: ждём до
 // 3 дней. С фиксированным сидом прогон воспроизводим целиком; на другом
 // SEED событие может не выпасть или партия обанкротится — скрипт честно
 // падает с причиной, а не висит до таймаута.
@@ -59,7 +59,7 @@ ws.onmessage = (ev) => {
     ok(`день 1 без событий, отчёт events=${JSON.stringify(m.events)}`)
     ws.send(JSON.stringify({ type: 'next_day' }))
     phase = 'wait_event'
-    console.log('… ждём событие (до 3 дней, шанс 75%/день)')
+    console.log('… ждём событие (до 3 дней, шанс 65%/день)')
   } else if (phase === 'wait_event' && m.type === 'state' && m.activeEvent) {
     const ev = m.activeEvent
     if (!ev.title || !ev.text || !Array.isArray(ev.options) || ev.options.length === 0) {
@@ -84,7 +84,7 @@ ws.onmessage = (ev) => {
     console.log('… ждём конца дня за логом событий')
   } else if (phase === 'wait_event' && m.type === 'day_report') {
     // Дни без события: продолжаем ждать, всего не больше 3.
-    if (m.day >= 4) fail('события не выпали за 3 дня (75%/день) — повторить прогон', { day: m.day })
+    if (m.day >= 4) fail('события не выпали за 3 дня (65%/день) — повторить прогон', { day: m.day })
     ws.send(JSON.stringify({ type: 'next_day' }))
   } else if (phase === 'wait_report' && m.type === 'day_report') {
     if (!Array.isArray(m.events)) fail('events отчёта — не массив', m.events)

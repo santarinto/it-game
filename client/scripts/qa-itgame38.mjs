@@ -66,7 +66,7 @@
 //   X5  restore(): sidSame/diffSame, ключи владельца (и itd.onboard, ITGAME-21) возвращены, служебные убраны; повтор — no_sandbox
 //   X6  владелец сам сменил общий ключ — restore() его не перетирает (kept)
 //   P1  itd.play (ITGAME-73) на fresh, сид 7, тик 0: set_speed 0 → hire → hire → days1 → buy_pc → hire → days1 —
-//       вердикты ok/ok/FAIL no_free_pc/ok/ok/FAIL not_enough_money/ok, цепочка балансов 600>300>614>39>353,
+//       вердикты ok/ok/FAIL no_free_pc/ok/ok/FAIL not_enough_money/ok, цепочка балансов 600>300>599>24>323,
 //       «до» шага = «после» прошлого, без «нет rev», строка «cmd | ok/FAIL code | dN tN | бал>бал | staff a>b | pay N | phase»
 //   P2  itd.ledger(1)/(2)/(): сведены (balanced), покупки hire $300 / buy_pc $575, profit = delta + покупки,
 //       старт дня = конец прошлого; текущий день открыт, payroll 0; ledger(99) — «нет книги дня 99: есть [1 2 3]»
@@ -1005,7 +1005,9 @@ async function run() {
     await ps.close()
 
     // ── P1–P3 (ITGAME-73): партия и бухгалтерия из консоли. Своя вкладка с сидом 7
-    // (найм роллит выработку $13/тик: день 1 даёт ровно $614 — числа замера из задачи)
+    // (найм роллит выработку $13/тик; доход дня точный (ITGAME-196): 13×(12 + 12×0.9 + 24×0.81) =
+    // 156 + 140.4 + 252.72 = 549.12 → $549 (тики 0–11 полные, 12–23 жажда ×0.9, 24–29 обед 0,
+    // 30–53 жажда и голод ×0.81, без кулера и холодильника); баланс дня 1 = 300 + 549 − ФОТ 250 = 599)
     // и своя песочница — не выбивает партию основной вкладки.
     const pp = await browser.newPage()
     pp.on('pageerror', (e) => pageErrors.push(String(e)))
@@ -1032,11 +1034,11 @@ async function run() {
     const cells = p1.rows.map((r) => r.split(' | '))
     const bals = cells.map((c) => (c[3] ?? '').split('>').map(Number))
     check(
-      'P1: itd.play — 7 строк, вердикты ok/ok/FAIL no_free_pc/ok/ok/FAIL not_enough_money/ok, балансы 600>300>614>39>353, «до» = «после» прошлого',
+      'P1: itd.play — 7 строк, вердикты ok/ok/FAIL no_free_pc/ok/ok/FAIL not_enough_money/ok, балансы 600>300>599>24>323, «до» = «после» прошлого',
       p1.rows.length === 7 && cells.every((c) => c.length === 7) &&
         cells.map((c) => c[1]).join() === 'ok,ok,FAIL no_free_pc,ok,ok,FAIL not_enough_money,ok' &&
         cells.map((c) => c[0]).join() === 'set_speed 0,hire,hire,days1,buy_pc,hire,days1' &&
-        bals.map((b) => b[1]).join() === '600,300,300,614,39,39,353' &&
+        bals.map((b) => b[1]).join() === '600,300,300,599,24,24,323' &&
         bals.every((b, i) => i === 0 || b[0] === bals[i - 1][1]) &&
         cells[3][2] === 'd2 t0' && cells[6][2] === 'd3 t0' && cells[1][4] === 'staff 0>1' && cells[2][4] === 'staff 1>1' &&
         cells.every((c) => c[6] === 'running') && /^FAIL bad_step/.test(p1.bad[0]?.split(' | ')[1] ?? ''),
@@ -1053,12 +1055,12 @@ async function run() {
     check(
       'P2: itd.ledger — дни 1, 2 закрыты и сведены (hire $300 / buy_pc $575), profit = delta + покупки, старт = вчерашний конец; текущий день 3 открыт; ledger(99) — список дней',
       [l1, l2, cur].every((l) => l.balanced === true && sumOf(l) === l.balanceEnd && l.delta === l.balanceEnd - l.balanceStart && l.adjust === 0) &&
-        l1.day === 1 && l1.closed && l1.offline && l1.balanceStart === 600 && l1.balanceEnd === 614 &&
+        l1.day === 1 && l1.closed && l1.offline && l1.balanceStart === 600 && l1.balanceEnd === 599 &&
         l1.purchases.length === 1 && l1.purchases[0].type === 'hire' && l1.purchases[0].price === 300 &&
         l1.profit === l1.delta + l1.purchasesTotal && l1.payroll > 0 &&
-        l2.day === 2 && l2.closed && l2.balanceStart === 614 && l2.balanceEnd === 353 &&
+        l2.day === 2 && l2.closed && l2.balanceStart === 599 && l2.balanceEnd === 323 &&
         l2.purchases.length === 1 && l2.purchases[0].type === 'buy_pc' && l2.purchases[0].price === 575 &&
-        cur.day === 3 && !cur.closed && cur.payroll === 0 && cur.balanceStart === 353 && cur.balanceEnd === p2.bal &&
+        cur.day === 3 && !cur.closed && cur.payroll === 0 && cur.balanceStart === 323 && cur.balanceEnd === p2.bal &&
         cur.history.join() === '1,2,3' && p2.miss.includes('нет книги дня 99: есть [1 2 3]') && p2.zero.startsWith('ledger: day'),
       JSON.stringify(p2),
     )
@@ -1066,7 +1068,7 @@ async function run() {
       await window.itd.set({ money: 1000 })
       return window.itd.ledger()
     })
-    check('P3: itd.set({money: 1000}) — adjust 647, книга сведена', p3.adjust === 1000 - 353 && p3.balanced && p3.balanceEnd === 1000, JSON.stringify(p3))
+    check('P3: itd.set({money: 1000}) — adjust 677, книга сведена', p3.adjust === 1000 - 323 && p3.balanced && p3.balanceEnd === 1000, JSON.stringify(p3))
     await pp.close()
 
     // ── K1–K4 (ITGAME-87/88): своя вкладка и песочница

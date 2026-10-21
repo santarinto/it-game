@@ -146,10 +146,14 @@ func TestIncomePreviewsKeepCarry(t *testing.T) {
 }
 
 // Прогноз конца дня считает тем же остатком, что и зачисление: вечер
-// сходится с прогнозом до доллара и при дробной выработке.
+// сходится с прогнозом до доллара и при дробной выработке. 4 тика по 10.2
+// оставляют остаток 0.8 (5 тиков дали бы ровно 0 — прогноз с нуля сошёлся бы).
 func TestForecastEndOfDayCountsCarry(t *testing.T) {
 	g := carryGame(t, 2)
-	creditedTicks(t, g, 5)
+	creditedTicks(t, g, 4)
+	if g.IncomeCarry < 0.7 || g.IncomeCarry > 0.9 {
+		t.Fatalf("остаток %v, хотим ≈0.8 — тест должен читать ненулевой старт", g.IncomeCarry)
+	}
 	forecast := g.ForecastEndOfDay()
 	finishDay(t, g)
 	if g.Money != forecast {
