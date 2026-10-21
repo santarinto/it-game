@@ -269,13 +269,13 @@ func bankruptDayByEngine(t *testing.T, g *Game) int {
 	t.Helper()
 	dayTicks := g.cfg.DayTicks()
 	c := clone(t, g)
-	for d := 1; d <= 60; d++ {
+	for d := 1; d <= doomHorizonDays; d++ {
 		if d == 1 {
 			c.AdvanceOffline(dayTicks - c.TickInDay)
 		} else {
 			c.AdvanceOffline(dayTicks)
 		}
-		if c.Phase == PhaseGameOver {
+		if c.Phase == PhaseGameOver && c.LoseReason == LoseBankrupt {
 			return d
 		}
 	}

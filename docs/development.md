@@ -761,7 +761,8 @@ so a broken PC is not a dead end even though the night no longer fixes it
 (ITGAME-136); `BankruptInDays` repairs its own copy of the template, while
 the offline catch-up keeps broken PCs broken (except in an office with an
 admin, ITGAME-101) —, no buffs, no events, neutral
-market; today counts from
+market; the income is summed exactly with the company carry, like the offline
+engine (ITGAME-222); today counts from
 the current tick, so N does not drift during the day. A level deadline
 (`WinDayLimit`) that comes first gives 0: the party ends by `time_up`. The
 HUD shows the plate once per day while N > 0 (ids `hud.doom`,
