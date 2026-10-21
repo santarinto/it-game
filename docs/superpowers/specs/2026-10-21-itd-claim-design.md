@@ -35,10 +35,10 @@ All members live on `window.itd`, so they exist only where `itd` is installed (d
 ```ts
 interface ClaimApi {
   (label: string): ClaimState | ClaimRefusal
-  mine(n?: number, ms?: number): { ok: true; pending: number; until: number } | ClaimRefusal
+  mine(n?: number, ms?: number): { ok: true; pending: number; ms: number } | ClaimRefusal
   allow(what: string, opts?: { target?: string }): ClaimState | ClaimRefusal
   deny(): ClaimAllowResult | ClaimRefusal
-  state(): ClaimState | { active: false }
+  state(): ClaimState | { ok: true; active: false }
   stop(): ClaimState | ClaimRefusal
 }
 ```
@@ -66,6 +66,7 @@ active.
 
 ```ts
 interface ClaimState {
+  ok: true
   active: boolean
   label: string
   sha: string            // itd.version.sha of the tab
@@ -77,12 +78,14 @@ interface ClaimState {
   synthetic: number      // isTrusted === false (dispatchEvent, future itd.tap), not in downs
   onCanvas: number       // trusted presses whose target was the game canvas
   reloads: number        // page loads the claim survived
-  mine: { pending: number; until: number } | null
-  allow: { what: string; target: string | null; since: number; hit: boolean | null } | null
+  mine: { pending: number; leftMs: number } | null
+  allow: { what: string; target: string | null; since: number; from: number; hit: boolean | null } | null
+                         // since — seconds since claim(); from — presses with n > from belong to this window
   presses: ClaimPress[]  // the last 50 trusted presses, oldest first
 }
 
 interface ClaimPress {
+  n: number              // press number since claim(), shared by own, allowed and foreign
   t: number              // seconds since claim(), one decimal
   kind: 'own' | 'allowed' | 'foreign'
   button: number
@@ -94,7 +97,7 @@ interface ClaimPress {
 
 ## The bar
 
-- A `div#itd-claim`, `position: fixed; top: 0; left: 0; right: 0; height: 40px; z-index: 100000;
+- A `div#itd-claim` with `data-mode` = `claim` | `allow` | `foreign`, `position: fixed; top: 0; left: 0; right: 0; height: 40px; z-index: 100000;
   pointer-events: none`, bold 20px monospace, centered. It does not enter the layout, so `#app`, the canvas rect and
   `uiscale` stay unchanged.
 - Yellow `#f5c542` (claim), green `#51cf66` (allow), red `#ff6b6b` for 600 ms on a foreign press, then back to the
@@ -106,32 +109,36 @@ interface ClaimPress {
 
 ## Counting presses
 
-- Listeners on `window`, capture phase: `pointerdown`, `mousedown`, `touchstart`.
+- Listeners on `window`, capture phase: `pointerdown`, `mousedown`. A touch is counted by its `pointerdown`; the
+  compatibility `mousedown` that follows a touch (`sourceCapabilities.firesTouchEvents`) is ignored.
 - `isTrusted === false` → `synthetic += 1`, nothing else.
-- Events of one physical press arrive as a group (pointerdown → mousedown, or touchstart → pointerdown →
-  mousedown). Events within 50 ms of the group's first one join it; the group is one press.
+- Events of one physical press arrive as a group (pointerdown → mousedown). Events within 50 ms of the group's
+  first one join it; the group is one press. Synthetic events are grouped the same way, separately.
 - The press is classified on its first event, in this order:
   1. a `mine` budget is pending and not expired → `own`, budget − 1;
   2. an allow window is open → `allowed`;
   3. otherwise → `foreign`, the bar flashes red.
 - `onCanvas` is `event.target === game.canvas`.
-- `wins` and `got` are filled on the group's `mousedown` or `touchstart` (Phaser 3.90 in this build listens to mouse
-  and touch events, not pointer events): the same probe as `itd.trace` — the hit-test at the event point, then
-  one-shot `GAMEOBJECT_POINTER_DOWN` listeners on the hit objects, removed after Phaser has dispatched the event.
+- `wins` and `got` are armed on the group's first event: the same probe as `itd.trace` — the hit-test at the event
+  point, then one-shot `GAMEOBJECT_POINTER_DOWN` listeners on the hit objects, removed by `setTimeout(0)` after
+  Phaser has handled the `mousedown`/`touchstart` that the browser dispatches in the same task (Phaser 3.90 in this
+  build listens to mouse and touch events, not pointer events).
   A press off the canvas keeps `wins: null, got: []`.
 - After each press the record is written to sessionStorage.
 
 ## Surviving F5
 
-- sessionStorage key `itd.claim` holds `{label, since, counters, mine, allow, presses}`; it goes through the
+- sessionStorage key `itd.claim` holds `{label, sha, at, counters, mine, allow, presses}`; it goes through the
   `sessionStore` wrapper of `client/src/storage.ts`.
+- The active claim writes the record again on `pagehide`, so `itd.reset()` (which clears every `itd.*` key) followed
+  by a reload keeps the claim.
 - `installAgentApi` restores an existing record immediately (before Phaser `READY`): the bar, the title, the
-  listeners; `reloads += 1`. `sec` keeps counting from the original `since`; an expired `mine` budget is dropped.
+  listeners; `reloads += 1`, `sha` becomes the reloaded tab's. `sec` keeps counting from the original `at`; an expired `mine` budget is dropped.
 - Presses between the page start and the restore are not counted; the record says so only through `reloads`.
 
 ## Code layout
 
-- `client/src/debug/claimCore.ts` — pure logic without Phaser or DOM: the state type, `classify`, grouping by the
+- `client/src/debug/claimCore.ts` — pure logic without Phaser or DOM: the state type, `addPress` (classification), grouping by the
   50 ms window, `mine` expiry, `allow`/`deny` verdict, target normalization, the 50-press cap, serialize/parse of
   the record. Unit-tested from `client/scripts/lib/claim.test.mjs` (Node runs the `.ts` directly, so no enums or
   parameter properties).
@@ -150,7 +157,7 @@ interface ClaimPress {
 - **Unit** (`npm test`): classification order (own before allowed before foreign), `mine` budget decrements and
   expires, grouping joins pointerdown+mousedown and separates presses 60 ms apart, synthetic events do not count,
   `deny` verdict with and without target, target normalization `a.b` → `a:b`, the 50-press cap, record round trip.
-- **`qa:claim`** (`client/scripts/qa-itgame151.mjs`, puppeteer on its own `selfServe` server, like `qa:trace`):
+- **`qa:claim`** (`client/scripts/qa-itgame151.mjs`, puppeteer on its own `selfServe` server :4198, like `qa:trace`):
   1. `claim('qa')` → bar present, `pointer-events: none`, title set, the canvas rect equal to the one before.
   2. `page.mouse.click` on the canvas without `mine` → `foreign: 1`, `downs: 1` (one click is one press), the bar
      is red right after the click.
@@ -158,11 +165,12 @@ interface ClaimPress {
   4. `mine(1, 200)`, wait 400 ms, click → `foreign` grows.
   5. `dispatchEvent(new MouseEvent('mousedown'))` → `synthetic: 1`, `downs` unchanged.
   6. `allow('нажми «Нормально»', {target: 'menu.diff.normal'})`, click that button → `allowed: 1`, `deny().hit ===
-     true`, its press has `got` containing `menu:diff:normal`; a second window with a click on empty space →
-     `hit === false`.
+     true`, its press has `got` containing `menu:diff:normal`; a second window with a click on the `#build` stamp under
+     the bar → `hit === false`, `onCanvas: false` (clicks pass through the bar).
   7. Reload → bar back, counters kept, `reloads: 1`.
-  8. `stop()` → bar gone, title `вкладка свободна`, sessionStorage `itd.claim` absent, `state().active === false`.
-  9. No `pageerror` during the run.
+  8. `itd.reset()` + reload → bar back, `reloads: 2`.
+  9. `stop()` → bar gone, title `вкладка свободна`, sessionStorage `itd.claim` absent, `state().active === false`.
+  10. No `pageerror` during the run.
 - **`qa:contract`**: `claim` is in the contract and on `window.itd`; add a check that `ClaimApi.call` takes one
   parameter and `claim.mine/allow/deny/state/stop` are functions (as A11 does for trace and sandbox).
 - `npm run build` (contract check, `tsc`), `npm test`, `qa:trace`, `qa:facade`.
