@@ -230,10 +230,10 @@ shipped it. A task's own post-deploy step (a data write, a live measurement) log
 Per task:
 - purely technical (no visible change, no business-logic change, nothing left for the owner) →
   `set(status: done, reason: …, model: <your model id>)`, print `TASK <CODE> DONE <sha>`;
-- visible result → `set(status: qa, model: <your model id>)` with the qa field: steps,
-  `http://localhost:12800/...`
-  links, expected numbers, window width 1920–3840; no keyboard or screen-reader steps → print
-  `TASK <CODE> QA <sha>`.
+- visible result → `set(status: qa, model: <your model id>)` with the qa field: steps, links to
+  this project's own portal at the address its AGENTS.md names (`localhost:12800` is
+  support.local's portal, not every project's), expected numbers, window width 1920–3840; no
+  keyboard or screen-reader steps → print `TASK <CODE> QA <sha>`.
 
 Then: `git worktree remove` every merged worktree and the integration worktree, delete the merged
 `wt/*` branches; RETURNED worktrees stay, their branch named in the task log. Print the

@@ -149,7 +149,7 @@ Pipeline per run.md: ONE Fable recon subagent for the whole queue writes a plann
 
 Every stage writes one tracker entry, in Russian, carrying only what is nowhere else: task.where(code=X) | log("[<stage> · <model-id>] ...", model: <model-id>) — the tracker refuses log(), set(status: …), pause and resume without model:. After a compaction rebuild state from run.md, <RUN>/*/ files and the task logs, never from memory.
 
-Close: a purely technical task -> set(status: done, reason: ..., model: <model-id>); a task with a visible result -> set(status: qa, model: <model-id>) with its qa field filled (steps, localhost:12800 links, expected numbers; no keyboard or screen-reader steps).
+Close: a purely technical task -> set(status: done, reason: ..., model: <model-id>); a task with a visible result -> set(status: qa, model: <model-id>) with its qa field filled (steps, links to this project's own portal at the address its AGENTS.md names — localhost:12800 is support.local's portal, not every project's; expected numbers; no keyboard or screen-reader steps).
 
 After each task print exactly one line:
 TASK <CODE> DONE <sha> | TASK <CODE> QA <sha> | TASK <CODE> RETURNED <one-line reason>
