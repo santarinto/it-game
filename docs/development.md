@@ -1682,14 +1682,27 @@ and confirm live.
 **sim** (`server/cmd/sim`) plays games with the real engine, e.g.
 `make sim ARGS="--diff hardcore --seed 1..50 --days 30 --policy all --out runs.csv"`.
 Policies: `greedy`, `idle`, `random` (`--policy all`), plus `handsoff` and
-`delegate` for the price of admins (see «Admins»). CSV:
+`delegate` for the price of admins (see «Admins»), and `expand` (greedy that
+also buys the next office once every unlocked office is full; not part of
+`--policy all`). CSV:
 `policy,seed,day,money,income,payroll,events,outcome`, one row per day;
 the last row holds the outcome (`bankrupt | deadlock | victory | time_up |
 timeout`). `--events-text` writes the event names joined by `" | "` into
 the `events` column instead of their count, `--audit-share <f>` overrides
 the audit fine share (`AuditFineShare`; `-1` keeps the config value) and
 `--audit-stats` prints one extra stderr line with the bankruptcies on a
-failed-audit day versus all bankruptcies and failed audits. Reference
+failed-audit day versus all bankruptcies and failed audits.
+`--event-stats` (ITGAME-196) prints one `sim events: …` stderr line per
+policy run, after the summary: averages per played day (a day with a
+`DayReport`; the unfinished victory day is not counted) of `breakdowns`
+(PC breakdowns), `outbreaks` (virus activations that infected a PC),
+`infected` (PCs infected at day end), `pool` and its kinds `virus`,
+`deadline`, `audit`, `raise`, `star` (the day plan right after `NextDay`),
+`total` (breakdowns + pool), plus `second` (share of days with two pool
+events), `max` (largest daily total) and `ge3` (share of days with total
+≥ 3). `--answer-raise accept|decline` makes the sim answer every «Просит
+повышения» card the tick it appears (default: it does not answer). None of
+this touches the CSV or the save. Reference
 (300 seeds × 30 days, greedy, re-measured with ITGAME-135 workplaces, 20.10):
 normal 3/300 bankrupt (median $156,385; $135,061 before), easy 300/300 wins
 ($60,164), hard 0/300 bankrupt (median $29,190; $35,994 before — the cost of the

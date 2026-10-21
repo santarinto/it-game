@@ -15,6 +15,13 @@
 //	--events-text   в колонке events — имена событий через " | " вместо их числа
 //	--audit-share   доля дохода прошлого дня в штрафе аудита (−1 — из конфига)
 //	--audit-stats   одна строка статистики аудита в stderr после сводки
+//
+// Флаги ITGAME-196 (замеры случайных событий «до/после»):
+//
+//	--event-stats   по строке «sim events: …» на политику в stderr: поломки,
+//	                вспышки, события пула за сыгранный день
+//	--answer-raise  accept | decline — sim отвечает на «Просит повышения»
+//	--policy expand greedy + покупка следующего офиса, когда все набраны
 package main
 
 import (
@@ -31,6 +38,9 @@ import (
 )
 
 type policyFunc func(g *game.Game, rng *rand.Rand, hour int)
+
+// raiseAnswer — ответ на «Просит повышения» (--answer-raise): accept | decline.
+var raiseAnswer string
 
 // eventsText — колонка events: имена событий вместо их числа (--events-text).
 var eventsText bool
@@ -54,12 +64,19 @@ func main() {
 	diff := flag.String("diff", "normal", "easy | normal | hard | hardcore")
 	seedRange := flag.String("seed", "1..20", "сиды: N, N..M, N..M шагом 1")
 	days := flag.Int("days", 30, "сколько дней на партию")
-	policyFlag := flag.String("policy", "all", "greedy | idle | random | all (эти три) | handsoff | delegate")
+	policyFlag := flag.String("policy", "all", "greedy | idle | random | all (эти три) | handsoff | delegate | expand")
 	out := flag.String("out", "", "путь CSV (пусто — stdout)")
 	eventsTextFlag := flag.Bool("events-text", false, "в колонке events — имена событий через \" | \" вместо их числа")
 	auditShare := flag.Float64("audit-share", -1, "доля дохода прошлого дня в штрафе аудита (перекрывает конфиг; −1 — из конфига)")
 	auditStatsFlag := flag.Bool("audit-stats", false, "строка статистики аудита в stderr после сводки")
+	eventStatsFlag := flag.Bool("event-stats", false, "строка статистики случайных событий в stderr на каждую политику")
+	answerRaiseFlag := flag.String("answer-raise", "", "accept | decline — sim отвечает на «Просит повышения» в тик появления (пусто — не отвечает)")
 	flag.Parse()
+	if m := *answerRaiseFlag; m != "" && m != "accept" && m != "decline" {
+		fmt.Fprintf(os.Stderr, "sim: --answer-raise %q не понят (accept | decline)\n", m)
+		os.Exit(1)
+	}
+	raiseAnswer = *answerRaiseFlag
 	eventsText = *eventsTextFlag
 
 	seeds, err := parseSeeds(*seedRange)
@@ -68,7 +85,7 @@ func main() {
 		os.Exit(1)
 	}
 	policies := map[string]policyFunc{"greedy": greedyPolicy, "idle": idlePolicy, "random": randomPolicy,
-		"handsoff": handsoffPolicy, "delegate": delegatePolicy}
+		"handsoff": handsoffPolicy, "delegate": delegatePolicy, "expand": expandPolicy}
 	wanted := []string{*policyFlag}
 	if *policyFlag == "all" {
 		wanted = []string{"greedy", "idle", "random"}
@@ -96,10 +113,11 @@ func main() {
 	}
 	outcomes := map[string]int{}
 	var st auditStats
+	records := map[string][]dayRecord{}
 	for _, name := range wanted {
 		policy := policies[name]
 		for _, seed := range seeds {
-			outcome := runOne(w, cfg, name, policy, seed, *days, &st)
+			outcome := runOne(w, cfg, name, policy, seed, *days, &st, records)
 			outcomes[name+"/"+outcome]++
 		}
 	}
@@ -110,14 +128,22 @@ func main() {
 		fmt.Fprintf(os.Stderr, "sim audit: diff=%s policy=%s seeds=%d days=%d share=%.2f bankrupt=%d audit_day=%d of_bankrupt=%.1f%% failed_audits=%d bankrupt_of_failed=%.1f%% early=%d\n",
 			*diff, *policyFlag, len(seeds), *days, cfg.AuditFineShare, st.bankrupt, st.auditDay, pct(st.auditDay, st.bankrupt), st.failed, pct(st.auditDay, st.failed), st.early)
 	}
+	if *eventStatsFlag {
+		for _, name := range wanted {
+			fmt.Fprintln(os.Stderr, eventStatsLine(*diff, name, len(seeds), *days, records[name]))
+		}
+	}
 }
 
 // runOne — одна партия: политика решает каждый час, дни закрываются
 // честными тиками ядра. Возвращает финал партии.
-func runOne(w *csv.Writer, cfg game.Config, name string, policy policyFunc, seed, days int, st *auditStats) string {
+func runOne(w *csv.Writer, cfg game.Config, name string, policy policyFunc, seed, days int, st *auditStats, records map[string][]dayRecord) string {
 	g := game.NewSeeded(cfg, uint64(seed))
 	rng := rand.New(rand.NewPCG(uint64(seed), 0xC0FFEE)) // свой поток — политика не расходует игровые роллы
 	outcome := "running"
+	plan := dayPlan(g)
+	var outbreaks int
+	var seen *game.DayEvent // последнее активное событие: смена указателя = новая активация
 	for g.Day <= days && outcome == "running" {
 		// игровой день по тикам; политика думает раз в час
 		for g.Phase == game.PhaseRunning {
@@ -125,6 +151,15 @@ func runOne(w *csv.Writer, cfg game.Config, name string, policy policyFunc, seed
 				policy(g, rng, g.TickInDay/cfg.TicksPerHour)
 			}
 			report := g.Tick()
+			if ev := g.ActiveEvent; ev != nil && ev != seen {
+				seen = ev
+				if ev.ID == game.EventVirus && !ev.Repelled {
+					outbreaks++
+				}
+			}
+			if report == nil {
+				answerRaise(g, raiseAnswer)
+			}
 			if report != nil {
 				outcome = dayOutcome(g, report)
 				failed := slices.ContainsFunc(report.Events, func(e string) bool {
@@ -143,6 +178,8 @@ func runOne(w *csv.Writer, cfg game.Config, name string, policy policyFunc, seed
 					}
 				}
 				writeRow(w, name, seed, report, outcome)
+				records[name] = append(records[name], dayRecord{Breakdowns: report.Incidents,
+					Infected: report.VirusPCs, Outbreaks: outbreaks, Plan: plan})
 				break
 			}
 			if g.Phase == game.PhaseWon {
@@ -158,6 +195,7 @@ func runOne(w *csv.Writer, cfg game.Config, name string, policy policyFunc, seed
 		if err := g.NextDay(); err != nil {
 			break
 		}
+		plan, outbreaks, seen = dayPlan(g), 0, nil
 	}
 	if outcome == "running" {
 		outcome = "timeout" // дни кончились, партия жива
