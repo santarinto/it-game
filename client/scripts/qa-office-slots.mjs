@@ -326,7 +326,7 @@ async function caseBrokenPc(browser) {
     check('broken_pc: сломан только слот 0 (office.repair.1/2 нет)', geo.others.every((n) => n === null), JSON.stringify(geo.others))
     check('broken_pc: у целых мест 1/2 свои зоны office.slot.1/2', geo.slots.every((n) => n && n.interactive),
       JSON.stringify(geo.slots.map((n) => n && [n.w, n.h])))
-    check('broken_pc: метка «✖ чинить 0/3» (N=3 из фикстуры)', geo.label.text === '✖ чинить 0/3', geo.label.text)
+    check('broken_pc: метка «✖ чинить · 1 очко» (ремонт не начат, N=3 из фикстуры)', geo.label.text === '✖ чинить · 1 очко', geo.label.text)
     // ITGAME-92: картинка сотрудника и метка — без ввода, вводом владеет зона.
     check('broken_pc: office.worker.0 и office.repair.0 без ввода (одна зона на место)',
       geo.worker.interactive === false && geo.label.interactive === false && geo.slot.interactive === true,
@@ -418,11 +418,15 @@ async function caseBrokenPc(browser) {
     // Три настоящих клика по точкам значка: каждый — ровно repair_click
     // слота 0, метка идёт 1/3 → 2/3, третий чинит.
     const clickSpots = [spots[0], spots[2], spots[3]]
+    const apBefore = (await page.evaluate(() => window.itd.snapshot())).state.actionPoints
     for (let k = 0; k < clickSpots.length; k++) {
       const p = clickSpots[k]
       const since = (await lastOut(page, 50)).at(-1)?.at ?? 0
       await worldClick(page, box, p.x, p.y)
       await delay(250)
+      const apNow = (await page.evaluate(() => window.itd.snapshot())).state.actionPoints
+      check(`broken_pc: после клика ${k + 1} очков действий ровно на одно меньше (первый клик стоит очко, начатая работа бесплатна)`,
+        apNow === apBefore - 1, `было ${apBefore}, стало ${apNow}`)
       const sent = (await lastOut(page, 50)).filter((m) => m.at > since)
       check(`broken_pc: клик мышью «${p.label}» шлёт ровно repair_click слота 0, не motivate`,
         sent.length === 1 && sent[0].type === 'repair_click' && sent[0].info?.slot === 0,
@@ -501,8 +505,8 @@ async function caseVirus(browser) {
     })
     const geo = await readGeo()
     if (!geo.slot || !geo.worker || !geo.label) throw new Error(`virus: нет узлов ${JSON.stringify(geo)}`)
-    check('virus: метки «☣ вирус 0/3» у мест 1 и 6, у здорового места 2 метки нет, меток поломки нет',
-      geo.label.text === '☣ вирус 0/3' && geo.label5?.text === '☣ вирус 0/3' && geo.label1 === null && geo.repairs.length === 0,
+    check('virus: метки «☣ вирус · 1 очко» у мест 1 и 6, у здорового места 2 метки нет, меток поломки нет',
+      geo.label.text === '☣ вирус · 1 очко' && geo.label5?.text === '☣ вирус · 1 очко' && geo.label1 === null && geo.repairs.length === 0,
       JSON.stringify({ l0: geo.label.text, l5: geo.label5?.text, l1: geo.label1, repairs: geo.repairs }))
     check('virus: плашка офиса «☣ вирус: 2 из 9 мест · волна в 12:00»', geo.plate === '☣ вирус: 2 из 9 мест · волна в 12:00', String(geo.plate))
     check('virus: значки вкладок «☣ 2» / «☣ 1» / нет',
@@ -566,11 +570,15 @@ async function caseVirus(browser) {
 
     // Три настоящих клика: ровно virus_click слота 0, 1/3 → 2/3 → чисто.
     const clickSpots = [spots[0], spots[2], spots[3]]
+    const apBefore = (await page.evaluate(() => window.itd.snapshot())).state.actionPoints
     for (let k = 0; k < clickSpots.length; k++) {
       const p = clickSpots[k]
       const since = (await lastOut(page, 50)).at(-1)?.at ?? 0
       await worldClick(page, box, p.x, p.y)
       await delay(250)
+      const apNow = (await page.evaluate(() => window.itd.snapshot())).state.actionPoints
+      check(`virus: после клика ${k + 1} очков действий ровно на одно меньше (первый клик стоит очко, начатая работа бесплатна)`,
+        apNow === apBefore - 1, `было ${apBefore}, стало ${apNow}`)
       const sent = (await lastOut(page, 50)).filter((m) => m.at > since)
       check(`virus: клик мышью «${p.label}» шлёт ровно virus_click слота 0`,
         sent.length === 1 && sent[0].type === 'virus_click' && sent[0].info?.slot === 0,
@@ -607,8 +615,8 @@ async function caseVirus(browser) {
       const zone = window.__itd.scene.getScene('office').children.list.find((o) => o.getData?.('id') === 'office.slot.5')
       return { repair: by('office.repair.5')?.text ?? null, virus: by('office.virus.5'), slot: by('office.slot.5'), fill: zone?.fillColor ?? null, worker: by('office.worker.5') }
     })
-    check('virus: сломанное заражённое место показывает поломку («✖ чинить 0/3», красная зона), метки вируса нет',
-      both.repair === '✖ чинить 0/3' && both.virus === null && both.fill === 0xb13e53,
+    check('virus: сломанное заражённое место показывает поломку («✖ чинить · 1 очко», красная зона), метки вируса нет',
+      both.repair === '✖ чинить · 1 очко' && both.virus === null && both.fill === 0xb13e53,
       JSON.stringify({ repair: both.repair, virus: !!both.virus, fill: both.fill }))
     await page.mouse.move(box.x + both.worker.cx * box.k, box.y + both.worker.cy * box.k)
     await delay(150)
@@ -631,8 +639,8 @@ async function caseVirus(browser) {
       const ns = window.itd.nodes()
       return { virus: ns.find((n) => n.id === 'office.virus.5')?.text ?? null, repair: ns.find((n) => n.id === 'office.repair.5') ?? null }
     })
-    check('virus: после ремонта место снова заражено — «☣ вирус 0/3», метки поломки нет',
-      repaired.virus === '☣ вирус 0/3' && repaired.repair === null, JSON.stringify(repaired))
+    check('virus: после ремонта место снова заражено — «☣ вирус · 1 очко», метки поломки нет',
+      repaired.virus === '☣ вирус · 1 очко' && repaired.repair === null, JSON.stringify(repaired))
 
     check('virus: нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))
     await shot(page, 'virus')

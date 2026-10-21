@@ -188,3 +188,25 @@ func TestActionPointsSaveRoundtrip(t *testing.T) {
 		}
 	}
 }
+
+// Админ очков не тратит: чинит и чистит бесплатно при нуле очков у директора
+// (ITGAME-101 + ITGAME-127).
+func TestAdminSpendsNoActionPoints(t *testing.T) {
+	g := adminGame(t, 4)
+	es := g.Offices[0].Employees
+	breakSeat(&es[0], 4)
+	es[1].Infected = true
+	g.ActionPoints = 0
+	for range 10 {
+		g.Tick()
+	}
+	if es[0].PCBroken || es[1].Infected {
+		t.Fatalf("админ не справился: broken=%v infected=%v; хотим починено и вычищено", es[0].PCBroken, es[1].Infected)
+	}
+	if g.DayAdminRepairs != 1 || g.DayAdminCleaned != 1 {
+		t.Errorf("починок админа %d, чисток %d; хотим 1 и 1", g.DayAdminRepairs, g.DayAdminCleaned)
+	}
+	if g.ActionPoints != 0 {
+		t.Errorf("очков действий %d, хотим 0: админ их не тратит", g.ActionPoints)
+	}
+}

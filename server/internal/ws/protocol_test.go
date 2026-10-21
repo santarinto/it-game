@@ -323,7 +323,7 @@ func TestSnapshotWorkplaces(t *testing.T) {
 	}
 }
 
-// Очки действий директора (ITGAME-127) едят в снапшоте: остаток на сегодня
+// Очки действий директора (ITGAME-127) едут в снапшоте: остаток на сегодня
 // и запас дня — клиент рисует «Очки: k/N» в шапке.
 func TestProtocolActionPoints(t *testing.T) {
 	g := game.NewWithSeed(game.DefaultConfig(), 1, 2)
