@@ -4,6 +4,7 @@ activeEvent.AVTier int
 activeEvent.Dismissed bool
 activeEvent.ID string
 activeEvent.Office int
+activeEvent.RaisePct int
 activeEvent.Repelled bool
 activeEvent.Resolved bool
 activeEvent.Slot int
@@ -75,7 +76,6 @@ config.PCLevels[].Price int
 config.PCPrice int
 config.PCPriceGrowth float64
 config.PCWearLimit int
-config.RaiseBoostMult float64
 config.RaiseOffendMult float64
 config.RepairClicksMax int
 config.RepairClicksMin int
@@ -117,6 +117,7 @@ dayEvents[].AVTier int
 dayEvents[].Dismissed bool
 dayEvents[].ID string
 dayEvents[].Office int
+dayEvents[].RaisePct int
 dayEvents[].Repelled bool
 dayEvents[].Resolved bool
 dayEvents[].Slot int
@@ -200,6 +201,7 @@ offices[].Employees[].MotivatedUntil int
 offices[].Employees[].Name string
 offices[].Employees[].OffendedUntil int
 offices[].Employees[].PCBroken bool
+offices[].Employees[].RaisePct int
 offices[].Employees[].RepairClicks int
 offices[].Employees[].RepairNeeded int
 offices[].Employees[].SalaryAdd int

@@ -34,7 +34,11 @@ type Employee struct {
 	RepairNeeded int
 
 	// Unseen Forces (итерация 10).
-	SalaryAdd     int // повышение: надбавка к дневной зарплате, навсегда
+	SalaryAdd int // повышение: надбавка к дневной зарплате, навсегда
+	// RaisePct — накопленная прибавка выработки от повышений, %, навсегда
+	// (ITGAME-203): множитель 1+RaisePct/100 (см. raiseMult). Отдельное поле, а не
+	// правка IncomePerTick: на $7–16/тик округление съедало бы 1–3%.
+	RaisePct      int
 	OffendedUntil int // отказ в повышении: дебафф пока тик < OffendedUntil
 
 	// Сотрудники 2.0 (итерация 15).
@@ -197,6 +201,17 @@ func (g *Game) LevelFor(e *Employee) int {
 		}
 	}
 	return level
+}
+
+// PersonalSalary — личная дневная зарплата сотрудника: ровно то, что ФОТ
+// (PayrollPerDay) списывает с него сегодня; от неё считается процент повышения.
+func (g *Game) PersonalSalary(e *Employee) int {
+	return g.cfg.SalaryPerDay + e.SalaryAdd
+}
+
+// raiseMult — множитель выработки от накопленных повышений (ITGAME-203).
+func raiseMult(e *Employee) float64 {
+	return 1 + float64(e.RaisePct)/100
 }
 
 // levelBonus — прибавка к выработке за уровень сотрудника, $/тик.
@@ -484,7 +499,7 @@ func (g *Game) incomeAtTickDetail(tick int) (total, lost, virusLost int) {
 			// Прибавка уровня и множитель уровня ПК (ITGAME-135) входят в личную
 			// выработку до эффектов и сети: тенюра и железо масштабируются
 			// инфраструктурой (итерация 15).
-			clean := float64(e.IncomePerTick+g.levelBonus(e)) * g.pcMult(o, i) * g.dayEffectMult(o, e, tick)
+			clean := float64(e.IncomePerTick+g.levelBonus(e)) * raiseMult(e) * g.pcMult(o, i) * g.dayEffectMult(o, e, tick)
 			v := int(math.Round(clean * net.Mults[oi][i]))
 			healthy := v
 			if e.Infected {
@@ -520,7 +535,7 @@ func (g *Game) PayrollPerDay() int {
 		}
 		for _, e := range o.Employees {
 			if !e.UnpaidToday {
-				total += g.cfg.SalaryPerDay + e.SalaryAdd
+				total += g.PersonalSalary(&e)
 			}
 		}
 		if o.Boss != "" && !o.BossUnpaidToday {

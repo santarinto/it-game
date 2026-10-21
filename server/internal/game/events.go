@@ -39,6 +39,7 @@ type DayEvent struct {
 	Tick      int  // тик активации (тост)
 	Office    int  // вирус/повышение: адресат
 	Slot      int  // повышение: индекс сотрудника
+	RaisePct  int  // повышение: 1–3 %, роллится при плане (ITGAME-203); у остальных 0
 	Dismissed bool // тост закрыт игроком (аудит ещё ждёт своего чека)
 	Resolved  bool // сыграло (выбор/авто/чек), в очереди не участвует
 	// Вирус (ITGAME-103): вспышке некуда сесть и в офисе нет заражённых —
@@ -138,6 +139,18 @@ func (g *Game) rollOneEvent(used map[EventID]bool, lo, hi int) (DayEvent, bool) 
 	return DayEvent{}, false
 }
 
+// raiseSalaryAdd — надбавка к дневной зарплате за повышение на pct %: pct% от
+// ТЕКУЩЕЙ личной зарплаты (PersonalSalary), округлённо, не меньше $1. Одна
+// функция и для карточки, и для согласия: показанное $X равно применённому.
+func (g *Game) raiseSalaryAdd(e *Employee, pct int) int {
+	return max(1, int(math.Round(float64(pct)/100*float64(g.PersonalSalary(e)))))
+}
+
+// offendPct — на сколько % отказ режет выработку до конца дня (из RaiseOffendMult).
+func (g *Game) offendPct() int {
+	return int(math.Round((1 - g.cfg.RaiseOffendMult) * 100))
+}
+
 // makeEvent — событие с адресатами по типу.
 func (g *Game) makeEvent(id EventID, tick int) DayEvent {
 	ev := DayEvent{ID: id, Tick: tick}
@@ -148,6 +161,7 @@ func (g *Game) makeEvent(id EventID, tick int) DayEvent {
 		oi := g.randomStaffedOffice()
 		ev.Office = oi
 		ev.Slot = g.rng.IntN(len(g.Offices[oi].Employees))
+		ev.RaisePct = 1 + g.rng.IntN(3) // одно число для карточки, журнала и согласия
 	}
 	return ev
 }
@@ -193,7 +207,7 @@ func (g *Game) baseIncomePerTick() int {
 				continue
 			}
 			e := &o.Employees[i]
-			total += int(math.Round(float64(e.IncomePerTick+g.levelBonus(e)) * g.pcMult(o, i)))
+			total += int(math.Round(float64(e.IncomePerTick+g.levelBonus(e)) * raiseMult(e) * g.pcMult(o, i)))
 		}
 	}
 	return total
@@ -407,9 +421,10 @@ func (g *Game) ChooseEvent(option int) error {
 		e := &g.Offices[ev.Office].Employees[ev.Slot]
 		switch option {
 		case 0:
-			e.SalaryAdd += g.cfg.SalaryPerDay / 2
-			e.IncomePerTick = int(float64(e.IncomePerTick)*g.cfg.RaiseBoostMult + 0.5)
-			g.logEvent(fmt.Sprintf("%s: повышение (+$%d/день)", e.Name, g.cfg.SalaryPerDay/2))
+			add := g.raiseSalaryAdd(e, ev.RaisePct)
+			e.SalaryAdd += add
+			e.RaisePct += ev.RaisePct
+			g.logEvent(fmt.Sprintf("%s: повышение (+$%d/день, +%d%% выработки)", e.Name, add, ev.RaisePct))
 		case 1:
 			e.OffendedUntil = g.cfg.DayTicks()
 			g.logEvent(fmt.Sprintf("%s: обижен отказом", e.Name))
@@ -512,11 +527,12 @@ func (g *Game) ActiveEventInfo() *EventInfo {
 			Options: []string{"Принять к сведению"}}
 	case EventRaise:
 		e := &g.Offices[ev.Office].Employees[ev.Slot]
+		add := g.raiseSalaryAdd(e, ev.RaisePct)
 		return &EventInfo{ID: string(ev.ID), Title: "Просит повышения",
-			Text: fmt.Sprintf("%s просит повышение: +$%d/день к зарплате и +%d%% выработки навсегда. Отказ обидит до конца дня.",
-				e.Name, g.cfg.SalaryPerDay/2, int((g.cfg.RaiseBoostMult-1)*100)),
+			Text: fmt.Sprintf("%s просит прибавку: +$%d/день к зарплате и +%d%% выработки навсегда. Отказ обидит до конца дня (−%d%% выработки).",
+				e.Name, add, ev.RaisePct, g.offendPct()),
 			Options: []string{
-				fmt.Sprintf("Согласиться (+$%d/день)", g.cfg.SalaryPerDay/2),
+				fmt.Sprintf("Согласиться (+$%d/день)", add),
 				"Отказать",
 			}}
 	case EventStar:

@@ -62,7 +62,7 @@ func (g *Game) EffectiveIncomePerTick(o *Office, slot int) int {
 		return 0
 	}
 	e := &o.Employees[slot]
-	return int(math.Round(float64(e.IncomePerTick+g.levelBonus(e)) * g.pcMult(o, slot) * g.effectMult(o, e, g.TickInDay)))
+	return int(math.Round(float64(e.IncomePerTick+g.levelBonus(e)) * raiseMult(e) * g.pcMult(o, slot) * g.effectMult(o, e, g.TickInDay)))
 }
 
 // Effects — активные эффекты сотрудника на текущем тике.

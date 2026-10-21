@@ -378,7 +378,7 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 				Connected:              net.CoreLinked[oi][i], UnpaidToday: e.UnpaidToday, Effects: effects,
 				NetMult: net.Mults[oi][i], ServerSlot: net.ServerSlot[oi][i],
 				PCBroken: e.PCBroken, RepairClicks: e.RepairClicks, RepairNeeded: repairNeeded, MotivateReadyAt: readyAt,
-				Salary: cfg.SalaryPerDay + e.SalaryAdd, OfflineReason: reason,
+				Salary: g.PersonalSalary(&e), OfflineReason: reason,
 				Level: g.LevelFor(&o.Employees[i]), XP: e.XP, XPNext: g.XPNext(&o.Employees[i]),
 				Star: e.Star, FirePrice: g.FireCompensation(&o.Employees[i]), HiredToday: e.HireDay == g.Day,
 				Infected: e.Infected, VirusClicks: e.VirusClicks, VirusNeeded: virusNeeded, AVCovered: cov[oi][i]}

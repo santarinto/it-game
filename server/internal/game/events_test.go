@@ -1,6 +1,8 @@
 package game
 
 import (
+	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"testing"
@@ -29,6 +31,9 @@ func forceEvent(g *Game, id EventID) {
 	case EventVirus, EventRaise:
 		g.DayEvents[0].Office = 0
 		g.DayEvents[0].Slot = 0
+	}
+	if id == EventRaise {
+		g.DayEvents[0].RaisePct = 2
 	}
 }
 
@@ -322,39 +327,53 @@ func TestAuditChecksEvenWithoutChoice(t *testing.T) {
 	}
 }
 
+// forceRaise — повышение на pct % первому сотруднику, активное с первого тика.
+func forceRaise(g *Game, pct int) {
+	forceEvent(g, EventRaise)
+	g.DayEvents[0].RaisePct = pct
+	g.Tick()
+}
+
 func TestRaiseAccept(t *testing.T) {
 	g := eventGame()
 	before := g.Offices[0].Employees[0].IncomePerTick
-	forceEvent(g, EventRaise)
-	g.Tick()
+	salary := g.cfg.SalaryPerDay
+	forceRaise(g, 2)
 	if err := g.ChooseEvent(0); err != nil {
 		t.Fatal(err)
 	}
 	e := g.Offices[0].Employees[0]
-	if e.SalaryAdd != g.cfg.SalaryPerDay/2 {
-		t.Errorf("надбавка = %d, хотим %d", e.SalaryAdd, g.cfg.SalaryPerDay/2)
+	want := int(math.Round(0.02 * float64(salary)))
+	if e.SalaryAdd != want {
+		t.Errorf("надбавка = %d, хотим %d (2%% от %d)", e.SalaryAdd, want, salary)
 	}
-	if e.IncomePerTick <= before {
-		t.Errorf("выработка не выросла: %d → %d", before, e.IncomePerTick)
+	if e.RaisePct != 2 {
+		t.Errorf("RaisePct = %d, хотим 2", e.RaisePct)
 	}
-	if p := g.PayrollPerDay(); p != 2*g.cfg.SalaryPerDay+g.cfg.SalaryPerDay/2 {
-		t.Errorf("ФОТ с надбавкой = %d", p)
+	if e.IncomePerTick != before {
+		t.Errorf("IncomePerTick изменился: %d → %d (прибавка живёт в RaisePct)", before, e.IncomePerTick)
+	}
+	if p := g.PayrollPerDay(); p != 2*salary+want {
+		t.Errorf("ФОТ с надбавкой = %d, хотим %d", p, 2*salary+want)
+	}
+	if !strings.Contains(strings.Join(g.EventLog, "; "), fmt.Sprintf("+$%d/день", want)) {
+		t.Errorf("журнал не называет надбавку: %v", g.EventLog)
 	}
 }
 
 func TestRaiseRefuseOffends(t *testing.T) {
 	g := eventGame()
 	g.Offices[0].Cooler = true // жажда не мешает арифметике
-	forceEvent(g, EventRaise)
-	g.Tick()
+	g.Offices[0].Employees[0].IncomePerTick = 20
+	forceRaise(g, 2)
 	if err := g.ChooseEvent(1); err != nil {
 		t.Fatal(err)
 	}
 	if g.Offices[0].Employees[0].OffendedUntil != g.cfg.DayTicks() {
 		t.Error("обида не выставлена до конца дня")
 	}
-	if inc := g.IncomePerTick(); inc != 19 { // 10×0.85 + 10 = 18.5 → 9+10
-		t.Errorf("доход с обидой = %d, хотим 18 или 19", inc)
+	if inc := g.IncomePerTick(); inc != 29 { // 20×0.95 = 19 + 10
+		t.Errorf("доход с обидой = %d, хотим 29", inc)
 	}
 	found := false
 	for _, ef := range g.Effects(&g.Offices[0], &g.Offices[0].Employees[0]) {
@@ -364,6 +383,122 @@ func TestRaiseRefuseOffends(t *testing.T) {
 	}
 	if !found {
 		t.Error("эффект offended не виден в списке эффектов")
+	}
+}
+
+func TestPlannedRaisePctIn1to3(t *testing.T) {
+	seen := map[int]bool{}
+	for seed := uint64(1); seed <= 200; seed++ {
+		g := NewWithSeed(DefaultConfig(), seed, seed+1)
+		g.Offices[0].Employees = testStaff(2)
+		ev := g.makeEvent(EventRaise, 10)
+		if ev.RaisePct < 1 || ev.RaisePct > 3 {
+			t.Fatalf("seed %d: RaisePct = %d, хотим 1..3", seed, ev.RaisePct)
+		}
+		seen[ev.RaisePct] = true
+		if other := g.makeEvent(EventStar, 10); other.RaisePct != 0 {
+			t.Fatalf("у звезды RaisePct = %d, хотим 0", other.RaisePct)
+		}
+	}
+	if len(seen) != 3 {
+		t.Errorf("за 200 сидов выпали проценты %v, хотим все 1, 2, 3", seen)
+	}
+}
+
+func TestRaiseCardNamesAppliedNumbers(t *testing.T) {
+	g := eventGame()
+	e := &g.Offices[0].Employees[0]
+	e.SalaryAdd = 100 // личная зарплата 350: 3% = 10.5 → 11
+	forceRaise(g, 3)
+	info := g.ActiveEventInfo()
+	if info == nil {
+		t.Fatal("карточки нет")
+	}
+	for _, want := range []string{"+$11/день к зарплате", "+3% выработки навсегда", "(−5% выработки)", "просит прибавку"} {
+		if !strings.Contains(info.Text, want) {
+			t.Errorf("в тексте %q нет %q", info.Text, want)
+		}
+	}
+	if info.Options[0] != "Согласиться (+$11/день)" || info.Options[1] != "Отказать" {
+		t.Errorf("опции: %v", info.Options)
+	}
+	if err := g.ChooseEvent(0); err != nil {
+		t.Fatal(err)
+	}
+	if e.SalaryAdd != 111 {
+		t.Errorf("SalaryAdd = %d, хотим 100+11", e.SalaryAdd)
+	}
+}
+
+func TestRaiseSalaryAddMinOneDollar(t *testing.T) {
+	g := eventGame()
+	g.cfg.SalaryPerDay = 20 // 1% от 20 = 0.2 → не меньше $1
+	forceRaise(g, 1)
+	if err := g.ChooseEvent(0); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.Offices[0].Employees[0].SalaryAdd; got != 1 {
+		t.Errorf("SalaryAdd = %d, хотим минимум 1", got)
+	}
+}
+
+func TestRaisePctStacks(t *testing.T) {
+	g := eventGame()
+	forceRaise(g, 2)
+	if err := g.ChooseEvent(0); err != nil {
+		t.Fatal(err)
+	}
+	first := g.Offices[0].Employees[0].SalaryAdd
+	g.DayEvents = nil
+	g.ActiveEvent = nil
+	forceRaise(g, 3)
+	if err := g.ChooseEvent(0); err != nil {
+		t.Fatal(err)
+	}
+	e := g.Offices[0].Employees[0]
+	if e.RaisePct != 5 {
+		t.Errorf("RaisePct = %d, хотим 2+3", e.RaisePct)
+	}
+	// второе повышение считается от уже повышенной зарплаты
+	if want := first + int(math.Round(0.03*float64(g.cfg.SalaryPerDay+first))); e.SalaryAdd != want {
+		t.Errorf("SalaryAdd = %d, хотим %d", e.SalaryAdd, want)
+	}
+}
+
+func TestRaisePctMultipliesOutput(t *testing.T) {
+	g := eventGame()
+	g.Offices[0].Employees[0].IncomePerTick = 100
+	base := g.EffectiveIncomePerTick(&g.Offices[0], 0)
+	baseline := g.baseIncomePerTick()
+	incBefore := g.IncomePerTick()
+	g.Offices[0].Employees[0].RaisePct = 7
+	if got := g.EffectiveIncomePerTick(&g.Offices[0], 0); got != int(math.Round(float64(base)*1.07)) {
+		t.Errorf("EffectiveIncomePerTick = %d, база %d, хотим ×1.07", got, base)
+	}
+	if got := g.baseIncomePerTick(); got != baseline+7 {
+		t.Errorf("baseIncomePerTick = %d, хотим %d", got, baseline+7)
+	}
+	if got := g.IncomePerTick(); got != incBefore+7 {
+		t.Errorf("IncomePerTick = %d, хотим %d", got, incBefore+7)
+	}
+}
+
+func TestRaiseSurvivesSave(t *testing.T) {
+	g := eventGame()
+	g.Offices[0].Employees[0].RaisePct = 4
+	forceRaise(g, 3)
+	r := saveRoundtrip(t, g)
+	if got := r.Offices[0].Employees[0].RaisePct; got != 4 {
+		t.Errorf("Employee.RaisePct после restore = %d, хотим 4", got)
+	}
+	if r.ActiveEvent == nil || r.ActiveEvent.RaisePct != 3 {
+		t.Fatalf("процент события потерян: %+v", r.ActiveEvent)
+	}
+	if err := r.ChooseEvent(0); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Offices[0].Employees[0].RaisePct; got != 7 {
+		t.Errorf("RaisePct после согласия = %d, хотим 4+3", got)
 	}
 }
 

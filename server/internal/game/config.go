@@ -72,8 +72,7 @@ type Config struct {
 	AuditMinCore    int     // аудит: минимальный уровень core для субсидии
 	AuditMinDay     int     // аудит: роллится с этого дня (ITGAME-50: раньше старт не тянет штраф)
 	AuditFineShare  float64 // аудит: штраф = доля дохода прошлого дня ×EventK, потолок AuditPenalty
-	RaiseBoostMult  float64 // согласие на повышение: множитель выработки навсегда
-	RaiseOffendMult float64 // отказ в повышении: множитель выработки до конца дня
+	RaiseOffendMult float64 // отказ в повышении: множитель выработки до конца дня (0.95 = −5%)
 	// Бюджет случайных событий дня (ITGAME-196): поломки ПК и события пула
 	// тратят один лимит на компанию, волны вируса не тратят; 0 — бюджета нет.
 	// Числа — GDD «Активный день» и «Сложность 2.0»; правило — randomBudgetLeft.
@@ -233,8 +232,7 @@ func DefaultConfig() Config {
 		AuditMinCore:    2,
 		AuditMinDay:     5,
 		AuditFineShare:  0.15, // подобрано sim ITGAME-50: normal/greedy 300×30
-		RaiseBoostMult:  1.15,
-		RaiseOffendMult: 0.85,
+		RaiseOffendMult: 0.95,
 
 		PCPriceGrowth: 1.15,
 
