@@ -382,7 +382,7 @@ func TestRestoredActiveEventChosenOnce(t *testing.T) {
 	cfg := game.DefaultConfig()
 	cfg.WinTarget = 1_000_000
 	cfg.EventChancePct = 0
-	cfg.BreakdownChancePct = 0
+	cfg.BreakdownChancePermille = 0
 	cfg.SalaryPerDay = 0
 	base, _ := startDebugServer(t, cfg, 20*time.Millisecond)
 

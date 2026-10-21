@@ -13,7 +13,7 @@ import (
 func breakOnce(t *testing.T, s1, s2 uint64) *Game {
 	t.Helper()
 	cfg := DefaultConfig()
-	cfg.BreakdownChancePct = 100
+	cfg.BreakdownChancePermille = 1000
 	cfg.EventChancePct = 0
 	g := NewWithSeed(cfg, s1, s2)
 	g.Offices[0].PCs = 1

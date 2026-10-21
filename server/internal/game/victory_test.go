@@ -6,7 +6,7 @@ import "testing"
 func victoryCfg(target int) Config {
 	c := DefaultConfig()
 	c.WinTarget = target
-	c.BreakdownChancePct = 0 // поломки не должны мешать проверке победы
+	c.BreakdownChancePermille = 0 // поломки не должны мешать проверке победы
 	return c
 }
 

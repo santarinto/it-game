@@ -136,7 +136,7 @@ func TestFixtureScenarioStates(t *testing.T) {
 	// Поломки ПК (2%/тик) могут сломать победу раньше времени — тест
 	// про победу, а не про инциденты: шанс зануляем.
 	g2cfg := cfg
-	g2cfg.BreakdownChancePct = 0
+	g2cfg.BreakdownChancePermille = 0
 	g, err = NewFixture(g2cfg, "pre_victory", "")
 	if err != nil {
 		t.Fatal(err)

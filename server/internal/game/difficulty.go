@@ -51,10 +51,10 @@ type difficultySpec struct {
 }
 
 var difficulties = map[Difficulty]difficultySpec{
-	DiffEasy:     {PriceK: 0.8, WageK: 0.8, StartK: 1.5, IncomeK: 1.15, CoffeePct: 50, DebuffMult: 0.95, WinTarget: 60000, EventPct: 60, Event2Pct: 25, EventK: 0.7, VirusWeightK: 0.6, DeadlineShare: 0.55, WearLimit: 8},
-	DiffNormal:   {PriceK: 1, WageK: 1, StartK: 1, IncomeK: 1, CoffeePct: 40, DebuffMult: 0.9, WinTarget: 250000, EventPct: 75, Event2Pct: 30, EventK: 1, VirusWeightK: 1, DeadlineShare: 0.7, WearLimit: 8},
-	DiffHard:     {PriceK: 1.25, WageK: 1.25, StartK: 0.9, IncomeK: 0.9, CoffeePct: 30, DebuffMult: 0.88, WinTarget: 500000, EventPct: 85, Event2Pct: 35, EventK: 1.25, CreditLimit: 5000, CreditRate: 0.10, WinStaff: 24, WinCore: 3, MarketSwing: 10, VirusWeightK: 1.4, DeadlineShare: 0.8, WearLimit: 24},
-	DiffHardcore: {PriceK: 1.5, WageK: 1.5, StartK: 0.8, IncomeK: 0.8, CoffeePct: 20, DebuffMult: 0.85, WinTarget: 1000000, EventPct: 95, Event2Pct: 45, EventK: 1.5, CreditLimit: 10000, CreditRate: 0.15, WinDayLimit: 30, MarketSwing: 15, VirusWeightK: 2, DeadlineShare: 0.85, WearLimit: 40},
+	DiffEasy:     {PriceK: 0.8, WageK: 0.8, StartK: 1.5, IncomeK: 1.15, CoffeePct: 50, DebuffMult: 0.95, WinTarget: 60000, EventPct: 55, Event2Pct: 15, EventK: 0.7, VirusWeightK: 0.6, DeadlineShare: 0.55, WearLimit: 8},
+	DiffNormal:   {PriceK: 1, WageK: 1, StartK: 1, IncomeK: 1, CoffeePct: 40, DebuffMult: 0.9, WinTarget: 250000, EventPct: 65, Event2Pct: 20, EventK: 1, VirusWeightK: 1, DeadlineShare: 0.7, WearLimit: 8},
+	DiffHard:     {PriceK: 1.25, WageK: 1.25, StartK: 0.9, IncomeK: 0.9, CoffeePct: 30, DebuffMult: 0.88, WinTarget: 500000, EventPct: 75, Event2Pct: 25, EventK: 1.25, CreditLimit: 5000, CreditRate: 0.10, WinStaff: 24, WinCore: 3, MarketSwing: 10, VirusWeightK: 1.4, DeadlineShare: 0.8, WearLimit: 24},
+	DiffHardcore: {PriceK: 1.5, WageK: 1.5, StartK: 0.8, IncomeK: 0.8, CoffeePct: 20, DebuffMult: 0.85, WinTarget: 1000000, EventPct: 85, Event2Pct: 35, EventK: 1.5, CreditLimit: 10000, CreditRate: 0.15, WinDayLimit: 30, MarketSwing: 15, VirusWeightK: 2, DeadlineShare: 0.85, WearLimit: 40},
 }
 
 // scale — денежное значение × коэффициент: округление до целого $, минимум 1.

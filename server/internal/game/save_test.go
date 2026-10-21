@@ -12,7 +12,7 @@ func offlineTestConfig() Config {
 	cfg := DefaultConfig()
 	cfg.IncomeMin, cfg.IncomeMax = 10, 10
 	cfg.ThirstMult, cfg.HungerMult = 1, 1
-	cfg.BreakdownChancePct = 0
+	cfg.BreakdownChancePermille = 0
 	cfg.EventChancePct = 0
 	cfg.StarChancePct = 0
 	return cfg

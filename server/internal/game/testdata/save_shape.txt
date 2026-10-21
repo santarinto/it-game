@@ -1,4 +1,4 @@
-format 2
+format 3
 activeEvent *struct
 activeEvent.AVTier int
 activeEvent.Dismissed bool
@@ -27,7 +27,7 @@ config.AuditPenalty int
 config.AuditReward int
 config.BossPrice int
 config.BossSalaryPerDay int
-config.BreakdownChancePct int
+config.BreakdownChancePermille int
 config.CoffeeChancePct int
 config.CoffeeMachinePrice int
 config.CoffeeMult float64

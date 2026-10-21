@@ -109,7 +109,7 @@ func TestLedgerBalancesWithEventsAndPurchases(t *testing.T) {
 func TestLedgerCreditInterest(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.CreditLimit, cfg.CreditRate = 1_000_000, 0.1
-	cfg.BreakdownChancePct = 0
+	cfg.BreakdownChancePermille = 0
 	g := NewWithSeed(cfg, 3, 4)
 	g.Offices[0].PCs = 2
 	g.Offices[0].Employees = []Employee{{Name: "Тест", IncomePerTick: 1}, {Name: "Тест", IncomePerTick: 1}}

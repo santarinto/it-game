@@ -84,7 +84,7 @@ func (g *Game) rollDayEvents() {
 }
 
 // rollOneEvent — кандидат из пула доступных типов по весам
-// (вирус 25×VirusWeightK, дедлайн 20, аудит 15, повышение 25, звезда 15);
+// (вирус 20×VirusWeightK, дедлайн 20, аудит 15, повышение 10, звезда 15);
 // аудит — с дня cfg.AuditMinDay.
 // Вес вируса скалируется сложностью (Сложность 2.0: хардкор — вирусы чаще).
 func (g *Game) rollOneEvent(used map[EventID]bool, lo, hi int) (DayEvent, bool) {
@@ -99,10 +99,10 @@ func (g *Game) rollOneEvent(used map[EventID]bool, lo, hi int) (DayEvent, bool) 
 			cands = append(cands, cand{id, w})
 		}
 	}
-	add(EventVirus, int(25*g.cfg.VirusWeightK+0.5), g.randomStaffedOffice() >= 0)
+	add(EventVirus, int(20*g.cfg.VirusWeightK+0.5), g.randomStaffedOffice() >= 0)
 	add(EventDeadline, 20, g.baseIncomePerTick() > 0)
 	add(EventAudit, 15, g.Day >= g.cfg.AuditMinDay)
-	add(EventRaise, 25, g.randomStaffedOffice() >= 0)
+	add(EventRaise, 10, g.randomStaffedOffice() >= 0)
 	add(EventStar, 15, g.starOffice() >= 0)
 	if len(cands) == 0 {
 		return DayEvent{}, false

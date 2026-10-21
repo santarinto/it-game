@@ -12,7 +12,7 @@ func eventGame() *Game {
 	cfg := DefaultConfig()
 	cfg.EventChancePct = 100
 	cfg.EventSecondPct = 0
-	cfg.BreakdownChancePct = 0
+	cfg.BreakdownChancePermille = 0
 	g := NewWithSeed(cfg, 11, 22)
 	g.Money = 10000
 	g.Offices[0].PCs = 4
@@ -199,7 +199,7 @@ func TestAuditNotBeforeMinDay(t *testing.T) {
 		cfg := DefaultConfig()
 		cfg.EventChancePct = 100
 		cfg.EventSecondPct = 100
-		cfg.BreakdownChancePct = 0
+		cfg.BreakdownChancePermille = 0
 		cfg.AuditMinDay = 5
 		g := NewWithSeed(cfg, seed, seed*7+1)
 		g.Offices[0].PCs = 4

@@ -33,7 +33,7 @@ func pcGameSeed(cfg Config, n int, seed uint64) *Game {
 // breakCfg — каждый тик в офисе ломается ПК, если ещё ничего не сломано.
 func breakCfg() Config {
 	cfg := offlineTestConfig()
-	cfg.BreakdownChancePct = 100
+	cfg.BreakdownChancePermille = 1000
 	return cfg
 }
 
@@ -498,8 +498,8 @@ func TestPCSaveRoundtrip(t *testing.T) {
 	g := hiredGame(t)
 	g.Offices[0].Workplaces[0] = Workplace{Level: 1, Wear: 2}
 	s := g.Export()
-	if s.Format != 2 || SaveFormat != 2 {
-		t.Errorf("формат %d / %d, хотим 2", s.Format, SaveFormat)
+	if s.Format != 3 || SaveFormat != 3 {
+		t.Errorf("формат %d / %d, хотим 3", s.Format, SaveFormat)
 	}
 	raw, err := json.Marshal(s)
 	if err != nil {
@@ -623,7 +623,7 @@ func TestPCFixtureWornPCs(t *testing.T) {
 		}
 	}
 	cfg := DefaultConfig()
-	cfg.BreakdownChancePct = 100
+	cfg.BreakdownChancePermille = 1000
 	g, err = NewFixture(cfg, "worn_pcs", "42")
 	if err != nil {
 		t.Fatal(err)

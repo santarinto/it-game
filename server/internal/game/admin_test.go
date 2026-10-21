@@ -201,7 +201,7 @@ func TestAdminSaveRoundtrip(t *testing.T) {
 func adminGame(t *testing.T, n int) *Game {
 	t.Helper()
 	cfg := DefaultConfig()
-	cfg.BreakdownChancePct = 0
+	cfg.BreakdownChancePermille = 0
 	cfg.EventChancePct = 0
 	g := NewWithSeed(cfg, 7, 8)
 	g.Money = 100000

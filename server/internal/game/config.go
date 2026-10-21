@@ -52,10 +52,10 @@ type Config struct {
 	Difficulty       Difficulty // уровень сложности этой игры
 	WinTarget        int        // цель победы: достигнутый баланс $
 
-	MotivateMult          float64 // бафф «мотивирован» за клик по сотруднику
-	MotivateTicks         int     // длительность мотивации, тиков
-	MotivateCooldownTicks int     // персональный кулдаун мотивации, тиков
-	BreakdownChancePct    int     // шанс поломки ПК за тик на офис, %
+	MotivateMult            float64 // бафф «мотивирован» за клик по сотруднику
+	MotivateTicks           int     // длительность мотивации, тиков
+	MotivateCooldownTicks   int     // персональный кулдаун мотивации, тиков
+	BreakdownChancePermille int     // шанс поломки ПК за тик на офис, ‰ (15 = 1,5%)
 	// Кликов по столу для починки (ITGAME-93): N роллится при поломке
 	// равномерно из RepairClicksMin..RepairClicksMax серверным PCG.
 	RepairClicksMin int
@@ -211,16 +211,16 @@ func DefaultConfig() Config {
 		Difficulty:       DiffNormal,
 		WinTarget:        250000,
 
-		MotivateMult:          1.25,
-		MotivateTicks:         18,
-		MotivateCooldownTicks: 36,
-		BreakdownChancePct:    2,
-		RepairClicksMin:       3,
-		RepairClicksMax:       15,
-		MasterCallPrice:       150,
+		MotivateMult:            1.25,
+		MotivateTicks:           18,
+		MotivateCooldownTicks:   36,
+		BreakdownChancePermille: 15,
+		RepairClicksMin:         3,
+		RepairClicksMax:         15,
+		MasterCallPrice:         150,
 
-		EventChancePct:  75,
-		EventSecondPct:  30,
+		EventChancePct:  65,
+		EventSecondPct:  20,
 		EventK:          1,
 		VirusMult:       0.7,
 		AuditReward:     2000,

@@ -13,7 +13,7 @@ import (
 func d2Cfg(limit int, rate float64) Config {
 	c := DefaultConfig()
 	c.CreditLimit, c.CreditRate = limit, rate
-	c.BreakdownChancePct = 0
+	c.BreakdownChancePermille = 0
 	c.EventChancePct = 0
 	return c
 }

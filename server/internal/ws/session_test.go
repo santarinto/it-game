@@ -146,7 +146,7 @@ func TestSessionCommands(t *testing.T) {
 
 func TestSessionTicks(t *testing.T) {
 	cfg := game.DefaultConfig()
-	cfg.BreakdownChancePct = 0 // поломка ПК не должна рвать рост денег в тесте
+	cfg.BreakdownChancePermille = 0 // поломка ПК не должна рвать рост денег в тесте
 	c, ctx := dialTestServer(t, cfg, 10*time.Millisecond)
 
 	var msg testMessage
@@ -282,8 +282,8 @@ func TestSessionSetSpeed(t *testing.T) {
 
 func TestSessionPause(t *testing.T) {
 	cfg := game.DefaultConfig()
-	cfg.StartMoney = 10_000    // найм и покупка на паузе не должны упираться в деньги
-	cfg.BreakdownChancePct = 0 // и поломки не должны глушить доход сотрудника
+	cfg.StartMoney = 10_000         // найм и покупка на паузе не должны упираться в деньги
+	cfg.BreakdownChancePermille = 0 // и поломки не должны глушить доход сотрудника
 	c, ctx := dialTestServer(t, cfg, 10*time.Millisecond)
 	readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" })
 	// Сотрудник, чтобы на тиках капал доход.
@@ -342,7 +342,7 @@ func TestDifficultyGarbageIsNormal(t *testing.T) {
 // через команды протокола, новые поля в снапшоте и отчёте дня.
 func TestActiveDayProtocol(t *testing.T) {
 	cfg := game.DefaultConfig()
-	cfg.BreakdownChancePct = 100 // поломка первым же тиком
+	cfg.BreakdownChancePermille = 1000 // поломка первым же тиком
 	cfg.StartMoney = 10_000
 	c, ctx := dialTestServer(t, cfg, time.Hour)
 
@@ -392,7 +392,7 @@ func TestActiveDayProtocol(t *testing.T) {
 // кликами; отчёт дня несёт инциденты и упущенный доход.
 func TestActiveDayBrokenSnapshot(t *testing.T) {
 	cfg := game.DefaultConfig()
-	cfg.BreakdownChancePct = 100
+	cfg.BreakdownChancePermille = 1000
 	cfg.StartMoney = 100_000 // никуда не банкротимся
 	// День из 100 тиков по 20мс (~2с): hire гарантированно успевает
 	// до конца дня (гонка короткого дня), отчёт приходит быстро.
@@ -436,7 +436,7 @@ func TestEventsProtocol(t *testing.T) {
 	cfg := game.DefaultConfig()
 	cfg.EventChancePct = 100 // день 2 гарантированно с событием
 	cfg.EventSecondPct = 0
-	cfg.BreakdownChancePct = 0
+	cfg.BreakdownChancePermille = 0
 	cfg.SalaryPerDay = 0 // не банкротимся за два дня
 	// Аудит до дня 5 не роллится (ITGAME-50): событие дня 2 его не принесёт.
 	c, ctx := dialTestServer(t, cfg, 20*time.Millisecond)
@@ -506,7 +506,7 @@ func TestVictoryMessage(t *testing.T) {
 // компенсация в день найма ниже, ошибки bad_slot/not_enough_money.
 func TestEmployees2Protocol(t *testing.T) {
 	cfg := game.DefaultConfig()
-	cfg.BreakdownChancePct = 0
+	cfg.BreakdownChancePermille = 0
 	cfg.StartMoney = 10_000
 	c, ctx := dialTestServer(t, cfg, time.Hour)
 

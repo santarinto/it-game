@@ -106,7 +106,7 @@ func TestBrokenPCZeroIncomeAndStats(t *testing.T) {
 
 func TestRollBreakdownsChanceAndCap(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.BreakdownChancePct = 100 // каждый тик — поломка
+	cfg.BreakdownChancePermille = 1000 // каждый тик — поломка
 	g := NewWithSeed(cfg, 3, 4)
 	g.Money = 100000
 	g.Offices[0].PCs = 4
@@ -139,7 +139,7 @@ func TestRollBreakdownsChanceAndCap(t *testing.T) {
 
 func TestRollBreakdownsNeedsStaff(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.BreakdownChancePct = 100
+	cfg.BreakdownChancePermille = 1000
 	g := NewWithSeed(cfg, 3, 4)
 	g.Offices[0].PCs = 3 // ПК есть, сотрудников нет — ломать нечего
 	g.Tick()

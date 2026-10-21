@@ -12,7 +12,7 @@ import (
 // не роллятся (New их не роллит), кофе нет.
 func emp2Config() Config {
 	cfg := DefaultConfig()
-	cfg.BreakdownChancePct = 0
+	cfg.BreakdownChancePermille = 0
 	return cfg
 }
 

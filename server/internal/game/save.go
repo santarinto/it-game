@@ -29,7 +29,9 @@ var ErrBadSave = errors.New("bad_save")
 // нулями и сломал волну. Сейв без поля — формат 0.
 // 2 — ITGAME-135: рабочие места (Office.Workplaces) и их конфиг (PCLevels, PCWearLimit);
 // решение владельца 20.10.
-const SaveFormat = 2
+// 3 — ITGAME-196: Config.BreakdownChancePct → BreakdownChancePermille (шанс поломки в ‰);
+// решение владельца 21.10.
+const SaveFormat = 3
 
 // Save — сериализуемый слепок Game: конфиг плюс все поля состояния.
 // Поле в день отчёта (Phase=day_report) валидно: TickInDay при этом равен

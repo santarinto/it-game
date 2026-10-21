@@ -20,7 +20,7 @@ import (
 // (без жажды и голода), поломок и событий нет: арифметика вируса в чистом виде.
 func virusGame(n int) *Game {
 	cfg := DefaultConfig()
-	cfg.BreakdownChancePct = 0
+	cfg.BreakdownChancePermille = 0
 	cfg.EventChancePct = 0
 	g := NewWithSeed(cfg, 7, 8)
 	g.Money = 10000
@@ -324,7 +324,7 @@ func TestVirusBrokenSeatNeitherTargetNorSource(t *testing.T) {
 	}
 	// Поломка вирус не трогает: rollBreakdowns флаг заражения не снимает.
 	g = virusGame(1)
-	g.cfg.BreakdownChancePct = 100
+	g.cfg.BreakdownChancePermille = 1000
 	g.infect(&g.Offices[0].Employees[0])
 	g.rollBreakdowns()
 	if e := g.Offices[0].Employees[0]; !e.PCBroken || !e.Infected {
@@ -645,7 +645,7 @@ func TestOfficeColsMirrorsClientGrid(t *testing.T) {
 
 func TestVirusOutbreakFixture(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.BreakdownChancePct = 0 // поломка источника до волны сменила бы счёт
+	cfg.BreakdownChancePermille = 0 // поломка источника до волны сменила бы счёт
 	g, err := NewFixture(cfg, "virus_outbreak", "1")
 	if err != nil {
 		t.Fatal(err)

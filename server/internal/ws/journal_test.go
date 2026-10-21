@@ -413,7 +413,7 @@ func TestJournalReplayRandomParty(t *testing.T) {
 func TestJournalSeedZeroSurvivesResume(t *testing.T) {
 	const sid = "journal-seed-zero"
 	cfg := game.DefaultConfig()
-	cfg.BreakdownChancePct = 100 // ролл на каждом тике: PCG должен совпасть
+	cfg.BreakdownChancePermille = 1000 // ролл на каждом тике: PCG должен совпасть
 	h, srv := journalServer(t, cfg, 3*time.Millisecond, journalLimits{})
 	rng := rand.New(rand.NewPCG(0, 0))
 	tb := dialTab(t, srv, "?sid="+sid+"&seed=0")

@@ -713,7 +713,7 @@ func (g *Game) rollBreakdowns() {
 				alive = append(alive, i)
 			}
 		}
-		if broken || len(alive) == 0 || g.rng.IntN(100) >= g.cfg.BreakdownChancePct {
+		if broken || len(alive) == 0 || g.rng.IntN(1000) >= g.cfg.BreakdownChancePermille {
 			continue
 		}
 		slot := alive[g.rng.IntN(len(alive))]
