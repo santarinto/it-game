@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math/rand/v2"
 	"testing"
 
 	"itdirector/internal/game"
@@ -43,4 +44,126 @@ func TestEventStatsLine(t *testing.T) {
 			}
 		})
 	}
+}
+
+// raiseGame — игра с двумя сотрудниками и карточкой «Просит повышения» (2%) на
+// первом, поднятой тиком: так карточку создаёт сама игра.
+func raiseGame(t *testing.T) *game.Game {
+	t.Helper()
+	cfg := game.DefaultConfig()
+	cfg.EventChancePct = 0
+	cfg.BreakdownChancePermille = 0
+	g := game.NewWithSeed(cfg, 11, 22)
+	g.Money = 10000
+	g.Offices[0].PCs = 4
+	for i := 0; i < 2; i++ {
+		if err := g.Hire(0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g.DayEvents = []game.DayEvent{{ID: game.EventRaise, Office: 0, Slot: 0, RaisePct: 2}}
+	g.Tick()
+	if g.ActiveEvent == nil || g.ActiveEvent.ID != game.EventRaise {
+		t.Fatalf("карточка повышения не поднялась: %+v", g.ActiveEvent)
+	}
+	return g
+}
+
+func TestAnswerRaise(t *testing.T) {
+	t.Run("accept", func(t *testing.T) {
+		g := raiseGame(t)
+		e := &g.Offices[0].Employees[0]
+		wantAdd := max(1, int(float64(g.Config().SalaryPerDay)*0.02+0.5))
+		answerRaise(g, "accept")
+		if g.ActiveEvent != nil {
+			t.Error("карточка осталась после согласия")
+		}
+		if e.RaisePct != 2 || e.SalaryAdd != wantAdd {
+			t.Errorf("согласие: RaisePct=%d SalaryAdd=%d, хотим 2 и %d", e.RaisePct, e.SalaryAdd, wantAdd)
+		}
+		if e.OffendedUntil != 0 {
+			t.Errorf("согласие не должно обижать: OffendedUntil=%d", e.OffendedUntil)
+		}
+	})
+	t.Run("decline", func(t *testing.T) {
+		g := raiseGame(t)
+		e := &g.Offices[0].Employees[0]
+		answerRaise(g, "decline")
+		if g.ActiveEvent != nil {
+			t.Error("карточка осталась после отказа")
+		}
+		if e.RaisePct != 0 || e.SalaryAdd != 0 {
+			t.Errorf("отказ: RaisePct=%d SalaryAdd=%d, повышения быть не должно", e.RaisePct, e.SalaryAdd)
+		}
+		if want := g.Config().DayTicks(); e.OffendedUntil != want {
+			t.Errorf("отказ: OffendedUntil=%d, хотим %d (обида до конца дня)", e.OffendedUntil, want)
+		}
+	})
+	t.Run("пусто", func(t *testing.T) {
+		g := raiseGame(t)
+		e := g.Offices[0].Employees[0]
+		answerRaise(g, "")
+		if g.ActiveEvent == nil || g.ActiveEvent.ID != game.EventRaise {
+			t.Error("пустой режим закрыл карточку")
+		}
+		if got := g.Offices[0].Employees[0]; got != e {
+			t.Errorf("пустой режим тронул сотрудника: %+v -> %+v", e, got)
+		}
+	})
+	t.Run("нет карточки", func(t *testing.T) {
+		g := raiseGame(t)
+		answerRaise(g, "accept")
+		answerRaise(g, "accept") // карточки уже нет: повторный вызов безвреден
+		if e := g.Offices[0].Employees[0]; e.RaisePct != 2 {
+			t.Errorf("повторный ответ без карточки изменил RaisePct: %d", e.RaisePct)
+		}
+	})
+}
+
+// expandGame — офис 1 с n сотрудниками, офисы 2 и 3 закрыты, денег money.
+func expandGame(t *testing.T, n, money int) *game.Game {
+	t.Helper()
+	cfg := game.DefaultConfig()
+	cfg.EventChancePct = 0
+	cfg.BreakdownChancePermille = 0
+	g := game.NewWithSeed(cfg, 3, 4)
+	g.Money = 1000000
+	g.Offices[0].PCs = cfg.StaffLimit
+	for i := 0; i < n; i++ {
+		if err := g.Hire(0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g.Money = money
+	return g
+}
+
+func TestExpandPolicy(t *testing.T) {
+	rng := rand.New(rand.NewPCG(1, 2))
+	t.Run("штат полон и денег хватает", func(t *testing.T) {
+		g := expandGame(t, game.DefaultConfig().StaffLimit, 100000)
+		expandPolicy(g, rng, 9)
+		if !g.Offices[1].Unlocked {
+			t.Error("все открытые офисы полны, денег хватает, а второй офис не куплен")
+		}
+		if g.Offices[2].Unlocked {
+			t.Error("за один вызов куплен и третий офис")
+		}
+	})
+	t.Run("в офисе есть свободное место", func(t *testing.T) {
+		g := expandGame(t, game.DefaultConfig().StaffLimit-1, 100000)
+		expandPolicy(g, rng, 9)
+		if g.Offices[1].Unlocked {
+			t.Error("офис куплен, хотя в первом не добран штат")
+		}
+	})
+	t.Run("денег не хватает", func(t *testing.T) {
+		cfg := game.DefaultConfig()
+		g := expandGame(t, cfg.StaffLimit, 0)
+		g.Money = cfg.OfficePrices[0] // цена есть, резерва под зарплаты нет
+		expandPolicy(g, rng, 9)
+		if g.Offices[1].Unlocked {
+			t.Error("офис куплен без резерва на вечерние зарплаты")
+		}
+	})
 }

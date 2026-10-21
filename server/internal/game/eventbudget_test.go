@@ -277,3 +277,29 @@ func TestEventBudgetVirusWaveFree(t *testing.T) {
 		t.Errorf("тик 3: поломок %d, хотим 1 — бюджет выбран", g.DayIncidents)
 	}
 }
+
+// ПК, доживший до износа, умирает по броску поломки и тратит бюджет дня как
+// обычная поломка: счёт идёт до ветки износа в rollBreakdowns (ITGAME-196, 223).
+func TestEventBudgetSpentByWearDeath(t *testing.T) {
+	g := budgetGame(3, 1, 4)
+	g.cfg.PCWearLimit = 2
+	g.Offices[0].Workplaces[1].Wear = g.cfg.PCWearLimit
+	// Живое место одно — бросок точно попадает в него.
+	for _, s := range []int{0, 2, 3} {
+		g.Offices[0].Workplaces[s].Dead = true
+	}
+	left := g.randomBudgetLeft()
+	g.Tick()
+	if !g.Offices[0].Workplace(1).Dead {
+		t.Fatal("ПК на пределе износа не умер после броска поломки")
+	}
+	if g.Offices[0].Employees[1].PCBroken {
+		t.Error("умерший ПК числится сломанным, а не «требуется замена»")
+	}
+	if g.DayIncidents != 1 {
+		t.Errorf("смерть от износа: поломок %d, хотим 1", g.DayIncidents)
+	}
+	if got := g.randomBudgetLeft(); got != left-1 {
+		t.Errorf("остаток бюджета %d, хотим %d: смерть от износа тратит единицу", got, left-1)
+	}
+}
