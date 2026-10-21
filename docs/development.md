@@ -811,8 +811,10 @@ repair it on his schedule, see «Admins») —
 days (normal 300×30: 39 timeouts → 0; they end bankrupt, 90, or in deadlock,
 210). Saves from before ITGAME-93 (a broken PC without
 `RepairNeeded`, a config with the old `RepairClicksNeeded`) restore as N = 3
-and the 3..15 range. `make sim` models clicks as free (greedy clicks until
-repaired), so N does not move its economics — what it changes is the player's
+and the 3..15 range. `make sim` does not model click effort (greedy clicks until
+repaired; since ITGAME-127 the first click of a repair or a cleanup costs an
+action point and a `no_action_points` refusal stops the bot — 8 a day never
+bound it on normal/hard 50×30), so N does not move its economics — what it changes is the player's
 choice between clicking 3..15 times (≈ 9 on average, was 3) and the $150
 master.
 
