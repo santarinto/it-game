@@ -72,6 +72,12 @@ type Game struct {
 	Gateway   bool // шлюз в интернет: ×GatewayBonus подключённым, опекс $/день
 	AdminDept bool // отдел админов куплен (ITGAME-101): комната, где сидят админы офисов
 
+	// IncomeCarry — дробный остаток дохода компании, $ в [0, 1) (ITGAME-196,
+	// решение владельца 21.10): доход тика складывается точно, в Money идут
+	// целые доллары, дробь ждёт следующего тика. Это дробь реальных денег —
+	// не сбрасывается ни вечером, ни ночью; новая партия начинает с 0.
+	IncomeCarry float64
+
 	Phase             Phase
 	Day               int // номер игрового дня, с 1
 	TickInDay         int // тиков прошло в текущем дне
@@ -472,19 +478,22 @@ func (g *Game) IncomePerTick() int {
 	return g.incomeAtTick(g.TickInDay)
 }
 
-// incomeAtTick — доход компании за конкретный (продуктивный) тик дня:
-// личная выработка × эффекты × сетевой множитель из цепочки
-// «роутер → core → сервер» (см. Network).
+// incomeAtTick — доход компании за конкретный (продуктивный) тик дня для
+// превью и прогнозов: точная сумма тика, округлённая до доллара. Остатка
+// компании не читает и не пишет — его двигает только зачисление (creditIncome).
 func (g *Game) incomeAtTick(tick int) int {
-	total, _, _ := g.incomeAtTickDetail(tick)
-	return total
+	exact, _, _ := g.incomeAtTickDetail(tick)
+	return int(math.Round(exact))
 }
 
-// incomeAtTickDetail — доход тика, упущенное из-за сломанных ПК (сколько
-// заработал бы сотрудник сломанного места без поломки) и упущенное из-за
-// вируса (−30% заражённых мест с исправным ПК; у сломанного заражённого
-// упущенное целиком — в поломке).
-func (g *Game) incomeAtTickDetail(tick int) (total, lost, virusLost int) {
+// incomeAtTickDetail — точный (дробный) доход тика: личная выработка ×
+// эффекты × сетевой множитель из цепочки «роутер → core → сервер» (см.
+// Network), сложенные без округления (ITGAME-196); плюс упущенное из-за
+// сломанных ПК (сколько заработал бы сотрудник сломанного места без поломки)
+// и из-за вируса (−30% заражённых мест с исправным ПК; у сломанного
+// заражённого упущенное целиком — в поломке). Упущенное — статистика отчёта,
+// а не деньги: оно, как раньше, округляется на место. Чистая — игру не меняет.
+func (g *Game) incomeAtTickDetail(tick int) (exact float64, lost, virusLost int) {
 	if g.cfg.isLunchTick(tick) {
 		return 0, 0, 0
 	}
@@ -500,27 +509,52 @@ func (g *Game) incomeAtTickDetail(tick int) (total, lost, virusLost int) {
 			// выработку до эффектов и сети: тенюра и железо масштабируются
 			// инфраструктурой (итерация 15).
 			clean := float64(e.IncomePerTick+g.levelBonus(e)) * raiseMult(e) * g.pcMult(o, i) * g.dayEffectMult(o, e, tick)
-			v := int(math.Round(clean * net.Mults[oi][i]))
+			x := clean * net.Mults[oi][i]
+			v := int(math.Round(x))
 			healthy := v
 			if e.Infected {
-				v = int(math.Round(clean * g.cfg.VirusMult * net.Mults[oi][i]))
+				x = clean * g.cfg.VirusMult * net.Mults[oi][i]
+				v = int(math.Round(x))
 			}
 			if e.PCBroken || o.Workplace(i).Dead { // «требуется замена» (ITGAME-135) — как сломанный
 				lost += v
 				continue
 			}
 			virusLost += healthy - v
-			total += v
+			exact += x
 		}
 	}
 	// Рынок (Сложность 2.0): качели выработки всего дня, один множитель
-	// на компанию; округляем сумму, а не каждое место.
+	// на компанию — на сумму, а не на каждое место.
 	if m := g.marketMult(); m != 1 {
-		total = int(math.Round(float64(total) * m))
+		exact *= m
 		lost = int(math.Round(float64(lost) * m))
 		virusLost = int(math.Round(float64(virusLost) * m))
 	}
-	return total, lost, virusLost
+	return exact, lost, virusLost
+}
+
+// incomeEps — допуск целой части: точная сумма — произведение десятичных
+// множителей во float64, и ровный доллар может прийти как 6.999…; без
+// допуска он зачислился бы долларом меньше, а остаток — почти единицей.
+const incomeEps = 1e-9
+
+// carryIncome — зачисление точного дохода с дробным остатком компании
+// (ITGAME-196): в деньги — целые доллары суммы с остатком, дробь — новый
+// остаток в [0, 1). Чистая: Tick и офлайн-догон пишут остаток в игру
+// (creditIncome), прогноз конца дня гоняет его на своей копии.
+func carryIncome(carry, exact float64) (credited int, rest float64) {
+	exact += carry
+	credited = int(math.Floor(exact + incomeEps))
+	return credited, max(exact-float64(credited), 0)
+}
+
+// creditIncome — точный доход в целые доллары с остатком компании. Зовут
+// только места, где доход становится деньгами: Tick и AdvanceOffline.
+func (g *Game) creditIncome(exact float64) int {
+	credited, rest := carryIncome(g.IncomeCarry, exact)
+	g.IncomeCarry = rest
+	return credited
 }
 
 // PayrollPerDay — полные дневные расходы: зарплаты сотрудников, боссов и админов
@@ -564,9 +598,11 @@ func (g *Game) gatewayOpex() int {
 // Админы (ITGAME-101) чинят и чистят по очереди на копии мест — место
 // считается целым с того тика, к которому до него дойдёт админ; новых
 // поломок и волн прогноз не знает. Объявленный штраф аудита вычитается,
-// субсидия — нет.
+// субсидия — нет. Доход тиков зачисляется, как в Tick, — с остатком компании
+// (ITGAME-196), но на своей копии остатка: игру прогноз не меняет, а вечер
+// без случайностей сходится с ним до доллара.
 func (g *Game) ForecastEndOfDay() int {
-	total := g.Money
+	total, carry := g.Money, g.IncomeCarry
 	sim, admins := g, g.hasAdmins()
 	if admins {
 		sim = g.seatsCopy()
@@ -576,7 +612,10 @@ func (g *Game) ForecastEndOfDay() int {
 			sim.adminsWork()
 		}
 		if !g.cfg.isLunchTick(t) {
-			total += sim.incomeAtTick(t)
+			exact, _, _ := sim.incomeAtTickDetail(t)
+			var inc int
+			inc, carry = carryIncome(carry, exact)
+			total += inc
 		}
 	}
 	return total - g.PayrollPerDay() - g.pendingAuditFine()
@@ -642,7 +681,11 @@ func (g *Game) Tick() *DayReport {
 	g.activateEvents()
 	// Админы после событий: вспышка этого тика получает первые клики сразу.
 	g.adminTick(cleanedByAdmin)
-	income, lost, virusLost := g.incomeAtTickDetail(g.TickInDay)
+	// Доход тика — точная сумма: в деньги целые доллары, дробь — в остаток
+	// компании (ITGAME-196). Пик — темп тика, как в HUD (IncomePerTick), а не
+	// зачисленное: оно с остатком гуляет на доллар.
+	exact, lost, virusLost := g.incomeAtTickDetail(g.TickInDay)
+	income := g.creditIncome(exact)
 	if !g.cfg.isLunchTick(g.TickInDay) {
 		g.accrueXP()
 	}
@@ -652,7 +695,7 @@ func (g *Game) Tick() *DayReport {
 	g.DayLostIncome += lost
 	g.DayVirusLost += virusLost
 	g.tickEvents(income)
-	g.PeakIncomePerTick = max(g.PeakIncomePerTick, income)
+	g.PeakIncomePerTick = max(g.PeakIncomePerTick, int(math.Round(exact)))
 	// Победа проверяется до конца дня: достиг цели днём — победа сразу,
 	// вечерний ФОТ уже не списывается.
 	if g.won() {

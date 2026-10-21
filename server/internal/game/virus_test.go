@@ -353,7 +353,7 @@ func TestVirusIncomeAndLost(t *testing.T) {
 		t.Errorf("доход тика %d, хотим 17 (заражённое место −30%%)", inc)
 	}
 	if inc, lost, vlost := g.incomeAtTickDetail(0); inc != 17 || lost != 0 || vlost != 3 {
-		t.Errorf("тик: доход %d, поломки %d, вирус %d — хотим 17/0/3", inc, lost, vlost)
+		t.Errorf("тик: доход %v, поломки %d, вирус %d — хотим 17/0/3", inc, lost, vlost)
 	}
 	o := &g.Offices[0]
 	if got := g.EffectiveIncomePerTick(o, 0); got != 7 {
@@ -366,7 +366,7 @@ func TestVirusIncomeAndLost(t *testing.T) {
 	// Сломанное заражённое — упущенное целиком в поломке.
 	o.Employees[0].PCBroken = true
 	if inc, lost, vlost := g.incomeAtTickDetail(0); inc != 10 || lost != 7 || vlost != 0 {
-		t.Errorf("сломанное заражённое: доход %d, поломки %d, вирус %d — хотим 10/7/0", inc, lost, vlost)
+		t.Errorf("сломанное заражённое: доход %v, поломки %d, вирус %d — хотим 10/7/0", inc, lost, vlost)
 	}
 	o.Employees[0].PCBroken = false
 	r := finishDay(t, g)

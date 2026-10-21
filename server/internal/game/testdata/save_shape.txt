@@ -133,6 +133,7 @@ deadlineOn bool
 eventLog []string
 format int
 gateway bool
+incomeCarry float64
 ledger *struct omitempty
 ledger.adjust int
 ledger.antivirus int

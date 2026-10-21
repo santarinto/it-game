@@ -95,17 +95,19 @@ func TestForecastEndOfDay(t *testing.T) {
 	g.Offices[0].PCs = 1
 	g.Offices[0].Employees = []Employee{{Name: "А Б", IncomePerTick: 10}}
 	g.TickInDay = 0
-	// 12×10 + 12×9 + 24×8 = 420 за день без устройств.
-	if f := g.ForecastEndOfDay(); f != 1000+420-250 {
-		t.Errorf("прогноз с утра = %d, хотим 1170", f)
+	// 12×10 + 12×9 + 24×8.1 = 422.4 за день без устройств: доход точный
+	// (ITGAME-196), в деньги $422, дробь — в остаток.
+	if f := g.ForecastEndOfDay(); f != 1000+422-250 {
+		t.Errorf("прогноз с утра = %d, хотим 1172", f)
 	}
 	g.TickInDay = 30
-	if f := g.ForecastEndOfDay(); f != 1000+24*8-250 {
-		t.Errorf("прогноз после обеда = %d, хотим 942", f)
+	// 24×8.1 = 194.4 → $194.
+	if f := g.ForecastEndOfDay(); f != 1000+194-250 {
+		t.Errorf("прогноз после обеда = %d, хотим 944", f)
 	}
 	g.TickInDay = 24
-	if f := g.ForecastEndOfDay(); f != 1000+24*8-250 {
-		t.Errorf("прогноз в обед = %d, хотим 942", f)
+	if f := g.ForecastEndOfDay(); f != 1000+194-250 {
+		t.Errorf("прогноз в обед = %d, хотим 944", f)
 	}
 }
 

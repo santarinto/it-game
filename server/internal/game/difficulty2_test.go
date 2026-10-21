@@ -43,9 +43,10 @@ func TestCreditDebtInsteadOfGameOver(t *testing.T) {
 	if g.Money >= 0 {
 		t.Fatalf("ждали долг, баланс %d", g.Money)
 	}
-	// $100 + 48 тиков × $1 − ФОТ 250 = −102 → процент 10% (ceil) = −113.
-	if g.Money != -(102 + 11) {
-		t.Errorf("долг %d, хотели −113 (−102 и процент 11)", g.Money)
+	// Офис без быта, доход точный (ITGAME-196): 12×$1 + 12×$0.9 + 24×$0.81 =
+	// $42.24 → $42. $100 + 42 − ФОТ 250 = −108 → процент 10% (ceil) 11 = −119.
+	if g.Money != -(108 + 11) {
+		t.Errorf("долг %d, хотели −119 (−108 и процент 11)", g.Money)
 	}
 	found := false
 	for _, l := range g.EventLog {

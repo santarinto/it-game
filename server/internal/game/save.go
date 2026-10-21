@@ -41,6 +41,7 @@ type Save struct {
 	Config            Config     `json:"config"`
 	Seed              uint64     `json:"seed"` // сид RNG: восстанавливается при load (ITGAME-26)
 	Money             int        `json:"money"`
+	IncomeCarry       float64    `json:"incomeCarry"` // дробный остаток дохода, $ в [0, 1) (ITGAME-196)
 	Offices           []Office   `json:"offices"`
 	CoreLevel         int        `json:"coreLevel"`
 	Gateway           bool       `json:"gateway"`
@@ -78,7 +79,8 @@ type Save struct {
 // Export — слепок текущего состояния для сейва.
 func (g *Game) Export() Save {
 	s := Save{
-		Format: SaveFormat, Config: cloneConfig(g.cfg), Seed: g.Seed, Money: g.Money, Offices: cloneOffices(g.Offices), CoreLevel: g.CoreLevel,
+		Format: SaveFormat, Config: cloneConfig(g.cfg), Seed: g.Seed, Money: g.Money, IncomeCarry: g.IncomeCarry,
+		Offices: cloneOffices(g.Offices), CoreLevel: g.CoreLevel,
 		Gateway: g.Gateway, AdminDept: g.AdminDept, Phase: g.Phase, Day: g.Day, TickInDay: g.TickInDay,
 		DayIncome: g.DayIncome, DayEventMoney: g.DayEventMoney, PrevDayIncome: g.PrevDayIncome, PeakIncomePerTick: g.PeakIncomePerTick,
 		DayIncidents: g.DayIncidents, DayLostIncome: g.DayLostIncome,
@@ -216,6 +218,11 @@ func Restore(s Save) (*Game, error) {
 	if s.AVTier < 0 || s.AVTier > len(s.Config.AntivirusTiers) || s.AVTierBilled < 0 || s.AVTierBilled > len(s.Config.AntivirusTiers) {
 		return nil, fmt.Errorf("%w: avTier=%d avTierBilled=%d", ErrBadSave, s.AVTier, s.AVTierBilled)
 	}
+	// Остаток дохода — дробь реальных денег (ITGAME-196): вне [0, 1) (и NaN) его
+	// не бывает, такой сейв правлен руками или дельтой.
+	if !(s.IncomeCarry >= 0 && s.IncomeCarry < 1) {
+		return nil, fmt.Errorf("%w: incomeCarry=%v вне [0, 1)", ErrBadSave, s.IncomeCarry)
+	}
 	for oi := range s.Offices {
 		for ei := range s.Offices[oi].Employees {
 			if e := &s.Offices[oi].Employees[ei]; e.PCBroken && e.RepairNeeded <= 0 {
@@ -246,7 +253,7 @@ func Restore(s Save) (*Game, error) {
 	}
 	g := &Game{
 		cfg: s.Config, Seed: s.Seed,
-		Money: s.Money, Offices: s.Offices, CoreLevel: s.CoreLevel, Gateway: s.Gateway, AdminDept: s.AdminDept,
+		Money: s.Money, IncomeCarry: s.IncomeCarry, Offices: s.Offices, CoreLevel: s.CoreLevel, Gateway: s.Gateway, AdminDept: s.AdminDept,
 		Phase: s.Phase, Day: s.Day, TickInDay: s.TickInDay,
 		DayIncome: s.DayIncome, DayEventMoney: s.DayEventMoney, PrevDayIncome: s.PrevDayIncome, PeakIncomePerTick: s.PeakIncomePerTick,
 		DayIncidents: s.DayIncidents, DayLostIncome: s.DayLostIncome,

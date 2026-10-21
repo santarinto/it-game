@@ -22,9 +22,10 @@ func TestOverdraftWithinPayrollSurvives(t *testing.T) {
 	if g.Phase != PhaseDayReport {
 		t.Fatalf("минус в пределах ФОТ: фаза %s, хотели day_report (баланс %d)", g.Phase, g.Money)
 	}
-	// $100 + 48 тиков × $1 − ФОТ $250 = −102, процента нет.
-	if g.Money != -102 {
-		t.Errorf("долг %d, хотели −102 без процента", g.Money)
+	// Офис без быта, доход точный (ITGAME-196): 12×$1 + 12×$0.9 + 24×$0.81 =
+	// $42.24 → $42. $100 + 42 − ФОТ $250 = −108, процента нет.
+	if g.Money != -108 {
+		t.Errorf("долг %d, хотели −108 без процента", g.Money)
 	}
 	if g.Ledger.Interest != 0 {
 		t.Errorf("процент в книге %d, хотели 0", g.Ledger.Interest)
@@ -32,7 +33,7 @@ func TestOverdraftWithinPayrollSurvives(t *testing.T) {
 	l, _ := g.LedgerOf(0)
 	checkLedger(t, l)
 
-	const want = "овердрафт: долг $102 из $250 (расходы дня), без процентов"
+	const want = "овердрафт: долг $108 из $250 (расходы дня), без процентов"
 	found := false
 	for _, line := range g.EventLog {
 		if strings.HasSuffix(line, want) {
@@ -88,7 +89,8 @@ func TestOverdraftBoundary(t *testing.T) {
 
 // Порог — расходы этого вечера: наём поднимает его на зарплату нанятого.
 func TestOverdraftLimitFollowsStaff(t *testing.T) {
-	// Один сотрудник: −60 + 48 − 250 = −262, глубже ФОТ $250 — банкротство.
+	// Офис без быта, доход точный (ITGAME-196): сотрудник $1/тик даёт за день
+	// $42.24. Один сотрудник: −60 + 42 − 250 = −268, глубже ФОТ $250 — банкротство.
 	g := NewWithSeed(d2Cfg(0, 0), 1, 2)
 	g.Money = -60
 	g.Offices[0].Employees = append(g.Offices[0].Employees, Employee{IncomePerTick: 1, HireDay: 0})
@@ -98,7 +100,7 @@ func TestOverdraftLimitFollowsStaff(t *testing.T) {
 		t.Fatalf("один сотрудник, баланс %d: фаза %s причина %q, хотели game_over/bankrupt", g.Money, g.Phase, g.LoseReason)
 	}
 
-	// Два сотрудника: −60 + 96 − 500 = −464, внутри ФОТ $500 — овердрафт.
+	// Два сотрудника: −60 + 84 ($84.48) − 500 = −476, внутри ФОТ $500 — овердрафт.
 	g = NewWithSeed(d2Cfg(0, 0), 1, 2)
 	g.Money = -60
 	g.Offices[0].PCs = 2
@@ -106,8 +108,8 @@ func TestOverdraftLimitFollowsStaff(t *testing.T) {
 		Employee{IncomePerTick: 1, HireDay: 0}, Employee{IncomePerTick: 1, HireDay: 0})
 	g.beginLedger()
 	_ = runDay(g)
-	if g.Phase != PhaseDayReport || g.Money != -464 {
-		t.Fatalf("два сотрудника: фаза %s баланс %d, хотели day_report и −464", g.Phase, g.Money)
+	if g.Phase != PhaseDayReport || g.Money != -476 {
+		t.Fatalf("два сотрудника: фаза %s баланс %d, хотели day_report и −476", g.Phase, g.Money)
 	}
 }
 

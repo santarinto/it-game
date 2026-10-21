@@ -85,7 +85,7 @@ func TestBrokenPCZeroIncomeAndStats(t *testing.T) {
 	g.Offices[0].Employees[0].PCBroken = true
 	inc, lost, _ := g.incomeAtTickDetail(0)
 	if inc != 10 || lost != 10 {
-		t.Errorf("тик: доход %d/потеряно %d, хотим 10/10", inc, lost)
+		t.Errorf("тик: доход %v/потеряно %d, хотим 10/10", inc, lost)
 	}
 	rep := g.Tick()
 	if g.DayLostIncome != 10 {

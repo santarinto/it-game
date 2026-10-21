@@ -7,7 +7,8 @@ package game
 // заражённые места офиса без админа остаются такими во всех днях
 // (ITGAME-136, ITGAME-103): ночь их не чинит, а роллов офлайн нет — уход из
 // игры замораживает рост вируса, но не лечит. Админ (ITGAME-101) чинит и
-// чистит свой офис по тикам догона тем же темпом, что вживую.
+// чистит свой офис по тикам догона тем же темпом, что вживую. Доход идёт в
+// деньги с дробным остатком компании, как в Tick (ITGAME-196).
 
 // OfflineSummary — итог офлайн-догона для отчёта «пока вас не было».
 // Теги — для /api/debug/advance (ITGAME-26); offline_report собирает
@@ -44,7 +45,7 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	// чинят и вирус чистят только админы — ITGAME-101) — это и есть
 	// консервативная оценка.
 	if remain := dayTicks - g.TickInDay; miss < remain {
-		inc := g.offlineIncome(g.TickInDay, g.TickInDay+miss)
+		inc := g.creditIncome(g.offlineIncome(g.TickInDay, g.TickInDay+miss))
 		g.Money += inc
 		g.DayIncome += inc
 		g.Ledger.Income += inc
@@ -55,7 +56,7 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 		}
 		return s
 	}
-	inc := g.offlineIncome(g.TickInDay, dayTicks)
+	inc := g.creditIncome(g.offlineIncome(g.TickInDay, dayTicks))
 	expenses := g.PayrollPerDay()
 	g.Money += inc
 	g.DayIncome += inc
@@ -77,7 +78,7 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	// Рынок шаблона нейтрален (0%): роллов офлайн нет, качели не угадываем.
 	tpl := g.offlineTemplate()
 	tpl.MarketToday = 0
-	dayInc := tpl.sumIncome(0, dayTicks)
+	dayExact := tpl.exactIncome(0, dayTicks)
 	dayExp := tpl.PayrollPerDay()
 	dayOpex, dayAV := tpl.gatewayOpex(), tpl.antivirusOpex()
 	for miss >= dayTicks {
@@ -87,19 +88,20 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 		g.TickInDay = 0
 		g.beginLedger()
 		g.TickInDay = dayTicks
-		inc := dayInc
+		exact := dayExact
 		// Админам есть что чинить и чистить (ITGAME-101): день считается по
 		// тикам на шаблоне, его места переходят в живую игру, и шаблон
 		// пересобирается. На дефолтном конфиге очередь пустеет за день
 		// (15 + 12 × 3 кликов на офис против 2 × 54), с дельтой конфига —
 		// за сколько выйдет.
 		if tpl.adminsBusy() {
-			inc = tpl.offlineIncome(0, dayTicks)
+			exact = tpl.offlineIncome(0, dayTicks)
 			g.adoptSeats(tpl)
 			tpl = g.offlineTemplate()
 			tpl.MarketToday = 0
-			dayInc = tpl.sumIncome(0, dayTicks)
+			dayExact = tpl.exactIncome(0, dayTicks)
 		}
+		inc := g.creditIncome(exact)
 		g.Money += inc
 		g.Ledger.Income += inc
 		g.Ledger.Offline = true
@@ -120,7 +122,7 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	g.TickInDay = 0
 	g.beginLedger()
 	g.TickInDay = miss
-	inc = g.offlineIncome(0, miss)
+	inc = g.creditIncome(g.offlineIncome(0, miss))
 	g.Money += inc
 	g.DayIncome = inc
 	g.Ledger.Income += inc
@@ -157,11 +159,23 @@ func (g *Game) closeOfflineDay(s *OfflineSummary, payroll int) bool {
 	return false
 }
 
-// sumIncome — доход за тики [lo, hi) по текущему состоянию (обед = 0).
+// sumIncome — доход за тики [lo, hi) по текущему состоянию (обед = 0) для
+// превью (прогноз банкротства): тик округлён до доллара, остатка нет.
 func (g *Game) sumIncome(lo, hi int) int {
 	total := 0
 	for t := lo; t < hi; t++ {
 		total += g.incomeAtTick(t)
+	}
+	return total
+}
+
+// exactIncome — точный доход за тики [lo, hi) по текущему состоянию (обед =
+// 0): офлайн-догон переводит его в деньги с остатком компании (ITGAME-196).
+func (g *Game) exactIncome(lo, hi int) float64 {
+	total := 0.0
+	for t := lo; t < hi; t++ {
+		exact, _, _ := g.incomeAtTickDetail(t)
+		total += exact
 	}
 	return total
 }

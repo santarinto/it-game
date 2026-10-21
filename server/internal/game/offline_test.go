@@ -118,7 +118,8 @@ func TestAdvanceOfflineVictory(t *testing.T) {
 }
 
 // TestAdvanceOfflineAmenityDebuffs — без кулера и холодильника офлайн-день
-// консервативно теряет на жажде и голоде: 48 тиков → $420 вместо $480.
+// консервативно теряет на жажде и голоде: 12×10 + 12×9 + 24×8.1 = $422.4 —
+// $422 вместо $480 (доход точный, ITGAME-196).
 func TestAdvanceOfflineAmenityDebuffs(t *testing.T) {
 	cfg := offlineTestConfig()
 	cfg.ThirstMult, cfg.HungerMult = 0.9, 0.9 // как в дефолте
@@ -127,8 +128,8 @@ func TestAdvanceOfflineAmenityDebuffs(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := g.AdvanceOffline(g.Config().DayTicks()) // закрыть только текущий день
-	if s.Income != 420 {
-		t.Fatalf("день без быта: доход %d, хотим 420 (дебаффы учтены)", s.Income)
+	if s.Income != 422 {
+		t.Fatalf("день без быта: доход %d, хотим 422 (дебаффы учтены)", s.Income)
 	}
 }
 

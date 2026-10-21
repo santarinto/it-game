@@ -176,14 +176,16 @@ func (g *Game) adminsWork() {
 	}
 }
 
-// offlineIncome — доход тиков [lo, hi) офлайн-догона: админы работают тем же
-// темпом, что вживую (до дохода тика, как в Tick), журнал молчит. Без админов —
-// ровно sumIncome.
-func (g *Game) offlineIncome(lo, hi int) int {
-	total := 0
+// offlineIncome — точный доход тиков [lo, hi) офлайн-догона (в деньги его
+// переводит creditIncome, ITGAME-196): админы работают тем же темпом, что
+// вживую (до дохода тика, как в Tick), журнал молчит. Без админов — ровно
+// exactIncome.
+func (g *Game) offlineIncome(lo, hi int) float64 {
+	total := 0.0
 	for t := lo; t < hi; t++ {
 		g.adminTick(cleanedSilent)
-		total += g.incomeAtTick(t)
+		exact, _, _ := g.incomeAtTickDetail(t)
+		total += exact
 	}
 	return total
 }
