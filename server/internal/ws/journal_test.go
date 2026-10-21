@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -47,6 +48,7 @@ type tab struct {
 	st     stateMessage
 	first  stateMessage // первый снапшот соединения (resumed — только в нём)
 	re     int64        // наибольший re среди снапшотов (ответ на нашу команду)
+	waves  int          // смен virusWaveAt между двумя непустыми снапшотами подряд — волн вируса (ITGAME-228)
 	closed chan struct{}
 	id     int64
 }
@@ -79,6 +81,9 @@ func dialTab(t *testing.T, srv *httptest.Server, query string) *tab {
 					tb.first = st
 				}
 				tb.re = max(tb.re, st.Re)
+				if tb.st.VirusWaveAt != "" && st.VirusWaveAt != "" && st.VirusWaveAt != tb.st.VirusWaveAt {
+					tb.waves++
+				}
 				tb.st = st
 				tb.mu.Unlock()
 			}
@@ -92,6 +97,15 @@ func (tb *tab) state() stateMessage {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
 	return tb.st
+}
+
+// waveCount — волн вируса во всех снапшотах вкладки: каждая волна переносит
+// virusWaveAt, а снапшот уходит каждый тик, так что выборка на шагах теста их
+// пропускала (ITGAME-228).
+func (tb *tab) waveCount() int {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+	return tb.waves
 }
 
 func (tb *tab) send(t *testing.T, msg map[string]any) {
@@ -125,8 +139,29 @@ func (tb *tab) wait(t *testing.T, ok func(stateMessage) bool) stateMessage {
 		}
 		time.Sleep(time.Millisecond)
 	}
+	select {
+	case <-tb.closed:
+		t.Log("читатель вкладки вышел: соединение закрыто")
+	default:
+	}
+	t.Logf("горутины пакета ws:\n%s", wsGoroutines())
 	t.Fatalf("не дождались состояния; последнее: day=%d tick=%d phase=%s speed=%d", tb.st.Day, tb.st.TickInDay, tb.st.Phase, tb.st.Speed)
 	return stateMessage{}
+}
+
+// wsGoroutines — стеки горутин, в которых есть код пакета ws (актор, readLoop,
+// сторож, хендлеры): где стоит сессия, когда ответ не пришёл. CI падал так на
+// TestJournalRingTrimsAtCheckpoint, а локально не воспроизводилось (ITGAME-228).
+func wsGoroutines() string {
+	buf := make([]byte, 1<<20)
+	buf = buf[:runtime.Stack(buf, true)]
+	var out []string
+	for _, g := range strings.Split(string(buf), "\n\n") {
+		if strings.Contains(g, "itdirector/internal/ws.") {
+			out = append(out, g)
+		}
+	}
+	return strings.Join(out, "\n\n")
 }
 
 // close — вкладка ушла; ждём, пока актор выпишется (его end уже в журнале).

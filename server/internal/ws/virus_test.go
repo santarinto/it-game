@@ -152,7 +152,7 @@ func TestJournalReplayVirusParty(t *testing.T) {
 	_, srv := journalServer(t, game.DefaultConfig(), 3*time.Millisecond, journalLimits{})
 	rng := rand.New(rand.NewPCG(103, 103))
 	tb := dialTab(t, srv, "?sid="+sid+"&seed=103&scenario=virus_outbreak")
-	clicks, waves := 0, 0
+	clicks := 0
 	for step := range 300 {
 		if step%50 == 0 { // случайные покупки банкротят, а рестарт — партия без вируса
 			ensureAlive(t, srv, tb, sid)
@@ -171,7 +171,10 @@ func TestJournalReplayVirusParty(t *testing.T) {
 			}
 		}
 		switch {
-		case len(targets) > 0 && rng.IntN(4) == 0:
+		// Прицельная чистка — только после первой волны (ITGAME-228): волн за партию
+		// одна-две, и бот, вычистивший три места фикстуры до 12:00, оставлял журнал
+		// без волны — так упал CI на eb0b7ea.
+		case len(targets) > 0 && tb.waveCount() > 0 && rng.IntN(4) == 0:
 			tg := targets[rng.IntN(len(targets))]
 			tb.send(t, map[string]any{"type": "virus_click", "office": tg[0], "slot": tg[1]})
 			clicks++
@@ -181,11 +184,9 @@ func TestJournalReplayVirusParty(t *testing.T) {
 			randomStep(t, tb, rng)
 		}
 		time.Sleep(time.Duration(rng.IntN(1500)) * time.Microsecond)
-		if s.VirusWaveAt != "" && tb.state().VirusWaveAt != s.VirusWaveAt {
-			waves++
-		}
 	}
 	tb.do(t, map[string]any{"type": "set_speed", "speed": 0})
+	waves := tb.waveCount()
 	res, recs := replayAndCompare(t, srv, sid)
 	cmds := map[string]int{}
 	for _, r := range recs {

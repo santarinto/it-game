@@ -1968,7 +1968,10 @@ Put `DATABASE_URL=postgres://user:pass@localhost:5432/itdirector` into
 `.env` in the repo root (gitignored); the `Makefile` loads it and exports
 `DATABASE_URL` / `TEST_DATABASE_URL`. With `DATABASE_URL` set, the server
 connects on start and applies migrations from
-`server/internal/db/migrations` (tracked in `schema_migrations`). Neither a
+`server/internal/db/migrations` (tracked in `schema_migrations`), each in
+its own transaction under `pg_advisory_xact_lock`, so two migrators of one
+database — two instances starting at once, or a test after an attempt cut by
+its timeout — queue instead of colliding on the same `CREATE` (ITGAME-228). Neither a
 connection nor a migration error stops the game (ITGAME-190, `db.Open`): the
 server logs «ВНИМАНИЕ: БД недоступна: …», starts as usual, and retries in the
 background — 5 s, doubling up to a minute, logging only when the error
