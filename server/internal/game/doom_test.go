@@ -1,6 +1,9 @@
 package game
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 // Сигнал обречённой партии (ITGAME-118): на любом уровне (кредит или
 // овердрафт, ITGAME-156) игрок в минусе не может ни купить, ни уволить (всё
@@ -206,7 +209,7 @@ func TestBankruptInDaysTonightUsesLivePayroll(t *testing.T) {
 	for p := 1; p <= 40; p++ {
 		tpl := doomUnpaidHireGame(t, p).offlineTemplate()
 		tpl.MarketToday = 0
-		if tpl.sumIncome(0, dayTicks)-tpl.PayrollPerDay() >= 0 {
+		if int(math.Round(tpl.exactIncome(0, dayTicks, nil)))-tpl.PayrollPerDay() >= 0 {
 			break
 		}
 		income = p
@@ -234,7 +237,8 @@ func TestBankruptInDaysTonightUsesLivePayroll(t *testing.T) {
 			g := doomUnpaidHireGame(t, income)
 			tpl := g.offlineTemplate()
 			tpl.MarketToday = 0
-			g.Money = c.tonight - tpl.sumIncome(g.TickInDay, dayTicks) + g.PayrollPerDay()
+			tail, _ := carryIncome(g.IncomeCarry, tpl.exactIncome(g.TickInDay, dayTicks, nil))
+			g.Money = c.tonight - tail + g.PayrollPerDay()
 			g.beginLedger()
 			n := g.BankruptInDays()
 			if n < 1 || (n == 1) != c.wantOne {
@@ -256,5 +260,47 @@ func TestBankruptInDaysTonightUsesLivePayroll(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// bankruptDayByEngine — эталон: на какой вечер офлайн-движок реально
+// банкротит копию (0 — не банкротит за doomHorizonDays).
+func bankruptDayByEngine(t *testing.T, g *Game) int {
+	t.Helper()
+	dayTicks := g.cfg.DayTicks()
+	c := clone(t, g)
+	for d := 1; d <= 60; d++ {
+		if d == 1 {
+			c.AdvanceOffline(dayTicks - c.TickInDay)
+		} else {
+			c.AdvanceOffline(dayTicks)
+		}
+		if c.Phase == PhaseGameOver {
+			return d
+		}
+	}
+	return 0
+}
+
+// Прогноз считает доход точной суммой с остатком компании, как зачисляет
+// офлайн-движок (ITGAME-222): округление каждого тика теряет до $0.5 за тик,
+// и на медленно тающем долге день банкротства уезжает. Сетка выработок и
+// долгов с ненулевым остатком — прогноз обязан совпасть с движком везде.
+func TestBankruptInDaysExactIncomeMatchesEngine(t *testing.T) {
+	for _, carry := range []float64{0, 0.8} {
+		for income := 5; income <= 12; income++ {
+			for money := -740; money < 0; money += 37 {
+				g := doomedGame(t, DiffNormal)
+				g.Offices[0].Employees[0].IncomePerTick = income
+				g.Offices[0].Boss = ""
+				g.Money, g.IncomeCarry = money, carry
+				g.beginLedger()
+				got := g.BankruptInDays()
+				want := bankruptDayByEngine(t, g)
+				if got != want {
+					t.Errorf("выработка %d, долг %d, остаток %v: прогноз %d, движок %d", income, money, carry, got, want)
+				}
+			}
+		}
 	}
 }

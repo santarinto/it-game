@@ -407,7 +407,8 @@ const doomHorizonDays = 365
 // покрывает расходы (и проценты на кредитном уровне) до порога долга —
 // CreditLimit или, без кредита, расходы вечера (овердрафт, ITGAME-156:
 // сегодня PayrollPerDay живой игры, дальше — шаблона). Доход — по шаблону
-// офлайн-движка, но с целыми и чистыми ПК: ремонт и чистка кликами бесплатны,
+// офлайн-движка и в деньги так же, как он (точная сумма с остатком компании,
+// ITGAME-222), но с целыми и чистыми ПК: ремонт и чистка кликами бесплатны,
 // сломанный ПК — не тупик, хотя ночью он сам больше не чинится (ITGAME-136),
 // заражённое место — тоже, хотя вирус сам не проходит (ITGAME-103). ПК «требуется
 // замена» (ITGAME-135) — нет: замена стоит денег, шаблон держит его мёртвым. Без баффов и
@@ -428,9 +429,13 @@ func (g *Game) BankruptInDays() int {
 	}
 	dayTicks := g.cfg.DayTicks()
 	tplPayroll := tpl.PayrollPerDay()
-	net := tpl.sumIncome(0, dayTicks) - tplPayroll
+	dayExact := tpl.exactIncome(0, dayTicks, nil)
 	payroll := g.PayrollPerDay() // сегодняшний вечер: без нанятых после обеда
-	money := g.Money + tpl.sumIncome(g.TickInDay, dayTicks) - payroll
+	// Доход зачисляется как в офлайн-движке: точная сумма с остатком компании
+	// (ITGAME-222); остаток гоняем на своей копии, живой не трогаем.
+	carry := g.IncomeCarry
+	inc, carry := carryIncome(carry, tpl.exactIncome(g.TickInDay, dayTicks, nil))
+	money := g.Money + inc - payroll
 	for d := 1; d <= doomHorizonDays; d++ {
 		if g.cfg.WinDayLimit > 0 && g.Day+d-1 > g.cfg.WinDayLimit {
 			return 0
@@ -442,7 +447,8 @@ func (g *Game) BankruptInDays() int {
 		if -money > g.debtLimit(payroll) {
 			return d
 		}
-		money += net
+		inc, carry = carryIncome(carry, dayExact)
+		money += inc - tplPayroll
 		payroll = tplPayroll
 	}
 	return 0

@@ -3,6 +3,7 @@ package game
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"regexp"
 	"slices"
@@ -539,7 +540,7 @@ func TestBankruptInDaysInfectedCountAsCleaned(t *testing.T) {
 	}
 	// Заражённым штат ФОТ не тянет — без чистки это был бы долг навсегда.
 	tpl := g.offlineTemplate()
-	if inc := tpl.sumIncome(0, g.cfg.DayTicks()); inc >= g.PayrollPerDay() {
+	if inc := int(math.Round(tpl.exactIncome(0, g.cfg.DayTicks(), nil))); inc >= g.PayrollPerDay() {
 		t.Fatalf("тест не держит развилку: доход заражённого штата %d ≥ ФОТ %d", inc, g.PayrollPerDay())
 	}
 	// Чистка — три бесплатных клика, не тупик (как ремонт, ITGAME-136).
