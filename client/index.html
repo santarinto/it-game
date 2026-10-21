@@ -4,6 +4,28 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>IT Director</title>
+    <script id="mobile-gate">
+      // Мобильный заход (ITGAME-161): телефон уходит на /mobile.html до загрузки игры —
+      // холст 1280×720, HUD и наведение рассчитаны на десктоп и мышь. Телефон — это грубый
+      // указатель и короткая сторона экрана < 768 px; UA не смотрим. Не уводятся ?debug=1,
+      // агентская вкладка (запись itd.claim) и выбор «всё равно десктоп» (?desktop=1 →
+      // sessionStorage itd.desktop, до закрытия вкладки). Тест — scripts/lib/mobile-gate.test.mjs.
+      ;(function () {
+        try {
+          var q = new URLSearchParams(location.search)
+          if (q.get('desktop') === '1') sessionStorage.setItem('itd.desktop', '1')
+          if (q.get('debug') === '1') return
+          if (sessionStorage.getItem('itd.desktop') === '1' || sessionStorage.getItem('itd.claim') !== null) return
+          if (!matchMedia('(pointer: coarse)').matches) return
+          if (Math.min(screen.width, screen.height) >= 768) return
+          // main.ts по этой метке не поднимает игру, пока навигация не сменила страницу.
+          document.documentElement.dataset.mobileGate = 'redirect'
+          location.replace('/mobile.html')
+        } catch (e) {
+          // sessionStorage закрыт (приватный режим) — остаёмся на десктопе.
+        }
+      })()
+    </script>
     <style>
       /* Шрифт игры (ITGAME-48) — стек FONT в src/render.ts; лицензии OFL 1.1
          рядом с файлами (assets/fonts/OFL-*.txt), источники — README, Credits.

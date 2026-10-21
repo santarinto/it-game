@@ -13,6 +13,11 @@ import { debug } from './debug'
 import { client } from './net'
 import { CLIENT_SHA, watchStale } from './buildstamp'
 
+// Гейт в index.html (ITGAME-161) уже увёл мобильный заход на /mobile.html. Бандл мог
+// загрузиться раньше, чем навигация сменила страницу, — игру, сокет и партию не поднимаем:
+// модуль ждёт ухода страницы.
+if (document.documentElement.dataset.mobileGate === 'redirect') await new Promise<never>(() => {})
+
 // «Админка» (ITGAME-22): только владельцу — ?admin=1 запоминает флаг, ?admin=0 снимает; в debug видна всегда.
 function adminLinkWanted(): boolean {
   const url = new URL(location.href)

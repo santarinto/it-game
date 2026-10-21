@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IT Director</title>
+    <style>
+      /* Заглушка мобильного захода (ITGAME-161): сюда уводит гейт index.html. Вход сборки,
+         а не файл client/public: по этому адресу встанет мобильный клиент (ITGAME-227). */
+      @font-face {
+        font-family: 'Departure Mono';
+        src: url('/assets/fonts/DepartureMono-Regular.woff2') format('woff2');
+        font-display: swap;
+      }
+      html, body { margin: 0; background: #1a1c2c; height: 100%; }
+      body {
+        display: flex; align-items: center; justify-content: center;
+        color: #f4f4f4; font-family: 'Departure Mono', monospace;
+      }
+      main { box-sizing: border-box; max-width: 24rem; padding: 24px 16px; text-align: center; }
+      h1 { margin: 0 0 20px; font-size: 24px; font-weight: normal; color: #ffcd75; }
+      p { margin: 0 0 12px; font-size: 16px; line-height: 1.5; }
+      p.note { color: #94b0c2; font-size: 14px; }
+      a {
+        display: inline-block; margin-top: 16px;
+        color: #41a6f6; font-size: 15px; text-decoration: none;
+        background: #232640; border: 1px solid #3a3f5c; border-radius: 4px;
+        padding: 10px 16px;
+      }
+      a:active { background: #3b5dc9; color: #f4f4f4; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>IT Director</h1>
+      <p>Мобильная версия в разработке.</p>
+      <p class="note">Пока игра рассчитана на компьютер: экран 1280×720 и мышь.</p>
+      <a id="open-desktop" href="/?desktop=1">Всё равно открыть десктопную версию</a>
+    </main>
+  </body>
+</html>

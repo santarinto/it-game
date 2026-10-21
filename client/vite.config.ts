@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from 'vite'
 import { execSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 // Штамп сборки (ITGAME-28): sha коммита и время билда. Пробрасываются в
 // бандл (define) и в <meta name="build"> — «доехала ли правка до стенда»
@@ -84,6 +85,14 @@ export default defineConfig({
     // наружу карта не светится (нет sourceMappingURL в бандле); сами
     // .map отдаются Go-сервером за ITGAME_SOURCEMAP_TOKEN (ITGAME-28).
     sourcemap: 'hidden',
+    // Два входа (ITGAME-161): игра и заглушка мобильного захода, куда уводит гейт
+    // index.html; по адресу /mobile.html потом встанет мобильный клиент (ITGAME-227).
+    rollupOptions: {
+      input: {
+        index: fileURLToPath(new URL('./index.html', import.meta.url)),
+        mobile: fileURLToPath(new URL('./mobile.html', import.meta.url)),
+      },
+    },
   },
   server: {
     proxy: {
