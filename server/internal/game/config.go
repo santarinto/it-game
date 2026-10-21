@@ -74,6 +74,10 @@ type Config struct {
 	AuditFineShare  float64 // аудит: штраф = доля дохода прошлого дня ×EventK, потолок AuditPenalty
 	RaiseBoostMult  float64 // согласие на повышение: множитель выработки навсегда
 	RaiseOffendMult float64 // отказ в повышении: множитель выработки до конца дня
+	// Бюджет случайных событий дня (ITGAME-196): поломки ПК и события пула
+	// тратят один лимит на компанию, волны вируса не тратят; 0 — бюджета нет.
+	// Числа — GDD «Активный день» и «Сложность 2.0»; правило — randomBudgetLeft.
+	EventBudget int
 
 	PCPriceGrowth float64 // рост цены ПК за каждый следующий в офисе (ит. 14)
 
@@ -221,6 +225,7 @@ func DefaultConfig() Config {
 
 		EventChancePct:  65,
 		EventSecondPct:  20,
+		EventBudget:     3, // normal; по уровням — difficulty.go
 		EventK:          1,
 		VirusMult:       0.7,
 		AuditReward:     2000,

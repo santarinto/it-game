@@ -30,10 +30,12 @@ func pcGameSeed(cfg Config, n int, seed uint64) *Game {
 	return g
 }
 
-// breakCfg — каждый тик в офисе ломается ПК, если ещё ничего не сломано.
+// breakCfg — каждый тик в офисе ломается ПК, если ещё ничего не сломано;
+// бюджета событий дня нет (ITGAME-196): тестам износа нужно больше поломок за день.
 func breakCfg() Config {
 	cfg := offlineTestConfig()
 	cfg.BreakdownChancePermille = 1000
+	cfg.EventBudget = 0
 	return cfg
 }
 

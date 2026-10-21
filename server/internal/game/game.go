@@ -75,7 +75,7 @@ type Game struct {
 	DayEventMoney     int // деньги исходов событий за день, со знаком (ITGAME-53)
 	PrevDayIncome     int // доход последнего закрытого дня — база штрафа аудита (ITGAME-50)
 	PeakIncomePerTick int // максимум дохода за тик за игру (для итогов банкротства)
-	DayIncidents      int // поломок ПК за текущий день (для отчёта)
+	DayIncidents      int // поломок ПК за текущий день (для отчёта и бюджета событий дня, ITGAME-196)
 	DayLostIncome     int // упущено из-за поломок за текущий день (для отчёта)
 	DayAdminRepairs   int // ПК, починенных админами за день (ITGAME-101)
 	DayAdminCleaned   int // мест, вычищенных админами за день
@@ -696,7 +696,9 @@ func (g *Game) rollRepairNeeded() int {
 // Износ (ITGAME-135): поломка — +1 к износу места, как бы её ни починили;
 // поломка места с износом PCWearLimit ПК не ломает, а выводит из строя —
 // без нового ролла, та же поломка из того же PCG. Мёртвое место в пул не
-// входит и «одну поломку на офис» не держит.
+// входит и «одну поломку на офис» не держит. Бюджет дня выбран (ITGAME-196) —
+// роллов до конца дня нет: проверка до ролла, без вызова RNG, поэтому день,
+// не дошедший до бюджета, тратит тот же поток роллов, что без бюджета.
 func (g *Game) rollBreakdowns() {
 	for oi := range g.Offices {
 		o := &g.Offices[oi]
@@ -713,7 +715,13 @@ func (g *Game) rollBreakdowns() {
 				alive = append(alive, i)
 			}
 		}
-		if broken || len(alive) == 0 || g.rng.IntN(1000) >= g.cfg.BreakdownChancePermille {
+		if broken || len(alive) == 0 {
+			continue
+		}
+		if g.randomBudgetLeft() <= 0 {
+			return
+		}
+		if g.rng.IntN(1000) >= g.cfg.BreakdownChancePermille {
 			continue
 		}
 		slot := alive[g.rng.IntN(len(alive))]

@@ -56,8 +56,22 @@ type EventInfo struct {
 	Options []string
 }
 
+// randomBudgetLeft — сколько случайных событий ещё влезает в бюджет дня
+// (cfg.EventBudget, ITGAME-196); бюджета нет (0) — math.MaxInt. Потрачено =
+// DayIncidents + len(DayEvents): события пула занимают место при плане в
+// NextDay, поломка ПК (и гибель ПК от износа) — когда случилась. Волна вируса —
+// разнос уже идущей вспышки, а не новое событие: не тратит. Своего счётчика
+// в сейве нет — оба слагаемых сохраняются и так. Событие, которое ляжет в план
+// DayEvents (будущее ITGAME-198 «опоздал / ушёл раньше»), учтётся само.
+func (g *Game) randomBudgetLeft() int {
+	if g.cfg.EventBudget <= 0 {
+		return math.MaxInt
+	}
+	return g.cfg.EventBudget - g.DayIncidents - len(g.DayEvents)
+}
+
 // rollDayEvents — план событий нового дня: 0–2 штуки, окно 12:00–17:00,
-// типы не повторяются. Вызывается из NextDay.
+// типы не повторяются, не больше остатка бюджета дня. Вызывается из NextDay.
 func (g *Game) rollDayEvents() {
 	g.DayEvents = nil
 	g.ActiveEvent = nil
@@ -71,7 +85,10 @@ func (g *Game) rollDayEvents() {
 	if g.rng.IntN(100) < g.cfg.EventSecondPct {
 		count = 2
 	}
-	used := make(map[EventID]bool, count)
+	// Бюджет дня (ITGAME-196): роллы шанса дня и второго события уже прошли,
+	// обрезается только число — лишних роллов нет, первое событие то же.
+	count = min(count, g.randomBudgetLeft())
+	used := map[EventID]bool{}
 	for ; count > 0; count-- {
 		ev, ok := g.rollOneEvent(used, lo, hi)
 		if !ok {

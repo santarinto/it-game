@@ -48,13 +48,14 @@ type difficultySpec struct {
 	VirusWeightK  float64 // вес «вируса» в пуле событий
 	DeadlineShare float64 // доля цели дедлайна от ожидаемого дохода
 	WearLimit     int     // износ ПК (ITGAME-135): поломок до «требуется замена»; 0 — как в базовом конфиге
+	EventBudget   int     // бюджет случайных событий дня (ITGAME-196): поломки ПК + события пула; 0 — нет
 }
 
 var difficulties = map[Difficulty]difficultySpec{
-	DiffEasy:     {PriceK: 0.8, WageK: 0.8, StartK: 1.5, IncomeK: 1.15, CoffeePct: 50, DebuffMult: 0.95, WinTarget: 60000, EventPct: 55, Event2Pct: 15, EventK: 0.7, VirusWeightK: 0.6, DeadlineShare: 0.55, WearLimit: 8},
-	DiffNormal:   {PriceK: 1, WageK: 1, StartK: 1, IncomeK: 1, CoffeePct: 40, DebuffMult: 0.9, WinTarget: 250000, EventPct: 65, Event2Pct: 20, EventK: 1, VirusWeightK: 1, DeadlineShare: 0.7, WearLimit: 8},
-	DiffHard:     {PriceK: 1.25, WageK: 1.25, StartK: 0.9, IncomeK: 0.9, CoffeePct: 30, DebuffMult: 0.88, WinTarget: 500000, EventPct: 75, Event2Pct: 25, EventK: 1.25, CreditLimit: 5000, CreditRate: 0.10, WinStaff: 24, WinCore: 3, MarketSwing: 10, VirusWeightK: 1.4, DeadlineShare: 0.8, WearLimit: 24},
-	DiffHardcore: {PriceK: 1.5, WageK: 1.5, StartK: 0.8, IncomeK: 0.8, CoffeePct: 20, DebuffMult: 0.85, WinTarget: 1000000, EventPct: 85, Event2Pct: 35, EventK: 1.5, CreditLimit: 10000, CreditRate: 0.15, WinDayLimit: 30, MarketSwing: 15, VirusWeightK: 2, DeadlineShare: 0.85, WearLimit: 40},
+	DiffEasy:     {PriceK: 0.8, WageK: 0.8, StartK: 1.5, IncomeK: 1.15, CoffeePct: 50, DebuffMult: 0.95, WinTarget: 60000, EventPct: 55, Event2Pct: 15, EventK: 0.7, VirusWeightK: 0.6, DeadlineShare: 0.55, WearLimit: 8, EventBudget: 2},
+	DiffNormal:   {PriceK: 1, WageK: 1, StartK: 1, IncomeK: 1, CoffeePct: 40, DebuffMult: 0.9, WinTarget: 250000, EventPct: 65, Event2Pct: 20, EventK: 1, VirusWeightK: 1, DeadlineShare: 0.7, WearLimit: 8, EventBudget: 3},
+	DiffHard:     {PriceK: 1.25, WageK: 1.25, StartK: 0.9, IncomeK: 0.9, CoffeePct: 30, DebuffMult: 0.88, WinTarget: 500000, EventPct: 75, Event2Pct: 25, EventK: 1.25, CreditLimit: 5000, CreditRate: 0.10, WinStaff: 24, WinCore: 3, MarketSwing: 10, VirusWeightK: 1.4, DeadlineShare: 0.8, WearLimit: 24, EventBudget: 3},
+	DiffHardcore: {PriceK: 1.5, WageK: 1.5, StartK: 0.8, IncomeK: 0.8, CoffeePct: 20, DebuffMult: 0.85, WinTarget: 1000000, EventPct: 85, Event2Pct: 35, EventK: 1.5, CreditLimit: 10000, CreditRate: 0.15, WinDayLimit: 30, MarketSwing: 15, VirusWeightK: 2, DeadlineShare: 0.85, WearLimit: 40, EventBudget: 4},
 }
 
 // scale — денежное значение × коэффициент: округление до целого $, минимум 1.
@@ -132,6 +133,9 @@ func ApplyDifficulty(c Config, d Difficulty) Config {
 	// динамические доли дедлайна и AuditFineShare умножаются на EventK
 	// в рантайме (auditFine). Правила вируса (ITGAME-103) не скалируются.
 	c.EventChancePct, c.EventSecondPct, c.EventK = s.EventPct, s.Event2Pct, s.EventK
+	// Бюджет случайных событий дня (ITGAME-196): плоский по уровню, от числа
+	// офисов не растёт — easy 2, normal 3, hard 3, hardcore 4.
+	c.EventBudget = s.EventBudget
 	c.AuditPenalty = scale(c.AuditPenalty, s.EventK)
 	c.AuditReward = scale(c.AuditReward, 1/s.EventK)
 	// Сложность 2.0: кредит, комбо-цель, дедлайн дней, рынок и вес

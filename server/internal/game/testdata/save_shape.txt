@@ -44,6 +44,7 @@ config.Difficulty string
 config.EmployeeLevelBonus []int
 config.EmployeeLevelXP []int
 config.EmployeesPerServer int
+config.EventBudget int
 config.EventChancePct int
 config.EventK float64
 config.EventSecondPct int
