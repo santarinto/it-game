@@ -209,12 +209,13 @@ export function clipUtf8(s, max = REASON_MAX_BYTES) {
 
 /**
  * Вердикт ключа: {status: returned|accepted|committed, reason, cropPng?} → {ok, status, error?}.
- * committed уходит только с хешем коммита в reason: minipc принимает любой непустой reason
- * (сверено 20.10, ITGAME-182), а committed терминален — ошибку потом не исправить.
+ * committed уходит только с хешем коммита в reason. minipc с MINIPC-317 (v0.1.353) и сам
+ * отвечает 422 на не-хеш, но до 20.10 брал любой непустой reason (ITGAME-182), а committed
+ * терминален — проверка остаётся здесь, до запроса, с причиной по-русски.
  */
 export async function postStatus(mp, taskId, key, body) {
   if (body?.status === 'committed' && !COMMIT_RE.test(body.reason ?? '')) {
-    return { ok: false, status: 0, error: 'committed — reason должен быть хешем коммита (7–40 hex); minipc его не проверяет, а committed не отзывается — не отправлено' }
+    return { ok: false, status: 0, error: 'committed — reason должен быть хешем коммита (7–40 hex), а committed не отзывается — не отправлено' }
   }
   const resp = await call(mp, 'POST', `/jobs/${encodeURIComponent(taskId)}/keys/${encodeURIComponent(key)}/status`, body)
   return resp.ok ? { ok: true, status: resp.status } : { ok: false, status: resp.status, error: await errorText(resp) }

@@ -314,7 +314,9 @@ async function fetchRevision(path: string, ifNoneMatch?: string | null, rev?: nu
 // Ключи задания minipc: items[].key — форма настоящего minipc (сверено 20.10, ITGAME-182:
 // {taskId, about, profile, class, created_at, items: [{key, brief, ctx, status, status_at,
 // revisions, latest, final}]}); keys[] и строки вместо объектов — догадка заглушки
-// ITGAME-157, принимаются по-прежнему.
+// ITGAME-157, принимаются по-прежнему. Порядок — как отдал minipc: с MINIPC-317 это
+// порядок создания (= тело POST /jobs), до него был алфавит; от порядка зависит только
+// порядок keys/skipped/receipts в ответе watch.
 function jobKeys(job: unknown): string[] {
   const j = job as { items?: unknown[]; keys?: unknown[] } | null
   const list = Array.isArray(j?.items) ? j.items : Array.isArray(j?.keys) ? j.keys : []

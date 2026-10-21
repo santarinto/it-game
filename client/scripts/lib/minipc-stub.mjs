@@ -8,7 +8,7 @@
 // живым ответам и исходнику minipc):
 //   GET  /jobs            → {items: [{taskId, about, created_at, keys: <число ключей>}]}
 //   POST /jobs            → 201, задание как в GET /jobs/{taskId}, ключи в порядке тела; ошибка тела — 422 {error, field}
-//   GET  /jobs/{taskId}   → {taskId, about, profile, class, created_at, ключи по алфавиту:
+//   GET  /jobs/{taskId}   → {taskId, about, profile, class, created_at, ключи в порядке создания:
 //                            items: [{key, brief, ctx: {text, bg}, status, status_at,
 //                                     revisions: <число>, latest: {rev, sha256} | null, final: … | null}]}
 //                            (в POST контекст — context {text, bg, cropPng}; кроп в ответ не попадает)
@@ -22,7 +22,8 @@
 // Отказы — JSON {error, field?}; 401 {error: unauthorized}; 403 {error: forbidden, detail};
 // путь вне маршрутов (нечисловой taskId или rev, чужой префикс) — HTML-страница 404.
 // Новая ревизия возвращает ключ в draft, но указатель final не сбрасывает. committed
-// требует непустой reason — хеш коммита minipc не проверяет, это забота sprite:take.
+// берёт reason только хешем коммита — /^[0-9a-f]{7,40}$/i после trim, иначе 422 {error,
+// field: reason} ещё до поиска задания (MINIPC-317, v0.1.353); у returned reason — любой текст.
 //
 // Как модуль: const stub = await startMinipcStub(); stub.url — база …/api/itgame.
 // Как процесс: node scripts/lib/minipc-stub.mjs [--port 4199] — печатает адрес и токены.
@@ -36,6 +37,7 @@ const sha256 = (buf) => createHash('sha256').update(buf).digest('hex')
 const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const MAX_PNG = 2 * 1024 * 1024
 const KEY_RE = /^[a-z0-9][a-z0-9_-]*$/
+const COMMIT_RE = /^[0-9a-f]{7,40}$/i
 const HTML_404 = '<!DOCTYPE html>\n<html lang="en"><head><meta charset="UTF-8" /><title>An Error Occurred: Not Found</title></head><body><h2>The server returned a "404 Not Found".</h2></body></html>\n'
 
 /** Отказ minipc из программных помощников: status и машинное тело. */
@@ -160,17 +162,16 @@ export async function startMinipcStub(opts = {}) {
     it.status = status
     it.statusAt = now()
   }
-  // GET /jobs/{taskId} отдаёт ключи по алфавиту (из базы), ответ POST /jobs — в порядке тела
-  // (сверено 20.10 на задании 4).
-  function publicJob(j, { byKey = true } = {}) {
-    const items = byKey ? [...j.items].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)) : j.items
+  // GET /jobs/{taskId} и ответ POST /jobs отдают ключи в порядке создания, то есть тела POST
+  // (MINIPC-317; до v0.1.353 GET сортировал их по алфавиту — сверено 20.10 на задании 4).
+  function publicJob(j) {
     return {
       taskId: j.taskId,
       about: j.about,
       profile: j.profile,
       class: j.class,
       created_at: j.createdAt,
-      items: items.map((it) => ({
+      items: j.items.map((it) => ({
         key: it.key,
         brief: it.brief,
         ctx: it.ctx,
@@ -207,7 +208,7 @@ export async function startMinipcStub(opts = {}) {
         items: v.items.map((it) => ({ key: it.key, brief: it.brief, ctx: it.ctx, hasCrop: !!it.crop, status: 'open', statusAt: at, revs: [], final: null })),
       }
       jobs.set(taskId, j)
-      return publicJob(j, { byKey: false })
+      return publicJob(j)
     },
     addRevision: wrap((taskId, key, png, origin = { kind: 'edited', from: null }) => {
       if (!png?.length || png.length > MAX_PNG) throw refuse(422, 'a non-empty PNG of at most 2 MiB is required', 'png')
@@ -248,10 +249,12 @@ export async function startMinipcStub(opts = {}) {
     setStatus: wrap((taskId, key, body) => {
       if (!body || typeof body !== 'object' || Array.isArray(body)) throw refuse(400, 'a JSON object body is required')
       const to = typeof body.status === 'string' ? body.status : ''
-      const need = { returned: 'a reason is required', accepted: null, committed: 'the repo commit hash is required' }
+      const need = { returned: 'a reason is required', accepted: null, committed: 'the repo commit hash is required: 7..40 hex digits' }
       if (!(to in need)) throw refuse(422, `status must be one of returned|accepted|committed, got '${to}'`, 'status')
       const reason = (typeof body.reason === 'string' ? body.reason : '').trim()
       if (need[to] && !reason) throw refuse(422, need[to], 'reason')
+      // Хеш проверяется до поиска задания: кривой хеш — 422, а не 404/409 (MINIPC-317).
+      if (to === 'committed' && !COMMIT_RE.test(reason)) throw refuse(422, need.committed, 'reason')
       if (Buffer.byteLength(reason) > 1000) throw refuse(422, 'longer than 1000 bytes', 'reason')
       const it = item(taskId, key)
       const from = it.status

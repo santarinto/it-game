@@ -56,10 +56,10 @@ test('задание: POST /jobs → 201 в форме GET (ctx, created_at, sta
   assert.deepEqual(await json(await req('/jobs/999999')), { status: 404, body: { error: 'task 999999 not found' } })
 })
 
-test('порядок ключей: ответ POST /jobs — как в теле, GET /jobs/{taskId} — по алфавиту (как minipc)', async () => {
+test('порядок ключей: ответ POST /jobs и GET /jobs/{taskId} — в порядке создания, как тело (MINIPC-317)', async () => {
   const r = await json(await req('/jobs', { method: 'POST', body: jobBody(['desk_pc_crt', 'desk_pc_lcd', 'desk_ov_off']) }))
   assert.deepEqual(r.body.items.map((x) => x.key), ['desk_pc_crt', 'desk_pc_lcd', 'desk_ov_off'])
-  assert.deepEqual((await json(await req(`/jobs/${r.body.taskId}`))).body.items.map((x) => x.key), ['desk_ov_off', 'desk_pc_crt', 'desk_pc_lcd'])
+  assert.deepEqual((await json(await req(`/jobs/${r.body.taskId}`))).body.items.map((x) => x.key), ['desk_pc_crt', 'desk_pc_lcd', 'desk_ov_off'])
 })
 
 test('задание: тело не по контракту — 422 {error, field}, задание не заводится', async () => {
@@ -117,7 +117,7 @@ test('ревизии: нет — 404 у latest и каталога; PNG-сигн
   assert.ok(cat.items.every((x) => x.created_at))
 })
 
-test('статусы: open/draft → 409, final→returned|accepted, accepted→committed, кроп только у returned, reason ≤ 1000 байт', async () => {
+test('статусы: open/draft → 409, final→returned|accepted, accepted→committed, кроп только у returned, reason ≤ 1000 байт, у committed — хеш', async () => {
   const job = stub.createJob(jobBody(['icon_chart']))
   const base = `/jobs/${job.taskId}/keys/icon_chart`
   const post = (body) => req(`${base}/status`, { method: 'POST', body }).then(json)
@@ -130,14 +130,24 @@ test('статусы: open/draft → 409, final→returned|accepted, accepted→
   assert.deepEqual(await post({ status: 'bogus', reason: 'x' }), { status: 422, body: { error: "status must be one of returned|accepted|committed, got 'bogus'", field: 'status' } })
   assert.equal((await post({ status: 'returned', reason: 'я'.repeat(501) })).body.field, 'reason') // 1002 байта
   assert.equal((await post({ status: 'committed', reason: 'abc1234' })).status, 409)
+  // Не хеш у committed — 422 раньше статусной машины (тут было бы 409) и поиска задания (404).
+  const notHash = { status: 422, body: { error: 'the repo commit hash is required: 7..40 hex digits', field: 'reason' } }
+  assert.deepEqual(await post({ status: 'committed', reason: 'не хеш' }), notHash)
+  assert.deepEqual(await json(await req('/jobs/999999/keys/icon_chart/status', { method: 'POST', body: { status: 'committed', reason: 'abc123' } })), notHash) // 6 знаков
+  assert.deepEqual(await json(await req('/jobs/999999/keys/icon_chart/status', { method: 'POST', body: { status: 'committed', reason: 'g'.repeat(7) } })), notHash)
+  assert.deepEqual(await json(await req('/jobs/999999/keys/icon_chart/status', { method: 'POST', body: { status: 'committed', reason: 'a'.repeat(41) } })), notHash)
+  assert.equal((await req('/jobs/999999/keys/icon_chart/status', { method: 'POST', body: { status: 'committed', reason: 'abc1234' } })).status, 404) // хеш годный — дальше ищется задание
   assert.deepEqual(await post({ status: 'accepted', reason: 'x', cropPng: png('c').toString('base64') }), { status: 422, body: { error: 'a crop can only be attached to a returned verdict', field: 'cropPng' } })
   assert.equal((await req(`${base}/status`, { method: 'POST', body: 'not json' })).status, 400)
   assert.equal(stub.job(job.taskId).items[0].status, 'final') // ни один отказ состояние не тронул
   assert.deepEqual(await post({ status: 'accepted' }), { status: 200, body: { key: 'icon_chart', status: 'accepted' } }) // reason у accepted не обязателен
   assert.equal((await req(`${base}/final`, { method: 'POST', body: { rev: 1 } })).status, 409) // accepted: сначала новая ревизия
-  assert.deepEqual(await post({ status: 'committed' }), { status: 422, body: { error: 'the repo commit hash is required', field: 'reason' } })
-  // Как настоящий minipc: хеш он не проверяет — любой непустой reason переводит в committed.
-  assert.deepEqual(await post({ status: 'committed', reason: 'не хеш' }), { status: 200, body: { key: 'icon_chart', status: 'committed' } })
+  assert.deepEqual(await post({ status: 'committed' }), notHash)
+  assert.deepEqual(await post({ status: 'committed', reason: 'не хеш' }), notHash)
+  assert.equal(stub.job(job.taskId).items[0].status, 'accepted')
+  // Регистр любой, пробелы по краям срезаются (MINIPC-317); в журнал идёт reason после trim.
+  assert.deepEqual(await post({ status: 'committed', reason: '  ABCdef0123  ' }), { status: 200, body: { key: 'icon_chart', status: 'committed' } })
+  assert.equal(stub.statusLog.at(-1).reason, 'ABCdef0123')
   assert.equal((await req(`${base}/revisions`, { method: 'POST', body: png('b') })).status, 409) // committed терминален
   assert.equal((await post({ status: 'returned', reason: 'x' })).status, 409)
 })

@@ -95,8 +95,8 @@ test('createJob против заглушки: тело sprite:job приним�
   const job = await createJob(mp, body)
   assert.match(job.taskId, /^[0-9]+$/)
   assert.deepEqual(jobItems(job).map((x) => [x.key, x.status]), [['desk_pc_crt', 'open'], ['desk_ov_off', 'open']])
-  // GET отдаёт ключи по алфавиту, как minipc
-  assert.deepEqual(jobItems(await getJob(mp, job.taskId)).map((x) => [x.key, x.ctx]), [['desk_ov_off', { text: null, bg: null }], ['desk_pc_crt', { text: '9px', bg: '2b2f4a' }]])
+  // GET отдаёт ключи в порядке создания, как minipc с MINIPC-317
+  assert.deepEqual(jobItems(await getJob(mp, job.taskId)).map((x) => [x.key, x.ctx]), [['desk_pc_crt', { text: '9px', bg: '2b2f4a' }], ['desk_ov_off', { text: null, bg: null }]])
   await assert.rejects(createJob(mp, { ...body, profile: { ...body.profile, sha256: 'p' } }), /POST \/jobs: 422 .*\(profile\.sha256\)/)
   await assert.rejects(createJob({ ...mp, token: stub.tokens.go }, body), /POST \/jobs: 403 forbidden — the itgame-cli token is required/)
 })
