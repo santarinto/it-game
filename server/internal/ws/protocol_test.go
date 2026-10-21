@@ -322,3 +322,21 @@ func TestSnapshotWorkplaces(t *testing.T) {
 		t.Errorf("effectiveIncomePerTick = %d, хотим 11 (ЖК ×1.1)", e)
 	}
 }
+
+// Очки действий директора (ITGAME-127) едят в снапшоте: остаток на сегодня
+// и запас дня — клиент рисует «Очки: k/N» в шапке.
+func TestProtocolActionPoints(t *testing.T) {
+	g := game.NewWithSeed(game.DefaultConfig(), 1, 2)
+	g.ActionPoints = 5
+	data, err := json.Marshal(snapshot(g, 1, false, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["actionPoints"] != float64(5) || raw["actionPointsMax"] != float64(8) {
+		t.Fatalf("actionPoints=%v actionPointsMax=%v, хотим 5 и 8", raw["actionPoints"], raw["actionPointsMax"])
+	}
+}

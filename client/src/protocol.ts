@@ -161,6 +161,8 @@ export interface StateMessage {
   bankruptInDays: number // обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)
   virusWaveAt: string // «HH:MM», с которого видна следующая волна вируса; '' — заражённых нет (ITGAME-103)
   antivirus: AntivirusInfo // подписка на антивирус (ITGAME-137)
+  actionPoints: number // очков действий директора осталось на сегодня (ITGAME-127)
+  actionPointsMax: number // запас дня: столько утром
   activeEvent: ActiveEventInfo | null // висящее событие Unseen Forces
   // Итоги событий текущего дня «HH:MM текст» (ITGAME-163): те же строки, что придут в
   // dayReport.events, но вживую — лента HUD кладёт строку, когда событие случилось.

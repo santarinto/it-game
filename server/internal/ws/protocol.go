@@ -78,27 +78,29 @@ type stateMessage struct {
 	StaffLimit        int              `json:"staffLimit"`
 	PCWearLimit       int              `json:"pcWearLimit"` // поломок, которые ПК переживает; следующая — «требуется замена»; 0 — не изнашивается (ITGAME-135)
 	OfficeSlots       int              `json:"officeSlots"`
-	Phase             string           `json:"phase"`          // running | day_report | game_over
-	Speed             int              `json:"speed"`          // темп сессии: 0 — пауза, 1..3
-	Resumed           bool             `json:"resumed"`        // снапшот восстановленной сессии (ITGAME-8)
-	Seed              string           `json:"seed"`           // сид RNG партии, десятичная строка (ITGAME-26)
-	Scenario          string           `json:"scenario"`       // фикстура старта (ITGAME-26); "" — обычная партия
-	TickInDay         int              `json:"tickInDay"`      // тик текущего дня (ITGAME-26: степпинг/отладка)
-	DayIncome         int              `json:"dayIncome"`      // доход, накопленный за текущий день
-	DayProfit         int              `json:"dayProfit"`      // прибыль дня с прогнозом до вечера, = «Прибыль» отчёта (ITGAME-53)
-	Difficulty        string           `json:"difficulty"`     // easy | normal | hard | hardcore
-	WinTarget         int              `json:"winTarget"`      // денежная часть цели, $
-	WinStaff          int              `json:"winStaff"`       // комбо-цель: сотрудников (0 — нет; Сложность 2.0)
-	WinCore           int              `json:"winCore"`        // комбо-цель: уровень core (0 — нет)
-	WinDayLimit       int              `json:"winDayLimit"`    // дедлайн цели: дней (0 — нет)
-	MarketToday       int              `json:"marketToday"`    // рынок: % выработки сегодня (0 — нет)
-	MarketTomorrow    int              `json:"marketTomorrow"` // завтрашний рынок, виден заранее
-	CreditLimit       int              `json:"creditLimit"`    // кредитный порог, $ (0 — кредита нет)
-	CreditRatePct     int              `json:"creditRatePct"`  // процент за день на долг
-	DebtLimit         int              `json:"debtLimit"`      // порог долга, $: глубже — вечер банкротит; CreditLimit или, без кредита, расходы дня (овердрафт, ITGAME-156)
-	BankruptInDays    int              `json:"bankruptInDays"` // обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)
-	VirusWaveAt       string           `json:"virusWaveAt"`    // «HH:MM», с которого видна следующая волна вируса; "" — заражённых нет (ITGAME-103)
-	Antivirus         antivirusInfo    `json:"antivirus"`      // подписка на антивирус (ITGAME-137)
+	Phase             string           `json:"phase"`           // running | day_report | game_over
+	Speed             int              `json:"speed"`           // темп сессии: 0 — пауза, 1..3
+	Resumed           bool             `json:"resumed"`         // снапшот восстановленной сессии (ITGAME-8)
+	Seed              string           `json:"seed"`            // сид RNG партии, десятичная строка (ITGAME-26)
+	Scenario          string           `json:"scenario"`        // фикстура старта (ITGAME-26); "" — обычная партия
+	TickInDay         int              `json:"tickInDay"`       // тик текущего дня (ITGAME-26: степпинг/отладка)
+	DayIncome         int              `json:"dayIncome"`       // доход, накопленный за текущий день
+	DayProfit         int              `json:"dayProfit"`       // прибыль дня с прогнозом до вечера, = «Прибыль» отчёта (ITGAME-53)
+	Difficulty        string           `json:"difficulty"`      // easy | normal | hard | hardcore
+	WinTarget         int              `json:"winTarget"`       // денежная часть цели, $
+	WinStaff          int              `json:"winStaff"`        // комбо-цель: сотрудников (0 — нет; Сложность 2.0)
+	WinCore           int              `json:"winCore"`         // комбо-цель: уровень core (0 — нет)
+	WinDayLimit       int              `json:"winDayLimit"`     // дедлайн цели: дней (0 — нет)
+	MarketToday       int              `json:"marketToday"`     // рынок: % выработки сегодня (0 — нет)
+	MarketTomorrow    int              `json:"marketTomorrow"`  // завтрашний рынок, виден заранее
+	CreditLimit       int              `json:"creditLimit"`     // кредитный порог, $ (0 — кредита нет)
+	CreditRatePct     int              `json:"creditRatePct"`   // процент за день на долг
+	DebtLimit         int              `json:"debtLimit"`       // порог долга, $: глубже — вечер банкротит; CreditLimit или, без кредита, расходы дня (овердрафт, ITGAME-156)
+	BankruptInDays    int              `json:"bankruptInDays"`  // обречённая партия: банкротство через N закрытий дня, 0 — нет (ITGAME-118)
+	VirusWaveAt       string           `json:"virusWaveAt"`     // «HH:MM», с которого видна следующая волна вируса; "" — заражённых нет (ITGAME-103)
+	Antivirus         antivirusInfo    `json:"antivirus"`       // подписка на антивирус (ITGAME-137)
+	ActionPoints      int              `json:"actionPoints"`    // очков действий директора осталось на сегодня (ITGAME-127)
+	ActionPointsMax   int              `json:"actionPointsMax"` // запас дня: столько утром
 	ActiveEvent       *activeEventInfo `json:"activeEvent"`
 	// Итоги событий текущего дня «HH:MM текст» (ITGAME-163) — те же строки, что
 	// придут в dayReport.events, но вживую: лента HUD кладёт строку, когда событие
@@ -471,6 +473,7 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 		MarketToday: g.MarketToday, MarketTomorrow: g.MarketTomorrow,
 		CreditLimit: cfg.CreditLimit, CreditRatePct: int(cfg.CreditRate * 100), DebtLimit: g.DebtLimit(),
 		BankruptInDays: g.BankruptInDays(), VirusWaveAt: g.VirusWaveClock(), Antivirus: av,
+		ActionPoints: g.ActionPoints, ActionPointsMax: cfg.ActionPointsPerDay,
 		ActiveEvent: active, Seed: g.SeedString(), Scenario: scenario,
 		// Копия, не nil: журнал партии растёт дальше, а снапшот уходит в сокет позже.
 		DayLog:    append(make([]string, 0, len(g.EventLog)), g.EventLog...),
