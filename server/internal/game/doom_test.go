@@ -199,14 +199,65 @@ func TestBankruptInDaysNoPointsTodayKeepsPlacesBroken(t *testing.T) {
 	}
 }
 
+// Офис с админом: он чинит бесплатно, очки ни при чём (ITGAME-101, ITGAME-127).
+// Деньги — ровно на пороге долга вечера, если работают все три места. С админом
+// (и без очков) места чинятся даром — вечер переживаем; без админа и без очков
+// два места стоят до утра — банкротство сегодня. Зарплата админа меняет ФОТ и
+// порог, поэтому деньги считаем для каждого варианта по его же ФОТ.
 func TestBankruptInDaysAdminOfficeIgnoresPoints(t *testing.T) {
-	a := brokenPair(t, DiffHard, 0)
-	b := brokenPair(t, DiffHard, 8)
-	for _, g := range []*Game{a, b} {
-		g.Offices[0].Admin = "Пётр Админов"
+	probe := brokenPair(t, DiffNormal, 8)
+	tpl := probe.offlineTemplate()
+	tpl.MarketToday = 0
+	for i := range tpl.Offices[0].Employees {
+		tpl.Offices[0].Employees[i].PCBroken = false
 	}
-	if ga, gb := a.BankruptInDays(), b.BankruptInDays(); ga != gb {
-		t.Fatalf("в офисе с админом очки ни при чём: без очков %d, с очками %d", ga, gb)
+	inAll, _ := carryIncome(0, tpl.exactIncome(0, probe.cfg.DayTicks(), nil))
+
+	// onThreshold — вариант с админом или без, деньги на пороге его вечера.
+	onThreshold := func(admin string) *Game {
+		g := brokenPair(t, DiffNormal, 0)
+		g.Offices[0].Admin = admin
+		payroll := g.PayrollPerDay()
+		g.Money = payroll - g.debtLimit(payroll) - inAll
+		if g.Money >= 0 {
+			t.Fatalf("баланс %d не в минусе — прогноз не запустится", g.Money)
+		}
+		return g
+	}
+	if got := onThreshold("Пётр Админов").BankruptInDays(); got == 1 {
+		t.Fatalf("админ чинит бесплатно, очков не надо — вечер переживаем, получили %d", got)
+	}
+	if got := onThreshold("").BankruptInDays(); got != 1 {
+		t.Fatalf("без админа и очков два места стоят до утра — банкротство сегодня, получили %d", got)
+	}
+}
+
+// Очки каждое утро (ITGAME-127): 9 сломанных мест из 10 (больше очков дня, 8),
+// сегодня очков нет. Сегодняшний вечер переживаем ровно на пороге долга; если бы
+// утро не чинило очередь, 9 мест стояли бы всегда и долг рос бы вечер за вечером
+// (банкротство завтра). Утром чинится 8 мест — доход возвращается, прогноз другой.
+func TestBankruptInDaysMorningPointsDrainTheQueue(t *testing.T) {
+	g := doomedGame(t, DiffNormal)
+	o := &g.Offices[0]
+	o.Boss = ""
+	o.PCs = 10
+	o.syncWorkplaces()
+	o.Employees = nil
+	for i := 0; i < 10; i++ {
+		o.Employees = append(o.Employees, Employee{Name: "Сотрудник", IncomePerTick: 14, HireDay: 1, PCBroken: i > 0, RepairNeeded: 3})
+	}
+	g.ActionPoints = 0
+	payroll := g.PayrollPerDay()
+	tpl := g.offlineTemplate()
+	tpl.MarketToday = 0
+	today, _ := carryIncome(0, tpl.exactIncome(0, g.cfg.DayTicks(), nil)) // работает одно место
+	// Вечером ровно на пороге долга: сегодня переживаем при любом утре.
+	g.Money = payroll - g.debtLimit(payroll) - today
+	if g.Money >= 0 {
+		t.Fatalf("баланс %d не в минусе — прогноз не запустится", g.Money)
+	}
+	if got := g.BankruptInDays(); got != 0 {
+		t.Fatalf("утро чинит по %d мест — доход возвращается, ждали %d, получили %d", g.cfg.ActionPointsPerDay, 0, got)
 	}
 }
 
@@ -214,13 +265,14 @@ func TestDoomRepairQueueOrder(t *testing.T) {
 	g := doomedGame(t, DiffHard)
 	o := &g.Offices[0]
 	o.Boss = ""
-	o.PCs = 4
+	o.PCs = 5
 	o.syncWorkplaces()
 	o.Employees = []Employee{
-		{Name: "А", IncomePerTick: 10, HireDay: 1, PCBroken: true, RepairNeeded: 3},
+		{Name: "А", IncomePerTick: 12, HireDay: 1, PCBroken: true, RepairNeeded: 3},
 		{Name: "Б", IncomePerTick: 14, HireDay: 1, Infected: true},
 		{Name: "В", IncomePerTick: 14, HireDay: 1, PCBroken: true, RepairNeeded: 3, Infected: true},
 		{Name: "Г", IncomePerTick: 20, HireDay: 1, PCBroken: true, RepairNeeded: 3, RepairClicks: 2},
+		{Name: "Д", IncomePerTick: 14, HireDay: 1, Infected: true, VirusClicks: 1},
 	}
 	tpl := g.offlineTemplate()
 	q := tpl.doomRepairQueue()
@@ -232,10 +284,13 @@ func TestDoomRepairQueueOrder(t *testing.T) {
 	for _, f := range q {
 		got = append(got, item{f.slot, f.virus})
 	}
-	// Ремонт возвращает всю выработку места, чистка — долю вируса (1 − VirusMult):
-	// В-ремонт 14, А-ремонт 10, Б-чистка 4.2, В-чистка 4.2 (порядок мест при равенстве).
-	// Г начат — бесплатен: в очереди его нет, на шаблоне он уже цел.
-	want := []item{{2, false}, {0, false}, {1, true}, {2, true}}
+	// Ремонт возвращает выработку места, у заражённого — только VirusMult от неё,
+	// чистка — долю вируса (1 − VirusMult): А-ремонт 12, В-ремонт 14×0.7 = 9.8
+	// (при полных 14 В шёл бы первым — порядок различает старое и новое; 12 против
+	// 9.8 — не ничья), Б-чистка 4.2, В-чистка 4.2
+	// (порядок мест при равенстве). Г и Д начаты (ремонт, чистка) — бесплатны:
+	// в очереди их нет, на шаблоне они уже целы и чисты.
+	want := []item{{0, false}, {2, false}, {1, true}, {2, true}}
 	if len(got) != len(want) {
 		t.Fatalf("очередь %v, хотим %v", got, want)
 	}
@@ -246,6 +301,9 @@ func TestDoomRepairQueueOrder(t *testing.T) {
 	}
 	if tpl.Offices[0].Employees[3].PCBroken {
 		t.Error("начатый ремонт должен считаться сделанным на шаблоне")
+	}
+	if tpl.Offices[0].Employees[4].Infected {
+		t.Error("начатая чистка должна считаться сделанной на шаблоне")
 	}
 	rest, n := tpl.doomRepair(q, 3)
 	if n != 3 || len(rest) != 1 || tpl.Offices[0].Employees[1].Infected || !tpl.Offices[0].Employees[2].Infected {

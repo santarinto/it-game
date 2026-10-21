@@ -409,8 +409,9 @@ const doomHorizonDays = 365
 
 // doomFix — пункт очереди ремонта прогноза банкротства (ITGAME-127): место и
 // что на нём начать — ремонт или чистку; каждый пункт стоит очко действий.
-// value — что пункт возвращает: ремонт — всю личную выработку места, чистка —
-// долю, которую забирает вирус.
+// value — что пункт возвращает: ремонт — личную выработку места (у заражённого
+// места — только baseOutput × VirusMult: долю вируса вернёт чистка), чистка —
+// долю, которую забирает вирус; вместе они дают всю выработку.
 type doomFix struct {
 	office, slot int
 	virus        bool
@@ -422,6 +423,10 @@ type doomFix struct {
 // ITGAME-101) и начатое — клики уже есть (игроком, админом или вчера). Платное
 // идёт по value по убыванию; при равенстве — офис, место, ремонт раньше
 // чистки: так чинил бы лучший игрок.
+//
+// ВНИМАНИЕ: метод ИЗМЕНЯЕТ получателя (снимает бесплатное: PCBroken/Infected),
+// хоть и читается как геттер. Звать только на шаблоне прогноза
+// (offlineTemplate), никогда на живой игре.
 func (g *Game) doomRepairQueue() []doomFix {
 	var q []doomFix
 	for oi := range g.Offices {
@@ -433,7 +438,11 @@ func (g *Game) doomRepairQueue() []doomFix {
 				if free || e.RepairClicks > 0 {
 					e.PCBroken = false
 				} else {
-					q = append(q, doomFix{oi, i, false, g.baseOutput(o, i)})
+					v := g.baseOutput(o, i)
+					if e.Infected {
+						v *= g.cfg.VirusMult // остальное вернёт чистка
+					}
+					q = append(q, doomFix{oi, i, false, v})
 				}
 			}
 			if e.Infected {

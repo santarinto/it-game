@@ -65,7 +65,8 @@ Today the template clears `PCBroken` and `Infected` everywhere. New rule:
 2. Elsewhere build a queue of items `(place, kind)`, `kind` ∈ {repair, virus}. An item already started
    (`RepairClicks > 0` / `VirusClicks > 0`) costs nothing and counts as fixed today. The rest are ordered by what
    the fix returns, descending: a repair — the place's personal output (the `clean` term of `incomeAtTickDetail`:
-   income + level bonus, × raise, × PC level), a cleanup — the share the virus takes, output × (1 − `VirusMult`).
+   income + level bonus, × raise, × PC level; on an infected place a repair returns only output × `VirusMult`, the
+   rest is the cleanup's), a cleanup — the share the virus takes, output × (1 − `VirusMult`).
    Ties keep office, slot, repair before virus.
 3. Today: the first `g.ActionPoints` items are fixed for the rest of today. Each next morning another
    `cfg.ActionPointsPerDay` items are fixed. While the queue is not empty the day's income is computed from a
