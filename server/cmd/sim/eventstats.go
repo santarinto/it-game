@@ -18,7 +18,7 @@ var eventKinds = []game.EventID{game.EventVirus, game.EventDeadline, game.EventA
 // не считается).
 type dayRecord struct {
 	Breakdowns int                  // DayReport.Incidents — поломки ПК
-	Infected   int                  // DayReport.VirusPCs — заражённых ПК на конец дня
+	Infected   int                  // DayReport.VirusPCs — новых заражений ПК за день (вспышки и волны)
 	Outbreaks  int                  // вспышки вируса, заразившие ≥1 ПК (не «отбит»)
 	Plan       map[game.EventID]int // план g.DayEvents сразу после NextDay
 	Budget     int                  // cfg.EventBudget партии (ITGAME-196); 0 — бюджета нет

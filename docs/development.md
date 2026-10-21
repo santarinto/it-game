@@ -357,7 +357,11 @@ for a save that would decode wrongly or hold values the new code cannot
 honour. Config fields added to format 1 before the rule (audit, repair
 clicks, antivirus tiers, admin prices) are filled by `Restore` from the
 save's difficulty. Format 1 is the virus on seats — a save from before it
-has no `format`; format 2 is the workplaces (ITGAME-135, owner 20.10).
+has no `format`; format 2 is the workplaces (ITGAME-135, owner 20.10); format 3 is the event
+budget and the exact income (ITGAME-196/203, owner 21.10): the breakdown chance
+in permille (`BreakdownChancePermille`), `EventBudget`, the raise percent
+(`Employee.RaisePct`, `DayEvent.RaisePct`, `RaiseBoostMult` removed) and the
+company's `incomeCarry`.
 
 A save of another format behaves like a broken one, except that the menu says
 why: the peek reads the sid, the version and `game.format` before the rest (a
@@ -1697,7 +1701,7 @@ failed-audit day versus all bankruptcies and failed audits.
 policy run, after the summary: averages per played day (a day with a
 `DayReport`; the unfinished victory day is not counted) of `breakdowns`
 (PC breakdowns), `outbreaks` (virus activations that infected a PC),
-`infected` (PCs infected at day end), `pool` and its kinds `virus`,
+`infected` (new PC infections during the day, outbreaks plus waves), `pool` and its kinds `virus`,
 `deadline`, `audit`, `raise`, `star` (the day plan right after `NextDay`),
 `total` (breakdowns + pool), plus `second` (share of days with two pool
 events), `max` (largest daily total), `ge3` (share of days with total

@@ -209,8 +209,9 @@ func (g *Game) LevelFor(e *Employee) int {
 	return level
 }
 
-// PersonalSalary — личная дневная зарплата сотрудника: ровно то, что ФОТ
-// (PayrollPerDay) списывает с него сегодня; от неё считается процент повышения.
+// PersonalSalary — личная дневная зарплата сотрудника: ставка, которую ФОТ
+// (PayrollPerDay) списывает с него за полный день (нанятого после обеда, UnpaidToday,
+// сегодня не списывает); от неё считается процент повышения.
 func (g *Game) PersonalSalary(e *Employee) int {
 	return g.cfg.SalaryPerDay + e.SalaryAdd
 }
