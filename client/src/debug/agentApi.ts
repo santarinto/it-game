@@ -11,6 +11,8 @@ import { CONTRACT } from './contract.gen'
 import { checkStale, lastStale } from '../buildstamp'
 import { makeSandbox } from './sandbox'
 import type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult } from './sandbox'
+import { makeClaim } from './claim'
+import type { ClaimApi } from './claim'
 import { isHiddenOriginal, makeSpriteApi, triedKeys } from './spriteTry'
 import type { SpriteApi } from './spriteTry'
 export type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult }
@@ -985,6 +987,26 @@ export interface ItdApi {
    * @example itd.sandbox.restore()
    */
   readonly sandbox: SandboxApi
+  /**
+   * Вкладка агента занята (ITGAME-151): itd.claim('acc151') ставит жёлтую полосу 40 px поверх
+   * страницы «▶ АГЕНТ работает в этой вкладке (метка, sha) — не кликай» (pointer-events: none —
+   * вёрстку и клики не трогает) и заголовок вкладки «▶ АГЕНТ — смотри, не кликай»; считает каждое
+   * настоящее нажатие (pointerdown/mousedown с isTrusted, события одного нажатия за 50 мс — одно):
+   * own — после itd.claim.mine(n?, ms?) (настоящий клик агента через CDP тоже isTrusted), allowed —
+   * пока открыт itd.claim.allow(что, {target?}) (зелёная полоса «▶ ТВОЙ ХОД: …»), иначе foreign —
+   * полоса краснеет на 600 мс. dispatchEvent — только synthetic. У нажатия wins и got — как в
+   * itd.trace; itd.claim.deny() закрывает окно allow → {what, target, presses, hit}. Повторный
+   * itd.claim(метка) меняет метку, счёт не сбрасывает. Переживает F5 и itd.reset() (sessionStorage
+   * itd.claim, reloads); itd.claim.stop() → итог, полоса снята, заголовок «вкладка свободна».
+   * Отказы: bad_label, bad_args, no_claim, no_allow.
+   * @example itd.claim('acc151')
+   * @example itd.claim.mine()
+   * @example itd.claim.allow('нажми «НОРМА»', {target: 'menu:diff:normal'})
+   * @example itd.claim.deny().hit
+   * @example itd.claim.state().foreign
+   * @example itd.claim.stop()
+   */
+  readonly claim: ClaimApi
   /**
    * Примерка спрайта (ITGAME-119): itd.sprite.try(key, dataUrl) ставит PNG вместо
    * текстуры ключа манифеста во вкладке и перевешивает живые объекты сцен →
@@ -1998,6 +2020,12 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.sandbox('acc3')               — своя партия вкладки: sid a-acc3-<время> во вкладку, ключи владельца (localStorage itd.sid/itd.diff/itd.onboard, sessionStorage вкладки) запомнены → {ok, sid, owner:{sid, diff}}; новая партия и «Сдаться» берут новый sid песочницы, общий ключ не трогают; из меню (в партии — in_party)
   itd.sandbox.fakeOwner()           — «чужой» общий ключ itd.sid/itd.diff вызовом игры (проверить гард «Сдаться») → {sid, diff}; restore() вернёт настоящий
   itd.sandbox.restore()             — выйти из песочницы (из меню): {sidSame, diffSame, fake, restored, kept, removed} — sidSame/diffSame: общий ключ тот, что при входе (или fake); itd.sid/itd.diff: наше/стёртое значение возвращено, чужое (kept) не перетёрто; itd.onboard возвращается к значению при входе при любом отличии
+  itd.claim('acc151')               — вкладка занята (ITGAME-151): жёлтая полоса 40 px сверху «▶ АГЕНТ работает в этой вкладке (метка, sha) — не кликай» (клики проходят сквозь неё), заголовок «▶ АГЕНТ — смотри, не кликай»; считает настоящие нажатия (события одного нажатия за 50 мс — одно) → {ok, active, label, sha, sec, downs, own, allowed, foreign, synthetic, onCanvas, reloads, mine, allow, presses[{n, t, kind, button, onCanvas, wins, got}]}; чужое нажатие — foreign и красная вспышка, dispatchEvent — только synthetic; переживает F5 и itd.reset(); повторный вызов меняет метку, счёт не сбрасывает; отказ bad_label
+  itd.claim.mine(n?, ms?)           — следующие n (1..20, по умолчанию 1) настоящих нажатий за ms (100..120000, по умолчанию 20000) — твои (own), без вспышки: зови перед своим настоящим кликом (CDP-клик тоже isTrusted) → {ok, pending, ms}; отказ bad_args
+  itd.claim.allow(что, {target?})   — «нажми сам»: зелёная полоса «▶ ТВОЙ ХОД: что — только это», нажатия — allowed; target — id цели (btn.hire или btn:hire); новое окно заменяет открытое; отказ bad_args
+  itd.claim.deny()                  — закрыть окно allow → {what, target, presses, hit}: hit — target в got разрешённого нажатия окна (null без target); нет окна — no_allow
+  itd.claim.state()                 — счёт на сейчас; без полосы — {ok: true, active: false}
+  itd.claim.stop()                  — снять полосу и слушатели, стереть sessionStorage itd.claim, заголовок «вкладка свободна» → итог (active: false); без полосы — no_claim
   await itd.stale()                 — вкладка на старом JS? {client, server, dist, stale, at, shown}: shown — метка «устарело, обнови» видна на экране (скрытая живёт в DOM как display:none 0×0); client — sha вкладки, dist — sha сборки, которую стенд отдаст на F5, server — sha бинаря (/api/version); stale null — сверить не с чем (vite dev; сборка без git и без штампа BUILD_SHA/-ldflags — sha dev/unknown; со штампом sha есть); красная метка «устарело, обнови» в #topbar — та же проверка
   itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне палитры манифеста ключа (hd32/sweetie16; у render: smooth не считаются), дубли ключей; source: tried — проба itd.sprite.try
   itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк); active: tried — проба itd.sprite.try
@@ -2078,7 +2106,7 @@ async function playStep(api: ItdApi, st: PlayStep): Promise<string> {
   ].join(' | ')
 }
 
-function makeApi(game: Phaser.Game): ItdApi {
+function makeApi(game: Phaser.Game, claim: ClaimApi): ItdApi {
   const telemetry = startTelemetry(game)
 
   // Пульс скрытой вкладки (ITGAME-30): пока вкладка спрятана, RAF стоит —
@@ -2268,6 +2296,7 @@ function makeApi(game: Phaser.Game): ItdApi {
     },
     stale: () => checkStale(),
     sandbox: makeSandbox(game),
+    claim,
     sprite: makeSpriteApi(game),
     stack(safeOrX, gy) {
       warmIfHidden()
@@ -2567,8 +2596,11 @@ export function installAgentApi(game: Phaser.Game): void {
     new URLSearchParams(location.search).get('debug') === '1' ||
     localStore.get('itd.debug') === '1'
   if (!enabled) return
+  // ITGAME-151: полоса itd.claim поднимается из sessionStorage сразу, до READY — после F5 вкладка
+  // помечена занятой с первых кадров
+  const claim = makeClaim(game, pointerProbe(game), BUILD.sha)
   game.events.once(Phaser.Core.Events.READY, () => {
-    window.itd = makeApi(game)
+    window.itd = makeApi(game, claim)
     console.log(`[itd] agent api ready {build:${import.meta.env.MODE}}`)
   })
 }

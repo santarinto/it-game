@@ -19,6 +19,8 @@
 //       SandboxApi тоже с call; itd.trace.start/stop — функции
 //   A16 (ITGAME-179/148/160) трасса 20.10: TracePointer.wins — string | null, sent — TraceSent[] с src и doc, TraceApi.summary → TraceSummary.lines; itd.trace.summary — функция;
 //       TracePointer.gone, screen → bad_frame, ScreenMap.ok (ITGAME-148), TraceApi.peek (ITGAME-160)
+//   A17 (ITGAME-151) itd.claim: ClaimApi — call (label) + mine/allow/deny/state/stop, methods.claim — prop
+//       ClaimApi с примерами; ClaimPress n/t/kind/button/onCanvas/wins/got; itd.claim.* — функции
 //   A12 (ITGAME-131) из меню (liveSid null, socket closed): set/step/advanceDays/ledger/scenario/
 //       snapshot/restore → reject «not_in_party: …» с подсказкой itd.click('menu.diff.normal'),
 //       play([{days:1}]) → «FAIL not_in_party»; ни одного запроса /api/debug/*
@@ -107,9 +109,10 @@ async function run() {
         socketNow: window.itd.server().socket,
         itdTraceFns: [typeof window.itd.trace, typeof window.itd.trace.start, typeof window.itd.trace.stop].join(),
         itdTraceMore: [typeof window.itd.trace.summary, typeof window.itd.trace.peek].join(),
+        itdClaimFns: [typeof window.itd.claim, ...['mine', 'allow', 'deny', 'state', 'stop'].map((k) => typeof window.itd.claim[k])].join(),
       }
     })
-    const { c1: contract, c2Hash, c3StateDoc, itdKeys, itdVersion, socketNow, itdTraceFns, itdTraceMore } = data
+    const { c1: contract, c2Hash, c3StateDoc, itdKeys, itdVersion, socketNow, itdTraceFns, itdTraceMore, itdClaimFns } = data
 
     // ── A1: schema
     check('A1: schema === 1', contract.schema === 1, `schema=${contract.schema}`)
@@ -234,6 +237,24 @@ async function run() {
         !!a16.peek?.doc && a16.peek.type.includes("'no_trace'") &&
         a16.gone === 'string[]' && (a16.screenRet ?? '').includes("'bad_frame'") && a16.screenOk === 'true',
       JSON.stringify(a16),
+    )
+
+    // ── A17 (ITGAME-151): itd.claim в контракте
+    const a17 = {
+      call: T.ClaimApi?.call,
+      fields: Object.keys(T.ClaimApi?.fields ?? {}),
+      member: contract.methods.claim && { kind: contract.methods.claim.kind, type: contract.methods.claim.type, ex: contract.methods.claim.examples },
+      press: Object.keys(T.ClaimPress?.fields ?? {}),
+      fns: itdClaimFns,
+    }
+    check(
+      'A17: контракт itd.claim — ClaimApi call (label) + mine/allow/deny/state/stop, prop с примерами, ClaimPress n/t/kind/button/onCanvas/wins/got, itd.claim.* — функции',
+      JSON.stringify(a17.call) === JSON.stringify(['(label: string) => ClaimState | ClaimRefusal']) &&
+        ['mine', 'allow', 'deny', 'state', 'stop'].every((f) => a17.fields.includes(f)) &&
+        a17.member?.kind === 'prop' && a17.member.type === 'ClaimApi' && (a17.member.ex ?? []).length >= 2 &&
+        ['n', 't', 'kind', 'button', 'onCanvas', 'wins', 'got'].every((f) => a17.press.includes(f)) &&
+        a17.fns === 'function,function,function,function,function,function',
+      JSON.stringify(a17),
     )
 
     // ── A12 (ITGAME-131): из меню debug-вызовы отказывают на клиенте, без запроса

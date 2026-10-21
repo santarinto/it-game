@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "5825c86e8cbd",
+  "hash": "0c153fb8c054",
   "methods": {
     "version": {
       "kind": "prop",
@@ -259,6 +259,20 @@ export const CONTRACT = {
         "itd.sandbox('acc3')",
         "itd.sandbox.fakeOwner()",
         "itd.sandbox.restore()"
+      ]
+    },
+    "claim": {
+      "kind": "prop",
+      "type": "ClaimApi",
+      "readonly": true,
+      "doc": "Вкладка агента занята (ITGAME-151): itd.claim('acc151') ставит жёлтую полосу 40 px поверх\nстраницы «▶ АГЕНТ работает в этой вкладке (метка, sha) — не кликай» (pointer-events: none —\nвёрстку и клики не трогает) и заголовок вкладки «▶ АГЕНТ — смотри, не кликай»; считает каждое\nнастоящее нажатие (pointerdown/mousedown с isTrusted, события одного нажатия за 50 мс — одно):\nown — после itd.claim.mine(n?, ms?) (настоящий клик агента через CDP тоже isTrusted), allowed —\nпока открыт itd.claim.allow(что, {target?}) (зелёная полоса «▶ ТВОЙ ХОД: …»), иначе foreign —\nполоса краснеет на 600 мс. dispatchEvent — только synthetic. У нажатия wins и got — как в\nitd.trace; itd.claim.deny() закрывает окно allow → {what, target, presses, hit}. Повторный\nitd.claim(метка) меняет метку, счёт не сбрасывает. Переживает F5 и itd.reset() (sessionStorage\nitd.claim, reloads); itd.claim.stop() → итог, полоса снята, заголовок «вкладка свободна».\nОтказы: bad_label, bad_args, no_claim, no_allow.",
+      "examples": [
+        "itd.claim('acc151')",
+        "itd.claim.mine()",
+        "itd.claim.allow('нажми «НОРМА»', {target: 'menu:diff:normal'})",
+        "itd.claim.deny().hit",
+        "itd.claim.state().foreign",
+        "itd.claim.stop()"
       ]
     },
     "sprite": {
@@ -1374,6 +1388,262 @@ export const CONTRACT = {
           "type": "AwayDrop | null",
           "optional": false,
           "doc": "mode net: ответ ручки drop"
+        }
+      }
+    },
+    "ClaimAllowResult": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "true",
+          "optional": false,
+          "doc": ""
+        },
+        "what": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "target": {
+          "type": "string | null",
+          "optional": false,
+          "doc": ""
+        },
+        "presses": {
+          "type": "ClaimPress[]",
+          "optional": false,
+          "doc": "Разрешённые нажатия этого окна."
+        },
+        "hit": {
+          "type": "boolean | null",
+          "optional": false,
+          "doc": "target в got хотя бы одного из них; null — окно без target."
+        }
+      }
+    },
+    "ClaimAllowWindow": {
+      "kind": "object",
+      "fields": {
+        "what": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "target": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "id цели в safe-форме (с «:»), null — без цели."
+        },
+        "since": {
+          "type": "number",
+          "optional": false,
+          "doc": "Секунды от claim() до allow()."
+        },
+        "from": {
+          "type": "number",
+          "optional": false,
+          "doc": "Окну принадлежат нажатия с n > from."
+        }
+      }
+    },
+    "ClaimApi": {
+      "kind": "object",
+      "fields": {
+        "mine": {
+          "type": "(n?: number, ms?: number) => ClaimMine | ClaimRefusal",
+          "optional": false,
+          "doc": "Следующие n (1..20, по умолчанию 1) настоящих нажатий за ms (100..120000, по умолчанию 20000) — свои (own), без вспышки: звать перед своим настоящим кликом; новый вызов заменяет бюджет; отказы bad_args, no_claim."
+        },
+        "allow": {
+          "type": "(what: string, opts?: { target?: string; }) => ClaimState | ClaimRefusal",
+          "optional": false,
+          "doc": "«Нажми сам»: зелёная полоса «▶ ТВОЙ ХОД: что — только это», нажатия — allowed; target — id цели (btn.hire или btn:hire), его hit — в state().allow и deny(); новое окно заменяет открытое; отказы bad_args, no_claim."
+        },
+        "deny": {
+          "type": "() => ClaimAllowResult | ClaimRefusal",
+          "optional": false,
+          "doc": "Закрыть окно allow → {what, target, presses, hit}: hit — target в got разрешённого нажатия окна, null без target; полоса снова жёлтая; отказы no_allow, no_claim."
+        },
+        "state": {
+          "type": "() => ClaimState | { ok: true; active: false; }",
+          "optional": false,
+          "doc": "Счёт на сейчас; без полосы — {ok: true, active: false}."
+        },
+        "stop": {
+          "type": "() => ClaimState | ClaimRefusal",
+          "optional": false,
+          "doc": "Снять полосу и слушатели, стереть sessionStorage itd.claim, заголовок «вкладка свободна» → итог (active: false); отказ no_claim."
+        }
+      },
+      "call": [
+        "(label: string) => ClaimState | ClaimRefusal"
+      ]
+    },
+    "ClaimKind": {
+      "kind": "enum",
+      "values": [
+        "allowed",
+        "foreign",
+        "own"
+      ]
+    },
+    "ClaimMine": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "true",
+          "optional": false,
+          "doc": ""
+        },
+        "pending": {
+          "type": "number",
+          "optional": false,
+          "doc": "Сколько следующих настоящих нажатий — own."
+        },
+        "ms": {
+          "type": "number",
+          "optional": false,
+          "doc": "Сколько мс бюджет жив."
+        }
+      }
+    },
+    "ClaimPress": {
+      "kind": "object",
+      "fields": {
+        "n": {
+          "type": "number",
+          "optional": false,
+          "doc": "Номер нажатия с claim(): общий счёт own, allowed и foreign."
+        },
+        "t": {
+          "type": "number",
+          "optional": false,
+          "doc": "Секунды от claim(), одна десятая."
+        },
+        "kind": {
+          "type": "ClaimKind",
+          "optional": false,
+          "doc": "own — после itd.claim.mine(), allowed — в окне allow, foreign — чужое."
+        },
+        "button": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "onCanvas": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "Нажатие пришло в холст игры; false — мимо (#topbar, поля страницы)."
+        },
+        "wins": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "Победитель хит-теста Phaser в момент нажатия — метка, как pointer.wins в itd.trace (safe id или тип); null — мимо интерактивов."
+        },
+        "got": {
+          "type": "string[]",
+          "optional": false,
+          "doc": "Кому Phaser отдал нажатие (GAMEOBJECT_POINTER_DOWN), как pointer.got в itd.trace."
+        }
+      }
+    },
+    "ClaimRefusal": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "false",
+          "optional": false,
+          "doc": ""
+        },
+        "code": {
+          "type": "'bad_label' | 'bad_args' | 'no_claim' | 'no_allow'",
+          "optional": false,
+          "doc": ""
+        },
+        "error": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        }
+      }
+    },
+    "ClaimState": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "true",
+          "optional": false,
+          "doc": ""
+        },
+        "active": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "Полоса стоит; в итоге stop() — false."
+        },
+        "label": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "sha": {
+          "type": "string",
+          "optional": false,
+          "doc": "itd.version.sha вкладки."
+        },
+        "sec": {
+          "type": "number",
+          "optional": false,
+          "doc": "Секунды от claim()."
+        },
+        "downs": {
+          "type": "number",
+          "optional": false,
+          "doc": "Настоящие нажатия: own + allowed + foreign."
+        },
+        "own": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "allowed": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "foreign": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "synthetic": {
+          "type": "number",
+          "optional": false,
+          "doc": "isTrusted false (dispatchEvent, itd.tap) — в downs не входят."
+        },
+        "onCanvas": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "reloads": {
+          "type": "number",
+          "optional": false,
+          "doc": "Сколько перезагрузок вкладки claim пережил."
+        },
+        "mine": {
+          "type": "{ pending: number; leftMs: number; } | null",
+          "optional": false,
+          "doc": "Бюджет itd.claim.mine(): сколько ещё нажатий — own и сколько мс он жив; null — нет."
+        },
+        "allow": {
+          "type": "(ClaimAllowWindow & { hit: boolean | null; }) | null",
+          "optional": false,
+          "doc": "Открытое окно allow; hit — target в got разрешённого нажатия окна (null без target)."
+        },
+        "presses": {
+          "type": "ClaimPress[]",
+          "optional": false,
+          "doc": "Последние 50 нажатий, старые первыми."
         }
       }
     },
