@@ -10,13 +10,14 @@
 //   5  синтетика: dispatchEvent mousedown+mouseup на холст → synthetic 1, downs тот же
 //   6a allow('нажми «НОРМА»', {target:'menu.diff.normal'}) → data-mode allow, allow.target 'menu:diff:normal',
 //      hit false; настоящий клик по menu:diff:normal → deny(): hit true, одно нажатие allowed с got menu:diff:normal
-//   6b второе окно с тем же target, клик по #build под полосой (клики проходят сквозь неё) → deny().hit false,
-//      onCanvas false; deny() без окна → no_allow; полоса снова claim
+//   6b второе окно с тем же target; elementFromPoint в точке #build — сам #build (клик проходит сквозь полосу);
+//      клик по #build под полосой → deny().hit false, onCanvas false; deny() без окна → no_allow; полоса снова claim
 //   7  отказы: claim('') → bad_label, mine(0) → bad_args, allow('') → bad_args
+//   7b claim('qa151b') → метка qa151b, счётчики те же; claim('qa151') возвращает метку
 //   8a F5 → полоса на месте, счёт тот же, reloads 1, заголовок занят
 //   8b itd.reset() снёс itd.claim, F5 → полоса на месте (pagehide записал её снова), reloads 2
 //   9  stop() → итог active:false, полосы нет, заголовок «вкладка свободна», sessionStorage itd.claim нет,
-//      state() {active:false}; второй stop() → no_claim
+//      state() {active:false}; второй stop() → no_claim; mine()/allow('x')/deny() после stop → no_claim
 //   + на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию :4198 — свой порт задачи;
@@ -187,6 +188,7 @@ async function run() {
       const r = document.getElementById('build')?.getBoundingClientRect()
       return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null
     })
+    const under6 = bp ? await page.evaluate((p) => document.elementFromPoint(p.x, p.y)?.id ?? null, bp) : null
     if (bp) await page.mouse.click(bp.x, bp.y)
     await delay(100)
     const d6b = await page.evaluate(() => window.itd.claim.deny())
@@ -194,10 +196,10 @@ async function run() {
     const s6 = await st()
     const m6b = (await barInfo(page))?.mode
     check(
-      '6b: клик по #build под полосой → hit false, onCanvas false; deny() без окна → no_allow; allowed 2, полоса claim',
-      bp !== null && d6b.ok === true && d6b.hit === false && d6b.presses.length === 1 && d6b.presses[0].onCanvas === false &&
+      '6b: под полосой в точке #build — #build; клик по нему → hit false, onCanvas false; deny() без окна → no_allow; allowed 2, полоса claim',
+      bp !== null && under6 === 'build' && d6b.ok === true && d6b.hit === false && d6b.presses.length === 1 && d6b.presses[0].onCanvas === false &&
         d6c.ok === false && d6c.code === 'no_allow' && s6.allowed === 2 && s6.allow === null && m6b === 'claim',
-      JSON.stringify({ bp, d6b, d6c, s6, m6b }),
+      JSON.stringify({ bp, under6, d6b, d6c, s6, m6b }),
     )
 
     // ── 7
@@ -210,6 +212,16 @@ async function run() {
       '7: отказы — claim("") bad_label, mine(0) bad_args, allow("") bad_args',
       r7.label.code === 'bad_label' && r7.mine.code === 'bad_args' && r7.allow.code === 'bad_args',
       JSON.stringify(r7),
+    )
+
+    // ── 7b
+    const before7 = await st()
+    const rl = await page.evaluate(() => window.itd.claim('qa151b'))
+    const back = await page.evaluate(() => window.itd.claim('qa151'))
+    check(
+      "7b: claim('qa151b') → метка qa151b, счётчики не тронуты; claim('qa151') возвращает метку",
+      rl.ok === true && rl.label === 'qa151b' && sameCounts(rl, before7) && back.ok === true && back.label === 'qa151' && sameCounts(back, before7),
+      JSON.stringify({ before7, rl, back }),
     )
 
     // ── 8a
@@ -243,12 +255,16 @@ async function run() {
       key: sessionStorage.getItem('itd.claim'),
       state: window.itd.claim.state(),
       again: window.itd.claim.stop(),
+      mine: window.itd.claim.mine(),
+      allow: window.itd.claim.allow('x'),
+      deny: window.itd.claim.deny(),
     }))
     check(
       '9: stop() → итог active:false, полосы нет, заголовок «вкладка свободна», ключа нет, state {active:false}; второй stop — no_claim',
       f9.ok === true && f9.active === false && sameCounts(f9, before8) && !after9.bar && after9.title === 'вкладка свободна' &&
         after9.key === null && after9.state.ok === true && after9.state.active === false &&
-        after9.again.ok === false && after9.again.code === 'no_claim',
+        after9.again.ok === false && after9.again.code === 'no_claim' &&
+        [after9.mine, after9.allow, after9.deny].every((r) => r.ok === false && r.code === 'no_claim'),
       JSON.stringify({ f9, after9 }),
     )
 

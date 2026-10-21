@@ -53,7 +53,7 @@ export function makeClaim(game: Phaser.Game, probe: PointerProbe, sha: string): 
   let rec: ClaimRecord | null = null
   let bar: HTMLDivElement | null = null
   let flashTimer: ReturnType<typeof setTimeout> | null = null
-  let groupAt: number | null = null // performance.now() первого события текущего нажатия
+  let groupAt: number | null = null // ev.timeStamp первого события текущего нажатия
   let synthAt: number | null = null // то же для синтетики
   const got = makeGotCatcher()
 
@@ -83,7 +83,9 @@ export function makeClaim(game: Phaser.Game, probe: PointerProbe, sha: string): 
   const onDown = (ev: MouseEvent) => {
     const r = rec
     if (!r) return
-    const now = performance.now()
+    // Часы самого события: pointerdown и следующий за ним mousedown Chromium штампует одним timeStamp,
+    // так что медленный обработчик (проба, запись в sessionStorage, GC) не разрежет одно нажатие надвое
+    const now = ev.timeStamp
     if (!ev.isTrusted) {
       if (!joinsGroup(synthAt, now)) {
         synthAt = now

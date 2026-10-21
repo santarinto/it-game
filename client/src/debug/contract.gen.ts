@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "0c153fb8c054",
+  "hash": "ed8c0f2b56a1",
   "methods": {
     "version": {
       "kind": "prop",
@@ -417,7 +417,7 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "AgentResult & { removed: string[]; }",
-      "doc": "Снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум,\nотчёты).",
+      "doc": "Снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум,\nотчёты). Активный itd.claim запишет itd.claim обратно (на следующем\nнажатии / pagehide) — чтобы убрать его совсем, itd.claim.stop().",
       "examples": [
         "itd.reset()"
       ]

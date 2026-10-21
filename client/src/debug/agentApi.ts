@@ -1144,7 +1144,8 @@ export interface ItdApi {
   assetSet(): AssetSetEntry[]
   /**
    * Снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум,
-   * отчёты).
+   * отчёты). Активный itd.claim запишет itd.claim обратно (на следующем
+   * нажатии / pagehide) — чтобы убрать его совсем, itd.claim.stop().
    * @example itd.reset()
    */
   reset(): AgentResult & { removed: string[] }
@@ -2033,7 +2034,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   await itd.sprite.pull(taskId, key, rev) — ревизия minipc (ITGAME-157) через /api/debug/sprite/*: квитанция try + {source: 'pull', taskId, rev, sha256 minipc}; отказы bad_task | bad_rev | not_found | sha_mismatch | too_large | minipc_not_configured | minipc_unreachable | minipc_auth | minipc_error | debug_off | server_unreachable
   await itd.sprite.watch(taskId)    — latest всех ключей задания из манифеста, опрос раз в секунду → {ok, taskId, keys, skipped, receipts}; itd.sprite.unwatch() → {ok, taskId, polls, updates, errors, lastError}, not_watching
   itd.sprite.list() / reset(key?)   — что подменено [{key, w, h, filter, sha256, problems, source: try|pull|watch, taskId?, rev?}] / вернуть исходную текстуру (без ключа — все), not_tried — ключ не подменён
-  itd.reset()                       — снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум, отчёты)
+  itd.reset()                       — снести все ключи itd.* (sid в обоих хранилищах, сложность, хинты, зум, отчёты); активный itd.claim запишет себя обратно (след. нажатие / pagehide) — убрать: itd.claim.stop()
   itd.pause() / resume() / speed(n) — темп сессии: set_speed 0/1/0..3 (серверный, живёт в сейве); до коннекта — {ok:false, code:'not_connected'}
   itd.step(2000) / step({ticks:60}) — пауза + промотка офлайн-движком (без кофе/событий/поломок/волн вируса/XP, день закрывается без day_report; таймер волны стоит — волну видно только живыми тиками): мс (1 тик = 1000 мс, до 10 тиков) или {ticks: 1..10000}; из фазы отчёта — сначала next_day; сводка — в .advance и «debug · advance» в itd.snapshot().events; вне running (game_over) — 200 с advance.ticks 0, ничего не промотано
   itd.advanceDays(3)                — промотка дней офлайн-движком: день N → N+3 (из фазы отчёта — сначала next_day, и HUD вернёт скорость до отчёта: партия побежит живьём, для паузы — itd.pause() ДО вызова), без day_report; сводка {days, income, payroll, balance} — в ответе .advance и строкой «debug · advance» в itd.snapshot().events, в itd.log() — только смена дня

@@ -210,7 +210,7 @@ export function stateOf(rec: ClaimRecord, now: number, active: boolean): ClaimSt
   }
 }
 
-// groupAt — performance.now() первого события группы; null — групп ещё не было.
+// groupAt — timeStamp (часы события) первого события группы; null — групп ещё не было.
 export const joinsGroup = (groupAt: number | null, now: number): boolean => groupAt !== null && now - groupAt < GROUP_MS
 
 export const serialize = (rec: ClaimRecord): string => JSON.stringify(rec)

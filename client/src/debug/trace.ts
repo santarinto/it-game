@@ -224,6 +224,8 @@ export function makeGotCatcher(): GotCatcher {
     fs.forEach((f) => f())
   }
   const arm: GotCatcher['arm'] = (objs, down, onGot) => {
+    // Для openTrace лишний (он сам flush-ит первым), но нужен itd.claim: нажатия подряд должны
+    // снять слушатели прошлого нажатия, прежде чем вешать новые
     flush()
     const evName = down ? Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN : Phaser.Input.Events.GAMEOBJECT_POINTER_UP
     for (const obj of objs) {
