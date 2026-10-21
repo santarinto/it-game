@@ -231,6 +231,7 @@ func (g *Game) resetForNextDay() {
 	g.DayVirusLost = 0
 	g.DayAdminRepairs = 0
 	g.DayAdminCleaned = 0
+	g.ActionPoints = g.cfg.ActionPointsPerDay // утро и офлайн: очки снова полные (ITGAME-127)
 	g.AVTierBilled = g.AVTier
 	g.DayEvents = nil
 	g.ActiveEvent = nil

@@ -500,8 +500,8 @@ func TestPCSaveRoundtrip(t *testing.T) {
 	g := hiredGame(t)
 	g.Offices[0].Workplaces[0] = Workplace{Level: 1, Wear: 2}
 	s := g.Export()
-	if s.Format != 3 || SaveFormat != 3 {
-		t.Errorf("формат %d / %d, хотим 3", s.Format, SaveFormat)
+	if s.Format != 4 || SaveFormat != 4 {
+		t.Errorf("формат %d / %d, хотим 4", s.Format, SaveFormat)
 	}
 	raw, err := json.Marshal(s)
 	if err != nil {

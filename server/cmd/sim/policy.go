@@ -103,8 +103,9 @@ func buildPolicy(g *game.Game, clicks func(o *game.Office) bool) {
 		if !o.Unlocked {
 			continue
 		}
-		// активный день: чиним сломанные ПК и чистим вирус (клики бесплатны),
-		// мотивируем по кулдауну — жадная политика забирает и активный слой тоже
+		// активный день: чиним сломанные ПК и чистим вирус (начать — очко
+		// действий, ITGAME-127; кончились — отказ, break), мотивируем по
+		// кулдауну — жадная политика забирает и активный слой тоже
 		byHand := clicks(o)
 		for j := range o.Employees {
 			if !byHand {
@@ -113,14 +114,14 @@ func buildPolicy(g *game.Game, clicks func(o *game.Office) bool) {
 			}
 			if o.Employees[j].PCBroken {
 				// N кликов роллится при поломке (ITGAME-93): кликаем, пока
-				// не починится — клики в sim бесплатны, N на экономику не влияет
+				// не починится — клики после первого бесплатны, N на экономику не влияет
 				for o.Employees[j].PCBroken {
 					if g.Apply(game.CmdRepairClick, i, j) != nil {
 						break
 					}
 				}
 			}
-			// вирус (ITGAME-103): чистим заражённое место — 3 клика, бесплатно,
+			// вирус (ITGAME-103): чистим заражённое место — 3 клика, начать — очко,
 			// как ремонт; сломанное заражённое чистится тем же кликом
 			for o.Employees[j].Infected {
 				if g.Apply(game.CmdVirusClick, i, j) != nil {

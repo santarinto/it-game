@@ -40,6 +40,7 @@ const (
 	ErrPCDead           = Err("pc_dead")            // ПК места «требуется замена»: клики, мастер и апгрейд — нет (ITGAME-135)
 	ErrPCFresh          = Err("pc_fresh")           // replace_pc по новому ПК
 	ErrPCMaxLevel       = Err("pc_max_level")       // upgrade_pc на максимальном уровне
+	ErrNoActionPoints   = Err("no_action_points")   // начать ремонт или чистку места — очков действий нет (ITGAME-127)
 )
 
 // office проверяет адресата офисной команды: индекс и открытость.
@@ -374,8 +375,26 @@ func (g *Game) Motivate(office, slot int) error {
 	return nil
 }
 
+// actionPointCost — столько очков действий стоит начать ремонт или чистку
+// места (ITGAME-127); клики после начала бесплатны.
+const actionPointCost = 1
+
+// startAction — плата за начало действия: started — действие уже начато
+// (игроком, админом или вчера), тогда бесплатно; иначе списывает
+// actionPointCost или отказывает ErrNoActionPoints, ничего не меняя.
+func (g *Game) startAction(started bool) error {
+	if started {
+		return nil
+	}
+	if g.ActionPoints < actionPointCost {
+		return ErrNoActionPoints
+	}
+	g.ActionPoints -= actionPointCost
+	return nil
+}
+
 // RepairClick — один клик починки сломанного ПК: чинит на N-й клик
-// (N — RepairTarget(), роллится при поломке, ITGAME-93).
+// (N — RepairTarget(), роллится при поломке, ITGAME-93). Первый клик стоит очко действий (ITGAME-127).
 func (g *Game) RepairClick(office, slot int) error {
 	o, err := g.office(office)
 	if err != nil {
@@ -390,6 +409,9 @@ func (g *Game) RepairClick(office, slot int) error {
 	e := &o.Employees[slot]
 	if !e.PCBroken {
 		return ErrNotBroken
+	}
+	if err := g.startAction(e.RepairClicks > 0); err != nil {
+		return err
 	}
 	e.repairClick()
 	return nil
@@ -475,6 +497,7 @@ func (g *Game) NextDay() error {
 	g.DayVirusLost = 0
 	g.DayAdminRepairs = 0
 	g.DayAdminCleaned = 0
+	g.ActionPoints = g.cfg.ActionPointsPerDay // утро: очки снова полные (ITGAME-127)
 	g.AVTierBilled = g.AVTier
 	// Рынок: вчерашний «завтра» становится сегодня, роллится новый завтра —
 	// тренд всегда виден на день вперёд (Сложность 2.0).

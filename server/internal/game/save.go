@@ -33,7 +33,9 @@ var ErrBadSave = errors.New("bad_save")
 // Config.EventBudget (бюджет случайных событий дня), Employee.RaisePct (накопленное повышение,
 // %) и DayEvent.RaisePct (% повышения, брошенный при плане), Save.incomeCarry (дробный остаток
 // дохода компании); Config.RaiseBoostMult убран; решение владельца 21.10.
-const SaveFormat = 3
+// 4 — ITGAME-127: очки действий директора — Config.ActionPointsPerDay и Save.actionPoints
+// (остаток на сегодня); решение владельца 21.10.
+const SaveFormat = 4
 
 // Save — сериализуемый слепок Game: конфиг плюс все поля состояния.
 // Поле в день отчёта (Phase=day_report) валидно: TickInDay при этом равен
@@ -64,6 +66,7 @@ type Save struct {
 	DayVirusLost      int        `json:"dayVirusLost"`    // упущено из-за вируса за день
 	DayAdminRepairs   int        `json:"dayAdminRepairs"` // ПК, починенных админами за день (ITGAME-101)
 	DayAdminCleaned   int        `json:"dayAdminCleaned"` // мест, вычищенных админами за день
+	ActionPoints      int        `json:"actionPoints"`    // очков действий осталось на сегодня (ITGAME-127)
 	DayEvents         []DayEvent `json:"dayEvents"`
 	ActiveEvent       *DayEvent  `json:"activeEvent"`
 	EventLog          []string   `json:"eventLog"`
@@ -87,7 +90,7 @@ func (g *Game) Export() Save {
 		DayIncome: g.DayIncome, DayEventMoney: g.DayEventMoney, PrevDayIncome: g.PrevDayIncome, PeakIncomePerTick: g.PeakIncomePerTick,
 		DayIncidents: g.DayIncidents, DayLostIncome: g.DayLostIncome,
 		VirusWaveIn: g.VirusWaveIn, DayVirusPCs: g.DayVirusPCs, DayVirusLost: g.DayVirusLost,
-		DayAdminRepairs: g.DayAdminRepairs, DayAdminCleaned: g.DayAdminCleaned,
+		DayAdminRepairs: g.DayAdminRepairs, DayAdminCleaned: g.DayAdminCleaned, ActionPoints: g.ActionPoints,
 		AVTier: g.AVTier, AVTierBilled: g.AVTierBilled,
 		EventLog:   slices.Clone(g.EventLog),
 		DeadlineOn: g.DeadlineOn, DeadlineGot: g.DeadlineGot, DeadlineGoal: g.DeadlineGoal,
@@ -225,6 +228,10 @@ func Restore(s Save) (*Game, error) {
 	if !(s.IncomeCarry >= 0 && s.IncomeCarry < 1) {
 		return nil, fmt.Errorf("%w: incomeCarry=%v вне [0, 1)", ErrBadSave, s.IncomeCarry)
 	}
+	// Очки действий (ITGAME-127): от нуля до запаса дня — больше утро не даёт.
+	if s.ActionPoints < 0 || s.ActionPoints > s.Config.ActionPointsPerDay {
+		return nil, fmt.Errorf("%w: actionPoints=%d вне [0, %d]", ErrBadSave, s.ActionPoints, s.Config.ActionPointsPerDay)
+	}
 	for oi := range s.Offices {
 		for ei := range s.Offices[oi].Employees {
 			if e := &s.Offices[oi].Employees[ei]; e.PCBroken && e.RepairNeeded <= 0 {
@@ -260,7 +267,7 @@ func Restore(s Save) (*Game, error) {
 		DayIncome: s.DayIncome, DayEventMoney: s.DayEventMoney, PrevDayIncome: s.PrevDayIncome, PeakIncomePerTick: s.PeakIncomePerTick,
 		DayIncidents: s.DayIncidents, DayLostIncome: s.DayLostIncome,
 		VirusWaveIn: s.VirusWaveIn, DayVirusPCs: s.DayVirusPCs, DayVirusLost: s.DayVirusLost,
-		DayAdminRepairs: s.DayAdminRepairs, DayAdminCleaned: s.DayAdminCleaned,
+		DayAdminRepairs: s.DayAdminRepairs, DayAdminCleaned: s.DayAdminCleaned, ActionPoints: s.ActionPoints,
 		AVTier: s.AVTier, AVTierBilled: s.AVTierBilled,
 		EventLog:   s.EventLog,
 		DeadlineOn: s.DeadlineOn, DeadlineGot: s.DeadlineGot, DeadlineGoal: s.DeadlineGoal,

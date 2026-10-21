@@ -1,4 +1,5 @@
-format 3
+format 4
+actionPoints int
 activeEvent *struct
 activeEvent.AVTier int
 activeEvent.Dismissed bool
@@ -13,6 +14,7 @@ adminDept bool
 avTier int
 avTierBilled int
 config struct
+config.ActionPointsPerDay int
 config.AdminClicksPerTick int
 config.AdminDeptPrice int
 config.AdminPrice int

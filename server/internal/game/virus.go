@@ -222,6 +222,7 @@ func (e *Employee) virusClick(cleanClicks int) bool {
 
 // VirusClick — один клик чистки заражённого места: на VirusCleanClicks-й
 // место чисто. Как ремонт, работает и на паузе.
+// Первый клик стоит очко действий (ITGAME-127).
 func (g *Game) VirusClick(office, slot int) error {
 	o, err := g.office(office)
 	if err != nil {
@@ -233,6 +234,9 @@ func (g *Game) VirusClick(office, slot int) error {
 	e := &o.Employees[slot]
 	if !e.Infected {
 		return ErrNotInfected
+	}
+	if err := g.startAction(e.VirusClicks > 0); err != nil {
+		return err
 	}
 	if e.virusClick(g.cfg.VirusCleanClicks) {
 		g.virusSettled(office, cleanedByHand)

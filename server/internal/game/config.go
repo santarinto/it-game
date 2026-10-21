@@ -61,6 +61,9 @@ type Config struct {
 	RepairClicksMin int
 	RepairClicksMax int
 	MasterCallPrice int // «вызвать мастера»: мгновенная починка
+	// Очки действий директора (ITGAME-127): столько на день, утром снова
+	// столько же, остаток не копится. Начать ремонт или чистку места — очко.
+	ActionPointsPerDay int
 
 	// Unseen Forces (итерация 10): дневные события. Числа — GDD «События».
 	EventChancePct  int     // шанс события в дне, %
@@ -221,6 +224,7 @@ func DefaultConfig() Config {
 		RepairClicksMin:         3,
 		RepairClicksMax:         15,
 		MasterCallPrice:         150,
+		ActionPointsPerDay:      8,
 
 		EventChancePct:  65,
 		EventSecondPct:  20,

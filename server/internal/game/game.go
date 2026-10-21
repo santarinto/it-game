@@ -90,6 +90,10 @@ type Game struct {
 	DayAdminRepairs   int // ПК, починенных админами за день (ITGAME-101)
 	DayAdminCleaned   int // мест, вычищенных админами за день
 
+	// Очки действий директора на сегодня (ITGAME-127): NextDay и офлайн-утро
+	// восполняют их до cfg.ActionPointsPerDay.
+	ActionPoints int
+
 	// Вирус (ITGAME-103). VirusWaveIn — тиков партии до волны: общий на
 	// компанию таймер, тикает и в обед, переходит через ночь; 0 — заражённых нет.
 	VirusWaveIn  int
@@ -169,7 +173,7 @@ func NewWithSeed(cfg Config, s1, s2 uint64) *Game {
 		rng:   rand.New(pcg),
 		pcg:   pcg,
 		Seed:  s1,
-		Money: cfg.StartMoney, Phase: PhaseRunning, Day: 1,
+		Money: cfg.StartMoney, Phase: PhaseRunning, Day: 1, ActionPoints: cfg.ActionPointsPerDay,
 		Offices: make([]Office, 3),
 	}
 	g.Offices[0] = Office{Unlocked: true, PCs: cfg.StartPCs, Workplaces: make([]Workplace, cfg.StartPCs)}
