@@ -48,11 +48,13 @@ points, «like a manager's working time», 8 by default.
 
 ## Client
 
-- HUD header, left block: a line «Очки: 6/8» under the money; red (`#b13e53`) at 0.
+- HUD header, left block: «Очки: 6/8» in the money row, right of the sum (a fifth row would not fit `HUD_H`);
+  red (`#b13e53`) at 0.
 - Place label in `OfficeScene`: a broken place whose repair is not started reads «✖ чинить · 1 очко»; once started —
   «✖ чинить k/N» as now. An infected place — the same with its own verb. The place tooltip gets «начать ремонт —
   1 очко действий» (and the virus line likewise) while the action is not started.
-- Error toast `no_action_points`: «Очки действий кончились — мастер или админ. Утром снова 8».
+- Error toast `no_action_points`: «Очки действий кончились — мастер или админ; утром очки восполнятся» (no
+  number: ITGAME-205 will grow the pool).
 - The click routing (`repair_click` / `virus_click` / `motivate` by state) does not change.
 
 ## Bankruptcy forecast (`BankruptInDays`, ITGAME-118)
@@ -61,9 +63,10 @@ Today the template clears `PCBroken` and `Infected` everywhere. New rule:
 
 1. In offices with an admin every broken/infected place counts as fixed, as now (the admin works for free).
 2. Elsewhere build a queue of items `(place, kind)`, `kind` ∈ {repair, virus}. An item already started
-   (`RepairClicks > 0` / `VirusClicks > 0`) costs nothing and counts as fixed today. The rest are ordered by the
-   place's personal output — the `clean` term of `incomeAtTickDetail` (income + level bonus, × raise, × PC level),
-   descending; on the same place repair comes before virus; ties by office, then slot.
+   (`RepairClicks > 0` / `VirusClicks > 0`) costs nothing and counts as fixed today. The rest are ordered by what
+   the fix returns, descending: a repair — the place's personal output (the `clean` term of `incomeAtTickDetail`:
+   income + level bonus, × raise, × PC level), a cleanup — the share the virus takes, output × (1 − `VirusMult`).
+   Ties keep office, slot, repair before virus.
 3. Today: the first `g.ActionPoints` items are fixed for the rest of today. Each next morning another
    `cfg.ActionPointsPerDay` items are fixed. While the queue is not empty the day's income is computed from a
    template with the remaining items still broken/infected; once it is empty the income is the constant `dayExact`
