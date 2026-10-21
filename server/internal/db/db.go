@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -34,11 +35,21 @@ func Connect(ctx context.Context, dsn string) (*DB, error) {
 
 func (d *DB) Close() { d.Pool.Close() }
 
+// migrateLockKey — ключ pg_advisory_xact_lock миграций (ITGAME-228): два мигратора
+// одной базы (два экземпляра на старте; тест после попытки, оборванной таймаутом,
+// пока её транзакция ещё идёт в Postgres) встают в очередь, а не создают одни и те
+// же таблицы разом — тогда второй CREATE падал duplicate key в pg_type (SQLSTATE
+// 23505), и IF NOT EXISTS от этого не спасает.
+const migrateLockKey int64 = 0x6974_6469_726d_6967 // "itdirmig"
+
 // Migrate применяет embed-миграции по порядку имён файлов.
-// Версия = имя файла; применённые хранятся в schema_migrations.
+// Версия = имя файла; применённые хранятся в schema_migrations. Каждая миграция —
+// своя транзакция под блокировкой, и применённость проверяется уже под ней.
 func (d *DB) Migrate(ctx context.Context) error {
-	if _, err := d.Pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS schema_migrations (version text PRIMARY KEY)`); err != nil {
+	if err := d.lockedTx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version text PRIMARY KEY)`)
+		return err
+	}); err != nil {
 		return fmt.Errorf("schema_migrations: %w", err)
 	}
 	entries, err := migrationsFS.ReadDir("migrations")
@@ -51,35 +62,47 @@ func (d *DB) Migrate(ctx context.Context) error {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		var exists bool
-		if err := d.Pool.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)`, name).Scan(&exists); err != nil {
-			return err
-		}
-		if exists {
-			continue
-		}
 		sqlBytes, err := migrationsFS.ReadFile("migrations/" + name)
 		if err != nil {
 			return err
 		}
-		tx, err := d.Pool.Begin(ctx)
-		if err != nil {
+		if err := d.lockedTx(ctx, func(tx pgx.Tx) error {
+			var exists bool
+			if err := tx.QueryRow(ctx,
+				`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)`, name).Scan(&exists); err != nil {
+				return err
+			}
+			if exists {
+				return nil
+			}
+			if _, err := tx.Exec(ctx, string(sqlBytes)); err != nil {
+				return fmt.Errorf("миграция %s: %w", name, err)
+			}
+			_, err := tx.Exec(ctx, `INSERT INTO schema_migrations (version) VALUES ($1)`, name)
 			return err
-		}
-		if _, err := tx.Exec(ctx, string(sqlBytes)); err != nil {
-			tx.Rollback(ctx)
-			return fmt.Errorf("миграция %s: %w", name, err)
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations (version) VALUES ($1)`, name); err != nil {
-			tx.Rollback(ctx)
-			return err
-		}
-		if err := tx.Commit(ctx); err != nil {
+		}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// lockedTx — fn в транзакции под pg_advisory_xact_lock(migrateLockKey). Блокировка
+// транзакционная: снимается коммитом, откатом или обрывом соединения, в пуле не
+// остаётся никогда.
+func (d *DB) lockedTx(ctx context.Context, fn func(pgx.Tx) error) error {
+	tx, err := d.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) // после Commit — no-op
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, migrateLockKey); err != nil {
+		return fmt.Errorf("блокировка миграций: %w", err)
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // Equipment — запись справочника оборудования.

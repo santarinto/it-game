@@ -11,12 +11,15 @@ import (
 )
 
 // Паузы между фоновыми попытками: от retryMin, удваиваясь, до retryMax.
-// attemptTimeout — на одну попытку (подключение и миграции).
 const (
-	retryMin       = 5 * time.Second
-	retryMax       = time.Minute
-	attemptTimeout = 10 * time.Second
+	retryMin = 5 * time.Second
+	retryMax = time.Minute
 )
+
+// attemptTimeout — на одну попытку (подключение и миграции). Переменная ради
+// TestOpenLive: на перегруженном раннере CI миграции не укладывались в 10 с
+// (ITGAME-228), а тест проверяет синхронность первой попытки, не её скорость.
+var attemptTimeout = 10 * time.Second
 
 var errClosed = errors.New("подключение закрыто")
 

@@ -151,6 +151,8 @@ func TestOpenLive(t *testing.T) {
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL не задан — пропускаем интеграционный тест БД")
 	}
+	defer func(was time.Duration) { attemptTimeout = was }(attemptTimeout)
+	attemptTimeout = time.Minute
 	c := Open(dsn, nopLog)
 	defer c.Close()
 	d, err := c.Get()
