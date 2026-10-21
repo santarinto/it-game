@@ -217,6 +217,9 @@ func TestDebugFormatMarksLiveSession(t *testing.T) {
 	if first.Resumed || first.Money != 600 || first.Day != 1 {
 		t.Fatalf("переподключение: resumed=%v money=%d day=%d, хотим новую партию", first.Resumed, first.Money, first.Day)
 	}
+	if !first.Incompatible {
+		t.Fatal("переподключение к сейву чужого формата: первый снапшот без incompatible")
+	}
 	if got := storedFormat(t, saves, sid); got != game.SaveFormat {
 		t.Fatalf("новая партия записала формат %d, хотим %d", got, game.SaveFormat)
 	}

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket/wsjson"
+
 	"itdirector/internal/game"
 	"itdirector/internal/store"
 )
@@ -157,5 +159,59 @@ func TestJournalHeaderBuild(t *testing.T) {
 	var h map[string]any
 	if err := json.Unmarshal(raw, &h); err != nil || h["build"] != "2026.10.17.12.00" {
 		t.Fatalf("заголовок журнала: %s", raw)
+	}
+}
+
+// Первый снапшот говорит клиенту, почему партия новая (ITGAME-174): incompatible — только когда
+// существующий сейв отвергнут из-за чужого формата. Нет сейва, битый сейв и сейв чужого sid
+// остаются тихими (ITGAME-54: «Продолжить» на пропавшем сейве окна не показывает), нормальное
+// продолжение — resumed без incompatible; дальше по сессии поля нет.
+func TestFirstSnapshotTellsWhyPartyIsNew(t *testing.T) {
+	const cur = "2026.10.18.03.00"
+	withBuildVersion(t, cur)
+	const sid = "why-new-1234"
+	for _, tc := range []struct {
+		name         string
+		put          func(saves *store.Store)
+		resumed, why bool
+	}{
+		{"нет сейва", func(*store.Store) {}, false, false},
+		{"битый сейв", func(saves *store.Store) {
+			gen, _ := saves.Begin(sid)
+			saves.Put(sid, gen, []byte("{не json"), time.Now())
+		}, false, false},
+		{"сейв другого sid", func(saves *store.Store) {
+			putEditedSave(t, saves, sid, cur, func(g map[string]any) { g["format"] = game.SaveFormat })
+			raw, _ := saves.Load(sid)
+			var m map[string]any
+			_ = json.Unmarshal(raw, &m)
+			m["sid"] = "someone-else-1"
+			raw, _ = json.Marshal(m)
+			gen, _ := saves.Begin(sid)
+			saves.Put(sid, gen, raw, time.Now())
+		}, false, false},
+		{"формат старше", func(saves *store.Store) {
+			putEditedSave(t, saves, sid, cur, func(g map[string]any) { g["format"] = game.SaveFormat - 1 })
+		}, false, true},
+		{"формат новее, поле сменило тип", func(saves *store.Store) {
+			putEditedSave(t, saves, sid, cur, func(g map[string]any) { g["format"] = game.SaveFormat + 1; g["money"] = "4321" })
+		}, false, true},
+		{"нормальное продолжение", func(saves *store.Store) { putVersionedSave(t, saves, sid, cur) }, true, false},
+	} {
+		saves := newTestStore(t)
+		tc.put(saves)
+		c, ctx := dialSaves(t, saves, savesTestConfig(), time.Hour, "?sid="+sid)
+		first := readResume(t, ctx, c)
+		if first.Resumed != tc.resumed || first.Incompatible != tc.why {
+			t.Fatalf("%s: resumed=%v incompatible=%v, хотим %v/%v", tc.name, first.Resumed, first.Incompatible, tc.resumed, tc.why)
+		}
+		// поле только в первом снапшоте: следующий тик/команда его не несёт
+		if err := wsjson.Write(ctx, c, clientMessage{Type: "set_speed", Speed: 2}); err != nil {
+			t.Fatal(err)
+		}
+		next := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "state" && m.Speed == 2 })
+		if next.Incompatible {
+			t.Fatalf("%s: incompatible во втором снапшоте", tc.name)
+		}
 	}
 }

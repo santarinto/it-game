@@ -18,9 +18,11 @@
 //       sid, как всякая новая партия из меню), день 1, не $4321; её сейв — с version и форматом сервера,
 //       старый файл не тронут
 //   V8  живая партия (продолжение партии V7) помечена: itd.staleSave → live:true, файл сразу формата
-//       FORMAT+1 с версией сервера; itd.away(1) → not_resumed, новая партия дня 1 под тем же sid, карточки
-//       нет, файл снова формата сервера — молчаливое поведение на сегодня (владелец 20.10: «порча до
-//       переподключения»), его изменит ITGAME-174
+//       FORMAT+1 с версией сервера; itd.away(1) → not_resumed, новая партия дня 1 под тем же sid, файл
+//       снова формата сервера, карточки меню нет, а в игре окно (ITGAME-174, владелец 21.10): кнопка
+//       modal.incompatible.ok, текст «Сейв несовместим с новой версией — начата новая партия», внутри
+//       рамки, overlaps/offscreen пусты; настоящий клик мышью по «ОК» закрывает его, партия — новая,
+//       день 1 под тем же sid, темп окном не тронут
 //   V9  метка живой партии (формат по умолчанию), «Сохранить и выйти» → карточка «СЕЙВ НЕСОВМЕСТИМ»
 //   V10 нет pageerror
 //
@@ -247,7 +249,7 @@ try {
     JSON.stringify({ ...p7, file: fileVersion(p7.sid), format: fileFormat(p7.sid), old: fileFormat(), files: readdirSync(savesDir) }))
 
   // V8 живая партия (ITGAME-174, владелец 20.10: «порча до переподключения»): метку держит актор,
-  // переподключение молча начинает новую партию под тем же sid — так сегодня, ITGAME-174 это изменит.
+  // переподключение начинает новую партию под тем же sid и говорит об этом окном (ITGAME-174).
   await menu()
   const p8 = await page.evaluate(async (F) => {
     window.itd.click('menu.continue')
@@ -265,17 +267,50 @@ try {
   const a8 = await page.evaluate(async () => {
     const r = await window.itd.away(1)
     await window.itd.wait((s) => s.connected === true, 8000).catch(() => null)
+    await window.itd.wait(() => window.itd.ids().some((x) => x.id === 'modal.incompatible.ok'), 3000).catch(() => null)
     const st = window.itd.state()
+    // окно: заголовок и строка — две части одной фразы (перенос после «—», как в карточке меню)
+    const parts = window.itd.text().filter((n) => n.visible && n.scene === 'hud' && /несовместим|начата новая/.test(n.text))
+      .map((n) => ({ text: n.text, cx: n.cx, cy: n.cy, w: n.w, h: n.h }))
+    const btn = window.itd.nodes().find((n) => n.id === 'modal.incompatible.ok') ?? null
     return {
       r, day: st.day, balance: st.balance, connected: st.connected, liveSid: window.itd.server().liveSid,
-      stale: window.itd.ids().some((x) => x.id === 'menu.stale'),
+      stale: window.itd.ids().some((x) => x.id === 'menu.stale'), speed: st.speed,
+      parts, btn: btn && { cx: btn.cx, cy: btn.cy, w: btn.w, h: btn.h },
+      title: window.itd.screen().meta?.title ?? null,
+      overlaps: window.itd.overlaps(), offscreen: window.itd.offscreen(),
     }
   })
-  check('V8 itd.away(1): not_resumed, новая партия дня 1 под тем же sid, карточки нет, файл снова формата сервера',
+  // фраза владельца (21.10, вариант Б) — одна: «Сейв несовместим с новой версией — начата новая партия»
+  const NOTICE = 'Сейв несовместим с новой версией — начата новая партия'
+  const noticeText = a8.parts.map((n) => n.text).join(' ')
+  // панель showModal — 460 px по центру сцены: тексты внутри с полем ≥16 px
+  const inPanel = a8.parts.length > 0 && a8.parts.every((n) => n.cx - n.w / 2 >= 640 - 230 + 16 && n.cx + n.w / 2 <= 640 + 230 - 16)
+  check('V8 itd.away(1): not_resumed, новая партия дня 1 под тем же sid; файл снова формата сервера',
     a8.r.code === 'not_resumed' && a8.r.resumed === false && a8.r.sid === sid8 && a8.liveSid === sid8
       && a8.connected && a8.day === 1 && a8.balance !== 4321 && !a8.stale
       && fileFormat(sid8) === FORMAT && fileData(sid8).game.money !== 4321,
-    JSON.stringify({ ...a8, file: fileFormat(sid8), money: fileData(sid8).game.money }))
+    JSON.stringify({ ...a8, parts: undefined, overlaps: undefined, offscreen: undefined, file: fileFormat(sid8), money: fileData(sid8).game.money }))
+  check('V8 окно на экране: modal.incompatible.ok в itd.screen(), текст ровно фразой владельца, внутри рамки, overlaps/offscreen пусты',
+    !!a8.btn && noticeText === NOTICE && a8.title === 'Сейв несовместим с новой версией —' && inPanel
+      && a8.overlaps.length === 0 && a8.offscreen.length === 0,
+    JSON.stringify({ text: noticeText, title: a8.title, parts: a8.parts, btn: a8.btn, overlaps: a8.overlaps, offscreen: a8.offscreen }).slice(0, 600))
+  // настоящий клик мышью по «ОК»: окно закрывается, партия та же новая (день 1, тот же sid), темп не тронут
+  await page.mouse.click(...await page.evaluate((n) => {
+    const r = document.querySelector('canvas').getBoundingClientRect()
+    return [r.left + (n.cx / 1280) * r.width, r.top + (n.cy / 720) * r.height]
+  }, a8.btn))
+  const c8 = await page.evaluate(async () => {
+    await window.itd.wait(() => !window.itd.ids().some((x) => x.id === 'modal.incompatible.ok'), 3000).catch(() => null)
+    const st = window.itd.state()
+    return {
+      open: window.itd.ids().some((x) => x.id === 'modal.incompatible.ok'), day: st.day, speed: st.speed,
+      liveSid: window.itd.server().liveSid, blocker: window.itd.blocker() ?? null,
+    }
+  })
+  check('V8 клик мышью по «ОК»: окно закрыто, партия — новая, день 1 под тем же sid, темп не менялся окном',
+    !c8.open && c8.day === 1 && c8.liveSid === sid8 && c8.speed === a8.speed && !c8.blocker,
+    JSON.stringify({ c8, speedBefore: a8.speed }))
 
   // V9 метка живой партии и «Сохранить и выйти»: карточка (рецепт агента из навыка приёмки)
   const p9 = await page.evaluate(() => window.itd.staleSave())

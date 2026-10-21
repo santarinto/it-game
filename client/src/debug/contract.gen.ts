@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "ed8c0f2b56a1",
+  "hash": "1a093add9805",
   "methods": {
     "version": {
       "kind": "prop",
@@ -3752,6 +3752,11 @@ export const CONTRACT = {
           "type": "boolean",
           "optional": false,
           "doc": "снапшот восстановленной сессии (ITGAME-8)"
+        },
+        "incompatible": {
+          "type": "boolean",
+          "optional": true,
+          "doc": "первый снапшот новой партии: сейв под этим sid был чужого формата и отвергнут (ITGAME-174)"
         },
         "offlineReport": {
           "type": "boolean",

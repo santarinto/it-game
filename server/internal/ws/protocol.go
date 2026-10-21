@@ -106,6 +106,7 @@ type stateMessage struct {
 	DayLog        []string `json:"dayLog"`
 	Prices        prices   `json:"prices"`
 	OfflineReport bool     `json:"offlineReport,omitempty"` // первый снапшот после resume: следом идёт offline_report (ITGAME-76)
+	Incompatible  bool     `json:"incompatible,omitempty"`  // первый снапшот новой партии: сейв был чужого формата и отвергнут (ITGAME-174)
 }
 
 // officeInfo — офис в снапшоте: всё для отрисовки комнаты и панели.

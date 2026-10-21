@@ -197,6 +197,9 @@ export class HUDScene extends Phaser.Scene {
   // «Нет связи» и ожидание связи (ITGAME-85) — kind говорит, какое открыто.
   private exitModalClose!: (() => void) | null
   private exitModalKind!: 'exit' | 'surrender' | 'nolink' | 'wait' | null
+  // Окно «Сейв несовместим…» (ITGAME-174): живёт в HUD, который переживает resetForNewGame;
+  // скорость партии не трогает — новая партия идёт как обычно.
+  private incompatibleClose!: (() => void) | null
   // «Подождать» без связи (ITGAME-85): скорость возврата для exit, который уйдёт с первым
   // снапшотом нового сокета; null — не ждём.
   private exitWaitResume!: number | null
@@ -232,6 +235,7 @@ export class HUDScene extends Phaser.Scene {
     this.offlineUI = []
     this.exitModalClose = null
     this.exitModalKind = null
+    this.incompatibleClose = null
     this.exitWaitResume = null
     this.noLinkToasted = false
     this.reconnectUI = []
@@ -402,6 +406,9 @@ export class HUDScene extends Phaser.Scene {
       onState: (s) => {
         this.noLinkToasted = false // снапшот пришёл — связь есть, следующий обрыв — новая серия
         this.refresh(s)
+        // Сервер отверг сейв чужого формата и начал новую партию (ITGAME-174): флаг только в
+        // первом снапшоте сокета, а net.ts уже сделал resetForNewGame — окно поднимается поверх.
+        if (s.incompatible) this.showIncompatibleNotice()
         // «Подождать» (ITGAME-85): связь вернулась — exit уходит с первым снапшотом.
         if (this.exitWaitResume !== null) this.trySendExit(this.exitWaitResume)
       },
@@ -443,6 +450,12 @@ export class HUDScene extends Phaser.Scene {
     if (kb) {
       for (const name of ['ENTER', 'SPACE', 'ESC'] as const) {
         kb.on(`keydown-${name}`, () => {
+          // Окно «Сейв несовместим…» (ITGAME-174): одна кнопка, Enter/Space/Esc — «ОК».
+          if (this.incompatibleClose) {
+            this.incompatibleClose()
+            emitUi({ type: 'key', key: name, scene: this.scene.key, action: 'close_modal' })
+            return
+          }
           // Диалог выхода сверху (ITGAME-65): Esc = «Отмена», Enter/Space под ним отчёт не листают.
           // В «Удалить партию навсегда?» (ITGAME-86) фокус на «Отмена»: Enter/Space — тоже отмена.
           if (this.exitModalClose) {
@@ -1606,6 +1619,8 @@ export class HUDScene extends Phaser.Scene {
     this.closeVictory()
     this.closeDoom()
     this.doomDay = 0 // новая партия того же дня покажет плашку заново
+    this.incompatibleClose?.()
+    this.incompatibleClose = null
     this.exitModalClose?.()
     this.exitModalClose = null
     this.exitModalKind = null
@@ -1621,6 +1636,19 @@ export class HUDScene extends Phaser.Scene {
     this.logDay = { key: '', shown: 0 }
     this.logText.setText('')
     this.hideCoach()
+  }
+
+  // Живая вкладка вернулась к сейву другого формата (ITGAME-174): сервер начал новую партию под
+  // тем же sid — игрок должен об этом узнать, а не обнаружить день 1 и $600. Заголовок и строка —
+  // одна фраза владельца (перенос после «—», как в карточке меню); темп не трогаем.
+  private showIncompatibleNotice() {
+    this.hideButtonTooltip()
+    this.incompatibleClose?.()
+    const done = () => { this.incompatibleClose = null }
+    const close = showModal(this, 'Сейв несовместим с новой версией —', ['начата новая партия'], [
+      { label: 'ОК', id: 'modal.incompatible.ok', focus: true, onClick: done },
+    ], undefined, done)
+    this.incompatibleClose = () => { close(); done() }
   }
 
   // Выход в меню с сейвами (ITGAME-8): выход сохраняет прогресс, сдаться —

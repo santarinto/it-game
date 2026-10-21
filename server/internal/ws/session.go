@@ -383,6 +383,8 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		rv          = &revClock{}     // версия состояния (ITGAME-45)
 		saveFormat  = game.SaveFormat // формат, которым актор пишет сейв; debug-метка (ITGAME-154) меняет его до выхода актора
 	)
+	// Сейв отвергнут из-за чужого формата (ITGAME-174): первый снапшот скажет клиенту почему.
+	var incompatible bool
 	withSaves := h.Saves != nil && store.ValidSID(sid)
 	var rt *resumeTrace // журнал партии (ITGAME-46): сейв до офлайн-догона
 	if h.Journal {
@@ -395,7 +397,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		// тики/команды прежнего актора в окне Load→Begin сохранялись, уходили
 		// его вкладке — и пропадали в поднятой партии.
 		gen, kick = h.Saves.Begin(sid)
-		g, speed, lastReport, offline, resumed, scenario, journal, savedAt, rv.rev = h.resume(sid, gen, rt)
+		g, speed, lastReport, offline, resumed, scenario, journal, savedAt, rv.rev, incompatible = h.resume(sid, gen, rt)
 		if h.afterLoad != nil {
 			h.afterLoad(sid)
 		}
@@ -486,6 +488,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 	// (приёмка ITGAME-65, 10.10: «часы ушли, окна нет» выводилось косвенно).
 	sendOffline := resumed && offline != nil && (offline.Ticks > 0 || offline.GameOver || offline.Victory)
 	first := rv.stamp(snapshot(g, speed, resumed, scenario))
+	first.Incompatible = incompatible
 	first.OfflineReport = sendOffline // ITGAME-76: клиент знает, ждать ли offline_report следом
 	hub.write(ctx, first)
 	if sendOffline {
@@ -644,23 +647,25 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 
 // resume — восстановить игру из сейва (если есть и валиден). Невалидный
 // или терминальный сейв удаляется — сессия начнётся заново.
-func (h *Handler) resume(sid string, gen uint64, rt *resumeTrace) (g *game.Game, speed int, last *game.DayReport, offline *game.OfflineSummary, ok bool, scenario string, journal *eventJournal, savedAt time.Time, rev uint64) {
+func (h *Handler) resume(sid string, gen uint64, rt *resumeTrace) (g *game.Game, speed int, last *game.DayReport, offline *game.OfflineSummary, ok bool, scenario string, journal *eventJournal, savedAt time.Time, rev uint64, incompatible bool) {
 	journal = newEventJournal(500) // даже без сейва журнал валиден
 	raw, found := h.Saves.Load(sid)
 	if !found {
-		return nil, 1, nil, nil, false, "", journal, time.Time{}, 0
+		return nil, 1, nil, nil, false, "", journal, time.Time{}, 0, false
 	}
 	var ss sessionSave
 	// Сейв другого формата — как битый (ITGAME-169): новая партия под тем же sid, её первый
 	// сейв перезапишет файл; меню об этом уже сказало (save_summary.incompatible).
 	if json.Unmarshal(raw, &ss) != nil || ss.SID != sid || incompatibleSave(ss.Game.Format) {
 		h.Saves.Finish(sid, gen) // не Delete: тот закрыл бы kick — наш же (владеем с Begin)
-		return nil, 1, nil, nil, false, "", journal, time.Time{}, 0
+		// Причина «чужой формат» — только если сейв декодировался и принадлежит этому sid:
+		// битый, чужой по sid и отсутствующий остаются тихими (ITGAME-174).
+		return nil, 1, nil, nil, false, "", journal, time.Time{}, 0, ss.SID == sid && incompatibleSave(ss.Game.Format)
 	}
 	g, err := game.Restore(ss.Game)
 	if err != nil {
 		h.Saves.Finish(sid, gen)
-		return nil, 1, nil, nil, false, "", journal, time.Time{}, 0
+		return nil, 1, nil, nil, false, "", journal, time.Time{}, 0, false
 	}
 	speed = min(max(ss.Speed, 0), 3)
 	miss := offlineTicks(ss.SavedAt, speed, h.TickInterval)
@@ -678,7 +683,7 @@ func (h *Handler) resume(sid string, gen uint64, rt *resumeTrace) (g *game.Game,
 	for _, ev := range ss.Events {
 		journal.add(ev)
 	}
-	return g, speed, ss.LastReport, offline, true, ss.Scenario, journal, ss.SavedAt, ss.Rev
+	return g, speed, ss.LastReport, offline, true, ss.Scenario, journal, ss.SavedAt, ss.Rev, false
 }
 
 // newGame — новая партия: ?seed= задаёт сид, иначе случайный. Битая строка

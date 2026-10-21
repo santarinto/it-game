@@ -40,6 +40,7 @@ type testMessage struct {
 	Day          int      `json:"day"`
 	Clock        string   `json:"clock"`
 	Resumed      bool     `json:"resumed"`
+	Incompatible bool     `json:"incompatible"` // ITGAME-174: первый снапшот новой партии после отвергнутого сейва чужого формата
 	Phase        string   `json:"phase"`
 	Speed        int      `json:"speed"`
 	Payroll      int      `json:"payroll"`

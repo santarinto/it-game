@@ -29,6 +29,7 @@
 //   E2   после этого nav.office0 active, nav.office1 нет (ITGAME-54)
 //   E3   в офисе нет «закрыт», есть «ОФИС 1» (ITGAME-54)
 //   E4   btn.pc шлёт buy_pc с office 0, нет office_locked (ITGAME-54)
+//   E5   там же нет окна «Сейв несовместим…» (modal.incompatible.ok): сейва не было, а не чужой формат (ITGAME-174)
 //   R1   живая партия с открытым О2 (купили через itd.cmd), выход в меню на nav.office1,
 //        «Продолжить»: сервер сообщил resumed === true в первом снапшоте сокета (ITGAME-54)
 //   R2   после этого nav.office1 по-прежнему active, nav.office0 нет — восстановленная партия
@@ -429,6 +430,12 @@ async function run() {
       'E3: в офисе нет «закрыт», есть «ОФИС 1» (ITGAME-54)',
       !e3Texts.some((t) => /закрыт/.test(t)) && e3Texts.some((t) => t === 'ОФИС 1'),
       JSON.stringify(e3Texts),
+    )
+    const e5ids = await page.evaluate(() => window.itd.ids().map((x) => x.id))
+    check(
+      'E5: «Продолжить» на пропавшем сейве — окна «Сейв несовместим…» нет (ITGAME-174)',
+      !e5ids.includes('modal.incompatible.ok'),
+      JSON.stringify(e5ids.filter((i) => /^modal\./.test(i))),
     )
     await page.evaluate(async () => {
       await window.itd.set({ money: 5000 })
