@@ -969,11 +969,12 @@ on normal one evening in overdraft and bankruptcy the next, most often on day 3;
 on hard credit carries it to day 10–15) — the price of being away;
 `delegate` clicks an office until it has an admin and hires one into every
 office that grows to 4 as soon as the money allows (the department first) — the
-price of delegating: normal greedy median $156,385, handsoff $36,917, delegate
-$144,342 (3 bankrupt of 300 each — parties where a PC died while in debt);
-hard $29,190 / $1,186 / $18,862 (median money on the last row of each party;
-re-measured with ITGAME-135 workplaces, 20.10 — before them normal $135,061 /
-$38,218 / $125,018 and hard $35,994 / $1,196 / $27,794).
+price of delegating: normal greedy median $156,872, handsoff $35,968, delegate
+$144,801 (no bankruptcies); hard $28,657 / $1,247 / $18,035 (median money on
+the last row of each party; re-measured 21.10 after ITGAME-196/203 — on 20.10
+with ITGAME-135 workplaces normal was $156,385 / $36,917 / $144,342 with 3
+bankrupt of 300 each, hard $29,190 / $1,186 / $18,862; before workplaces normal
+$135,061 / $38,218 / $125,018 and hard $35,994 / $1,196 / $27,794).
 
 The department room (ITGAME-145, `AdminDeptScene`, scene key `adminDept`): the
 fifth nav tab «АДМ» (`nav.adminDept`) under «СРВ» — while not bought a lock
@@ -1701,15 +1702,25 @@ policy run, after the summary: averages per played day (a day with a
 `total` (breakdowns + pool), plus `second` (share of days with two pool
 events), `max` (largest daily total), `ge3` (share of days with total
 ≥ 3) and `capped` (share of days whose total reached the run's daily
-random-event budget `EventBudget`; always 0% with no budget). `--answer-raise accept|decline` makes the sim answer every «Просит
+random-event budget `EventBudget`; always 0% with no budget).
+`--answer-raise accept|decline` makes the sim answer every «Просит
 повышения» card the tick it appears (default: it does not answer). None of
-this touches the CSV or the save. Reference
-(300 seeds × 30 days, greedy, re-measured with ITGAME-135 workplaces, 20.10):
-normal 3/300 bankrupt (median $156,385; $135,061 before), easy 300/300 wins
-($60,164), hard 0/300 bankrupt (median $29,190; $35,994 before — the cost of the
-replacement expense on a thin margin, accepted), hardcore 12/300 bankrupt (the
-other 288 `time_up`, $678). The random counts below stay as history; normal
-random with workplaces: bankrupt 90, deadlock 210, unchanged.
+this touches the CSV or the save. Reference (300 seeds × 30 days, greedy,
+re-measured 21.10 after ITGAME-196/203: breakdown 1.5%/tick, daily event
+budget, random 1–3% raise, exact income): easy 300/300 wins (median
+$60,175), normal 300 `timeout` (median $156,872), hard 300 `timeout`
+(median $28,657), hardcore 6/300 bankrupt (the other 294 `time_up`, $640).
+Events per played day, `total`: 1.16 / 1.47 / 1.61 / 1.85 (easy / normal /
+hard / hardcore), breakdowns 0.60 / 0.72 / 0.71 / 0.75, virus in the plan
+0.129 / 0.230 / 0.323 / 0.471 (once per 7.8 / 4.3 / 3.1 / 2.1 days).
+Before (ITGAME-135 workplaces, 20.10, no budget, breakdown 2%): normal
+3/300 bankrupt (median $156,385; $135,061 before that), easy $60,164, hard
+$29,190 ($35,994 before — the cost of the replacement expense on a thin
+margin, accepted), hardcore 12/300 bankrupt ($678). The ITGAME-196 before →
+after 50-seed table (events per day, `max`, `ge3`, medians, «always accept
+the raise») is in the GDD, «Активный день». The random counts below stay
+as history; normal random with workplaces: bankrupt 90, deadlock 210,
+unchanged.
 ITGAME-156 (overdraft on Easy/Normal, 18.10, `--policy all`): normal random
 bankrupt 90 → 90 and deadlock 210 → 210 — the counts stay, but every one of
 the 90 bankruptcies moves exactly one day later (day 2–5 → day 3–6: the
