@@ -179,7 +179,7 @@ func runOne(w *csv.Writer, cfg game.Config, name string, policy policyFunc, seed
 				}
 				writeRow(w, name, seed, report, outcome)
 				records[name] = append(records[name], dayRecord{Breakdowns: report.Incidents,
-					Infected: report.VirusPCs, Outbreaks: outbreaks, Plan: plan})
+					Infected: report.VirusPCs, Outbreaks: outbreaks, Plan: plan, Budget: cfg.EventBudget})
 				break
 			}
 			if g.Phase == game.PhaseWon {

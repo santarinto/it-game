@@ -21,6 +21,7 @@ type dayRecord struct {
 	Infected   int                  // DayReport.VirusPCs — заражённых ПК на конец дня
 	Outbreaks  int                  // вспышки вируса, заразившие ≥1 ПК (не «отбит»)
 	Plan       map[game.EventID]int // план g.DayEvents сразу после NextDay
+	Budget     int                  // cfg.EventBudget партии (ITGAME-196); 0 — бюджета нет
 }
 
 func (d dayRecord) pool() int {
@@ -32,10 +33,11 @@ func (d dayRecord) pool() int {
 }
 
 // eventStatsLine — строка «sim events: …» по записям дней одной политики:
-// средние на сыгранный день (3 знака), доли в процентах (1 знак).
+// средние на сыгранный день (3 знака), доли в процентах (1 знак). capped —
+// доля дней, где потрачено (поломки + план пула) дошло до ненулевого бюджета.
 func eventStatsLine(diff, policy string, seeds, days int, recs []dayRecord) string {
 	n := len(recs)
-	var bd, inf, out, pool, second, maxTotal, ge3 int
+	var bd, inf, out, pool, second, maxTotal, ge3, capped int
 	kind := map[game.EventID]int{}
 	for _, r := range recs {
 		p := r.pool()
@@ -54,6 +56,9 @@ func eventStatsLine(diff, policy string, seeds, days int, recs []dayRecord) stri
 		if t >= 3 {
 			ge3++
 		}
+		if r.Budget > 0 && t >= r.Budget {
+			capped++
+		}
 	}
 	per := func(a int) float64 {
 		if n == 0 {
@@ -61,11 +66,11 @@ func eventStatsLine(diff, policy string, seeds, days int, recs []dayRecord) stri
 		}
 		return float64(a) / float64(n)
 	}
-	return fmt.Sprintf("sim events: diff=%s policy=%s seeds=%d days=%d played=%d breakdowns=%.3f outbreaks=%.3f infected=%.3f pool=%.3f virus=%.3f deadline=%.3f audit=%.3f raise=%.3f star=%.3f second=%.1f%% total=%.3f max=%d ge3=%.1f%%",
+	return fmt.Sprintf("sim events: diff=%s policy=%s seeds=%d days=%d played=%d breakdowns=%.3f outbreaks=%.3f infected=%.3f pool=%.3f virus=%.3f deadline=%.3f audit=%.3f raise=%.3f star=%.3f second=%.1f%% total=%.3f max=%d ge3=%.1f%% capped=%.1f%%",
 		diff, policy, seeds, days, n, per(bd), per(out), per(inf), per(pool),
 		per(kind[game.EventVirus]), per(kind[game.EventDeadline]), per(kind[game.EventAudit]),
 		per(kind[game.EventRaise]), per(kind[game.EventStar]),
-		pct(second, n), per(bd+pool), maxTotal, pct(ge3, n))
+		pct(second, n), per(bd+pool), maxTotal, pct(ge3, n), pct(capped, n))
 }
 
 // dayPlan — план событий дня по видам, снятый после NextDay.
