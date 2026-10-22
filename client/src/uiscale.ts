@@ -82,14 +82,30 @@ export function setCssZoom(game: Phaser.Game, z: number): void {
   applyCanvasFilter(game, z)
 }
 
+// Выбор масштаба записан в общий ключ (ITGAME-155): itd.sandbox отмечает в своей записи, что
+// значение написала вкладка песочницы, — restore() вернёт ключ владельца, а масштаб, выбранный
+// владельцем в своей вкладке, не тронет. Слушатель один: его ставит debug-фасад.
+let zoomWritten: ((v: string) => void) | null = null
+export function onZoomWrite(cb: (v: string) => void): void {
+  zoomWritten = cb
+}
+
 export function applyZoom(game: Phaser.Game, v: ZoomValue): void {
   chosenZoom = v
   try {
     localStorage.setItem(ZOOM_KEY, String(v))
+    zoomWritten?.(String(v))
   } catch {
     // не запомнили между запусками — в этой вкладке выбор держит chosenZoom
   }
   setCssZoom(game, v === FIT ? fitZoom() : v)
+}
+
+// Ключ вернули извне (itd.sandbox.restore(), ITGAME-155): выбор вкладки в памяти забыт, масштаб —
+// снова из ключа; меню после перезапуска подсвечивает его же.
+export function rereadZoom(game: Phaser.Game): void {
+  chosenZoom = null
+  setCssZoom(game, zoomNumber())
 }
 
 export function zoomLabel(v: ZoomValue): string {

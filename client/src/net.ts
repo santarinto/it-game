@@ -114,6 +114,8 @@ export interface SandboxRecord {
   ownerSid: string | null // localStorage itd.sid при входе
   ownerDiff: string | null // localStorage itd.diff при входе
   ownerOnboard?: string | null // localStorage itd.onboard при входе (ITGAME-21); нет поля — запись старой вкладки
+  ownerZoom?: string | null // localStorage itd.uiScale при входе (ITGAME-155); нет поля — запись старой вкладки
+  zoom?: string // последний масштаб, который вкладка песочницы записала в itd.uiScale (uiscale.ts onZoomWrite)
   tabSid: string | null // sessionStorage itd.sid вкладки при входе
   tabAuto: string | null // sessionStorage itd.sid.auto при входе
   fake: { sid: string; diff: string } | null // «чужой» общий ключ fakeOwner()

@@ -65,6 +65,11 @@
 //   X4  вторая партия после «Сдаться» — новый sid песочницы, общий ключ не перезаписан
 //   X5  restore(): sidSame/diffSame, ключи владельца (и itd.onboard, ITGAME-21) возвращены, служебные убраны; повтор — no_sandbox
 //   X6  владелец сам сменил общий ключ — restore() его не перетирает (kept)
+//   X5–X7 (ITGAME-155) itd.uiScale: песочница запоминает его при входе. X5 — при входе ключа не было, агент
+//       кликнул menu.zoom.1 → menu.zoom.1.4 (null → '1' → '1.4'), restore() ключ удалил (restored); X6 —
+//       владелец сам поставил 'fit' — kept, не перетёрт; X7 — у владельца '1', агент выбрал «по окну», F5,
+//       restore() вернул '1' (restored); X7b — то же без F5 (выбор в памяти вкладки): меню после перезапуска
+//       подсвечивает menu.zoom.1, CSS-зум канваса — снова 1×
 //   P1  itd.play (ITGAME-73) на fresh, сид 7, тик 0: set_speed 0 → hire → hire → days1 → buy_pc → hire → days1 —
 //       вердикты ok/ok/FAIL no_free_pc/ok/ok/FAIL not_enough_money/ok, цепочка балансов 600>300>599>24>323,
 //       «до» шага = «после» прошлого, без «нет rev», строка «cmd | ok/FAIL code | dN tN | бал>бал | staff a>b | pay N | phase»
@@ -907,10 +912,14 @@ async function run() {
     await ps.goto(`${BASE}/?debug=1&seed=1`, { waitUntil: 'domcontentloaded' })
     await waitMenuReady(ps)
     // QA-скрипт пишет в localStorage сам: это «владелец» (агенту в браузере так нельзя — для этого fakeOwner)
+    // ITGAME-155: масштаб — общий ключ браузера; прежние кейсы его переписали — вернём после X7
+    const zoomBefore = await ps.evaluate(() => localStorage.getItem('itd.uiScale'))
     await ps.evaluate(() => {
       localStorage.setItem('itd.sid', 'owner-qa38'); localStorage.setItem('itd.diff', 'normal')
       // владелец ещё не прошёл онбординг HUD: браузер общий с прежними кейсами, они могли записать done (ITGAME-21)
       localStorage.removeItem('itd.onboard')
+      // ITGAME-155: масштаба владелец не выбирал (шаг A4 ретро 17.10: ключа нет)
+      localStorage.removeItem('itd.uiScale')
     })
     await ps.reload({ waitUntil: 'domcontentloaded' })
     await waitMenuReady(ps)
@@ -925,6 +934,13 @@ async function run() {
       JSON.stringify(x1),
     )
     await ps.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
+    // ITGAME-155: агент в песочнице переключил масштаб, как в шаге A4: null → '1' → '1.4'
+    const x1zoom = await ps.evaluate(() => {
+      const a = window.itd.click('menu.zoom.1')
+      const k1 = localStorage.getItem('itd.uiScale')
+      const b = window.itd.click('menu.zoom.1.4')
+      return { a: a.ok, k1, b: b.ok, k2: localStorage.getItem('itd.uiScale') }
+    })
     await ps.evaluate(() => window.itd.click('menu.diff.normal'))
     await ps.waitForFunction(() => window.itd.state().connected === true, { timeout: 20000 })
     const x2 = await ps.evaluate(() => ({
@@ -972,7 +988,7 @@ async function run() {
       return {
         r, again: window.itd.sandbox.restore(), ls: [localStorage.getItem('itd.sid'), localStorage.getItem('itd.diff')],
         tab: sessionStorage.getItem('itd.sid'), rec: sessionStorage.getItem('itd.sandbox'), sid: window.itd.server().sid,
-        onboard: localStorage.getItem('itd.onboard'),
+        onboard: localStorage.getItem('itd.onboard'), zoom: localStorage.getItem('itd.uiScale'),
       }
     })
     const x5c = {
@@ -988,20 +1004,71 @@ async function run() {
       Object.values(x5c).every(Boolean),
       JSON.stringify({ conditions: x5c, x5 }),
     )
+    check(
+      "X5 (ITGAME-155): масштаб, выбранный в песочнице (null → '1' → '1.4'), — restore() удалил ключ (при входе его не было) и назвал в restored",
+      x1zoom.a && x1zoom.k1 === '1' && x1zoom.b && x1zoom.k2 === '1.4' &&
+        x5.zoom === null && x5.r.restored.includes('localStorage.itd.uiScale') && !x5.r.kept.includes('localStorage.itd.uiScale'),
+      JSON.stringify({ x1zoom, zoom: x5.zoom, restored: x5.r.restored, kept: x5.r.kept }),
+    )
     // Владелец сам сменил общий ключ в другой вкладке — restore() его не перетирает
     await ps.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
     const x6 = await ps.evaluate(() => {
       window.itd.sandbox('qa38b')
       localStorage.setItem('itd.sid', 'owner-new')
+      localStorage.setItem('itd.uiScale', 'fit') // ITGAME-155: масштаб владелец выбрал в своей вкладке
       const r = window.itd.sandbox.restore()
-      return { r, ls: localStorage.getItem('itd.sid') }
+      return { r, ls: localStorage.getItem('itd.sid'), zoom: localStorage.getItem('itd.uiScale') }
     })
     check(
       'X6: чужое значение общего ключа — sidSame false, kept, не перетёрто',
       x6.r.ok && x6.r.sidSame === false && x6.r.diffSame === true && x6.r.kept.includes('localStorage.itd.sid') && x6.ls === 'owner-new',
       JSON.stringify(x6),
     )
-    await ps.evaluate(() => { localStorage.removeItem('itd.sid'); localStorage.removeItem('itd.diff') })
+    check(
+      "X6 (ITGAME-155): масштаб, который песочница не писала ('fit' владельца), — kept, не перетёрт",
+      x6.zoom === 'fit' && x6.r.kept.includes('localStorage.itd.uiScale') && !x6.r.restored.includes('localStorage.itd.uiScale'),
+      JSON.stringify({ zoom: x6.zoom, restored: x6.r.restored, kept: x6.r.kept }),
+    )
+    // X7 (ITGAME-155): у владельца '1', агент выбрал «по окну» и перезагрузил вкладку — restore() вернул '1'
+    await ps.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
+    await ps.evaluate(() => { localStorage.setItem('itd.uiScale', '1'); window.itd.sandbox('qa38z') })
+    await ps.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
+    const x7click = await ps.evaluate(() => ({ ok: window.itd.click('menu.zoom.fit').ok, zoom: localStorage.getItem('itd.uiScale') }))
+    await ps.reload({ waitUntil: 'domcontentloaded' })
+    await waitMenuReady(ps)
+    const x7 = await ps.evaluate(() => {
+      const r = window.itd.sandbox.restore()
+      return { r, zoom: localStorage.getItem('itd.uiScale') }
+    })
+    check(
+      "X7 (ITGAME-155): у владельца '1', в песочнице «по окну» и F5 — restore() вернул '1' (restored): метка «писала песочница» пережила перезагрузку",
+      x7click.ok && x7click.zoom === 'fit' && x7.r.ok && x7.zoom === '1' && x7.r.restored.includes('localStorage.itd.uiScale'),
+      JSON.stringify({ x7click, x7 }),
+    )
+    // X7b: без перезагрузки выбор вкладки живёт в памяти (uiscale.ts) — после restore() меню и канвас берут ключ владельца
+    await ps.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
+    await ps.evaluate(() => window.itd.sandbox('qa38y'))
+    await ps.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
+    const x7b = await ps.evaluate(async () => {
+      const zoomAt = () => window.__itd.scale.zoom
+      const click = window.itd.click('menu.zoom.1.4').ok
+      const z14 = zoomAt()
+      const r = window.itd.sandbox.restore()
+      await window.itd.wait((s) => s.menuReady, 8000)
+      const active = window.itd.ids().filter((n) => n.id.startsWith('menu.zoom.') && n.active === true).map((n) => n.id)
+      return { click, r, zoom: localStorage.getItem('itd.uiScale'), active, z14, z1: zoomAt() }
+    })
+    check(
+      "X7b (ITGAME-155): в песочнице 1.4× без F5 — restore() вернул '1', меню подсвечивает menu.zoom.1, CSS-зум канваса — снова 1×",
+      x7b.click && x7b.r.ok && x7b.zoom === '1' && x7b.r.restored.includes('localStorage.itd.uiScale') &&
+        JSON.stringify(x7b.active) === JSON.stringify(['menu.zoom.1']) && x7b.z1 < x7b.z14,
+      JSON.stringify(x7b),
+    )
+    await ps.evaluate((z) => {
+      localStorage.removeItem('itd.sid'); localStorage.removeItem('itd.diff')
+      if (z === null) localStorage.removeItem('itd.uiScale')
+      else localStorage.setItem('itd.uiScale', z)
+    }, zoomBefore)
     await ps.close()
 
     // ── P1–P3 (ITGAME-73): партия и бухгалтерия из консоли. Своя вкладка с сидом 7

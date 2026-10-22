@@ -27,6 +27,14 @@ const RING = 200
 const ERR_KEY = 'itd.errors'
 const LOADS_KEY = 'itd.loads'
 const ERR_RING = 100
+// itd.errors({since}) (ITGAME-155): журнал переживает F5, и записи прошлых загрузок (ретро 17.10:
+// две session_not_live 29-часовой давности) агент сперва принимал за ошибки прогона. since меньше
+// этого порога — номер загрузки (load ≥ since), иначе метка времени, мс (t ≥ since).
+export const SINCE_LOAD_MAX = 1e9
+
+// Номер загрузки этой страницы (itd.server().load); 0 — телеметрия ещё не стартовала.
+let currentLoad = 0
+export const pageLoad = (): number => currentLoad
 
 function readStored(): ErrorEntry[] {
   try {
@@ -50,12 +58,13 @@ function nextLoad(): number {
 
 export interface Telemetry {
   log(n?: number): LogEntry[]
-  errors(): ErrorEntry[]
+  errors(since?: number): ErrorEntry[] // since проверен вызывающим (itd.errors)
 }
 
 export function startTelemetry(game: Phaser.Game): Telemetry {
   const ring: LogEntry[] = []
   const load = nextLoad()
+  currentLoad = load
   const errors: ErrorEntry[] = readStored()
   const pushError = (kind: ErrorEntry['kind'], message: string) => {
     errors.push({ t: Date.now(), kind, message, load, injected: message.includes('itd.injectError:') })
@@ -125,6 +134,7 @@ export function startTelemetry(game: Phaser.Game): Telemetry {
 
   return {
     log: (n = 50) => ring.slice(-n),
-    errors: () => [...errors],
+    errors: (since) =>
+      since === undefined ? [...errors] : errors.filter((e) => (since < SINCE_LOAD_MAX ? e.load : e.t) >= since),
   }
 }

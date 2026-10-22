@@ -29,6 +29,11 @@
 //       wait(connected) snapshot()/scenario('fresh') проходят под ним — 2 запроса /api/debug/state
 //   A15 «Сохранить и выйти» → меню: liveSid null, snapshot() снова not_in_party без запроса;
 //       itd.journal() отдаёт журнал ушедшей партии (sid вкладки, total ≥ 1)
+//   A18 (ITGAME-155) itd.errors({since}) на своей вкладке (тестовые ошибки — не pageerror прогона): ошибка
+//       загрузки 1, F5, ошибка загрузки 2 → без аргумента обе; since: server().load — только загрузки 2;
+//       since: метка времени между ними — только вторая; since в будущем — []; {} — как без аргумента;
+//       since -1 / 1.5 / NaN / строка → {ok:false, code:'bad_since'}; контракт: errors(opts?: ErrorsOptions),
+//       AgentServer.load
 //   + на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
@@ -340,6 +345,60 @@ async function run() {
       'A15: «Сохранить и выйти» → liveSid null, snapshot() — not_in_party без запроса; itd.journal() отдаёт журнал ушедшей партии (ITGAME-131)',
       a15.liveSid === null && a15.snapshot.startsWith('not_in_party: ') && a15Reqs.length === 0 && a15j.sid === sid && a15j.total >= 1,
       JSON.stringify({ ...a15, reqs: a15Reqs, journal: a15j }),
+    )
+
+    // ── A18 (ITGAME-155): itd.errors({since}) — фильтр журнала по времени или номеру загрузки.
+    // Своя вкладка: тестовые ошибки itd.injectError не должны попасть в pageerror прогона.
+    const pe = await browser.newPage()
+    await pe.setViewport({ width: 1920, height: 1080 })
+    const sidE = 'qa39e-' + Date.now().toString(36)
+    await pe.evaluateOnNewDocument((sid) => {
+      try {
+        sessionStorage.setItem('itd.sid', sid)
+      } catch {
+        // приватная вкладка/заблокированное хранилище — не критично для QA
+      }
+    }, sidE)
+    await pe.goto(`${BASE}/?scenario=fresh&seed=1&debug=1`, { waitUntil: 'domcontentloaded' })
+    await waitMenuReady(pe)
+    const e1 = await pe.evaluate(async () => {
+      window.itd.injectError('qa39-load-a')
+      await new Promise((r) => setTimeout(r, 100))
+      return { load: window.itd.server().load, mid: Date.now() + 1 }
+    })
+    await new Promise((r) => setTimeout(r, 20))
+    await pe.reload({ waitUntil: 'domcontentloaded' })
+    await waitMenuReady(pe)
+    const a18 = await pe.evaluate(async (mid) => {
+      const itd = window.itd
+      itd.injectError('qa39-load-b')
+      await new Promise((r) => setTimeout(r, 100))
+      const ours = (list) => (Array.isArray(list) ? list.filter((e) => e.message.includes('qa39-load-')).map((e) => `${e.message.replace(/^.*qa39-load-/, '')}@${e.load}`) : list)
+      const load = itd.server().load
+      return {
+        load,
+        all: ours(itd.errors()),
+        empty: ours(itd.errors({})),
+        byLoad: ours(itd.errors({ since: load })),
+        byTime: ours(itd.errors({ since: mid })),
+        future: itd.errors({ since: Date.now() + 3600000 }),
+        bad: [-1, 1.5, NaN, 'x'].map((v) => { const r = itd.errors({ since: v }); return Array.isArray(r) ? 'массив' : r.code }),
+      }
+    }, e1.mid)
+    const a18c = contract.methods.errors
+    check(
+      'A18: itd.errors({since}) — без аргумента и с {} обе загрузки; since: server().load — только своя загрузка; since: метка времени — только после неё; будущее — []; -1/1.5/NaN/строка → bad_since; контракт errors(opts?: ErrorsOptions), AgentServer.load (ITGAME-155)',
+      typeof e1.load === 'number' && a18.load === e1.load + 1 &&
+        JSON.stringify(a18.all) === JSON.stringify([`a@${e1.load}`, `b@${a18.load}`]) &&
+        JSON.stringify(a18.empty) === JSON.stringify(a18.all) &&
+        JSON.stringify(a18.byLoad) === JSON.stringify([`b@${a18.load}`]) &&
+        JSON.stringify(a18.byTime) === JSON.stringify([`b@${a18.load}`]) &&
+        Array.isArray(a18.future) && a18.future.length === 0 &&
+        a18.bad.every((c) => c === 'bad_since') &&
+        a18c?.params?.[0]?.name === 'opts' && a18c.params[0].type === 'ErrorsOptions' && a18c.params[0].optional === true &&
+        (a18c.returns ?? '').includes("'bad_since'") && !!T.ErrorsOptions?.fields?.since?.doc &&
+        T.AgentServer?.fields?.load?.type === 'number',
+      JSON.stringify({ e1, a18, params: a18c?.params, returns: a18c?.returns, opts: T.ErrorsOptions, load: T.AgentServer?.fields?.load }),
     )
 
     // ── нет ошибок на странице за весь прогон

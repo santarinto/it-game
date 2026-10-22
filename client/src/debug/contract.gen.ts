@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "006cc5a5a96a",
+  "hash": "ce27732098e2",
   "methods": {
     "version": {
       "kind": "prop",
@@ -254,7 +254,7 @@ export const CONTRACT = {
       "kind": "prop",
       "type": "SandboxApi",
       "readonly": true,
-      "doc": "Песочница агента (ITGAME-77): itd.sandbox('acc3') → {ok, sid, owner:{sid,\ndiff}} — ставит вкладке свой sid a-<метка>-<время> и запоминает общие ключи\nвладельца (localStorage itd.sid/itd.diff/itd.onboard, ITGAME-21) и вкладки (sessionStorage); меню\nперечитывает сводку. Пока песочница есть, новая партия и финал («Сдаться»)\nберут новый sid песочницы, а не общий ключ. Ставится из меню (в партии —\ncode in_party). itd.sandbox.restore() → {sidSame, diffSame, fake, restored,\nkept, removed}: сверка (то и есть замер гарда), возврат ключей как при\nвходе — для itd.sid/itd.diff наше (fake) или стёртое значение возвращается,\nчужое (kept) не перетирается; itd.onboard (его пишет только HUD) возвращается\nк значению при входе при ЛЮБОМ отличии, даже если его записала вкладка владельца;\nтоже только из меню. itd.sandbox.fakeOwner() → {sid, diff} —\n«чужой» общий ключ вызовом игры (agent javascript_tool писать в\nlocalStorage не может); restore() вернёт настоящий.",
+      "doc": "Песочница агента (ITGAME-77): itd.sandbox('acc3') → {ok, sid, owner:{sid,\ndiff}} — ставит вкладке свой sid a-<метка>-<время> и запоминает общие ключи\nвладельца (localStorage itd.sid/itd.diff/itd.onboard, ITGAME-21, itd.uiScale, ITGAME-155) и вкладки (sessionStorage); меню\nперечитывает сводку. Пока песочница есть, новая партия и финал («Сдаться»)\nберут новый sid песочницы, а не общий ключ. Ставится из меню (в партии —\ncode in_party). itd.sandbox.restore() → {sidSame, diffSame, fake, restored,\nkept, removed}: сверка (то и есть замер гарда), возврат ключей как при\nвходе — для itd.sid/itd.diff наше (fake) или стёртое значение возвращается,\nчужое (kept) не перетирается; itd.onboard (его пишет только HUD) возвращается\nк значению при входе при ЛЮБОМ отличии, даже если его записала вкладка владельца;\nitd.uiScale (ITGAME-155) — как itd.sid: масштаб, выбранный в песочнице (отметка\nв её записи переживает F5), или стёртый возвращается (не было при входе — ключ\nудалён), выбранный владельцем в своей вкладке — kept; выбор вкладки в памяти\nзабыт, меню и канвас снова по ключу; тоже только из меню. itd.sandbox.fakeOwner() → {sid, diff} —\n«чужой» общий ключ вызовом игры (agent javascript_tool писать в\nlocalStorage не может); restore() вернёт настоящий.",
       "examples": [
         "itd.sandbox('acc3')",
         "itd.sandbox.fakeOwner()",
@@ -439,11 +439,19 @@ export const CONTRACT = {
     },
     "errors": {
       "kind": "method",
-      "params": [],
-      "returns": "ErrorEntry[]",
-      "doc": "Ошибки страницы (window.onerror + unhandledrejection).",
+      "params": [
+        {
+          "name": "opts",
+          "type": "ErrorsOptions",
+          "optional": true
+        }
+      ],
+      "returns": "ErrorEntry[] | (AgentResult & { code: 'bad_since'; })",
+      "doc": "Ошибки страницы (window.onerror + unhandledrejection). Журнал переживает\nперезагрузку вкладки (load — номер загрузки), без аргумента — весь (до 100\nзаписей). since (ITGAME-155) — фильтр: меньше 1e9 — номер загрузки (load ≥\nsince; текущая — itd.server().load), иначе метка времени, мс (t ≥ since).\nsince не число ≥ 0 или дробный номер, аргумент не объект — {ok:false,\ncode:'bad_since'}.",
       "examples": [
-        "itd.errors()"
+        "itd.errors()",
+        "itd.errors({ since: itd.server().load })",
+        "const t0 = Date.now(); … itd.errors({ since: t0 })"
       ]
     },
     "net": {
@@ -981,6 +989,11 @@ export const CONTRACT = {
           "type": "number",
           "optional": false,
           "doc": "ITGAME-30: сколько раз sid сменился между соединениями (гарда вкладок)"
+        },
+        "load": {
+          "type": "number",
+          "optional": false,
+          "doc": "ITGAME-155: номер загрузки страницы во вкладке (1 — первая, F5 — +1), тот же, что load в itd.errors(); itd.errors({since: load}) — ошибки только этой загрузки"
         },
         "snapshot": {
           "type": "StateMessage | null",
@@ -2165,6 +2178,16 @@ export const CONTRACT = {
         }
       }
     },
+    "ErrorsOptions": {
+      "kind": "object",
+      "fields": {
+        "since": {
+          "type": "number",
+          "optional": true,
+          "doc": "меньше 1e9 — номер загрузки: записи с load ≥ since (текущая — itd.server().load); иначе метка времени, мс: t ≥ since (Date.now() в начале прогона). Не число ≥ 0 или дробный номер — отказ bad_since"
+        }
+      }
+    },
     "FakeOwnerResult": {
       "kind": "object",
       "fields": {
@@ -2948,12 +2971,12 @@ export const CONTRACT = {
         "restored": {
           "type": "string[]",
           "optional": true,
-          "doc": "ключи, возвращённые как при входе"
+          "doc": "ключи, возвращённые как при входе (itd.uiScale — и удалённый, если при входе его не было)"
         },
         "kept": {
           "type": "string[]",
           "optional": true,
-          "doc": "общие ключи с ЧУЖИМ значением — не перетёрты: их мог записать сам владелец"
+          "doc": "общие ключи с ЧУЖИМ значением — не перетёрты: их мог записать сам владелец (itd.uiScale — масштаб, который песочница не выбирала)"
         },
         "removed": {
           "type": "string[]",

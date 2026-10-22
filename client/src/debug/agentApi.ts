@@ -24,7 +24,7 @@ import { PALETTES, SPRITES } from '../assets/manifest'
 import type { PaletteName } from '../assets/manifest'
 import { findLowContrast, findOffscreen, findOverlaps, findTiny } from './lint'
 import type { ContrastEntry, OffscreenEntry, OverlapEntry, OverlapOptions, TinyEntry } from './lint'
-import { startTelemetry } from './telemetry'
+import { SINCE_LOAD_MAX, pageLoad, startTelemetry } from './telemetry'
 import type { ErrorEntry, LogEntry } from './telemetry'
 import { inItdCall, notifyItdKey, runTrace, peekTrace, startTrace, stopTrace, summaryTrace } from './trace'
 import type { PointerProbe, TracePointer, TraceResult, TraceSent, TraceStart, TraceStartOptions, TraceSummary, TraceTarget } from './trace'
@@ -561,6 +561,7 @@ export interface AgentServer {
   sid: string // ITGAME-30/68: sid, в чью партию уходят команды и itd.journal(): liveSid ?? sid хранилища; прочие debug-вызовы — только liveSid (ITGAME-131)
   liveSid: string | null // ITGAME-68: sid живой партии вкладки (сокет); null — до первой партии, после «В меню»/«Сдаться»/перехвата: debug-вызовы, кроме journal, тогда отказывают not_in_party (ITGAME-131)
   sidSwitches: number // ITGAME-30: сколько раз sid сменился между соединениями (гарда вкладок)
+  load: number // ITGAME-155: номер загрузки страницы во вкладке (1 — первая, F5 — +1), тот же, что load в itd.errors(); itd.errors({since: load}) — ошибки только этой загрузки
   snapshot: StateMessage | null
 }
 
@@ -691,6 +692,11 @@ export interface AgentOffline extends OfflineCatchUp {
 }
 
 // itd.away (ITGAME-76): режим и таймаут чтения для net.
+// itd.errors(opts) (ITGAME-155): журнал переживает перезагрузку вкладки — фильтр отделяет прогон от прошлых загрузок.
+export interface ErrorsOptions {
+  since?: number // меньше 1e9 — номер загрузки: записи с load ≥ since (текущая — itd.server().load); иначе метка времени, мс: t ≥ since (Date.now() в начале прогона). Не число ≥ 0 или дробный номер — отказ bad_since
+}
+
 export interface AwayOptions {
   mode?: AwayMode // close (по умолчанию) — как закрытая вкладка; net — как обрыв сети (debug-ручка drop)
   timeout?: number // net: таймаут чтения этого соединения на сервере, мс (50..600000); без него — серверный (ITGAME_READ_TIMEOUT, по умолчанию 30 с)
@@ -971,7 +977,7 @@ export interface ItdApi {
   /**
    * Песочница агента (ITGAME-77): itd.sandbox('acc3') → {ok, sid, owner:{sid,
    * diff}} — ставит вкладке свой sid a-<метка>-<время> и запоминает общие ключи
-   * владельца (localStorage itd.sid/itd.diff/itd.onboard, ITGAME-21) и вкладки (sessionStorage); меню
+   * владельца (localStorage itd.sid/itd.diff/itd.onboard, ITGAME-21, itd.uiScale, ITGAME-155) и вкладки (sessionStorage); меню
    * перечитывает сводку. Пока песочница есть, новая партия и финал («Сдаться»)
    * берут новый sid песочницы, а не общий ключ. Ставится из меню (в партии —
    * code in_party). itd.sandbox.restore() → {sidSame, diffSame, fake, restored,
@@ -979,7 +985,10 @@ export interface ItdApi {
    * входе — для itd.sid/itd.diff наше (fake) или стёртое значение возвращается,
    * чужое (kept) не перетирается; itd.onboard (его пишет только HUD) возвращается
    * к значению при входе при ЛЮБОМ отличии, даже если его записала вкладка владельца;
-   * тоже только из меню. itd.sandbox.fakeOwner() → {sid, diff} —
+   * itd.uiScale (ITGAME-155) — как itd.sid: масштаб, выбранный в песочнице (отметка
+   * в её записи переживает F5), или стёртый возвращается (не было при входе — ключ
+   * удалён), выбранный владельцем в своей вкладке — kept; выбор вкладки в памяти
+   * забыт, меню и канвас снова по ключу; тоже только из меню. itd.sandbox.fakeOwner() → {sid, diff} —
    * «чужой» общий ключ вызовом игры (agent javascript_tool писать в
    * localStorage не может); restore() вернёт настоящий.
    * @example itd.sandbox('acc3')
@@ -1157,10 +1166,17 @@ export interface ItdApi {
    */
   log(n?: number): LogEntry[]
   /**
-   * Ошибки страницы (window.onerror + unhandledrejection).
+   * Ошибки страницы (window.onerror + unhandledrejection). Журнал переживает
+   * перезагрузку вкладки (load — номер загрузки), без аргумента — весь (до 100
+   * записей). since (ITGAME-155) — фильтр: меньше 1e9 — номер загрузки (load ≥
+   * since; текущая — itd.server().load), иначе метка времени, мс (t ≥ since).
+   * since не число ≥ 0 или дробный номер, аргумент не объект — {ok:false,
+   * code:'bad_since'}.
    * @example itd.errors()
+   * @example itd.errors({ since: itd.server().load })
+   * @example const t0 = Date.now(); … itd.errors({ since: t0 })
    */
-  errors(): ErrorEntry[]
+  errors(opts?: ErrorsOptions): ErrorEntry[] | (AgentResult & { code: 'bad_since' })
   /**
    * Последние сообщения WS в обе стороны + сокет/rtt/реконнекты и rev
    * последнего снапшота. ITGAME-45: у out в info — id команды, у state — rev,
@@ -1483,6 +1499,7 @@ function buildServer(): AgentServer {
     sid: client.liveSid() ?? sessionId(),
     liveSid: client.liveSid(),
     sidSwitches: client.stats.sidSwitches,
+    load: pageLoad(),
     snapshot: client.latest,
   }
 }
@@ -1982,7 +1999,7 @@ const COMMANDS = new Set<string>(COMMAND_TYPES)
 
 const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/39/73)
   itd.state()                       — баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий (null до первого снапшота); debtLimit — порог долга, глубже — вечер банкротит: лимит кредита или, на Лёгком/Норме, овердрафт = расходы дня (creditLimit там 0, ITGAME-156); menuReady — меню создано, активно, перезапуск меню не в очереди и сводка сейва устоялась: после true плашки меню не сдвигаются
-  itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rev/cause последнего снапшота (tick|cmd|debug|start|resume), rtt, reconnects, sid (куда уходят команды: liveSid ?? хранилище), liveSid (живая партия или null), sidSwitches; ждать версию — itd.wait((s, srv) => srv.rev >= N)
+  itd.server()                      — снапшот целиком + сокет: open|reconnecting|closed, lastEventId, rev/cause последнего снапшота (tick|cmd|debug|start|resume), rtt, reconnects, sid (куда уходят команды: liveSid ?? хранилище), liveSid (живая партия или null), sidSwitches, load (номер загрузки страницы во вкладке, как load в errors(), ITGAME-155); ждать версию — itd.wait((s, srv) => srv.rev >= N)
   itd.nodes()                       — все объекты живых сцен: {scene, type, id, text, x, y, w, h, cx, cy, visible, alpha, interactive, depth, active, disabled, fill}; x/y — по origin объекта, cx/cy — центр bounds (точка для клика); visible — видим в мире (скрытый контейнер → false у детей); disabled — кнопка покупки/найма неактивна; fill — заливка фигуры '#rrggbb' (Rectangle/Triangle/Arc/Ellipse/Polygon), иначе null
   itd.text()                        — nodes() с непустым текстом (текст в скрытом контейнере — visible: false: сам текст тултипа хранится и после ухода курсора)
   itd.ids()                         — стабильные id интерактивов (btn.*, nav.*, office.*, room.*, menu.*, modal.*) + active; safe — id с «:» вместо точек (не режется как JWT), click/hover/hit принимают и его
@@ -2017,12 +2034,12 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.tiny()                        — линтер: шрифт мельче 12px; тексты в контейнерах тоже
   itd.log(50)                       — журнал переходов (кольцевой на 200, переживает чистку консоли); + {type:'sound', key:'sfx:bong', name, volume, scene, ok}, {type:'toast', text, where, ms, bg, scene}
                                        Пример: itd.log(200).filter(e => e.type === 'sound').map(e => e.key)
-  itd.errors()                      — ошибки страницы (window.onerror + unhandledrejection), переживают перезагрузку вкладки: load — номер загрузки
+  itd.errors({since}?)              — ошибки страницы (window.onerror + unhandledrejection), переживают перезагрузку вкладки: load — номер загрузки; since (ITGAME-155) — фильтр: меньше 1e9 — номер загрузки (load ≥ since, текущая — server().load), иначе метка времени, мс (t ≥ since); не число ≥ 0, дробный номер или голое число вместо {since} → {ok:false, code:'bad_since'}
   itd.net(20)                       — последние сообщения WS в обе стороны + сокет/rtt/реконнекты/rev; info: out — id, state — rev/cause/re, error — code/re/rev
   itd.version                       — {sha, builtAt, version} сборки (+ <meta name="build"> в html); version — год.мес.день.час.мин коммита (ITGAME-140), для людей: сейв сверяется по формату (ITGAME-169)
-  itd.sandbox('acc3')               — своя партия вкладки: sid a-acc3-<время> во вкладку, ключи владельца (localStorage itd.sid/itd.diff/itd.onboard, sessionStorage вкладки) запомнены → {ok, sid, owner:{sid, diff}}; новая партия и «Сдаться» берут новый sid песочницы, общий ключ не трогают; из меню (в партии — in_party)
+  itd.sandbox('acc3')               — своя партия вкладки: sid a-acc3-<время> во вкладку, ключи владельца (localStorage itd.sid/itd.diff/itd.onboard/itd.uiScale, sessionStorage вкладки) запомнены → {ok, sid, owner:{sid, diff}}; новая партия и «Сдаться» берут новый sid песочницы, общий ключ не трогают; из меню (в партии — in_party)
   itd.sandbox.fakeOwner()           — «чужой» общий ключ itd.sid/itd.diff вызовом игры (проверить гард «Сдаться») → {sid, diff}; restore() вернёт настоящий
-  itd.sandbox.restore()             — выйти из песочницы (из меню): {sidSame, diffSame, fake, restored, kept, removed} — sidSame/diffSame: общий ключ тот, что при входе (или fake); itd.sid/itd.diff: наше/стёртое значение возвращено, чужое (kept) не перетёрто; itd.onboard возвращается к значению при входе при любом отличии
+  itd.sandbox.restore()             — выйти из песочницы (из меню): {sidSame, diffSame, fake, restored, kept, removed} — sidSame/diffSame: общий ключ тот, что при входе (или fake); itd.sid/itd.diff: наше/стёртое значение возвращено, чужое (kept) не перетёрто; itd.onboard возвращается к значению при входе при любом отличии; itd.uiScale (ITGAME-155): масштаб, выбранный в песочнице (отметка в её записи переживает F5), или стёртый — к значению при входе (не было — ключ удалён), выбранный владельцем в своей вкладке — kept; выбор вкладки в памяти забыт — меню и канвас снова по ключу
   itd.claim('acc151')               — вкладка занята (ITGAME-151): жёлтая полоса 40 px сверху «▶ АГЕНТ работает в этой вкладке (метка, sha) — не кликай» (клики проходят сквозь неё), заголовок «▶ АГЕНТ — смотри, не кликай»; считает настоящие нажатия (события одного нажатия за 50 мс — одно) → {ok, active, label, sha, sec, downs, own, allowed, foreign, synthetic, onCanvas, reloads, mine, allow, presses[{n, t, kind, button, onCanvas, wins, got}]}; чужое нажатие — foreign и красная вспышка, dispatchEvent — только synthetic; переживает F5 и itd.reset(); повторный вызов меняет метку, счёт не сбрасывает; отказ bad_label
   itd.claim.mine(n?, ms?)           — следующие n (1..20, по умолчанию 1) настоящих нажатий за ms (100..120000, по умолчанию 20000) — твои (own), без вспышки: зови перед своим настоящим кликом (CDP-клик тоже isTrusted) → {ok, pending, ms}; отказ bad_args
   itd.claim.allow(что, {target?})   — «нажми сам»: зелёная полоса «▶ ТВОЙ ХОД: что — только это», нажатия — allowed; target — id цели (btn.hire или btn:hire); новое окно заменяет открытое; отказ bad_args
@@ -2407,7 +2424,21 @@ function makeApi(game: Phaser.Game, claim: ClaimApi): ItdApi {
       return { ok: true, removed }
     },
     log: (n = 50) => telemetry.log(n),
-    errors: () => telemetry.errors(),
+    errors(opts) {
+      // ITGAME-155: since — номер загрузки или метка времени; без него — весь журнал, как раньше.
+      // Голое число (errors(3)) — отказ, а не весь журнал молча.
+      const bad = (got: unknown) => ({
+        ok: false, code: 'bad_since' as const,
+        error: `itd.errors: {since} — номер загрузки (целое, текущая — itd.server().load) или метка времени, мс (Date.now()); получено ${typeof got === 'object' ? JSON.stringify(got) : String(got)}`,
+      })
+      if (opts != null && typeof opts !== 'object') return bad(opts)
+      const since = opts?.since
+      if (since === undefined) return telemetry.errors()
+      if (typeof since !== 'number' || !Number.isFinite(since) || since < 0 || (since < SINCE_LOAD_MAX && !Number.isInteger(since))) {
+        return bad(since)
+      }
+      return telemetry.errors(since)
+    },
     net(n = 20) {
       return {
         socket: client.socketStatus(),

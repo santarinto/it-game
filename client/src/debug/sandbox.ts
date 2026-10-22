@@ -2,6 +2,7 @@ import type Phaser from 'phaser'
 import { SANDBOX_KEY, adoptTabSid, forgetTabSid, sandboxRecord, sandboxSid } from '../net'
 import type { SandboxRecord } from '../net'
 import { localStore, sessionStore } from '../storage'
+import { ZOOM_KEY, onZoomWrite, rereadZoom } from '../uiscale'
 
 // itd.sandbox (ITGAME-77): своя партия вкладки одним вызовом, ключи владельца под
 // охраной. Ретро 10.10: агент в каждом заходе руками ставил sessionStorage-sid,
@@ -16,6 +17,9 @@ const AUTO = 'itd.sid.auto'
 // Цепочка онбординга HUD (ITGAME-21): партия песочницы может её пройти и записать
 // done в настоящий localStorage владельца — он больше не увидел бы плашку.
 const ONBOARD = 'itd.onboard'
+// Масштаб UI (ITGAME-155, ретро 17.10): агент переключил его в песочнице (null → '1' → '1.4') и
+// вернуть ключ в null не мог — '1.4' тот же масштаб, но ключ уже не владельца.
+const ZOOM = ZOOM_KEY
 const LABEL = /^[A-Za-z0-9_-]{1,24}$/
 
 export interface SandboxResult {
@@ -31,8 +35,8 @@ export interface SandboxRestore {
   sidSame?: boolean // localStorage itd.sid — тот, что был при входе (или fakeOwner): гард не тронул
   diffSame?: boolean // то же для itd.diff
   fake?: boolean // сверяли с «чужим» ключом fakeOwner()
-  restored?: string[] // ключи, возвращённые как при входе
-  kept?: string[] // общие ключи с ЧУЖИМ значением — не перетёрты: их мог записать сам владелец
+  restored?: string[] // ключи, возвращённые как при входе (itd.uiScale — и удалённый, если при входе его не было)
+  kept?: string[] // общие ключи с ЧУЖИМ значением — не перетёрты: их мог записать сам владелец (itd.uiScale — масштаб, который песочница не выбирала)
   removed?: string[] // служебные ключи вкладки, убранные при выходе
   code?: 'no_sandbox' | 'in_party'
   error?: string
@@ -67,6 +71,13 @@ function restartMenu(game: Phaser.Game): void {
 const write = (rec: SandboxRecord): void => sessionStore.set(SANDBOX_KEY, JSON.stringify(rec))
 
 export function makeSandbox(game: Phaser.Game): SandboxApi {
+  // Выбор масштаба во вкладке песочницы — отметка в её записи (переживает F5): restore() отличит
+  // свой масштаб от выбранного владельцем в другой вкладке (ITGAME-155).
+  onZoomWrite((v) => {
+    const rec = sandboxRecord()
+    if (rec) write({ ...rec, zoom: v })
+  })
+
   const enter = (label: string): SandboxResult => {
     if (typeof label !== 'string' || !LABEL.test(label)) {
       return { ok: false, code: 'bad_label', error: 'метка — 1..24 символа [A-Za-z0-9_-]' }
@@ -83,6 +94,7 @@ export function makeSandbox(game: Phaser.Game): SandboxApi {
           ownerSid: localStore.get(SID),
           ownerDiff: localStore.get(DIFF),
           ownerOnboard: localStore.get(ONBOARD),
+          ownerZoom: localStore.get(ZOOM),
           tabSid: sessionStore.get(SID),
           tabAuto: sessionStore.get(AUTO),
           fake: null,
@@ -124,6 +136,13 @@ export function makeSandbox(game: Phaser.Game): SandboxApi {
       if (rec.ownerOnboard === null) localStore.remove(ONBOARD)
       else localStore.set(ONBOARD, rec.ownerOnboard)
       restored.push(`localStorage.${ONBOARD}`)
+    }
+    // itd.uiScale — как itd.sid: свой масштаб (последний выбранный в песочнице) или стёртый
+    // возвращаем к значению при входе (null — ключ удаляется), чужой — kept. Выбор вкладки в
+    // памяти uiscale.ts забываем, иначе меню и канвас остались бы на масштабе песочницы.
+    if (rec.ownerZoom !== undefined) {
+      check(ZOOM, rec.ownerZoom, rec.zoom ?? null)
+      if (restored.includes(`localStorage.${ZOOM}`)) rereadZoom(game)
     }
     for (const [key, val] of [[SID, rec.tabSid], [AUTO, rec.tabAuto]] as const) {
       if (sessionStore.get(key) === val) continue
