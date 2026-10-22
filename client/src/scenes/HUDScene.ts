@@ -3,7 +3,7 @@ import { GAME_H, GAME_W, HUD_H, NAV_W, layoutColumn, layoutRow } from '../layout
 import { client, offlineShown } from '../net'
 import { localStore, sessionStore } from '../storage'
 import type { DayReportMessage, GameOverMessage, OfflineReportMessage, ServerErrorCode, StateMessage, VictoryMessage } from '../protocol'
-import { adminsReportLines, bankruptLines, fmtMoney } from '../format'
+import { adminsReportLines, bankruptLines, fmtMoney, virusReportLines } from '../format'
 import { nav } from '../rooms'
 import { onPartyReset, partyChange } from '../party'
 import { debug, drawDebugFrames, setDebug } from '../debug'
@@ -1354,8 +1354,9 @@ export class HUDScene extends Phaser.Scene {
       `Баланс:    ${fmtMoney(r.balance)}`,
       ...(r.incidents > 0 ? [`Поломки:   ${r.incidents} (−${fmtMoney(r.lostIncome)})`] : []),
       // Вирус (ITGAME-103): новых заражений за день и упущенное из-за −30%. «+k за день» —
-      // не путать со строкой журнала «к вечеру заражено m ПК», где и вчерашние (ITGAME-146).
-      ...(r.virusPCs > 0 || r.virusLost > 0 ? [`Вирус:     +${r.virusPCs} ПК за день (−${fmtMoney(r.virusLost)})`] : []),
+      // не путать со строкой журнала «к вечеру заражено m ПК», где и вчерашние (ITGAME-146). Без новых
+      // заражений, но с убытком — «новых нет (−$X)», не «+0» (ITGAME-180).
+      ...virusReportLines(r.virusPCs, r.virusLost),
       // Админы (ITGAME-101): что починили и вычистили за день — глаголом; обе части — двумя
       // строками, одной в панель 440 не входят (ITGAME-159).
       ...adminsReportLines(r.adminRepairs, r.adminCleaned),

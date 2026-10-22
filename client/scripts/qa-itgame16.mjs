@@ -26,7 +26,8 @@
 //   (v) вирус (ITGAME-138), кейс virus_outbreak: V1 значки «☣ k» hud.virus.officeN под вкладками
 //       офисов, V2 живая волна (virusWaveIn 1 через itd.restore, скорость 3 — itd.step волн не
 //       катит) растит значки без тостов, V3 строка «Вирус:     +k ПК за день (−$X)» в отчёте дня
-//       (ITGAME-146), V4 лента после отчёта — у строк журнала сервера одно своё время, итог дня
+//       (ITGAME-146), V7 (ITGAME-180, кейс virus_no_new_admin_dept) без новых заражений — «новых нет
+//       (−$X)», V4 лента после отчёта — у строк журнала сервера одно своё время, итог дня
 //       последним (ITGAME-150), без повторов; V5 лента вживую — строки журнала дня сервера
 //       (state.dayLog) ложатся сразу со своим временем, V6 «10:00 Утро, день N+1» сразу за итогом
 //       дня (ITGAME-163)
@@ -160,6 +161,13 @@ const CASES = [
     name: 'virus_outbreak', coach: null,
     setup: (p) => loadScenario(p, 'virus_outbreak', 'normal', 'virus'),
     flow: 'virus',
+  },
+  {
+    // V7 (ITGAME-180): день без новых заражений, но с убытком от мест, заражённых раньше —
+    // админ фикстуры вычистил их днём; строка «Вирус:     новых нет (−$X)», не «+0 ПК за день».
+    name: 'virus_no_new_admin_dept', coach: null,
+    setup: (p) => loadScenario(p, 'admin_dept', 'normal', 'virusnone'),
+    flow: 'virus_none',
   },
   {
     name: 'toast_stress', coach: '1/3',
@@ -381,6 +389,30 @@ async function runCase(browser, zoom, def) {
       check(`${label}: V6 «10:00 Утро, день ${dayBefore + 1}» сразу за итогом дня ${dayBefore}`,
         at > 0 && new RegExp(`^\\d\\d:\\d\\d День ${dayBefore}: прибыль `).test(feed2[at - 1]),
         JSON.stringify(feed2))
+    }
+
+    // V7 (ITGAME-180): «новых нет (−$X)» в дне без новых заражений
+    if (def.flow === 'virus_none') {
+      await page.evaluate(() => window.itd.speed(3))
+      const free = await page.evaluate(() =>
+        window.itd.wait((s, srv) => srv.snapshot?.offices?.[0]?.adminSlot === -1, 15000).then(() => true, () => false))
+      await page.evaluate(() => window.itd.set({ tickInDay: 53 }))
+      await page.waitForFunction(() => window.itd.text().some((n) => /^День \d+ завершён$/.test(n.text ?? '')), { timeout: 10000 }).catch(() => {})
+      const v7 = await page.evaluate(async () => {
+        const save = (await window.itd.snapshot()).save
+        const obj = window.__itd.scene.getScene('hud').children.list.find((o) => o.type === 'Text' && (o.text ?? '').startsWith('Доход:'))
+        const body = obj?.text ?? ''
+        const line = body.split('\n').find((x) => x.startsWith('Вирус:')) ?? null
+        return {
+          line, lost: save.dayVirusLost, newPCs: save.dayVirusPCs,
+          width: line && obj ? Math.round(obj.context.measureText(line).width) : -1,
+          overlaps: window.itd.overlaps().filter((e) => e.scene === 'hud'),
+        }
+      })
+      check(`${label}: V7 отчёт дня без новых заражений — «Вирус:     новых нет (−$X)» по save.dayVirusLost, ≤ 392 px, overlaps пуст`,
+        free && v7.lost > 0 && v7.line === `Вирус:     новых нет (−$${v7.lost.toLocaleString('en-US')})`
+          && v7.width > 0 && v7.width <= 440 - 2 * 24 && v7.overlaps.length === 0,
+        JSON.stringify(v7))
     }
 
     // (j) O6 плашка онбординга: видна ровно там, где цепочка не пройдена (ITGAME-21)

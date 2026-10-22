@@ -3,7 +3,7 @@
 // src/format.ts без импортов — Node берёт его как есть (как eventlog.ts в daylog.test.mjs).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { adminsReportLines, bankruptLines, seatsLabel } from '../../src/format.ts'
+import { adminsReportLines, bankruptLines, seatsLabel, virusReportLines } from '../../src/format.ts'
 
 // Колонка значений отчёта: «Доход:     $X» — значение с 12-го знака.
 const COL = 'Доход:     '.length
@@ -46,4 +46,19 @@ test('bankruptLines: долг и нехватка сверх порога — д
   assert.deepEqual(bankruptLines(-11499, 1499), ['Долг на момент банкротства: $11,499', 'На зарплаты не хватило: $1,499'])
   assert.deepEqual(bankruptLines(-614, 614), ['Долг на момент банкротства: $614'])
   assert.deepEqual(bankruptLines(-614, 0), ['Долг на момент банкротства: $614'])
+})
+
+test('virusReportLines: новые заражения — «+k ПК за день (−$X)»; без новых, но с убытком — «новых нет (−$X)», не «+0»', () => {
+  assert.deepEqual(virusReportLines(3, 120), ['Вирус:     +3 ПК за день (−$120)'])
+  assert.deepEqual(virusReportLines(2, 0), ['Вирус:     +2 ПК за день (−$0)'])
+  assert.deepEqual(virusReportLines(0, 10), ['Вирус:     новых нет (−$10)'])
+  assert.deepEqual(virusReportLines(0, 12345), ['Вирус:     новых нет (−$12,345)'])
+  assert.equal(virusReportLines(0, 10)[0].indexOf('новых'), COL)
+})
+
+test('virusReportLines: ни заражений, ни убытка — строки нет; каждая строка ≤ 38 знаков', () => {
+  assert.deepEqual(virusReportLines(0, 0), [])
+  for (const [k, x] of [[99, 99999], [0, 9999999], [12, 123456]]) {
+    for (const l of virusReportLines(k, x)) assert.ok(l.length <= 38, `${l.length}: «${l}»`)
+  }
 })
