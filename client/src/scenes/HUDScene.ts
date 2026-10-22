@@ -3,7 +3,7 @@ import { GAME_H, GAME_W, HUD_H, NAV_W, layoutColumn, layoutRow } from '../layout
 import { client, offlineShown } from '../net'
 import { localStore, sessionStore } from '../storage'
 import type { DayReportMessage, GameOverMessage, OfflineReportMessage, ServerErrorCode, StateMessage, VictoryMessage } from '../protocol'
-import { adminsReportLines, fmtMoney } from '../format'
+import { adminsReportLines, bankruptLines, fmtMoney } from '../format'
 import { nav } from '../rooms'
 import { onPartyReset, partyChange } from '../party'
 import { debug, drawDebugFrames, setDebug } from '../debug'
@@ -543,7 +543,7 @@ export class HUDScene extends Phaser.Scene {
       ).newAchievements
     } else if (bankrupt && s) {
       offlineAchs = recordGameOver(
-        { type: 'game_over', daysSurvived: currentDay, balance: r.balance, peakIncomePerTick: 0, reason: r.reason ?? 'bankrupt' },
+        { type: 'game_over', daysSurvived: currentDay, balance: r.balance, shortfall: 0, peakIncomePerTick: 0, reason: r.reason ?? 'bankrupt' },
         s.difficulty,
         s,
       ).newAchievements
@@ -1504,7 +1504,7 @@ export class HUDScene extends Phaser.Scene {
     ] : [
       `Прожито дней: ${o.daysSurvived}`,
       `Пик дохода: ${fmtMoney(o.peakIncomePerTick)}/сек`,
-      `На зарплаты не хватило: ${fmtMoney(-o.balance)}`,
+      ...bankruptLines(o.balance, o.shortfall ?? 0),
     ]
     lines.push(`Всего достижений: ${unlockedCount}/${totalCount}`)
     const trophy = newAchievements.length > 0

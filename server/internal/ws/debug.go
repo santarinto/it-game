@@ -692,7 +692,7 @@ func (h *Handler) applyDebug(
 	if req.kind == kindAdvance {
 		if sum.GameOver {
 			hub.write(ctx, gameOverMessage{Type: "game_over", DaysSurvived: g.Day,
-				PeakIncomePerTick: g.PeakIncomePerTick, Balance: g.Money, Reason: g.LoseReason})
+				PeakIncomePerTick: g.PeakIncomePerTick, Balance: g.Money, Shortfall: g.BankruptShortfall, Reason: g.LoseReason})
 		} else if sum.Victory {
 			hub.write(ctx, victoryMessage{Type: "victory",
 				Difficulty: string(g.Config().Difficulty), Day: g.Day, Balance: g.Money})

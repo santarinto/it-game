@@ -300,8 +300,9 @@ type gameOverMessage struct {
 	Type              string `json:"type"` // всегда "game_over"
 	DaysSurvived      int    `json:"daysSurvived"`
 	PeakIncomePerTick int    `json:"peakIncomePerTick"`
-	Balance           int    `json:"balance"` // отрицательный: сколько не хватило
-	Reason            string `json:"reason"`  // bankrupt | time_up | deadlock
+	Balance           int    `json:"balance"`   // отрицательный у банкротства: весь долг на момент банкротства
+	Shortfall         int    `json:"shortfall"` // банкротство: долг сверх порога последнего вечера (кредитного или овердрафта), ITGAME-176; иначе 0
+	Reason            string `json:"reason"`    // bankrupt | time_up | deadlock
 }
 
 // victoryMessage — итоги победы; шлётся сразу после снапшота с phase=won.

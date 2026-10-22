@@ -33,6 +33,7 @@
     "qa:admins": "node scripts/qa-itgame145.mjs",
     "qa:pc": "node scripts/qa-itgame135.mjs",
     "qa:claim": "node scripts/qa-itgame151.mjs",
+    "qa:bankrupt": "node scripts/qa-itgame176.mjs",
     "check:sprites": "node scripts/check-sprites.mjs",
     "check:emoji": "node scripts/check-emoji.mjs",
     "gen:contract": "node scripts/gen-contract.mjs",

@@ -111,6 +111,11 @@ type Game struct {
 	// Won-финал: причина проигрыша для протокола (bankrupt | time_up);
 	// живёт только в терминальной фазе, в сейвы не попадает.
 	LoseReason string
+	// BankruptShortfall — при банкротстве: на сколько долг последнего вечера
+	// вышел за порог (кредитный или овердрафта) — «На зарплаты не хватило»
+	// экрана проигрыша (ITGAME-176). Как LoseReason — только в терминальной
+	// фазе, в сейвы не попадает.
+	BankruptShortfall int
 
 	// Unseen Forces (итерация 10): план дня, активное событие и рантайм
 	// дедлайна. Владеет всем этим актор сессии, как и остальным стейтом.
@@ -324,7 +329,8 @@ func (g *Game) DebtLimit() int { return g.debtLimit(g.PayrollPerDay()) }
 
 // settleDebt — конец дня с отрицательным балансом: долг растёт на CreditRate
 // за день (без кредита ставка 0 — процента нет); минус глубже
-// debtLimit(payroll) — банкротство. payroll — расходы, списанные этим вечером:
+// debtLimit(payroll) — банкротство, и то, что вышло за порог, ложится в
+// BankruptShortfall. payroll — расходы, списанные этим вечером:
 // живой тик и офлайн передают своё (шаблон офлайна платит и за нанятых
 // после обеда, живая игра в цикле офлайн-дней — нет).
 func (g *Game) settleDebt(payroll int) bool {
@@ -334,7 +340,12 @@ func (g *Game) settleDebt(payroll int) bool {
 	interest := int(math.Ceil(float64(-g.Money) * g.cfg.CreditRate))
 	g.Money -= interest
 	g.Ledger.Interest += interest
-	return -g.Money > g.debtLimit(payroll)
+	over := -g.Money - g.debtLimit(payroll)
+	if over <= 0 {
+		return false
+	}
+	g.BankruptShortfall = over
+	return true
 }
 
 // TotalEmployees — суммарное число сотрудников во всех открытых офисах.

@@ -83,7 +83,29 @@ func TestOverdraftBoundary(t *testing.T) {
 			if c.phase == PhaseGameOver && g.LoseReason != LoseBankrupt {
 				t.Errorf("причина %q, хотели %q", g.LoseReason, LoseBankrupt)
 			}
+			// Экран банкротства (ITGAME-176): не хватило — то, что вышло за ФОТ.
+			if want := max(0, -c.money-250); c.phase == PhaseGameOver && g.BankruptShortfall != want || c.phase != PhaseGameOver && g.BankruptShortfall != 0 {
+				t.Errorf("не хватило %d, хотели %d", g.BankruptShortfall, want)
+			}
 		})
+	}
+}
+
+// На кредитном уровне порог — CreditLimit, процент вечера уже в долге: не
+// хватило — долг с процентом сверх лимита, весь долг — баланс (ITGAME-176).
+func TestBankruptShortfallCredit(t *testing.T) {
+	cfg := dayTestConfig()
+	cfg.EventChancePct = 0
+	cfg.CreditLimit, cfg.CreditRate = 1000, 0.1
+	g := New(cfg)
+	g.Money = -800
+	g.Offices[0].Employees = testStaff(1)
+	for i := 0; i < 3; i++ {
+		g.Tick()
+	}
+	// −800 + $30 − ФОТ $250 = −1020, процент ⌈102⌉ → −1122: сверх $1000 — $122.
+	if g.Phase != PhaseGameOver || g.Money != -1122 || g.BankruptShortfall != 122 {
+		t.Fatalf("фаза %s баланс %d не хватило %d, хотели game_over, −1122 и 122", g.Phase, g.Money, g.BankruptShortfall)
 	}
 }
 

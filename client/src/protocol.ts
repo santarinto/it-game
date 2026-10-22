@@ -269,7 +269,8 @@ export interface GameOverMessage {
   type: 'game_over'
   daysSurvived: number
   peakIncomePerTick: number
-  balance: number
+  balance: number // у банкротства — весь долг на момент банкротства (отрицательный)
+  shortfall: number // банкротство: долг сверх порога последнего вечера (кредит или овердрафт), ITGAME-176; иначе 0
   reason: 'bankrupt' | 'time_up' | 'deadlock' // сложность 2.0 / ITGAME-20: тупик
 }
 

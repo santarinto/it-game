@@ -25,3 +25,15 @@ export function adminsReportLines(repairs: number, cleaned: number): string[] {
   if (cleaned > 0) parts.push(`вычистили ${seatsLabel(cleaned)}`)
   return parts.map((p, i) => (i === 0 ? 'Админы:' : '').padEnd(REPORT_VALUE_COL) + p + (i < parts.length - 1 ? ',' : ''))
 }
+
+// Строки денег экрана банкротства (ITGAME-176, решение владельца 21.10, вариант В): весь долг
+// на момент банкротства и нехватка последнего вечера — то, на сколько долг вышел за порог
+// (овердрафт на Лёгком и Норме — расходы вечера, кредит на Сложном и Хардкоре — лимит уровня;
+// сервер шлёт её в game_over.shortfall). Нехватки нет или она равна долгу (порог нулевой) —
+// одна строка долга: вторая её бы повторила.
+export function bankruptLines(balance: number, shortfall: number): string[] {
+  const debt = Math.max(0, -balance)
+  const lines = [`Долг на момент банкротства: ${fmtMoney(debt)}`]
+  if (shortfall > 0 && shortfall < debt) lines.push(`На зарплаты не хватило: ${fmtMoney(shortfall)}`)
+  return lines
+}

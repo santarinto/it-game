@@ -627,7 +627,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 			if wasRunning && g.Phase == game.PhaseGameOver {
 				hub.write(ctx, rv.stamp(snapshot(g, speed, false, scenario)))
 				hub.write(ctx, gameOverMessage{Type: "game_over", DaysSurvived: g.Day,
-					PeakIncomePerTick: g.PeakIncomePerTick, Balance: g.Money, Reason: g.LoseReason})
+					PeakIncomePerTick: g.PeakIncomePerTick, Balance: g.Money, Shortfall: g.BankruptShortfall, Reason: g.LoseReason})
 				continue
 			}
 			// На паузе фазы (отчёт/банкротство) тик — no-op: не шлём одинаковые

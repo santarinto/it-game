@@ -49,6 +49,7 @@ type testMessage struct {
 	LostIncome   int      `json:"lostIncome"`
 	Events       []string `json:"events"`
 	DaysSurvived int      `json:"daysSurvived"`
+	Shortfall    int      `json:"shortfall"`
 	Days         int      `json:"days"`    // offline_report: прошедшие дни
 	Ticks        int      `json:"ticks"`   // offline_report: промотано тиков
 	SavedAt      int64    `json:"savedAt"` // offline_report: последний сейв, epoch ms
@@ -236,6 +237,10 @@ func TestSessionBankruptcyAndRestart(t *testing.T) {
 	over := readUntil(t, ctx, c, func(m testMessage) bool { return m.Type == "game_over" })
 	if over.DaysSurvived != 2 || over.Balance >= -100000 {
 		t.Fatalf("итоги банкротства: %+v", over)
+	}
+	// Не хватило — долг сверх порога овердрафта (ФОТ вечера $100000), ITGAME-176.
+	if over.Shortfall != -over.Balance-100000 {
+		t.Fatalf("не хватило %d при долге %d, хотим долг − $100000", over.Shortfall, -over.Balance)
 	}
 	// restart возвращает стартовое состояние.
 	if err := wsjson.Write(ctx, c, clientMessage{Type: "restart"}); err != nil {
