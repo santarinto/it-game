@@ -519,6 +519,78 @@ async function caseBrokenLunch(browser) {
   }
 }
 
+// ── Кейс: тултип сотрудника до и после согласия на повышение (ITGAME-221) ────
+// Согласие даёт Employee.RaisePct (+N% выработки навсегда, ITGAME-203); IncomePerTick не
+// меняется, а «Выработка» в тултипе округлена за тик, так что прибавку видно только строкой
+// «повышение +N%» (raisePct из employeeInfo). До согласия строки нет. Событие ставит itd.restore
+// (как EV1 в debug frames), согласие — настоящий event_choice; проценты копятся: второе повышение
+// показывает сумму (3 + 3).
+async function caseRaiseTooltip(browser) {
+  const page = await browser.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e)))
+  await page.setViewport({ width: 1920, height: 1080 })
+  try {
+    await loadScenario(page, 'broken_pc', 'raisetip')
+    const w1 = await page.evaluate(() => window.itd.nodes().find((n) => n.id === 'office.worker.1'))
+    const box = await canvasBox(page)
+    // Тултип — единственный Container сцены office (см. caseTooltipUnderModal): уводим мышь и возвращаем на сотрудника 1.
+    const tip = async () => {
+      await page.mouse.move(box.x + 10, box.y + 600 * box.k)
+      await delay(100)
+      await page.mouse.move(box.x + w1.cx * box.k, box.y + w1.cy * box.k)
+      await delay(200)
+      return page.evaluate(() => {
+        const c = window.__itd.scene.getScene('office').children.list.find((o) => o.type === 'Container')
+        return { visible: c?.visible ?? null, text: c?.list?.find((o) => o.type === 'Text')?.text ?? '' }
+      })
+    }
+    const raiseLine = (t) => t.text.split('\n').filter((l) => l.startsWith('повышение'))
+    const t0 = await tip()
+    check('raise tooltip: до согласия тултип виден и без строки «повышение»',
+      t0.visible === true && t0.text.includes('Выработка:') && raiseLine(t0).length === 0, JSON.stringify(t0))
+    await shot(page, 'raise_tooltip_before')
+
+    const accept = async (pct) => {
+      const save = (await page.evaluate(async () => (await window.itd.snapshot()).save))
+      await page.evaluate(async (a) => {
+        await window.itd.restore({ activeEvent: { ID: 'raise', Tick: a.tick, Office: 0, Slot: 1, RaisePct: a.pct } })
+      }, { tick: save.tickInDay, pct })
+      const open = await page.evaluate(() => window.itd.wait(() => window.itd.state().activeEvent != null, 5000).then(() => true, () => false))
+      if (!open) throw new Error('карточка повышения не открылась')
+      await page.evaluate(() => window.itd.cmd('event_choice', 0, { slot: 0 }))
+      await page.waitForFunction(() => window.itd.state().activeEvent == null, { timeout: 5000 })
+      await delay(300)
+    }
+    await accept(3)
+    const t1 = await tip()
+    check('raise tooltip: после согласия на +3% — ровно одна строка «повышение +3%»',
+      raiseLine(t1).length === 1 && raiseLine(t1)[0] === 'повышение +3%', JSON.stringify(raiseLine(t1)))
+    const lines1 = t1.text.split('\n')
+    check('raise tooltip: строка стоит сразу под «Выработка:»',
+      lines1[1]?.startsWith('Выработка:') && lines1[2] === 'повышение +3%', JSON.stringify(lines1.slice(0, 4)))
+    // Тултип по замыслу лежит поверх места (occlusion/interactive), поэтому offscreen смотрим с ним,
+    // а overlaps — после того, как мышь ушла и он спрятан.
+    const off1 = await page.evaluate(() => window.itd.offscreen())
+    await shot(page, 'raise_tooltip_after')
+    await page.mouse.move(box.x + 10, box.y + 600 * box.k)
+    await delay(200)
+    const ov1 = await page.evaluate(() => window.itd.overlaps())
+    check('raise tooltip: itd.offscreen() пуст с тултипом, itd.overlaps() пуст без него', off1.length === 0 && ov1.length === 0,
+      JSON.stringify({ off: off1.slice(0, 5), ov: ov1.slice(0, 5) }))
+
+    await accept(3) // restore связывает событие с DayEvents[0] — процент второго берётся оттуда, тот же 3
+    const t2 = await tip()
+    check('raise tooltip: второе повышение +3% копится — «повышение +6%»',
+      raiseLine(t2).length === 1 && raiseLine(t2)[0] === 'повышение +6%', JSON.stringify(raiseLine(t2)))
+    check('raise tooltip: нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))
+  } catch (e) {
+    check('raise tooltip: кейс выполнен без ошибок', false, e instanceof Error ? e.message : String(e))
+  } finally {
+    await page.close().catch(() => {})
+  }
+}
+
 // ── Кейс 3г: заражённое место — третье состояние той же зоны (ITGAME-103/138) ─
 // Фикстура virus_outbreak: в офисе 1 заражены места 1 и 6 (слоты 0 и 5), в
 // офисе 2 — место 2; карточка «Вирус в сети» висит. Метка «☣ вирус k/3»
@@ -1286,7 +1358,7 @@ if (!process.env.QA_BASE) {
 
 try {
   for (const runCase of [
-    caseFullOffice, caseLunch, caseBrokenPc, caseBrokenLunch, caseVirus, caseTooltipUnderModal, caseDebugFramesUnderWindows, caseServerRoomGateway, caseServerRoomEmptyRacks, caseSparePcs, caseAmenityShelf,
+    caseFullOffice, caseLunch, caseBrokenPc, caseBrokenLunch, caseVirus, caseTooltipUnderModal, caseRaiseTooltip, caseDebugFramesUnderWindows, caseServerRoomGateway, caseServerRoomEmptyRacks, caseSparePcs, caseAmenityShelf,
   ]) {
     const browser = await puppeteer.launch({
       executablePath: chromePath(),

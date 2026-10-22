@@ -169,11 +169,14 @@ type employeeInfo struct {
 	// Unseen Forces (итерация 10).
 	Salary int `json:"salary"` // дневная зарплата этого сотрудника (с надбавками)
 	// Сотрудники 2.0 (итерация 15).
-	Level      int  `json:"level"`      // 0–3; производный от XP
-	XP         int  `json:"xp"`         // накопленный опыт
-	XPNext     int  `json:"xpNext"`     // до следующего уровня; 0 — потолок
-	Star       bool `json:"star"`       // звезда: золотой бейдж, выработка ×1.5 при найме
-	FirePrice  int  `json:"firePrice"`  // компенсация увольнения этого сотрудника
+	Level     int  `json:"level"`     // 0–3; производный от XP
+	XP        int  `json:"xp"`        // накопленный опыт
+	XPNext    int  `json:"xpNext"`    // до следующего уровня; 0 — потолок
+	Star      bool `json:"star"`      // звезда: золотой бейдж, выработка ×1.5 при найме
+	FirePrice int  `json:"firePrice"` // компенсация увольнения этого сотрудника
+	// Накопленное повышение, %: выработка ×(1+RaisePct/100) навсегда (ITGAME-203); 0 — не повышали.
+	// Отдельно от incomePerTick: прибавка живёт в множителе, а эффективная выработка тика округлена.
+	RaisePct   int  `json:"raisePct"`
 	HiredToday bool `json:"hiredToday"` // нанят в текущий день (компенсация ниже)
 }
 
@@ -384,7 +387,7 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 				PCBroken: e.PCBroken, RepairClicks: e.RepairClicks, RepairNeeded: repairNeeded, MotivateReadyAt: readyAt,
 				Salary: g.PersonalSalary(&e), OfflineReason: reason,
 				Level: g.LevelFor(&o.Employees[i]), XP: e.XP, XPNext: g.XPNext(&o.Employees[i]),
-				Star: e.Star, FirePrice: g.FireCompensation(&o.Employees[i]), HiredToday: e.HireDay == g.Day,
+				Star: e.Star, RaisePct: e.RaisePct, FirePrice: g.FireCompensation(&o.Employees[i]), HiredToday: e.HireDay == g.Day,
 				Infected: e.Infected, VirusClicks: e.VirusClicks, VirusNeeded: virusNeeded, AVCovered: cov[oi][i]}
 		}
 		// Не nil: nil-срез маршалится в JSON null, а клиент ждёт массив.

@@ -340,3 +340,31 @@ func TestProtocolActionPoints(t *testing.T) {
 		t.Fatalf("actionPoints=%v actionPointsMax=%v, хотим 5 и 8", raw["actionPoints"], raw["actionPointsMax"])
 	}
 }
+
+// Накопленное повышение (ITGAME-203) едет в employeeInfo полем raisePct (ITGAME-221): тултип
+// показывает его строкой, потому что выработка тика округлена и прибавку не выдаёт. У не
+// повышенного 0, у повышенного — накопленная сумма, и в JSON поле называется raisePct.
+func TestSnapshotEmployeeRaisePct(t *testing.T) {
+	g := game.New(game.DefaultConfig())
+	g.Money = 5000
+	if err := g.BuyPC(0); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := g.Hire(0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g.Offices[0].Employees[1].RaisePct = 5
+	emps := snapshot(g, 1, false, "").Offices[0].Employees
+	if emps[0].RaisePct != 0 || emps[1].RaisePct != 5 {
+		t.Errorf("raisePct = %d и %d, хотим 0 и 5", emps[0].RaisePct, emps[1].RaisePct)
+	}
+	raw, err := json.Marshal(emps[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"raisePct":5`) {
+		t.Errorf("в JSON нет raisePct:5: %s", raw)
+	}
+}

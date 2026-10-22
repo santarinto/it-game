@@ -741,12 +741,14 @@ export class OfficeScene extends Phaser.Scene {
     const office = s.offices[nav.activeOffice]
     const w = office.workplaces?.[slot]
     // Выработка — эффективная (с прибавкой уровня и дебаффами/баффами);
-    // база в скобках, когда эффекты её меняют.
+    // база в скобках, когда эффекты её меняют. Повышение (ITGAME-221) живёт в множителе, а
+    // выработка тика округлена — прибавка видна только строкой «повышение +N%» под ней.
     const base = (e.incomePerTick + (e.level > 0 ? LEVEL_BONUS[e.level] : 0)) * s.ticksPerHour
     const effective = e.effectiveIncomePerTick * s.ticksPerHour
     const lines = [
       e.name,
       `Выработка: ${fmtMoney(effective)}/час${effective !== base ? ` (база ${fmtMoney(base)})` : ''}`,
+      ...(e.raisePct > 0 ? [`повышение +${e.raisePct}%`] : []),
       `Зарплата:  ${fmtMoney(e.salary)}/день${e.unpaidToday ? ' (сегодня без оплаты)' : ''}`,
     ]
     // Опыт/уровень: тенура — актив, а не только ФОТ (итерация 15).

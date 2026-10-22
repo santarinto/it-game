@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "590ba1116734",
+  "hash": "006cc5a5a96a",
   "methods": {
     "version": {
       "kind": "prop",
@@ -2122,6 +2122,11 @@ export const CONTRACT = {
           "type": "number",
           "optional": false,
           "doc": "компенсация увольнения этого сотрудника"
+        },
+        "raisePct": {
+          "type": "number",
+          "optional": false,
+          "doc": "накопленное повышение, %: выработка ×(1+N/100) навсегда (ITGAME-203); 0 — не повышали"
         },
         "hiredToday": {
           "type": "boolean",

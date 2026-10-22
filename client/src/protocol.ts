@@ -57,6 +57,7 @@ export interface EmployeeInfo {
   xpNext: number // до следующего уровня; 0 — потолок
   star: boolean // звезда: золотой бейдж, выработка ×1.5 при найме
   firePrice: number // компенсация увольнения этого сотрудника
+  raisePct: number // накопленное повышение, %: выработка ×(1+N/100) навсегда (ITGAME-203); 0 — не повышали
   hiredToday: boolean // нанят в текущий день (компенсация ниже)
 }
 
