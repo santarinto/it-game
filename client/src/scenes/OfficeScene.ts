@@ -374,22 +374,24 @@ export class OfficeScene extends Phaser.Scene {
       // см. SLOT_LAYOUT_HD/_LEGACY выше.
       const layout = workerIncludesDesk ? SLOT_LAYOUT_LEGACY : SLOT_LAYOUT_HD
       const showWorkerOnly = hasPc && !!e && !s.isLunch && workerIncludesDesk
-      // Стол слота: без ПК — desk_empty; на обеде — всегда desk_pc (экран
-      // горит, кресло пустое — обед убирает только сотрудника, не стол);
-      // ПК куплен, но не нанят — desk_pc_off; сотрудник на месте —
-      // desk_pc/_broken по e.pcBroken. Легаси showWorkerOnly стол не рисует
-      // вовсе — он запечён в worker.png.
+      // Стол слота: без ПК — desk_empty; на обеде — desk_pc (экран горит,
+      // кресло пустое — обед убирает только сотрудника, не стол), сломанный —
+      // desk_pc_broken и на обеде (ITGAME-230); ПК куплен, но не нанят —
+      // desk_pc_off; сотрудник на месте — desk_pc/_broken по e.pcBroken.
+      // Легаси showWorkerOnly стол не рисует вовсе — он запечён в worker.png.
       let deskImg: Phaser.GameObjects.Image | null = null
       if (!showWorkerOnly) {
         const deskKey = !hasPc
           ? 'desk_empty'
           : dead
             ? 'desk_pc_broken' // «требуется замена» (ITGAME-135): серый стол поломки
+            : e?.pcBroken
+            ? 'desk_pc_broken'
             : s.isLunch
-            ? 'desk_pc'
-            : !e
-              ? 'desk_pc_off'
-              : e.pcBroken ? 'desk_pc_broken' : 'desk_pc'
+              ? 'desk_pc'
+              : !e
+                ? 'desk_pc_off'
+                : 'desk_pc'
         deskImg = addSprite(this, x, y, deskKey, 'desk')
         if (dead) deskImg.setTint(DEAD_TINT)
         this.objects.push(deskImg)
@@ -470,7 +472,7 @@ export class OfficeScene extends Phaser.Scene {
       let slotZone: Phaser.GameObjects.Rectangle | null = null
       if (e) {
         // Слот-картинка занятого места (id office.worker.i, без ввода):
-        // на обеде — тот же стол desk_pc, что уже нарисован выше (без
+        // на обеде — тот же стол desk_pc/_broken, что уже нарисован выше (без
         // второго стола: сотрудник отошёл, LUNCH_SHIFT убран — стол никуда
         // не двигается); иначе — сотрудник, в позиции стола (includesDesk,
         // легаси) либо поверх отдельного desk_pc в ТОЙ ЖЕ точке (HD).

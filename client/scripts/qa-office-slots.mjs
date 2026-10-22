@@ -7,7 +7,8 @@
 // кликается мышью по всему значку поломки — сотрудник и метка «✖ чинить k/N»
 // одной зоной места office.slot.i, после починки та же зона мотивирует
 // (ITGAME-75/92/93; проверка — itd.stack/itd.zones, настоящий хит-тест Phaser),
-// сломанное место на обеде — без подписи «обед» поверх кнопки мастера (ITGAME-184),
+// сломанное место на обеде — без подписи «обед» поверх кнопки мастера (ITGAME-184) и со столом
+// desk_pc_broken (ITGAME-230),
 // тултип не остаётся рядом с окном роутера/увольнения (ITGAME-89),
 // рамки ?debug=1 объектов под окном (роутер, выход в меню, карточка события, «Пока вас не было», отчёт дня) лежат под его
 // подложкой, рамки кнопок окна — над ней (ITGAME-84/97), слот шлюза серверной рисует gateway (не router), полка
@@ -492,6 +493,17 @@ async function caseBrokenLunch(browser) {
     const onBroken = geo.master ? lunch.filter((t) => Math.abs(t.x - geo.master.cx) < 1) : lunch
     check('broken_lunch: «обед» только у целых мест 1-2, у сломанного места 0 подписи нет',
       lunch.length === 2 && onBroken.length === 0, JSON.stringify({ n: lunch.length, onBroken }))
+
+    // ITGAME-230: на обеде картинка слота — сам стол (office.worker.i). У сломанного места —
+    // desk_pc_broken без тона (серый тон — только у мёртвого), у целых — desk_pc; стол в точке один.
+    const images = await dumpImages(page, 'office')
+    const desks = [0, 1, 2].map((i) => images.find((n) => n.id === `office.worker.${i}`) ?? null)
+    const at0 = desks[0]
+      ? images.filter((n) => /^desk_/.test(n.key) && Math.abs(n.x - desks[0].x) < 1 && Math.abs(n.y - desks[0].y) < 1).length
+      : 0
+    check('broken_lunch: стол сломанного места 0 — desk_pc_broken без тона, у мест 1-2 desk_pc, стол в точке слота 0 один',
+      desks[0]?.key === 'desk_pc_broken' && desks[0].tint === 0xffffff && desks[1]?.key === 'desk_pc' && desks[2]?.key === 'desk_pc' && at0 === 1,
+      JSON.stringify({ keys: desks.map((d) => d?.key ?? null), tint0: desks[0]?.tint ?? null, at0 }))
 
     const lint = await page.evaluate(() => ({ ov: window.itd.overlaps(), off: window.itd.offscreen() }))
     check('broken_lunch: itd.overlaps()/offscreen() пусты (до клика: мастер чинит, кадр меняется)', lint.ov.length === 0 && lint.off.length === 0,
