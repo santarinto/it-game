@@ -18,11 +18,13 @@
 //       sid, как всякая новая партия из меню), день 1, не $4321; её сейв — с version и форматом сервера,
 //       старый файл не тронут
 //   V8  живая партия (продолжение партии V7) помечена: itd.staleSave → live:true, файл сразу формата
-//       FORMAT+1 с версией сервера; itd.away(1) → not_resumed, новая партия дня 1 под тем же sid, файл
+//       FORMAT+1 с версией сервера; itd.away(1) → not_resumed с incompatible: true и причиной «несовместим»
+//       (ITGAME-224), новая партия дня 1 под тем же sid, файл
 //       снова формата сервера, карточки меню нет, а в игре окно (ITGAME-174, владелец 21.10): кнопка
 //       modal.incompatible.ok, текст «Сейв несовместим с новой версией — начата новая партия», внутри
 //       рамки, overlaps/offscreen пусты; настоящий клик мышью по «ОК» закрывает его, партия — новая,
-//       день 1 под тем же sid, темп окном не тронут
+//       день 1 под тем же sid, темп окном не тронут; reemit отладки (btn.debug дважды) окно не
+//       открывает снова (ITGAME-224: флаг — разовое событие, не состояние latest)
 //   V9  метка живой партии (формат по умолчанию), «Сохранить и выйти» → карточка «СЕЙВ НЕСОВМЕСТИМ»
 //   V10 нет pageerror
 //
@@ -286,8 +288,9 @@ try {
   const noticeText = a8.parts.map((n) => n.text).join(' ')
   // панель showModal — 460 px по центру сцены: тексты внутри с полем ≥16 px
   const inPanel = a8.parts.length > 0 && a8.parts.every((n) => n.cx - n.w / 2 >= 640 - 230 + 16 && n.cx + n.w / 2 <= 640 + 230 - 16)
-  check('V8 itd.away(1): not_resumed, новая партия дня 1 под тем же sid; файл снова формата сервера',
-    a8.r.code === 'not_resumed' && a8.r.resumed === false && a8.r.sid === sid8 && a8.liveSid === sid8
+  check('V8 itd.away(1): not_resumed, incompatible и «несовместим» в причине, новая партия дня 1 под тем же sid; файл снова формата сервера',
+    a8.r.code === 'not_resumed' && a8.r.resumed === false && a8.r.incompatible === true && /несовместим/.test(a8.r.error ?? '')
+      && a8.r.sid === sid8 && a8.liveSid === sid8
       && a8.connected && a8.day === 1 && a8.balance !== 4321 && !a8.stale
       && fileFormat(sid8) === FORMAT && fileData(sid8).game.money !== 4321,
     JSON.stringify({ ...a8, parts: undefined, overlaps: undefined, offscreen: undefined, file: fileFormat(sid8), money: fileData(sid8).game.money }))
@@ -303,13 +306,25 @@ try {
   const c8 = await page.evaluate(async () => {
     await window.itd.wait(() => !window.itd.ids().some((x) => x.id === 'modal.incompatible.ok'), 3000).catch(() => null)
     const st = window.itd.state()
+    const open = window.itd.ids().some((x) => x.id === 'modal.incompatible.ok')
+    // reemit отладки сразу после «ОК»: последний снапшот раздаётся заново — окно не возвращается
+    const toggle = async () => {
+      for (let i = 0; i < 20; i++) {
+        const r = await window.itd.click('btn.debug')
+        if (r?.code !== 'debounced') return r
+        await new Promise((res) => setTimeout(res, 150))
+      }
+    }
+    await toggle()
+    await toggle() // обратно: дальше V9 идёт с прежним режимом отладки
+    await new Promise((r) => setTimeout(r, 400))
     return {
-      open: window.itd.ids().some((x) => x.id === 'modal.incompatible.ok'), day: st.day, speed: st.speed,
+      open, reopened: window.itd.ids().some((x) => x.id === 'modal.incompatible.ok'), day: st.day, speed: st.speed,
       liveSid: window.itd.server().liveSid, blocker: window.itd.blocker() ?? null,
     }
   })
-  check('V8 клик мышью по «ОК»: окно закрыто, партия — новая, день 1 под тем же sid, темп не менялся окном',
-    !c8.open && c8.day === 1 && c8.liveSid === sid8 && c8.speed === a8.speed && !c8.blocker,
+  check('V8 клик мышью по «ОК»: окно закрыто, партия — новая, день 1 под тем же sid, темп не менялся окном; reemit его не открывает',
+    !c8.open && !c8.reopened && c8.day === 1 && c8.liveSid === sid8 && c8.speed === a8.speed && !c8.blocker,
     JSON.stringify({ c8, speedBefore: a8.speed }))
 
   // V9 метка живой партии и «Сохранить и выйти»: карточка (рецепт агента из навыка приёмки)

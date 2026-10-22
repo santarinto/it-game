@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "65a2044a0efe",
+  "hash": "590ba1116734",
   "methods": {
     "version": {
       "kind": "prop",
@@ -356,7 +356,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<AwayResult | (AgentResult & { code: 'bad_sec' | 'bad_mode'; })>",
-      "doc": "Уход без ухода со страницы (ITGAME-76): на sec секунд (0..600) вкладка\nпропадает для сервера и возвращается в ту же партию — тот же sid,\nпесочницы или владельца; без example.com, новой вкладки и пропавшего\nпервого клика. mode 'close' (по умолчанию) — как закрытая вкладка:\nclose-фрейм без exit, сервер узнаёт сразу. mode 'net' — как обрыв сети:\nPOST /api/debug/drop (ITGAME_DEBUG): сервер перестаёт читать и писать в\nсоединение без close-фрейма и замечает уход своим таймаутом чтения\n(ITGAME_READ_TIMEOUT, по умолчанию 30 с; timeout — свой для этого\nсоединения, мс), а партия до этого идёт вживую — offline.liveTicks.\nВсё время ухода вкладка глуха и нема: команды — not_connected, сокет —\nreconnecting, сама не реконнектится. Ответ {ok, mode, sid, leftAt, back,\nresumed, rev, drop, awayId, offline}: back — первый снапшот нового сокета (cause\nresume), drop — ответ ручки {at, timeoutMs, noticeBy}, awayId — номер этого\nухода на странице (ITGAME-87), offline — догон ЭТОГО ухода (offline.awayId ===\nawayId; droppedAt — когда сервер заметил уход) или null; itd.offline() после\nухода без догона отдаёт прежний догон с другим awayId. Коды: bad_sec, bad_mode, already_away, not_connected, finished,\ndrop_failed, interrupted (вкладка ушла в меню/новую партию), no_return,\nnot_resumed.",
+      "doc": "Уход без ухода со страницы (ITGAME-76): на sec секунд (0..600) вкладка\nпропадает для сервера и возвращается в ту же партию — тот же sid,\nпесочницы или владельца; без example.com, новой вкладки и пропавшего\nпервого клика. mode 'close' (по умолчанию) — как закрытая вкладка:\nclose-фрейм без exit, сервер узнаёт сразу. mode 'net' — как обрыв сети:\nPOST /api/debug/drop (ITGAME_DEBUG): сервер перестаёт читать и писать в\nсоединение без close-фрейма и замечает уход своим таймаутом чтения\n(ITGAME_READ_TIMEOUT, по умолчанию 30 с; timeout — свой для этого\nсоединения, мс), а партия до этого идёт вживую — offline.liveTicks.\nВсё время ухода вкладка глуха и нема: команды — not_connected, сокет —\nreconnecting, сама не реконнектится. Ответ {ok, mode, sid, leftAt, back,\nresumed, incompatible, rev, drop, awayId, offline}: back — первый снапшот нового сокета (cause\nresume), incompatible — сервер отверг сейв как чужого формата (ITGAME-224: not_resumed\nтогда говорит «несовместим», а не «сейва нет»), drop — ответ ручки {at, timeoutMs, noticeBy}, awayId — номер этого\nухода на странице (ITGAME-87), offline — догон ЭТОГО ухода (offline.awayId ===\nawayId; droppedAt — когда сервер заметил уход) или null; itd.offline() после\nухода без догона отдаёт прежний догон с другим awayId. Коды: bad_sec, bad_mode, already_away, not_connected, finished,\ndrop_failed, interrupted (вкладка ушла в меню/новую партию), no_return,\nnot_resumed.",
       "examples": [
         "await itd.away(5)",
         "await itd.away(20, { mode: 'net', timeout: 3000 })"
@@ -1378,6 +1378,11 @@ export const CONTRACT = {
           "type": "boolean | null",
           "optional": false,
           "doc": "первый снапшот возврата помечен resumed (та же партия)"
+        },
+        "incompatible": {
+          "type": "boolean | null",
+          "optional": false,
+          "doc": "первый снапшот возврата: сервер отверг сейв sid как чужого формата (ITGAME-174/224); null — не вернулись"
         },
         "rev": {
           "type": "number | null",

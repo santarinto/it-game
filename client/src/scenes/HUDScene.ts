@@ -412,9 +412,6 @@ export class HUDScene extends Phaser.Scene {
       onState: (s) => {
         this.noLinkToasted = false // снапшот пришёл — связь есть, следующий обрыв — новая серия
         this.refresh(s)
-        // Сервер отверг сейв чужого формата и начал новую партию (ITGAME-174): флаг только в
-        // первом снапшоте сокета, а net.ts уже сделал resetForNewGame — окно поднимается поверх.
-        if (s.incompatible) this.showIncompatibleNotice()
         // «Подождать» (ITGAME-85): связь вернулась — exit уходит с первым снапшотом.
         if (this.exitWaitResume !== null) this.trySendExit(this.exitWaitResume)
       },
@@ -437,6 +434,10 @@ export class HUDScene extends Phaser.Scene {
       onDisconnect: (reason) => this.showDisconnect(reason),
       onDayReport: (r) => this.onDayReport(r),
       onGameOver: (o) => this.showGameOver(o),
+      // Сервер отверг сейв чужого формата и начал новую партию (ITGAME-174): событие первого
+      // снапшота сокета, net.ts уже сделал resetForNewGame — окно поднимается поверх. Разовое
+      // (ITGAME-224): пересозданный HUD и reemit его не повторяют.
+      onIncompatible: () => this.showIncompatibleNotice(),
       onVictory: (v) => this.showVictory(v),
       onOfflineReport: (r) => this.showOfflineReport(r),
       onReconnecting: (n) => this.showReconnecting(n),

@@ -40,6 +40,7 @@ export interface AwayReturn {
   leftAt: number | null // epoch ms ухода: вкладка «пропала» для сервера
   back: number | null // epoch ms возврата: первый снапшот нового сокета
   resumed: boolean | null // первый снапшот возврата помечен resumed (та же партия)
+  incompatible: boolean | null // первый снапшот возврата: сервер отверг сейв sid как чужого формата (ITGAME-174/224); null — не вернулись
   rev: number | null // его rev (cause 'resume')
   drop: AwayDrop | null // mode net: ответ ручки drop
 }
@@ -65,6 +66,10 @@ export interface Listener {
   onGameOver?(o: GameOverMessage): void
   onVictory?(v: VictoryMessage): void
   onOfflineReport?(r: OfflineReportMessage): void
+  // Сервер отверг сейв sid как чужого формата и начал новую партию (ITGAME-174): флаг первого
+  // снапшота сокета — разовое событие, как отчёты (ITGAME-224): уходит первому подписчику с этим
+  // обработчиком, ждёт его, если HUD ещё не создан, и второй раз не приходит.
+  onIncompatible?(): void
   // Реконнект в процессе (деплой рвёт WS): баннер «переподключение».
   onReconnecting?(attempt: number): void
   // Команда send() не ушла: сокет не открыт или вкладка в уходе (ITGAME-90) —
@@ -573,6 +578,7 @@ export class GameClient {
   connect(difficulty: DifficultyId): void {
     this.latest = null
     this.pending = []
+    this.incompatibleDue = false
     this.awayState = null // новая партия отменяет уход (away вернёт interrupted)
     this.intentionalClose = false
     this.takenOver = false
@@ -655,9 +661,13 @@ export class GameClient {
           this.firstOfSocket = false
           if (!msg.resumed) resetForNewGame()
         }
-        this.latest = msg
+        // incompatible — событие, не состояние (ITGAME-224): хранимая копия latest его не несёт,
+        // иначе HUD, пересозданный до следующего снапшота, и reemit отладки (btn.debug,
+        // itd.restore) открыли бы окно «Сейв несовместим» повторно; окну — onIncompatible.
+        this.latest = msg.incompatible ? { ...msg, incompatible: false } : msg
         this.stateSocket = seq
         this.listeners.forEach((l) => l.onState(msg))
+        if (msg.incompatible) this.deliverIncompatible()
         this.checkStateWaiters(msg)
       } else if (msg.type === 'error') {
         // error = отказ сервера: код уходит квитанции по re, слушателям — как раньше
@@ -729,6 +739,7 @@ export class GameClient {
     this.intentionalClose = true
     this.awayState = null // выход в меню отменяет уход (away вернёт interrupted)
     this.pending = []
+    this.incompatibleDue = false
     this.sessionSid = null
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = null
@@ -919,7 +930,7 @@ export class GameClient {
   // offlineReport — ещё и offline_report следом: itd.offline() уже про этот уход.
   async away(ms: number, mode: AwayMode, opts: { timeoutMs?: number } = {}): Promise<AwayReturn> {
     const result = (r: Partial<AwayReturn> & { ok: boolean }): AwayReturn => ({
-      mode, sid: this.sessionSid, leftAt: null, back: null, resumed: null, rev: null, drop: null, ...r,
+      mode, sid: this.sessionSid, leftAt: null, back: null, resumed: null, incompatible: null, rev: null, drop: null, ...r,
     })
     const forgetLeft = () => {
       sessionStore.remove(LEFT_KEY)
@@ -984,9 +995,12 @@ export class GameClient {
     try { if (ws.readyState !== WebSocket.CLOSED) ws.close() } catch { /* уже закрыт */ }
     forgetLeft() // не съеденная offline_report-ом метка не должна лечь на чужой уход
     if (!first) return result({ ok: false, code: 'no_return', error: 'первого снапшота нового сокета нет за 15 с', leftAt, drop })
+    // Новая партия — либо сейва нет, либо он чужого формата (ITGAME-224): у второго своя причина.
+    const incompatible = first.incompatible === true
+    const why = incompatible ? 'сейв под этим sid другого формата — несовместим' : 'сейва под этим sid нет'
     return result({
-      ok: first.resumed, ...(first.resumed ? {} : { code: 'not_resumed' as const, error: 'сервер начал новую партию: сейва под этим sid нет' }),
-      leftAt, back, resumed: first.resumed, rev: first.rev, drop,
+      ok: first.resumed, ...(first.resumed ? {} : { code: 'not_resumed' as const, error: `сервер начал новую партию: ${why}` }),
+      leftAt, back, resumed: first.resumed, incompatible, rev: first.rev, drop,
     })
   }
 
@@ -1015,6 +1029,20 @@ export class GameClient {
 
   reemit(): void {
     if (this.latest) this.listeners.forEach((l) => l.onState(this.latest!))
+  }
+
+  // Окно «Сейв несовместим» (ITGAME-174/224) — как разовые сообщения выше: наблюдатели доставкой
+  // не считаются, без адресата событие ждёт первого подписчика с onIncompatible.
+  private incompatibleDue = false
+
+  private deliverIncompatible(): void {
+    let shown = false
+    for (const l of this.listeners) {
+      if (!l.onIncompatible) continue
+      l.onIncompatible()
+      if (!l.observer) shown = true
+    }
+    this.incompatibleDue = !shown
   }
 
   // sid сокета, которым живёт текущая партия (ITGAME-64). После финала хранилища уже
@@ -1047,6 +1075,10 @@ export class GameClient {
         else rest.push(m)
       }
       this.pending = rest
+      if (this.incompatibleDue && l.onIncompatible) {
+        this.incompatibleDue = false
+        l.onIncompatible()
+      }
     }
     return () => {
       this.listeners = this.listeners.filter((x) => x !== l)

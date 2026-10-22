@@ -1096,8 +1096,9 @@ export interface ItdApi {
    * соединения, мс), а партия до этого идёт вживую — offline.liveTicks.
    * Всё время ухода вкладка глуха и нема: команды — not_connected, сокет —
    * reconnecting, сама не реконнектится. Ответ {ok, mode, sid, leftAt, back,
-   * resumed, rev, drop, awayId, offline}: back — первый снапшот нового сокета (cause
-   * resume), drop — ответ ручки {at, timeoutMs, noticeBy}, awayId — номер этого
+   * resumed, incompatible, rev, drop, awayId, offline}: back — первый снапшот нового сокета (cause
+   * resume), incompatible — сервер отверг сейв как чужого формата (ITGAME-224: not_resumed
+   * тогда говорит «несовместим», а не «сейва нет»), drop — ответ ручки {at, timeoutMs, noticeBy}, awayId — номер этого
    * ухода на странице (ITGAME-87), offline — догон ЭТОГО ухода (offline.awayId ===
    * awayId; droppedAt — когда сервер заметил уход) или null; itd.offline() после
    * ухода без догона отдаёт прежний догон с другим awayId. Коды: bad_sec, bad_mode, already_away, not_connected, finished,

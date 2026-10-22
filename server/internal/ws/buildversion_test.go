@@ -215,3 +215,61 @@ func TestFirstSnapshotTellsWhyPartyIsNew(t *testing.T) {
 		}
 	}
 }
+
+// Окно «Сейв несовместим» (первый снапшот) и карточка меню берут причину из одного saveHead
+// (ITGAME-224): на любом сейве resume() и summarize() согласны, несовместим ли он, а поднятый
+// resume() сейв меню показывает существующим.
+func TestResumeAndMenuAgreeOnIncompatible(t *testing.T) {
+	const cur = "2026.10.18.03.00"
+	withBuildVersion(t, cur)
+	const sid = "agree-1234"
+	putRaw := func(saves *store.Store, raw []byte) {
+		gen, _ := saves.Begin(sid)
+		saves.Put(sid, gen, raw, time.Now())
+	}
+	for _, tc := range []struct {
+		name               string
+		put                func(saves *store.Store)
+		incompatible, live bool
+	}{
+		{"нормальный", func(saves *store.Store) { putVersionedSave(t, saves, sid, cur) }, false, true},
+		{"формат старше", func(saves *store.Store) {
+			putEditedSave(t, saves, sid, cur, func(g map[string]any) { g["format"] = game.SaveFormat - 1 })
+		}, true, false},
+		{"формат новее, поле игры сменило тип", func(saves *store.Store) {
+			putEditedSave(t, saves, sid, cur, func(g map[string]any) { g["format"] = game.SaveFormat + 1; g["money"] = "4321" })
+		}, true, false},
+		{"формат новее, поле сессии сменило тип", func(saves *store.Store) {
+			putEditedSave(t, saves, sid, cur, func(g map[string]any) { g["format"] = game.SaveFormat + 1 })
+			raw, _ := saves.Load(sid)
+			var m map[string]any
+			_ = json.Unmarshal(raw, &m)
+			m["speed"], m["events"] = "быстро", map[string]any{"x": 1}
+			raw, _ = json.Marshal(m)
+			putRaw(saves, raw)
+		}, true, false},
+		{"битый", func(saves *store.Store) { putRaw(saves, []byte("{не json")) }, false, false},
+		{"чужой sid другого формата", func(saves *store.Store) {
+			putEditedSave(t, saves, sid, cur, func(g map[string]any) { g["format"] = game.SaveFormat + 1 })
+			raw, _ := saves.Load(sid)
+			var m map[string]any
+			_ = json.Unmarshal(raw, &m)
+			m["sid"] = "someone-else-1"
+			raw, _ = json.Marshal(m)
+			putRaw(saves, raw)
+		}, false, false},
+	} {
+		saves := newTestStore(t)
+		tc.put(saves)
+		h := &Handler{Config: savesTestConfig(), TickInterval: time.Hour, Saves: saves}
+		menu := h.summarize(sid)
+		gen, _ := saves.Begin(sid)
+		res := h.resume(sid, gen, nil)
+		if menu.Incompatible != tc.incompatible || res.incompatible != tc.incompatible {
+			t.Errorf("%s: меню incompatible=%v, resume incompatible=%v, хотим %v", tc.name, menu.Incompatible, res.incompatible, tc.incompatible)
+		}
+		if menu.Exists != tc.live || (res.g != nil) != tc.live || res.journal == nil {
+			t.Errorf("%s: меню exists=%v, resume поднял=%v journal=%v, хотим %v", tc.name, menu.Exists, res.g != nil, res.journal != nil, tc.live)
+		}
+	}
+}

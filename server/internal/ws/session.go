@@ -397,7 +397,9 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		// тики/команды прежнего актора в окне Load→Begin сохранялись, уходили
 		// его вкладке — и пропадали в поднятой партии.
 		gen, kick = h.Saves.Begin(sid)
-		g, speed, lastReport, offline, resumed, scenario, journal, savedAt, rv.rev, incompatible = h.resume(sid, gen, rt)
+		res := h.resume(sid, gen, rt)
+		g, speed, lastReport, offline, resumed = res.g, res.speed, res.last, res.offline, res.g != nil
+		scenario, journal, savedAt, rv.rev, incompatible = res.scenario, res.journal, res.savedAt, res.rev, res.incompatible
 		if h.afterLoad != nil {
 			h.afterLoad(sid)
 		}
@@ -645,45 +647,66 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 	}
 }
 
+// resumeResult — что resume() достал из сейва sid (ITGAME-224: было десять значений).
+type resumeResult struct {
+	g            *game.Game // nil — сейва нет, он битый, чужой по sid или другого формата: партия новая
+	speed        int        // без сейва — 1
+	last         *game.DayReport
+	offline      *game.OfflineSummary
+	scenario     string
+	journal      *eventJournal // не nil и без сейва
+	savedAt      time.Time
+	rev          uint64
+	incompatible bool // сейв этого sid другого формата (ITGAME-174): первый снапшот скажет почему
+}
+
 // resume — восстановить игру из сейва (если есть и валиден). Невалидный
 // или терминальный сейв удаляется — сессия начнётся заново.
-func (h *Handler) resume(sid string, gen uint64, rt *resumeTrace) (g *game.Game, speed int, last *game.DayReport, offline *game.OfflineSummary, ok bool, scenario string, journal *eventJournal, savedAt time.Time, rev uint64, incompatible bool) {
-	journal = newEventJournal(500) // даже без сейва журнал валиден
+func (h *Handler) resume(sid string, gen uint64, rt *resumeTrace) resumeResult {
+	r := resumeResult{speed: 1, journal: newEventJournal(500)} // даже без сейва журнал валиден
 	raw, found := h.Saves.Load(sid)
 	if !found {
-		return nil, 1, nil, nil, false, "", journal, time.Time{}, 0, false
+		return r
+	}
+	// Сейв другого формата — как битый (ITGAME-169): новая партия под тем же sid, её первый
+	// сейв перезапишет файл; меню об этом уже сказало (save_summary.incompatible). Причину
+	// берём из saveHead, как меню (summarize): сейв чужого формата может не лечь в sessionSave
+	// целиком — окно и карточка меню не разойдутся (ITGAME-224). Битый, чужой по sid и
+	// отсутствующий сейв остаются тихими (ITGAME-174).
+	var head saveHead
+	if json.Unmarshal(raw, &head) == nil && head.SID == sid && incompatibleSave(head.Game.Format) {
+		h.Saves.Finish(sid, gen) // не Delete: тот закрыл бы kick — наш же (владеем с Begin)
+		r.incompatible = true
+		return r
 	}
 	var ss sessionSave
-	// Сейв другого формата — как битый (ITGAME-169): новая партия под тем же sid, её первый
-	// сейв перезапишет файл; меню об этом уже сказало (save_summary.incompatible).
 	if json.Unmarshal(raw, &ss) != nil || ss.SID != sid || incompatibleSave(ss.Game.Format) {
-		h.Saves.Finish(sid, gen) // не Delete: тот закрыл бы kick — наш же (владеем с Begin)
-		// Причина «чужой формат» — только если сейв декодировался и принадлежит этому sid:
-		// битый, чужой по sid и отсутствующий остаются тихими (ITGAME-174).
-		return nil, 1, nil, nil, false, "", journal, time.Time{}, 0, ss.SID == sid && incompatibleSave(ss.Game.Format)
+		h.Saves.Finish(sid, gen)
+		return r
 	}
 	g, err := game.Restore(ss.Game)
 	if err != nil {
 		h.Saves.Finish(sid, gen)
-		return nil, 1, nil, nil, false, "", journal, time.Time{}, 0, false
+		return r
 	}
-	speed = min(max(ss.Speed, 0), 3)
+	speed := min(max(ss.Speed, 0), 3)
 	miss := offlineTicks(ss.SavedAt, speed, h.TickInterval)
 	rt.capture(g, speed, ss.ResumeSpeed, ss.Scenario, ss.Rev, miss) // журнал: сейв до догона (ITGAME-46)
-	offline = g.AdvanceOffline(miss)
+	offline := g.AdvanceOffline(miss)
 	// Явный выход (ITGAME-65): сейв на паузе — догон выше нулевой, а партия
 	// продолжается на скорости до выхода; следующий persist обнулит ResumeSpeed.
 	if rs := min(ss.ResumeSpeed, 3); speed == 0 && rs > 0 {
 		speed = rs
 	}
 	if offline != nil && offline.Ticks > 0 {
-		journal.add(fmt.Sprintf("офлайн-догон: %d тиков, %d дней, баланс $%d",
+		r.journal.add(fmt.Sprintf("офлайн-догон: %d тиков, %d дней, баланс $%d",
 			offline.Ticks, offline.Days, offline.Balance))
 	}
 	for _, ev := range ss.Events {
-		journal.add(ev)
+		r.journal.add(ev)
 	}
-	return g, speed, ss.LastReport, offline, true, ss.Scenario, journal, ss.SavedAt, ss.Rev, false
+	r.g, r.speed, r.last, r.offline, r.scenario, r.savedAt, r.rev = g, speed, ss.LastReport, offline, ss.Scenario, ss.SavedAt, ss.Rev
+	return r
 }
 
 // newGame — новая партия: ?seed= задаёт сид, иначе случайный. Битая строка
