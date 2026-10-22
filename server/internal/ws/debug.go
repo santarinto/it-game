@@ -563,11 +563,25 @@ type advanceReply struct {
 	State   stateMessage         `json:"state"`
 }
 
+// debugSave — game.Save для debug-ответа: сид строкой (ITGAME-191), uint64 выше
+// 2^53 в JSON-числе теряет точность в JS, и круг itd.snapshot().save →
+// itd.restore подменял бы сид округлённым. Файлы и журнал пишут Save как есть
+// (число): формат сейва не меняется; restore принимает и строку, и число.
+type debugSave game.Save
+
+func (d debugSave) MarshalJSON() ([]byte, error) {
+	type plain game.Save
+	return json.Marshal(struct {
+		plain
+		Seed string `json:"seed"`
+	}{plain(d), strconv.FormatUint(d.Seed, 10)})
+}
+
 // stateReply — тело ответа GET state и всех мутаций: свежий снапшот.
 type stateReply struct {
 	SID    string       `json:"sid"`
 	State  stateMessage `json:"state"`
-	Save   game.Save    `json:"save"`
+	Save   debugSave    `json:"save"`
 	Events []string     `json:"events,omitempty"`
 }
 
@@ -615,7 +629,7 @@ func (h *Handler) applyDebug(
 	switch req.kind {
 	case kindState:
 		reply(debugReply{Code: http.StatusOK, Body: stateReply{
-			SID: sid, State: snap(), Save: g.Export(), Events: jr.last(20),
+			SID: sid, State: snap(), Save: debugSave(g.Export()), Events: jr.last(20),
 		}})
 		return false
 
@@ -701,7 +715,7 @@ func (h *Handler) applyDebug(
 		return false
 	}
 	reply(debugReply{Code: http.StatusOK, Body: stateReply{
-		SID: sid, State: snap(), Save: g.Export(),
+		SID: sid, State: snap(), Save: debugSave(g.Export()),
 	}})
 	return false
 }

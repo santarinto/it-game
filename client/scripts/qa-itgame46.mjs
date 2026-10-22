@@ -279,7 +279,10 @@ try {
 
   // J8 — сейв реплея = сейв живой партии
   const live = await (await fetch(`${BASE}/api/debug/state?sid=${encodeURIComponent(sid)}`)).json()
-  const same = JSON.stringify(live.save) === JSON.stringify(res.save)
+  // сид в debug-ответе строка, в сейве реплея число, а JS-число выше 2^53 округляется
+  // (ITGAME-191): сид сверяют Go-тесты реплея, здесь без него
+  const noSeed = ({ seed, ...rest }) => rest
+  const same = JSON.stringify(noSeed(live.save)) === JSON.stringify(noSeed(res.save))
   note(
     'J8 сейв и темп реплея совпадают с живой партией',
     same && live.state.speed === res.speed,

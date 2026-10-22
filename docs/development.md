@@ -717,6 +717,13 @@ before leaving and pass it: `itd.journal({sid})`. `itd.away()` keeps its own
 the active office is locked in the restored state, the tab moves to office 0
 (ITGAME-63).
 
+In the debug answer (`itd.snapshot().save`) `save.seed` is a decimal string
+(`debugSave`, ITGAME-191): a uint64 above 2^53 would lose precision as a JSON
+number in JS and `itd.restore(itd.snapshot().save)` would swap the seed for a
+rounded one. Save files, the journal and the DB keep the number — the file
+format and `SaveFormat` do not change; `Save.UnmarshalJSON` (so `itd.restore`
+and loading) accepts both a string and a number.
+
 Both `itd.scenario()` and `itd.restore()` close the office and server-room
 windows (router, fire dialog, rack, core): they were built from the previous
 state, and a click in one sent a command for that office/slot into the new

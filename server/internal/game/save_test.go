@@ -1,7 +1,9 @@
 package game
 
 import (
+	"bytes"
 	"encoding/json"
+	"strconv"
 	"testing"
 )
 
@@ -399,5 +401,54 @@ func TestRNGStateRoundtrip(t *testing.T) {
 		if x, y := g.rng.IntN(1000), c.rng.IntN(1000); x != y {
 			t.Fatalf("ролл %d: %d != %d", i, x, y)
 		}
+	}
+}
+
+// TestSaveSeedAbove2p53 — сид выше 2^53 переживает круг save → JSON → Restore
+// точно (ITGAME-191); в файле он число (формат не меняется), строка из
+// debug-ответа читается так же, число и строка дают один сид.
+func TestSaveSeedAbove2p53(t *testing.T) {
+	const seed = uint64(1<<63 + 12345) // выше 2^53, во float64 не помещается точно
+	g := NewSeeded(DefaultConfig(), seed)
+	raw, err := json.Marshal(g.Export())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Файл сейва не меняется: seed в json.Marshal(Export) — число.
+	var probe struct {
+		Seed json.RawMessage `json:"seed"`
+	}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		t.Fatal(err)
+	}
+	if want := strconv.FormatUint(seed, 10); string(probe.Seed) != want {
+		t.Fatalf("seed в JSON сейва = %s, ждали число %s", probe.Seed, want)
+	}
+	var s Save
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	g2, err := Restore(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g2.Seed != seed || string(g2.RNGState()) != string(g.RNGState()) {
+		t.Fatalf("сид после круга %d, ждали %d", g2.Seed, seed)
+	}
+	// Строковый seed (так его отдаёт debug-ответ) читается так же, как число.
+	str := bytes.Replace(raw, probe.Seed, []byte(`"`+string(probe.Seed)+`"`), 1)
+	var so Save
+	if err := json.Unmarshal(str, &so); err != nil {
+		t.Fatalf("сейв со строковым сидом не читается: %v", err)
+	}
+	if so.Seed != seed {
+		t.Fatalf("числовой сид прочитан как %d, ждали %d", so.Seed, seed)
+	}
+	var small Save
+	if err := json.Unmarshal([]byte(`{"seed":42}`), &small); err != nil || small.Seed != 42 {
+		t.Fatalf("малый числовой сид: %d, %v", small.Seed, err)
+	}
+	if err := json.Unmarshal([]byte(`{"seed":"abc"}`), &small); err == nil {
+		t.Fatal("битый сид должен отвергаться")
 	}
 }

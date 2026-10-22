@@ -1,10 +1,13 @@
 package game
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand/v2"
 	"slices"
+	"strconv"
+	"strings"
 )
 
 // Сейвы сессии (ITGAME-8): игра сериализуется целиком — конфиг, с которым
@@ -79,6 +82,27 @@ type Save struct {
 	// Нет в сейве (старый сейв) — книга начинается с текущего тика.
 	Ledger        *DayLedger  `json:"ledger,omitempty"`
 	LedgerHistory []DayLedger `json:"ledgerHistory,omitempty"`
+}
+
+// UnmarshalJSON читает сид и числом (так он лежит в файлах), и строкой (так его
+// отдаёт debug-ответ, ITGAME-191: JS-число выше 2^53 теряет точность). Нет поля seed (дельта itd.restore) — сид не меняется.
+func (s *Save) UnmarshalJSON(b []byte) error {
+	type plain Save
+	aux := struct {
+		*plain
+		Seed json.RawMessage `json:"seed"`
+	}{plain: (*plain)(s)}
+	if err := json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	if t := strings.Trim(string(aux.Seed), `"`); aux.Seed != nil && t != "null" {
+		v, err := strconv.ParseUint(t, 10, 64)
+		if err != nil {
+			return fmt.Errorf("seed: %s не uint64", aux.Seed)
+		}
+		s.Seed = v
+	}
+	return nil
 }
 
 // Export — слепок текущего состояния для сейва.

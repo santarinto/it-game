@@ -98,7 +98,7 @@ func TestDebugStateGetAndPatch(t *testing.T) {
 		t.Fatalf("seed в снапшоте: %v", st["seed"])
 	}
 	save := stateOf(t, out["save"])
-	if num(t, save["seed"]) != 1234 {
+	if save["seed"] != "1234" { // в сейве сид строкой (ITGAME-191)
 		t.Fatalf("seed в сейве: %v", save["seed"])
 	}
 
@@ -249,6 +249,43 @@ func TestDebugRestoreRoundtrip(t *testing.T) {
 	}
 	if num(t, stateOf(t, out["state"])["money"]) != cfg.StartMoney {
 		t.Fatalf("restore не вернул баланс: %v", out["state"])
+	}
+}
+
+// Круг snapshot().save → restore() с сидом выше 2^53 (ITGAME-191): save.seed
+// строка, клиент гоняет сейв как есть и сид не округляется.
+func TestDebugRestoreKeepsHugeSeed(t *testing.T) {
+	cfg := game.DefaultConfig()
+	cfg.WinTarget = 1_000_000
+	base, _ := startDebugServer(t, cfg, time.Hour)
+
+	const seed = "18446744073709551557" // выше 2^53, во float64 не помещается
+	sid := "debug-sid-0191"
+	c, _, err := websocket.Dial(context.Background(), "ws"+strings.TrimPrefix(base, "http")+"/ws?sid="+sid+"&seed="+seed, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.CloseNow()
+	var first testMessage
+	if err := wsjson.Read(context.Background(), c, &first); err != nil {
+		t.Fatal(err)
+	}
+	_, out := httpDebug(t, base, "GET", "/api/debug/state?sid="+sid, "")
+	save, _ := out["save"].(map[string]any)
+	if save["seed"] != seed {
+		t.Fatalf("seed в сейве: %v", save["seed"])
+	}
+	saveRaw, err := json.Marshal(save)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out := httpDebug(t, base, "POST", "/api/debug/state",
+		fmt.Sprintf(`{"sid":%q,"state":%s}`, sid, saveRaw))
+	if code != 200 {
+		t.Fatalf("restore: %d %v", code, out)
+	}
+	if got := stateOf(t, out["state"])["seed"]; got != seed {
+		t.Fatalf("seed после restore: %v, ждали %s", got, seed)
 	}
 }
 

@@ -293,7 +293,13 @@ func liveState(t *testing.T, srv *httptest.Server, sid string) (save json.RawMes
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	return body.Save, body.State
+	// debug-ответ несёт сид строкой (ITGAME-191): к виду файла сейва — через Save.
+	var sv game.Save
+	if err := json.Unmarshal(body.Save, &sv); err != nil {
+		t.Fatal(err)
+	}
+	file, _ := json.Marshal(sv)
+	return file, body.State
 }
 
 // replayAndCompare — реплей журнала живой партии сходится, и итог побайтно
