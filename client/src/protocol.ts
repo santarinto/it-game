@@ -8,6 +8,12 @@ export interface EffectInfo {
 
 export type DifficultyId = 'easy' | 'normal' | 'hard' | 'hardcore'
 
+// Тип клиента в подключении /ws?client=… (ITGAME-162) — зеркало clientKind в
+// server/internal/ws/client.go. Сервер пишет его в лог и метрику
+// itgame_ws_connects_total; протокол и снапшот у типов общие. Без параметра
+// вкладка — desktop, чужое значение — unknown в логе и метрике, игра та же.
+export type ClientKind = 'desktop' | 'mobile'
+
 export interface ServerInfo {
   slot: number // 0-based индекс стойки
   level: number

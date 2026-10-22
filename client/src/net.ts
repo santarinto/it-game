@@ -1,6 +1,6 @@
 import { resetForNewGame } from './party'
 import { localStore, sessionStore } from './storage'
-import type { CommandType, DayReportMessage, DifficultyId, GameOverMessage, OfflineReportMessage, SaveSummaryMessage, ServerErrorCode, ServerMessage, StateMessage, VictoryMessage } from './protocol'
+import type { ClientKind, CommandType, DayReportMessage, DifficultyId, GameOverMessage, OfflineReportMessage, SaveSummaryMessage, ServerErrorCode, ServerMessage, StateMessage, VictoryMessage } from './protocol'
 
 // Транспортные коды отказа (ITGAME-39): квитанция команды (sendWithReceipt)
 // падает ими, когда сервер вовсе не ответил — в отличие от ServerErrorCode,
@@ -22,6 +22,11 @@ export type SocketStatus = (typeof SOCKET_STATUSES)[number]
 export const AWAY_MODES = ['close', 'net'] as const
 
 export type AwayMode = (typeof AWAY_MODES)[number]
+
+// Тип этого клиента в подключении /ws (ITGAME-162): вкладка называет себя
+// серверу параметром client= рядом с sid и difficulty — только для лога и
+// метрики сервера, игра у типов та же. Мобильный клиент (ITGAME-227) — 'mobile'.
+const CLIENT_KIND: ClientKind = 'desktop'
 
 // Ответ ручки drop (mode net): когда сервер замолчал и когда заметит уход.
 export interface AwayDrop {
@@ -623,7 +628,7 @@ export class GameClient {
     if (scenario) extra.set('scenario', scenario)
     const qs = extra.toString()
     this.ws = new WebSocket(
-      `${proto}://${location.host}/ws?difficulty=${this.difficulty}&sid=${urlSid}${qs ? `&${qs}` : ''}`,
+      `${proto}://${location.host}/ws?difficulty=${this.difficulty}&sid=${urlSid}&client=${CLIENT_KIND}${qs ? `&${qs}` : ''}`,
     )
     // События сокета, который уже заменён (suspend/resume из bfcache), —
     // не наши: запоздалый close старого сокета запустил бы реконнект и

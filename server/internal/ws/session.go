@@ -277,6 +277,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		cfg = game.ApplyDifficulty(h.Config, game.ParseDifficulty(q))
 	}
 	sid := r.URL.Query().Get("sid")
+	// Тип клиента (ITGAME-162, client.go): только лог и метрика, игра та же.
+	countConnect(sid, r.URL.Query().Get("client"))
 	// Сторож таймаута чтения (ITGAME-76): молчание дольше ReadTimeout — уход.
 	go tab.watch(ctx, cancel, sid)
 

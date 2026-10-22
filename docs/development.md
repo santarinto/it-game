@@ -287,6 +287,29 @@ the TTL (default 24 h, `-save-ttl`):
   bridge of that party is closed with `session_taken` and reconnects as an
   observer of the new actor — the same as for any reconnect or a second tab.
 
+**Client type** (ITGAME-162, epic ITGAME-225). A tab names its client in the
+same query as `sid` and `difficulty`: `/ws?…&client=desktop|mobile` — the `/ws`
+handshake is the query, the protocol has no hello message. `GameClient` in
+`client/src/net.ts` sends `client=desktop` (`CLIENT_KIND`; the type is
+`ClientKind` in `client/src/protocol.ts`). The server
+(`server/internal/ws/client.go`) uses the type for two things only: one log
+line per `/ws` connection, `сессия <sid>: вкладка подключена, клиент mobile`,
+and the counter `itgame_ws_connects_total{client}` (see [Metrics](#metrics)).
+No parameter (a bundle from before ITGAME-162, scripts, `load-bots.mjs`) is
+`desktop`, and the log line adds `(без client=)`. Any other value — case
+matters, `Mobile` included — is `unknown`: the connection is not dropped and
+the game is the same, the metric takes the label `unknown` (a finite set,
+never the raw text) and the log line quotes what came, up to 32 characters:
+`клиент unknown (client="tablet")`. It is not counted as `desktop`, so a
+foreign or broken client stays visible. Everything else is shared: the
+protocol, the snapshot (the same seed gives the same first snapshot byte for
+byte, `TestClientKindOnConnect`), the tick rate, the static `client/dist` with
+both entries and one build stamp. One party (`sid`) from two client types is
+two tabs: the second socket takes the session over with `session_taken`
+(`TestClientKindTakeover`). `/ws?peek=1` and `/ws/agent` do not read `client=`.
+A mobile protocol (lighter snapshots, another rate) waits for the design of
+ITGAME-226.
+
 **Blocked storage** (ITGAME-80). Every `itd.*` key the game keeps — sid, difficulty, the report pause, hints,
 stats/achievements, the `itd.debug` gate, `itd.sandbox`, `itd.reset()` — goes through `client/src/storage.ts`:
 `localStore`/`sessionStore` with `get`/`set`/`remove`/`clearPrefix`, which never throw. Reads go to the real
@@ -1942,6 +1965,7 @@ cardinality and the player's privacy; labels are finite sets only.
 |---|---|---|
 | `itgame_build_info{sha,version}` | gauge | always 1, the binary as `/api/version` reports it |
 | `itgame_ws_connections` | gauge | open `/ws` tab connections |
+| `itgame_ws_connects_total{client}` | counter | `/ws` tab connections opened, by `?client=`: `desktop` (no parameter too), `mobile`, `unknown` (ITGAME-162) |
 | `itgame_sessions_live` | gauge | live party actors (agent headless sessions included) |
 | `itgame_tick_seconds` | histogram | actor time per tick: the game step and the save |
 | `itgame_save_seconds` | histogram | `store.Put`: temp file plus rename |
@@ -1965,7 +1989,11 @@ from that set.
 Labelled series exist at zero from the start. The metrics package `init` sets
 up `saves`/`save_errors` itself. The `ws` package `init` calls
 `metrics.Preset`, which creates every difficulty × outcome, the outcomes of
-`party_days`, and every `knownCommands` name plus `unknown` × `ok|rejected`.
+`party_days`, and every `knownCommands` name plus `unknown` × `ok|rejected`;
+the same `init` creates `ws_connects` for every `clientKinds` value
+(`desktop`, `mobile`, `unknown`). The client type is a series of its own, not
+a `client` label on `itgame_ws_connections`: the dashboard reads that gauge by
+name, and a label would split it.
 Without this, a vector creates a series only on its first `Inc`, so
 Prometheus sees it born at 1. `increase()`/`rate()` then see no 0 → 1 step,
 and the first event of each label set after every restart (every deploy)
@@ -2135,7 +2163,11 @@ The client has two build entries (`build.rollupOptions.input` in
 `client/dist` and served by the Go server's `-static` like any file. A phone
 opening the game is sent to `/mobile.html` — for now a static «мобильная
 версия в разработке» page; the mobile client (epic ITGAME-225, skeleton
-ITGAME-227) will replace it at the same address.
+ITGAME-227) will replace it at the same address. It will connect with
+`/ws?…&client=mobile` (ITGAME-162, see **Client type** in
+[Sessions and saves](#sessions-and-saves)); the stub opens no socket. A phone
+that took «Всё равно открыть десктопную версию» runs the desktop bundle and
+counts as `desktop`.
 
 The check is the inline `<script id="mobile-gate">` in the `<head>` of
 `client/index.html`, before the bundle (ITGAME-161). A phone is

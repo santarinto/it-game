@@ -28,6 +28,12 @@ var (
 		Name: "itgame_ws_connections",
 		Help: "Открытые /ws-соединения вкладок.",
 	})
+	// WSConnects — отдельный ряд, а не метка client у WSConnections: дашборд
+	// minipc читает itgame_ws_connections по имени, метка размножила бы его ряд.
+	WSConnects = reg.NewCounterVec(prometheus.CounterOpts{
+		Name: "itgame_ws_connects_total",
+		Help: "Подключения /ws-вкладок по типу клиента (?client=, ITGAME-162): desktop (и без параметра), mobile, unknown — значение не из протокола.",
+	}, []string{"client"})
 	LiveSessions = reg.NewGauge(prometheus.GaugeOpts{
 		Name: "itgame_sessions_live",
 		Help: "Живые акторы партий (с headless-сессиями агента).",

@@ -30,6 +30,9 @@ func init() {
 	metrics.Preset([]string{
 		string(game.DiffEasy), string(game.DiffNormal), string(game.DiffHard), string(game.DiffHardcore),
 	}, cmds)
+	for _, k := range clientKinds {
+		metrics.WSConnects.WithLabelValues(string(k))
+	}
 }
 
 // countCommand — команда игрока в itgame_commands_total.
