@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "ce27732098e2",
+  "hash": "90115e72321f",
   "methods": {
     "version": {
       "kind": "prop",
@@ -126,9 +126,19 @@ export const CONTRACT = {
         }
       ],
       "returns": "Promise<CmdReceipt>",
-      "doc": "Команда с квитанцией сервера (ITGAME-30/45): Promise<{ok, code?, id, rev}> —\nответ на ЭТУ команду по её id (state|error с re = id), тики и команды\nдругих соединений квитанцию не закрывают. rev — версия снапшота-ответа.",
+      "doc": "Команда с квитанцией сервера (ITGAME-30/45): Promise<{ok, code?, id, rev}> —\nответ на ЭТУ команду по её id (state|error с re = id), тики и команды\nдругих соединений квитанцию не закрывают. rev — версия снапшота-ответа.\n'abandon' — путём кнопки «Сдаться» (сейв удалён, вкладка в меню). 'exit' — только\nсохранение на сервере (партия на паузе, «Продолжить» на скорости из extra.speed):\nвкладка остаётся в игре, в меню не уводит — выход в меню: itd.exit() (ITGAME-166).",
       "examples": [
         "await itd.cmd('hire')"
+      ]
+    },
+    "exit": {
+      "kind": "method",
+      "params": [],
+      "returns": "Promise<ExitResult | (AgentResult & { code: 'not_in_party' | 'not_connected'; })>",
+      "doc": "Выход в меню с сохранением одним вызовом (ITGAME-166) — путь кнопки «Сохранить и\nвыйти» (HUDScene): exit серверу (партия на паузе, «Продолжить» вернёт её на скорости\nдо отчёта дня, до паузы окна выхода или текущей), client.disconnect(), стоп сцен\nпартии, меню; ждёт itd.state().menuReady (до 10 с) → {ok: true, menuReady}. menuReady\nfalse — меню не устоялось за 10 с, вкладка всё равно ушла в меню. Открытое окно выхода\nзакрывается само. Отказы: not_in_party — вкладка не в партии (меню), not_connected —\nсокет не открыт: сохранение не дойдёт, вкладка остаётся в партии, окна «Нет связи»\n(его ставит кнопка) нет. Сохраняет и не уводит в меню — itd.cmd('exit').",
+      "examples": [
+        "await itd.exit()",
+        "(await itd.exit()).menuReady"
       ]
     },
     "trace": {
@@ -1674,7 +1684,7 @@ export const CONTRACT = {
           "doc": ""
         },
         "code": {
-          "type": "'not_enough_money' | 'no_free_office_slot' | 'no_free_pc' | 'no_free_rack_slot' | 'router_maxed' | 'wrong_phase' | 'staff_limit' | 'office_locked' | 'boss_already' | 'offices_maxed' | 'gateway_already' | 'bad_office' | 'equipment_already' | 'bad_slot' | 'server_maxed' | 'core_maxed' | 'motivate_cooldown' | 'not_broken' | 'not_infected' | 'no_event' | 'bad_option' | 'need_cooler' | 'bad_tier' | 'antivirus_already' | 'admin_already' | 'no_admin' | 'admin_dept_already' | 'admin_dept_locked' | 'pc_dead' | 'pc_fresh' | 'pc_max_level' | 'no_action_points' | 'unknown_command' | 'bad_speed' | 'not_connected' | 'receipt_timeout' | 'disconnected'",
+          "type": "'not_connected' | 'not_enough_money' | 'no_free_office_slot' | 'no_free_pc' | 'no_free_rack_slot' | 'router_maxed' | 'wrong_phase' | 'staff_limit' | 'office_locked' | 'boss_already' | 'offices_maxed' | 'gateway_already' | 'bad_office' | 'equipment_already' | 'bad_slot' | 'server_maxed' | 'core_maxed' | 'motivate_cooldown' | 'not_broken' | 'not_infected' | 'no_event' | 'bad_option' | 'need_cooler' | 'bad_tier' | 'antivirus_already' | 'admin_already' | 'no_admin' | 'admin_dept_already' | 'admin_dept_locked' | 'pc_dead' | 'pc_fresh' | 'pc_max_level' | 'no_action_points' | 'unknown_command' | 'bad_speed' | 'receipt_timeout' | 'disconnected'",
           "optional": true,
           "doc": ""
         },
@@ -2185,6 +2195,21 @@ export const CONTRACT = {
           "type": "number",
           "optional": true,
           "doc": "меньше 1e9 — номер загрузки: записи с load ≥ since (текущая — itd.server().load); иначе метка времени, мс: t ≥ since (Date.now() в начале прогона). Не число ≥ 0 или дробный номер — отказ bad_since"
+        }
+      }
+    },
+    "ExitResult": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "true",
+          "optional": false,
+          "doc": ""
+        },
+        "menuReady": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "меню готово (itd.state().menuReady) за 10 с после выхода; false — не дождались, вкладка всё равно в меню"
         }
       }
     },

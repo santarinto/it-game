@@ -34,6 +34,10 @@
 //       since: метка времени между ними — только вторая; since в будущем — []; {} — как без аргумента;
 //       since -1 / 1.5 / NaN / строка → {ok:false, code:'bad_since'}; контракт: errors(opts?: ErrorsOptions),
 //       AgentServer.load
+//   A19 (ITGAME-166) itd.exit() — «Сохранить и выйти» одним вызовом: из меню → not_in_party без кадра exit;
+//       во время itd.away (сокет не открыт) → not_connected, вкладка в партии, окна «Нет связи» нет; в партии
+//       на 2x → {ok:true, menuReady:true}, hud/office не активны, меню активно, сокет closed, liveSid null,
+//       в журнале партии — exit =2 от вкладки (тот же кадр, что у кнопки); контракт: ExitResult
 //   + на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
@@ -399,6 +403,58 @@ async function run() {
         (a18c.returns ?? '').includes("'bad_since'") && !!T.ErrorsOptions?.fields?.since?.doc &&
         T.AgentServer?.fields?.load?.type === 'number',
       JSON.stringify({ e1, a18, params: a18c?.params, returns: a18c?.returns, opts: T.ErrorsOptions, load: T.AgentServer?.fields?.load }),
+    )
+
+    // ── A19 (ITGAME-166): itd.exit() — путь кнопки «Сохранить и выйти» без двух настоящих кликов.
+    // На старом коде itd.exit нет — вызов в try, чтобы проверка упала, а не весь прогон.
+    await pe.evaluate(() => {
+      window.qaScenes = () => ['menu', 'hud', 'office', 'serverRoom', 'adminDept'].filter((k) => window.__itd.scene.isActive(k)).join(',')
+      window.qaExit = async () => { try { return await window.itd.exit() } catch (e) { return { threw: String(e?.message ?? e) } } }
+    })
+    const a19menu = await pe.evaluate(async () => {
+      const outs = () => window.itd.net(200).last.filter((m) => m.dir === 'out').length
+      const before = outs()
+      const r = await window.qaExit()
+      return { r, scenes: window.qaScenes(), out: outs() - before }
+    })
+    await pe.evaluate(async () => {
+      window.itd.click('menu.diff.normal')
+      await window.itd.wait((s) => s.connected === true, 15000)
+      window.itd.speed(2)
+      await window.itd.wait((s) => s.speed === 2, 5000)
+    })
+    const a19away = await pe.evaluate(async () => {
+      const back = window.itd.away(1)
+      const socket = window.itd.server().socket
+      const r = await window.qaExit()
+      const during = { scenes: window.qaScenes(), modal: window.itd.ids().filter((n) => n.id.startsWith('modal.')).map((n) => n.id) }
+      // Сервер без сейвов: возврат начинает новую партию под тем же sid (not_resumed) — вкладка снова в партии
+      const ret = await back
+      await window.itd.wait((s, srv) => s.connected === true && srv.socket === 'open', 10000)
+      window.itd.speed(2)
+      await window.itd.wait((s) => s.speed === 2, 5000)
+      return { socket, r, during, back: { ok: ret.ok, code: ret.code ?? null } }
+    })
+    const a19 = await pe.evaluate(async () => {
+      const sid = window.itd.server().liveSid
+      const r = await window.qaExit()
+      const srv = window.itd.server()
+      const j = await window.itd.journal({ tail: 20, sid }).catch((e) => ({ error: String(e?.message ?? e) }))
+      const exits = (j.records ?? []).filter((x) => x.type === 'exit').map((x) => ({ arg: x.arg ?? 0, src: x.src, err: x.err ?? null }))
+      return { r, scenes: window.qaScenes(), menuReady: window.itd.state().menuReady, socket: srv.socket, liveSid: srv.liveSid, sid, exits, jerr: j.error ?? null }
+    })
+    const ER = T.ExitResult?.fields ?? {}
+    check(
+      'A19: itd.exit() — из меню not_in_party без кадра; во время away not_connected, вкладка в партии, окна нет; в партии на 2x → {ok, menuReady: true}, меню вместо hud/office, сокет closed, liveSid null, в журнале exit =2 от вкладки; ExitResult в контракте (ITGAME-166)',
+      a19menu.r?.ok === false && a19menu.r.code === 'not_in_party' && a19menu.out === 0 && a19menu.scenes === 'menu' &&
+        a19away.socket !== 'open' && a19away.r?.ok === false && a19away.r.code === 'not_connected' &&
+        a19away.during.scenes.includes('hud') && a19away.during.modal.length === 0 &&
+        a19.r?.ok === true && a19.r.menuReady === true && a19.scenes === 'menu' && a19.menuReady === true &&
+        a19.socket === 'closed' && a19.liveSid === null && a19.sid === sidE &&
+        a19.exits.length === 1 && a19.exits[0].arg === 2 && a19.exits[0].src === 'tab' && a19.exits[0].err === null &&
+        !!ER.ok && !!ER.menuReady && (contract.methods.exit?.returns ?? '').includes("'not_in_party'") &&
+        (contract.methods.cmd?.doc ?? '').includes('itd.exit()'),
+      JSON.stringify({ a19menu, a19away, a19, ER: Object.keys(ER), returns: contract.methods.exit?.returns }),
     )
 
     // ── нет ошибок на странице за весь прогон

@@ -714,6 +714,12 @@ export interface AgentResult {
   code?: string
 }
 
+// itd.exit() (ITGAME-166): вкладка ушла из партии в меню с сохранением.
+export interface ExitResult {
+  ok: true
+  menuReady: boolean // меню готово (itd.state().menuReady) за 10 с после выхода; false — не дождались, вкладка всё равно в меню
+}
+
 // Квитанция команды (ITGAME-30/45): ok=true — сервер принял (state с re = id
 // команды), ok=false — код отказа: серверный (ServerErrorCode: no_free_pc,
 // not_enough_money, …) или транспортный (TransportErrorCode: not_connected,
@@ -860,9 +866,25 @@ export interface ItdApi {
    * Команда с квитанцией сервера (ITGAME-30/45): Promise<{ok, code?, id, rev}> —
    * ответ на ЭТУ команду по её id (state|error с re = id), тики и команды
    * других соединений квитанцию не закрывают. rev — версия снапшота-ответа.
+   * 'abandon' — путём кнопки «Сдаться» (сейв удалён, вкладка в меню). 'exit' — только
+   * сохранение на сервере (партия на паузе, «Продолжить» на скорости из extra.speed):
+   * вкладка остаётся в игре, в меню не уводит — выход в меню: itd.exit() (ITGAME-166).
    * @example await itd.cmd('hire')
    */
   cmd(type: CommandType, office?: number, extra?: Record<string, number>): Promise<CmdReceipt>
+  /**
+   * Выход в меню с сохранением одним вызовом (ITGAME-166) — путь кнопки «Сохранить и
+   * выйти» (HUDScene): exit серверу (партия на паузе, «Продолжить» вернёт её на скорости
+   * до отчёта дня, до паузы окна выхода или текущей), client.disconnect(), стоп сцен
+   * партии, меню; ждёт itd.state().menuReady (до 10 с) → {ok: true, menuReady}. menuReady
+   * false — меню не устоялось за 10 с, вкладка всё равно ушла в меню. Открытое окно выхода
+   * закрывается само. Отказы: not_in_party — вкладка не в партии (меню), not_connected —
+   * сокет не открыт: сохранение не дойдёт, вкладка остаётся в партии, окна «Нет связи»
+   * (его ставит кнопка) нет. Сохраняет и не уводит в меню — itd.cmd('exit').
+   * @example await itd.exit()
+   * @example (await itd.exit()).menuReady
+   */
+  exit(): Promise<ExitResult | (AgentResult & { code: 'not_in_party' | 'not_connected' })>
   /**
    * Живая трассировка окна вокруг action (ITGAME-37): подписка ДО action,
    * окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь
@@ -2008,11 +2030,12 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
                                        ok:false + code 'debounced' — обработчик отбросил клик (дребезг switchRoom 250 мс игрового времени)
   itd.hover('office.worker.0')      — наведение по id (тултипы)
   itd.key('1'|'enter'|'space'|'esc')— клавиша: 1-4 сложность в меню, up/down — фокус меню, enter — пункт в фокусе меню / отчёт дня, space/esc — отчёт дня
-  itd.cmd('hire')                   — команда с квитанцией сервера ('abandon' — путём кнопки «Сдаться»: сейв удалён, вкладка в меню): Promise<{ok, code?, id, rev}> — ответ на ЭТУ команду по id (state|error с re = id; тики и чужие команды не в счёт), rev — версия снапшота-ответа; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
+  itd.cmd('hire')                   — команда с квитанцией сервера ('abandon' — путём кнопки «Сдаться»: сейв удалён, вкладка в меню; 'exit' — только сохранение на сервере, вкладка остаётся в игре, в меню не уводит: выход — itd.exit()): Promise<{ok, code?, id, rev}> — ответ на ЭТУ команду по id (state|error с re = id; тики и чужие команды не в счёт), rev — версия снапшота-ответа; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
                                        Вирус (ITGAME-103): itd.cmd('virus_click', 0, {slot: 0}) — клик чистки заражённого места (3 на чистку, k в employees[i].virusClicks), здоровое — not_infected; на сломанном заражённом ЛКМ по месту сначала чинит (repair_click); подписка — itd.cmd('set_antivirus', 0, {slot: 1..3}) (0 — отключить), bad_tier, antivirus_already, повышение без денег — not_enough_money; кнопка btn.antivirus в серверной → окно с modal.av.1..3 / modal.av.off
                                        Очки действий (ITGAME-127): state.actionPoints / state.actionPointsMax (8 на день, утром снова полные); начать ремонт (repair_click при repairClicks 0) или чистку (virus_click при virusClicks 0) — 1 очко, дальше клики бесплатны, без очков — no_action_points; мотивация, мастер, замена ПК и админы очков не стоят; в шапке — hud.points
                                        Рабочие места (ITGAME-135): itd.cmd('upgrade_pc', 0, {slot: i}) — апгрейд ПК стола i: ЭЛТ → ЖК → 2×ЖК (pc_max_level, pc_dead, not_enough_money); itd.cmd('replace_pc', 0, {slot: i}) — замена мёртвого или изношенного ПК (pc_fresh у нового); snapshot().state.offices[o].workplaces[i] {level, wear, dead, nextPrice}, prices.pcLevels / pcReplace, state.pcWearLimit, itd.state().deadPCs; на столе подпись office.pc.i → окно modal.pc.upgrade / modal.pc.replace; мёртвое место — office.dead.i и кнопка office.replace.i; repair_click по нему — pc_dead; фикстура worn_pcs
                                        Админ (ITGAME-101): itd.cmd('buy_admin_dept') — отдел админов (admin_dept_already), без него hire_admin — admin_dept_locked; itd.cmd('hire_admin', 0) / itd.cmd('fire_admin', 0) — найм и увольнение админа офиса (admin_already, no_admin, not_enough_money); state.offices[i].admin, adminSlot/adminKind — его следующая цель (-1/'' — свободен), adminFirePrice; 2 клика в тик сами, сначала заражённые места, потом сломанное. Комната — вкладка nav.adminDept («АДМ», ITGAME-145): закрыта — dept.buy «Купить отдел», открыта — места dept.admin.0..2 (наведение — тултип, ПКМ — «Уволить админа?»), строки dept.name.N / dept.status.N («чинит место 5» / «чистит место 3» / «свободен»), найм — кнопки колонки btn.admin.0..2; в офисе у админа кнопки и слота нет, тултип места — «чинит админ» / «чистит админ»; фикстура admin_dept
+  await itd.exit()                  — «Сохранить и выйти» одним вызовом (ITGAME-166), путь кнопки: exit (пауза, «Продолжить» на прежней скорости), disconnect, стоп сцен партии, меню; ждёт menuReady (до 10 с) → {ok: true, menuReady}; открытое окно выхода закроется само; отказы not_in_party (вкладка в меню), not_connected (нет связи: вкладка в партии, окна «Нет связи» нет)
   itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, id, src, …}] по порядку (src: itd — ушла синхронно внутри itd.* — cmd/click/key/pause/resume/speed/step; ui — настоящий клик/клавиша или реакция UI), recv[error/day_report…] (у error info.re/rev), states[{rev, cause, re?}] — снапшоты окна, transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}], pointer[{type: down|up, button, x, y — мировые, onCanvas, wins — метка победителя хит-теста Phaser в момент события, та же форма, что got (safe id или тип без id; полная строка — stack[0]), stack — как itd.stack, got — до кого дошёл pointerdown/up объекта, в т.ч. удалившегося в обработчике (✕ модалки) — на up его уже нет; [] — до объектов не дошло, gone — на up: получившие этот down и снятые до up (уничтожены, без input, скрыты, сцена не идёт) — «клик принят, цель ушла»; на down []}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой); itd.click() в pointer не попадает (мимо input-слоя)
   itd.trace.start({maxMs?})          — открытое окно (ITGAME-88): подписки сразу → {ok, id, t0, maxMs, open}; настоящий клик/клавиша — другим вызовом инструмента; само закроется через maxMs (по умолчанию 120000, до 600000; cut: true); коды bad_max, too_many (больше 8 окон)
   itd.trace.stop(id?)               — закрыть окно (без id — последнее) → тот же TraceResult, что у itd.trace() (+ id, windowMs = длина окна); нет окна — {ok:false, code:'no_trace'}. Пример: const {id} = itd.trace.start(); …клик…; const tr = itd.trace.stop(id); tr.pointer[0].wins — 'btn:pc', tr.sent[0].src, itd.trace.summary(tr).lines
@@ -2257,6 +2280,27 @@ function makeApi(game: Phaser.Game, claim: ClaimApi): ItdApi {
       }
       return inItdCall(() => client.sendWithReceipt(type, office, extra))
         .then((r) => (r.ok ? r : { ...r, error: r.code }))
+    },
+    async exit() {
+      // ITGAME-166: голый itd.cmd('exit') сохранял партию, а вкладка оставалась в игре — уход в меню
+      // делает клиент по кнопке. Тот же путь кнопкой — два настоящих клика и ожидание окна.
+      const hud = game.scene.getScene('hud') as unknown as { exitSaved?(): boolean } | null
+      if (!game.scene.isActive('hud') || !hud?.exitSaved) {
+        return { ok: false, code: 'not_in_party', error: 'вкладка не в партии — меню уже на экране' }
+      }
+      if (!inItdCall(() => hud.exitSaved!())) {
+        return {
+          ok: false, code: 'not_connected',
+          error: 'сокет не открыт — сохранение не дойдёт, вкладка осталась в партии (кнопкой: ⌂ → «Сохранить и выйти» → окно «Нет связи»)',
+        }
+      }
+      const startedAt = Date.now()
+      for (;;) {
+        warmIfHidden()
+        if (buildState(game).menuReady) return { ok: true, menuReady: true }
+        if (Date.now() - startedAt >= 10000) return { ok: true, menuReady: false }
+        await new Promise((r) => setTimeout(r, 100))
+      }
     },
     trace: makeTrace(game),
     warm: () => warmTicks(game, 10),

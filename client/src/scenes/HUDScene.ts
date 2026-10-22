@@ -1742,8 +1742,7 @@ export class HUDScene extends Phaser.Scene {
   // Без связи exit не уйдёт (sendCmd → 0, disconnect() гасит реконнект), а сервер гонит
   // партию дальше — игрок узнаёт об этом окном «Нет связи» (ITGAME-85, решение владельца).
   private saveAndExit() {
-    const ours = this.exitPauseFrom > 0 && client.speedSeq === this.exitPauseSeq
-    const resume = this.speedBeforeReport ?? (ours ? this.exitPauseFrom : (client.latest?.speed ?? 0))
+    const resume = this.exitResume()
     if (this.trySendExit(resume)) return
     // Пауза диалога (если ушла до обрыва) остаётся за cancelExit: «Отмена» вернёт скорость.
     this.openExitModal('nolink', 'Нет связи — сохранение не дойдёт', [
@@ -1752,6 +1751,19 @@ export class HUDScene extends Phaser.Scene {
       { label: 'Подождать', onClick: () => this.waitAndExit(resume) },
       { label: 'Выйти без сохранения', onClick: () => this.exitUnsaved() },
     ])
+  }
+
+  // Скорость, на которой «Продолжить» вернёт партию: до отчёта дня, до паузы окна выхода или текущая.
+  private exitResume(): number {
+    const ours = this.exitPauseFrom > 0 && client.speedSeq === this.exitPauseSeq
+    return this.speedBeforeReport ?? (ours ? this.exitPauseFrom : (client.latest?.speed ?? 0))
+  }
+
+  // itd.exit() (ITGAME-166): «Сохранить и выйти» одним вызовом — тот же exit и уход в меню, открытое
+  // окно выхода закрывается. Без связи — false, ничего не тронуто: окно «Нет связи» — выбор игрока,
+  // агенту — отказ not_connected.
+  exitSaved(): boolean {
+    return this.trySendExit(this.exitResume())
   }
 
   // exit ушёл — только тогда в меню (ITGAME-85): до disconnect(), сервер обработает его
