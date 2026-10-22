@@ -41,7 +41,7 @@
 //   F2   то же, Esc (itd.key('esc')) закрывает диалог и возвращает speed 2
 //   F3   то же, ✕ (modal.close)
 //   F4   «Сохранить и выйти» на speed 2: карточка «День N · …» = день выхода; через ~3 с «Продолжить» —
-//        первый снапшот resumed, тот же tickInDay/день/баланс (догона нет), speed 2
+//        первый снапшот resumed (с провода, continueFirst), тот же tickInDay/день/баланс (догона нет), speed 2
 //   F5   выход при открытом отчёте дня (speed 3 до отчёта): btn.menu не шлёт set_speed, «Продолжить» —
 //        отчёт снова, Enter → running на speed 3
 //   X1   itd.restore(save) с открытым О2 (вкладка на nav.office1): nav.office1 active, нет «закрыт»,
@@ -89,7 +89,8 @@
 //   N2   без связи btn.menu → modal.btn.0 — окно «Нет связи — сохранение не дойдёт», exit не ушёл,
 //        HUD на месте; Esc — назад в игру (ITGAME-85)
 //   N3   «Подождать» → «Ждём связь…»; связь вернулась — exit {speed:2} ушёл сам, меню; «Продолжить»
-//        через 3 с — resumed, тот же день/время по проводу, speed 2
+//        через 3 с — resumed, speed 2, ровно то, что сервер сохранил по этому exit (журнал партии: запись
+//        exit и resume без догона — тот же день/тик/баланс), а не последний снапшот вкладки до exit
 //   N4   «Подождать» → ✕: после возврата exit не ушёл, вкладка в игре на 2x
 //   N5   «Выйти без сохранения» — меню, exit не ушёл; «Продолжить» — время ушло вперёд (партия шла)
 //   N6   связь есть — «Сохранить и выйти» шлёт exit и уходит в меню, как раньше
@@ -114,6 +115,12 @@
 //
 // Не используем бросающие ожидания на условиях, которые ломает баг: после delay() читаем
 // и пишем FAIL, а не умираем — чтобы до фикса прогон показал красные строки.
+//
+// «Продолжить» с проверкой resumed/скорости/тика (F4, F5, N3, N5, N6, D) читает ПЕРВЫЙ state нового
+// сокета с провода (continueFirst), а не itd.server().snapshot после connected (ITGAME-229): resumed
+// true только у первого снапшота сокета, а партия, вернувшаяся на 2x, шлёт тик через 500 мс
+// (resumed false, tickInDay +1). Опрос itd.wait раз в 100 мс под нагрузкой читал уже его — F4
+// {resumed:false, tickInDay 6 → 7}, N5/N6 {resumed:false}; сервер при этом прав.
 import { setTimeout as delay } from 'node:timers/promises'
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
@@ -182,6 +189,44 @@ async function run() {
         const c = window.itd.click('modal.btn.0')
         const sw = window.__itd.scene.getScene('hud').switching
         return { a, b, c, sw }
+      })
+    // «Продолжить» и первый state нового сокета с провода (подкласс WebSocket ставится до клика и
+    // снимается после): resumed, скорость и тик — те, с которыми сервер поднял партию, а не снапшот
+    // следующего тика (ITGAME-229, см. шапку). sid — после connected. null — снапшота не было за 15 с.
+    const continueFirst = () =>
+      page.evaluate(async () => {
+        window.__qa47first = null
+        const Orig = window.WebSocket
+        window.WebSocket = class extends Orig {
+          constructor(...args) {
+            super(...args)
+            this.addEventListener('message', (e) => {
+              if (window.__qa47first !== null || typeof e.data !== 'string') return
+              try {
+                const m = JSON.parse(e.data)
+                if (m.type === 'state') {
+                  window.__qa47first = {
+                    resumed: m.resumed, phase: m.phase, speed: m.speed, day: m.day, clock: m.clock,
+                    tickInDay: m.tickInDay, money: m.money, rev: m.rev, cause: m.cause,
+                  }
+                }
+              } catch {
+                /* не JSON — не наш кадр */
+              }
+            })
+          }
+        }
+        try {
+          window.itd.click('menu.continue')
+          try {
+            await window.itd.wait((s) => s.connected === true && window.__qa47first !== null, 15000)
+          } catch {
+            /* читаем и пишем FAIL ниже */
+          }
+        } finally {
+          window.WebSocket = Orig
+        }
+        return window.__qa47first === null ? null : { ...window.__qa47first, sid: window.itd.server().sid }
       })
 
     // ── Партия 1 ───────────────────────────────────────────────────────────
@@ -610,25 +655,7 @@ async function run() {
       () => window.itd.text().find((n) => n.scene === 'menu' && /^День \d+ · /.test(n.text))?.text ?? null,
     )
     await delay(3000)
-    const f4Resumed = await page.evaluate(async () => {
-      window.__qa47f = null
-      window.itd.click('menu.continue')
-      try {
-        await window.itd.wait((s) => {
-          if (s.connected === true && window.__qa47f === null) {
-            const snap = window.itd.server().snapshot
-            window.__qa47f = {
-              resumed: snap?.resumed ?? null, tickInDay: snap?.tickInDay ?? null, day: snap?.day ?? null,
-              money: snap?.money ?? null, speed: snap?.speed ?? null, sid: window.itd.server().sid,
-            }
-          }
-          return s.connected === true
-        }, 15000)
-      } catch {
-        /* читаем и пишем FAIL ниже */
-      }
-      return window.__qa47f
-    })
+    const f4Resumed = await continueFirst()
     const f4Exit = f4tr?.sent.find((m) => m.type === 'exit')
     check(
       'F4: «Сохранить и выйти» на speed 2 шлёт exit {speed:2}; карточка меню — день выхода; «Продолжить» — resumed, тот же тик/день/баланс, speed 2 (ITGAME-65)',
@@ -672,38 +699,10 @@ async function run() {
       await page.evaluate(() => window.itd.click('modal.btn.0'))
       await waitMenu()
     }
-    // Первый снапшот сокета читаем с провода (подкласс WebSocket), а не опросом itd.server():
-    // за время опроса HUD успевает ответить на повторный отчёт set_speed 0, и последний
-    // снапшот — уже не первый (resumed false, speed 0).
-    const f5First = await page.evaluate(async () => {
-      window.__qa47f = null
-      const Orig = window.WebSocket
-      window.WebSocket = class extends Orig {
-        constructor(...args) {
-          super(...args)
-          this.addEventListener('message', (e) => {
-            if (window.__qa47f !== null || typeof e.data !== 'string') return
-            try {
-              const m = JSON.parse(e.data)
-              if (m.type === 'state') window.__qa47f = { phase: m.phase, speed: m.speed, resumed: m.resumed }
-            } catch {
-              /* не JSON — не наш кадр */
-            }
-          })
-        }
-      }
-      try {
-        window.itd.click('menu.continue')
-        try {
-          await window.itd.wait(() => window.__qa47f !== null, 15000)
-        } catch {
-          /* читаем и пишем FAIL ниже */
-        }
-      } finally {
-        window.WebSocket = Orig
-      }
-      return window.__qa47f
-    })
+    // Первый снапшот сокета — с провода (continueFirst), а не опросом itd.server(): за время опроса
+    // HUD успевает ответить на повторный отчёт set_speed 0, и последний снапшот — уже не первый
+    // (resumed false, speed 0).
+    const f5First = await continueFirst()
     const f5Again = await fWait(
       () =>
         window.itd.ids().some((n) => n.id === 'btn.next_day') &&
@@ -1262,17 +1261,6 @@ async function run() {
       page.evaluate((t) => window.itd.net(100).last.filter((m) => m.dir === 'in' && m.type === 'state' && m.at <= t).at(-1)?.info ?? null, t)
     const nFirstInAfter = (t) =>
       page.evaluate((t) => window.itd.net(100).last.find((m) => m.dir === 'in' && m.type === 'state' && m.at > t)?.info ?? null, t)
-    const nContinue = () =>
-      page.evaluate(async () => {
-        window.itd.click('menu.continue')
-        try {
-          await window.itd.wait((s) => s.connected === true, 15000)
-        } catch {
-          /* читаем и пишем FAIL ниже */
-        }
-        const snap = window.itd.server().snapshot
-        return { resumed: snap?.resumed ?? null, speed: snap?.speed ?? null, sid: window.itd.server().sid }
-      })
     const nMenu = (ms) =>
       page
         .waitForFunction(() => window.itd.state().menuReady === true, { timeout: ms, polling: 100 })
@@ -1322,7 +1310,7 @@ async function run() {
     )
 
     // N3: «Подождать» → «Ждём связь…»; после возврата связи exit {speed:2} уходит сам и вкладка в меню;
-    // через 3 с «Продолжить» — тот же день/время (партия стояла на паузе), speed 2.
+    // через 3 с «Продолжить» — партия стояла на паузе с exit, speed 2.
     await realClick('btn.menu')
     await realClick('modal.btn.0')
     await realClick('modal.btn.0')
@@ -1332,15 +1320,42 @@ async function run() {
     const n3exit = n3wire.find((m) => m.type === 'exit') ?? null
     const n3before = n3exit ? await nLastInBefore(n3exit.at) : null
     await delay(3000)
-    const n3t = await nNow()
-    const n3cont = n3menu ? await nContinue() : null
-    const n3after = await nFirstInAfter(n3t)
+    const n3cont = n3menu ? await continueFirst() : null
+    // Пауза — по журналу партии, а не по n3before (последний снапшот вкладки до exit): exit уходит с
+    // первым снапшотом вернувшегося сокета, а сервер до прихода exit гонит партию на 2x — тик каждые
+    // 500 мс; под нагрузкой он успевал пройти и честно лёг в сейв (ITGAME-229: 12:30 → 12:40, у записи
+    // exit tk 1). Партия стояла, если запись exit — та, что ушла с вкладки (id, =2, speed 0), а resume
+    // «Продолжить» — без догона, в её дне/тике/балансе, и первый снапшот по проводу — он же (rev).
+    const n3j = n3cont?.sid
+      ? await page.evaluate(async (sid) => {
+          try {
+            const recs = (await window.itd.journal({ sid, tail: 40 })).records
+            const ri = recs.findLastIndex((r) => r.k === 'resume')
+            const ex = recs.slice(0, Math.max(ri, 0)).findLast((r) => r.k === 'cmd' && r.type === 'exit') ?? null
+            // tk, arg и offline в журнале omitempty: нет поля — 0
+            const pick = (r) =>
+              r
+                ? {
+                    id: r.id ?? null, rev: r.rev, day: r.day, tick: r.tick, money: r.money, speed: r.speed,
+                    arg: r.arg ?? 0, tk: r.tk ?? 0, offline: r.offline ?? 0,
+                  }
+                : null
+            return { exit: pick(ex), resume: pick(recs[ri]) }
+          } catch (e) {
+            return { error: e instanceof Error ? e.message : String(e) }
+          }
+        }, n3cont.sid)
+      : null
+    const n3ex = n3j?.exit ?? null
+    const n3rs = n3j?.resume ?? null
     check(
-      'N3: «Подождать» — окно «Ждём связь…», вкладка в игре; связь вернулась — exit {speed:2} ушёл сам, вкладка в меню; «Продолжить» через 3 с — resumed, тот же день/время, speed 2 (ITGAME-85)',
+      'N3: «Подождать» — окно «Ждём связь…», вкладка в игре; связь вернулась — exit {speed:2} ушёл сам, вкладка в меню; «Продолжить» через 3 с — resumed, speed 2, без догона: день/тик/баланс — как сохранил этот exit (ITGAME-85)',
       n3wait.title === 'Ждём связь…' && n3wait.hud && !n3wait.menu && n3menu && n3exit?.info?.speed === 2 &&
-        n3cont?.resumed === true && n3cont.speed === 2 && n3before != null && n3after != null &&
-        n3after.day === n3before.day && n3after.clock === n3before.clock,
-      JSON.stringify({ wait: n3wait, menu: n3menu, exit: n3exit, before: n3before, cont: n3cont, after: n3after }),
+        n3cont?.resumed === true && n3cont.speed === 2 && n3ex != null && n3rs != null &&
+        n3ex.id === n3exit.info.id && n3ex.arg === 2 && n3ex.speed === 0 &&
+        n3rs.offline === 0 && n3rs.day === n3ex.day && n3rs.tick === n3ex.tick && n3rs.money === n3ex.money &&
+        n3cont.rev === n3rs.rev && n3cont.day === n3ex.day && n3cont.tickInDay === n3ex.tick && n3cont.money === n3ex.money,
+      JSON.stringify({ wait: n3wait, menu: n3menu, exit: n3exit, before: n3before, cont: n3cont, journal: n3j }),
     )
 
     // N4: «Подождать», затем ✕ — назад в игру; связь вернулась — exit не ушёл, вкладка в игре на 2x.
@@ -1374,7 +1389,7 @@ async function run() {
     const n5out = await outSince(n5t)
     await delay(3000)
     const n5t2 = await nNow()
-    const n5cont = n5menu ? await nContinue() : null
+    const n5cont = n5menu ? await continueFirst() : null
     const n5after = await nFirstInAfter(n5t2)
     check(
       'N5: «Выйти без сохранения» — меню сразу, exit не ушёл; партия шла на сервере: «Продолжить» — resumed, время ушло вперёд (ITGAME-85)',
@@ -1390,7 +1405,7 @@ async function run() {
     await realClick('modal.btn.0')
     const n6menu = await nMenu(5000)
     const n6out = await outSince(n6t)
-    const n6cont = n6menu ? await nContinue() : null
+    const n6cont = n6menu ? await continueFirst() : null
     check(
       'N6: связь есть — «Сохранить и выйти» шлёт exit и уходит в меню без окна «Нет связи»; «Продолжить» — resumed (ITGAME-85)',
       n6menu && n6out.includes('exit') && n6cont?.resumed === true,
@@ -1427,7 +1442,7 @@ async function run() {
 
     // ── D: «Сдаться» с подтверждением (ITGAME-86) ─────────────────────────
     // Партия владельца из меню; клики настоящей мышью.
-    const dCont = await nContinue()
+    const dCont = await continueFirst()
     const dSid = dCont?.sid ?? null
     await page.evaluate(() => window.itd.pause())
     const dt = await nNow()
@@ -1457,7 +1472,7 @@ async function run() {
     await realClick('modal.btn.0')
     await waitMenu()
     const d2menu = await page.evaluate(() => window.itd.ids().some((n) => n.id === 'menu.continue'))
-    const d2cont = await nContinue()
+    const d2cont = await continueFirst()
     check(
       'D2: «Отмена» в подтверждении — abandon не ушёл, сейв жив: «Продолжить» есть, resumed, sid тот же (ITGAME-86)',
       d2.title === null && d2.hud && d2.sid === dSid && !d2.out.includes('abandon') && d2menu && d2cont?.resumed === true && d2cont.sid === dSid,
