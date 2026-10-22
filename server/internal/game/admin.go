@@ -101,20 +101,25 @@ func (o *Office) AdminTarget() (slot int, kind string) {
 // adminWork — clicks кликов админа по местам офиса: цель пересчитывается на
 // каждый клик, лишний клик уходит следующей. Только места: журнал, таймер
 // волны и карточку оседает вызывающий — прогноз гоняет это на копии мест.
-func (o *Office) adminWork(cfg Config, clicks int) (repaired, cleaned int) {
+// done (может быть nil) узнаёт о каждом доделанном месте: индекс и вид работы.
+func (o *Office) adminWork(cfg Config, clicks int, done func(slot int, kind string)) (repaired, cleaned int) {
 	for range clicks {
 		i, kind := o.AdminTarget()
+		finished := false
 		switch kind {
 		case adminVirus:
-			if o.Employees[i].virusClick(cfg.VirusCleanClicks) {
+			if finished = o.Employees[i].virusClick(cfg.VirusCleanClicks); finished {
 				cleaned++
 			}
 		case adminRepair:
-			if o.Employees[i].repairClick() {
+			if finished = o.Employees[i].repairClick(); finished {
 				repaired++
 			}
 		default:
 			return repaired, cleaned
+		}
+		if finished && done != nil {
+			done(i, kind)
 		}
 	}
 	return repaired, cleaned
@@ -122,19 +127,37 @@ func (o *Office) adminWork(cfg Config, clicks int) (repaired, cleaned int) {
 
 // adminTick — тик работы всех админов компании: клики, счётчики дня и
 // оседание вируса в офисах, где что-то вычищено (by — строка журнала).
+// Вживую каждое доделанное место — строка журнала дня в момент действия
+// (ITGAME-170, решение владельца 21.10): «админ офиса 1 починил место 3»,
+// «… вычистил место 2»; итог офиса «вирус: офис N вычищен админом к HH:MM»
+// остаётся после них. Офлайн-догон (cleanedSilent) журнал не трогает.
 func (g *Game) adminTick(by cleaner) {
 	for oi := range g.Offices {
 		o := &g.Offices[oi]
 		if !o.Unlocked || o.Admin == "" {
 			continue
 		}
-		repaired, cleaned := o.adminWork(g.cfg, g.cfg.AdminClicksPerTick)
+		var done func(slot int, kind string)
+		if by != cleanedSilent {
+			done = func(slot int, kind string) { g.logEvent(adminLogLine(oi, slot, kind)) }
+		}
+		repaired, cleaned := o.adminWork(g.cfg, g.cfg.AdminClicksPerTick, done)
 		g.DayAdminRepairs += repaired
 		g.DayAdminCleaned += cleaned
 		if cleaned > 0 {
 			g.virusSettled(oi, by)
 		}
 	}
+}
+
+// adminLogLine — строка журнала дня о доделанном админом месте (без часов,
+// их ставит logEvent); офис и место — с единицы, как в остальном журнале.
+func adminLogLine(oi, slot int, kind string) string {
+	verb := "починил"
+	if kind == adminVirus {
+		verb = "вычистил"
+	}
+	return fmt.Sprintf("админ офиса %d %s место %d", oi+1, verb, slot+1)
 }
 
 // hasAdmins — есть ли в компании хоть один админ.
@@ -171,7 +194,7 @@ func (g *Game) seatsCopy() *Game {
 func (g *Game) adminsWork() {
 	for i := range g.Offices {
 		if o := &g.Offices[i]; o.Unlocked && o.Admin != "" {
-			o.adminWork(g.cfg, g.cfg.AdminClicksPerTick)
+			o.adminWork(g.cfg, g.cfg.AdminClicksPerTick, nil)
 		}
 	}
 }
@@ -217,7 +240,7 @@ func (g *Game) adminDoneTicks(oi int) int {
 		if !infected {
 			return n
 		}
-		cp.adminWork(g.cfg, g.cfg.AdminClicksPerTick)
+		cp.adminWork(g.cfg, g.cfg.AdminClicksPerTick, nil)
 	}
 }
 

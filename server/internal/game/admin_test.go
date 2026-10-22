@@ -404,6 +404,49 @@ func TestAdminJournal(t *testing.T) {
 	}
 }
 
+// Строка журнала дня на каждое доделанное админом место (ITGAME-170): в
+// момент действия, место с единицы, итог офиса «вычищен админом» — после
+// построчных; офлайн-догон журнал не трогает.
+func TestAdminJournalPerSeat(t *testing.T) {
+	g := adminGame(t, 4)
+	g.TickInDay = 12 // 12:00
+	es := g.Offices[0].Employees
+	es[1].Infected, es[2].Infected = true, true
+	breakSeat(&es[3], 1)
+	n := len(g.EventLog)
+	for range 4 {
+		g.Tick()
+	}
+	want := []string{
+		"12:10 админ офиса 1 вычистил место 2", // третий клик; лишний — месту 3
+		"12:20 админ офиса 1 вычистил место 3",
+		"12:20 вирус: офис 1 вычищен админом к 12:20",
+		"12:30 админ офиса 1 починил место 4",
+	}
+	if got := g.EventLog[n:]; strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("журнал:\n%s\nхотим:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if g.DayAdminCleaned != 2 || g.DayAdminRepairs != 1 {
+		t.Errorf("сводка дня: вычищено %d, починено %d; хотим 2 и 1", g.DayAdminCleaned, g.DayAdminRepairs)
+	}
+
+	off := adminGame(t, 4)
+	off.TickInDay = 12
+	oe := off.Offices[0].Employees
+	oe[1].Infected = true
+	breakSeat(&oe[3], 1)
+	n = len(off.EventLog)
+	off.AdvanceOffline(4)
+	if oe[1].Infected || oe[3].PCBroken {
+		t.Fatalf("офлайн: infected=%v broken=%v, хотим вычищено и починено", oe[1].Infected, oe[3].PCBroken)
+	}
+	for _, l := range off.EventLog[n:] {
+		if strings.Contains(l, "админ") {
+			t.Errorf("офлайн-догон пишет в журнал: %q", l)
+		}
+	}
+}
+
 func TestAdminClosesVirusCardAndTimer(t *testing.T) {
 	g := adminGame(t, 4)
 	g.Offices[0].Employees[0].Infected = true
