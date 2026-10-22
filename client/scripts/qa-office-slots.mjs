@@ -7,6 +7,7 @@
 // кликается мышью по всему значку поломки — сотрудник и метка «✖ чинить k/N»
 // одной зоной места office.slot.i, после починки та же зона мотивирует
 // (ITGAME-75/92/93; проверка — itd.stack/itd.zones, настоящий хит-тест Phaser),
+// сломанное место на обеде — без подписи «обед» поверх кнопки мастера (ITGAME-184),
 // тултип не остаётся рядом с окном роутера/увольнения (ITGAME-89),
 // рамки ?debug=1 объектов под окном (роутер, выход в меню, карточка события, «Пока вас не было», отчёт дня) лежат под его
 // подложкой, рамки кнопок окна — над ней (ITGAME-84/97), слот шлюза серверной рисует gateway (не router), полка
@@ -458,6 +459,61 @@ async function caseBrokenPc(browser) {
     await shot(page, 'broken_pc')
   } catch (e) {
     check('broken_pc: кейс выполнен без ошибок', false, e instanceof Error ? e.message : String(e))
+  } finally {
+    await page.close().catch(() => {})
+  }
+}
+
+// ── Кейс 3д: сломанный ПК на обеде — «обед» не ложится на «мастер» (ITGAME-184) ─
+// Поломка переживает обед, а «обед» (y+40, 12px) приходится на кнопку мастера
+// (y+46, 108×22). Как у мёртвого места (ITGAME-135, qa:pc W13), сломанное место
+// на обеде подписи не получает; у целых мест 1-2 она остаётся.
+async function caseBrokenLunch(browser) {
+  const page = await browser.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e)))
+  await page.setViewport({ width: 1920, height: 1080 })
+  try {
+    await loadScenario(page, 'broken_pc', 'brokenlunch')
+    await page.evaluate(() => window.itd.set({ tickInDay: 24 })) // начало обеда, см. caseLunch
+    await delay(300)
+    const isLunch = (await page.evaluate(() => window.itd.state().lunch)) === true
+    check('broken_lunch: itd.state().lunch === true после set(tickInDay:24)', isLunch, String(isLunch))
+
+    const geo = await page.evaluate(() => {
+      const ns = window.itd.nodes()
+      const by = (id) => ns.find((n) => n.id === id) ?? null
+      return { master: by('office.master.0'), label: by('office.repair.0') }
+    })
+    check('broken_lunch: место 0 на обеде сломано — метка «✖ чинить · 1 очко» и кнопка мастера на месте',
+      geo.label?.text === '✖ чинить · 1 очко' && !!geo.master, JSON.stringify({ label: geo.label?.text ?? null, master: !!geo.master }))
+
+    const lunch = (await dumpTexts(page, 'office')).filter((t) => t.text === 'обед')
+    const onBroken = geo.master ? lunch.filter((t) => Math.abs(t.x - geo.master.cx) < 1) : lunch
+    check('broken_lunch: «обед» только у целых мест 1-2, у сломанного места 0 подписи нет',
+      lunch.length === 2 && onBroken.length === 0, JSON.stringify({ n: lunch.length, onBroken }))
+
+    const lint = await page.evaluate(() => ({ ov: window.itd.overlaps(), off: window.itd.offscreen() }))
+    check('broken_lunch: itd.overlaps()/offscreen() пусты (до клика: мастер чинит, кадр меняется)', lint.ov.length === 0 && lint.off.length === 0,
+      JSON.stringify({ ov: lint.ov.slice(0, 5), off: lint.off.slice(0, 5) }))
+    await shot(page, 'broken_lunch')
+
+    if (geo.master) {
+      const st = await page.evaluate((p) => window.itd.stack(p.cx, p.cy), geo.master)
+      check('broken_lunch: itd.stack по центру «мастер» → wins office.master.0', st.wins?.id === 'office.master.0',
+        JSON.stringify({ stack: st.stack, wins: st.wins?.id ?? null }))
+      const box = await canvasBox(page)
+      const t0 = (await lastOut(page, 50)).at(-1)?.at ?? 0
+      await worldClick(page, box, geo.master.cx, geo.master.cy)
+      await delay(400)
+      const sent = (await lastOut(page, 50)).filter((m) => m.at > t0)
+      check('broken_lunch: клик мышью по «мастер» шлёт ровно call_master',
+        sent.length === 1 && sent[0].type === 'call_master', JSON.stringify(sent.map((m) => ({ type: m.type, info: m.info }))))
+    }
+
+    check('broken_lunch: нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))
+  } catch (e) {
+    check('broken_lunch: кейс выполнен без ошибок', false, e instanceof Error ? e.message : String(e))
   } finally {
     await page.close().catch(() => {})
   }
@@ -1230,7 +1286,7 @@ if (!process.env.QA_BASE) {
 
 try {
   for (const runCase of [
-    caseFullOffice, caseLunch, caseBrokenPc, caseVirus, caseTooltipUnderModal, caseDebugFramesUnderWindows, caseServerRoomGateway, caseServerRoomEmptyRacks, caseSparePcs, caseAmenityShelf,
+    caseFullOffice, caseLunch, caseBrokenPc, caseBrokenLunch, caseVirus, caseTooltipUnderModal, caseDebugFramesUnderWindows, caseServerRoomGateway, caseServerRoomEmptyRacks, caseSparePcs, caseAmenityShelf,
   ]) {
     const browser = await puppeteer.launch({
       executablePath: chromePath(),

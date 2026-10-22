@@ -483,8 +483,9 @@ export class OfficeScene extends Phaser.Scene {
           // deskImg гарантированно создан выше: showWorkerOnly требует
           // !s.isLunch, значит на обеде всегда проходим ветку !showWorkerOnly.
           slotImg = deskImg as Phaser.GameObjects.Image
-          // Мёртвое место «обеда» не знает: подпись легла бы на кнопку «заменить» (ITGAME-135).
-          if (!dead) {
+          // Мёртвое и сломанное место «обеда» не знают: подпись (y+40) легла бы на кнопку
+          // «заменить» (ITGAME-135) или «мастер» (ITGAME-184) — обе на y+46.
+          if (!dead && !e.pcBroken) {
             this.objects.push(this.add.text(x, y + 40, 'обед', {
               fontFamily: FONT, fontSize: '12px', color: '#94b0c2',
             }).setOrigin(0.5))
