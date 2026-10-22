@@ -70,6 +70,10 @@
 //       владелец сам поставил 'fit' — kept, не перетёрт; X7 — у владельца '1', агент выбрал «по окну», F5,
 //       restore() вернул '1' (restored); X7b — то же без F5 (выбор в памяти вкладки): меню после перезапуска
 //       подсвечивает menu.zoom.1, CSS-зум канваса — снова 1×
+//   X8  (ITGAME-167) itd.sandbox.state(): до входа {ok, active:false}; после sandbox('qa38') — {active:true, label, sid
+//       песочницы, at, owner {sid:true, diff:normal}, chain ['qa38']}; повторный вход sandbox('qa38c') без restore (общий
+//       ключ уже fake/hard) — owner прежний {sid:true, diff:normal}, at прежний, chain ['qa38','qa38c']; после restore() —
+//       снова active:false
 //   P1  itd.play (ITGAME-73) на fresh, сид 7, тик 0: set_speed 0 → hire → hire → days1 → buy_pc → hire → days1 —
 //       вердикты ok/ok/FAIL no_free_pc/ok/ok/FAIL not_enough_money/ok, цепочка балансов 600>300>599>24>323,
 //       «до» шага = «после» прошлого, без «нет rev», строка «cmd | ok/FAIL code | dN tN | бал>бал | staff a>b | pay N | phase»
@@ -923,15 +927,27 @@ async function run() {
     })
     await ps.reload({ waitUntil: 'domcontentloaded' })
     await waitMenuReady(ps)
-    const x1 = await ps.evaluate(() => ({
-      bad: window.itd.sandbox('a.b'), sb: window.itd.sandbox('qa38'), tab: sessionStorage.getItem('itd.sid'),
-      sid: window.itd.server().sid,
-    }))
+    const x1 = await ps.evaluate(() => {
+      // ITGAME-167: state() — на старом коде его нет, вызов в try (проверка упадёт, а не прогон)
+      const st = () => { try { return window.itd.sandbox.state() } catch (e) { return { threw: String(e?.message ?? e) } } }
+      const bad = window.itd.sandbox('a.b')
+      const st0 = st()
+      const sb = window.itd.sandbox('qa38')
+      return { bad, st0, sb, st1: st(), tab: sessionStorage.getItem('itd.sid'), sid: window.itd.server().sid }
+    })
     check(
       'X1: sandbox(qa38) → sid a-qa38-…, owner {sid:true, diff:normal}, sid во вкладке; метка с точкой — bad_label',
       x1.sb.ok && /^a-qa38-\d+$/.test(x1.sb.sid) && x1.sb.owner?.sid === true && x1.sb.owner?.diff === 'normal' &&
         x1.tab === x1.sb.sid && x1.sid === x1.sb.sid && x1.bad.ok === false && x1.bad.code === 'bad_label',
       JSON.stringify(x1),
+    )
+    check(
+      "X8 (ITGAME-167): sandbox.state() до входа — {ok, active:false}; после sandbox('qa38') — label, sid песочницы, at, owner {sid:true, diff:normal}, chain ['qa38']",
+      x1.st0?.ok === true && x1.st0.active === false && x1.st1?.ok === true && x1.st1.active === true &&
+        x1.st1.label === 'qa38' && x1.st1.sid === x1.sb.sid && typeof x1.st1.at === 'number' && x1.st1.at > 0 &&
+        JSON.stringify(x1.st1.owner) === JSON.stringify({ sid: true, diff: 'normal' }) &&
+        JSON.stringify(x1.st1.chain) === JSON.stringify(['qa38']),
+      JSON.stringify({ st0: x1.st0, st1: x1.st1 }),
     )
     await ps.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
     // ITGAME-155: агент в песочнице переключил масштаб, как в шаге A4: null → '1' → '1.4'
@@ -981,12 +997,30 @@ async function run() {
       /^a-qa38-/.test(x4sid) && x4sid !== x1.sb.sid && x4[0] === x2.fake.sid && x4[1] === 'hard',
       JSON.stringify({ x4sid, x4 }),
     )
+    // X8 (ITGAME-167): повторный вход без restore (общий ключ сейчас fake/hard) — ключи владельца не
+    // переснимаются: owner и at прежние, цепочка меток растёт
+    const x8 = await ps.evaluate(() => {
+      const st = () => { try { return window.itd.sandbox.state() } catch (e) { return { threw: String(e?.message ?? e) } } }
+      const again = window.itd.sandbox('qa38c')
+      return { again, st: st(), tab: sessionStorage.getItem('itd.sid'), ls: [localStorage.getItem('itd.sid'), localStorage.getItem('itd.diff')] }
+    })
+    check(
+      "X8 (ITGAME-167): повторный sandbox('qa38c') без restore при чужом общем ключе — owner прежний {sid:true, diff:normal}, at прежний, chain ['qa38','qa38c'], sid a-qa38c-…",
+      x8.again.ok && JSON.stringify(x8.again.owner) === JSON.stringify({ sid: true, diff: 'normal' }) && x8.ls[1] === 'hard' &&
+        x8.st?.active === true && x8.st.label === 'qa38c' && /^a-qa38c-\d+$/.test(x8.st.sid) && x8.st.sid === x8.again.sid && x8.tab === x8.again.sid &&
+        x8.st.at === x1.st1?.at && JSON.stringify(x8.st.owner) === JSON.stringify({ sid: true, diff: 'normal' }) &&
+        JSON.stringify(x8.st.chain) === JSON.stringify(['qa38', 'qa38c']),
+      JSON.stringify({ x8, at1: x1.st1?.at }),
+    )
+    await ps.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
     // Партия песочницы прошла цепочку онбординга (HUD пишет done) — у владельца значения не было
     await ps.evaluate(() => localStorage.setItem('itd.onboard', 'done'))
     const x5 = await ps.evaluate(() => {
       const r = window.itd.sandbox.restore()
+      let st
+      try { st = window.itd.sandbox.state() } catch (e) { st = { threw: String(e?.message ?? e) } }
       return {
-        r, again: window.itd.sandbox.restore(), ls: [localStorage.getItem('itd.sid'), localStorage.getItem('itd.diff')],
+        r, st, again: window.itd.sandbox.restore(), ls: [localStorage.getItem('itd.sid'), localStorage.getItem('itd.diff')],
         tab: sessionStorage.getItem('itd.sid'), rec: sessionStorage.getItem('itd.sandbox'), sid: window.itd.server().sid,
         onboard: localStorage.getItem('itd.onboard'), zoom: localStorage.getItem('itd.uiScale'),
       }
@@ -1003,6 +1037,11 @@ async function run() {
       'X5: restore() — sidSame/diffSame (fake цел), ключи владельца (и itd.onboard, ITGAME-21) возвращены, служебные убраны, вкладка снова на sid владельца; повтор — no_sandbox',
       Object.values(x5c).every(Boolean),
       JSON.stringify({ conditions: x5c, x5 }),
+    )
+    check(
+      'X8 (ITGAME-167): после restore() sandbox.state() — снова {ok, active:false}',
+      x5.st?.ok === true && x5.st.active === false && Object.keys(x5.st).length === 2,
+      JSON.stringify(x5.st),
     )
     check(
       "X5 (ITGAME-155): масштаб, выбранный в песочнице (null → '1' → '1.4'), — restore() удалил ключ (при входе его не было) и назвал в restored",

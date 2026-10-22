@@ -10,12 +10,12 @@ import type { CommandType, ServerErrorCode, StateCause, StateMessage } from '../
 import { CONTRACT } from './contract.gen'
 import { checkStale, lastStale } from '../buildstamp'
 import { makeSandbox } from './sandbox'
-import type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult } from './sandbox'
+import type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult, SandboxState } from './sandbox'
 import { makeClaim } from './claim'
 import type { ClaimApi } from './claim'
 import { isHiddenOriginal, makeSpriteApi, triedKeys } from './spriteTry'
 import type { SpriteApi } from './spriteTry'
-export type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult }
+export type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult, SandboxState }
 import type { StaleInfo } from '../buildstamp'
 export type { StaleInfo }
 import { AI_SPRITES } from '../scenes/BootScene'
@@ -1002,7 +1002,13 @@ export interface ItdApi {
    * владельца (localStorage itd.sid/itd.diff/itd.onboard, ITGAME-21, itd.uiScale, ITGAME-155) и вкладки (sessionStorage); меню
    * перечитывает сводку. Пока песочница есть, новая партия и финал («Сдаться»)
    * берут новый sid песочницы, а не общий ключ. Ставится из меню (в партии —
-   * code in_party). itd.sandbox.restore() → {sidSame, diffSame, fake, restored,
+   * code in_party). Повторный itd.sandbox(метка) без restore() не переснимает ключи
+   * владельца (ITGAME-167): остаются снятые первым входом — owner в ответе тот же,
+   * даже если общий ключ сейчас чужой (fakeOwner), — меняются метка и sid; restore()
+   * вернёт ключи первого входа. itd.sandbox.state() → {ok, active: false} или {ok,
+   * active: true, label, sid, at, owner: {sid, diff}, chain} — запись песочницы вкладки
+   * на чтение: at — первый вход, owner — снятые тогда ключи, chain — метки входов без
+   * restore по порядку. itd.sandbox.restore() → {sidSame, diffSame, fake, restored,
    * kept, removed}: сверка (то и есть замер гарда), возврат ключей как при
    * входе — для itd.sid/itd.diff наше (fake) или стёртое значение возвращается,
    * чужое (kept) не перетирается; itd.onboard (его пишет только HUD) возвращается
@@ -1015,6 +1021,7 @@ export interface ItdApi {
    * localStorage не может); restore() вернёт настоящий.
    * @example itd.sandbox('acc3')
    * @example itd.sandbox.fakeOwner()
+   * @example itd.sandbox.state()
    * @example itd.sandbox.restore()
    */
   readonly sandbox: SandboxApi
@@ -2060,8 +2067,9 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.errors({since}?)              — ошибки страницы (window.onerror + unhandledrejection), переживают перезагрузку вкладки: load — номер загрузки; since (ITGAME-155) — фильтр: меньше 1e9 — номер загрузки (load ≥ since, текущая — server().load), иначе метка времени, мс (t ≥ since); не число ≥ 0, дробный номер или голое число вместо {since} → {ok:false, code:'bad_since'}
   itd.net(20)                       — последние сообщения WS в обе стороны + сокет/rtt/реконнекты/rev; info: out — id, state — rev/cause/re, error — code/re/rev
   itd.version                       — {sha, builtAt, version} сборки (+ <meta name="build"> в html); version — год.мес.день.час.мин коммита (ITGAME-140), для людей: сейв сверяется по формату (ITGAME-169)
-  itd.sandbox('acc3')               — своя партия вкладки: sid a-acc3-<время> во вкладку, ключи владельца (localStorage itd.sid/itd.diff/itd.onboard/itd.uiScale, sessionStorage вкладки) запомнены → {ok, sid, owner:{sid, diff}}; новая партия и «Сдаться» берут новый sid песочницы, общий ключ не трогают; из меню (в партии — in_party)
+  itd.sandbox('acc3')               — своя партия вкладки: sid a-acc3-<время> во вкладку, ключи владельца (localStorage itd.sid/itd.diff/itd.onboard/itd.uiScale, sessionStorage вкладки) запомнены → {ok, sid, owner:{sid, diff}}; новая партия и «Сдаться» берут новый sid песочницы, общий ключ не трогают; из меню (в партии — in_party); повторный вход без restore() ключи владельца не переснимает — owner первого входа, новые метка и sid (ITGAME-167)
   itd.sandbox.fakeOwner()           — «чужой» общий ключ itd.sid/itd.diff вызовом игры (проверить гард «Сдаться») → {sid, diff}; restore() вернёт настоящий
+  itd.sandbox.state()               — запись песочницы вкладки на чтение (ITGAME-167), ничего не меняет: {ok, active:false} или {ok, active:true, label, sid, at — первый вход, owner:{sid, diff} — ключи владельца, снятые тогда, chain — метки входов без restore по порядку}
   itd.sandbox.restore()             — выйти из песочницы (из меню): {sidSame, diffSame, fake, restored, kept, removed} — sidSame/diffSame: общий ключ тот, что при входе (или fake); itd.sid/itd.diff: наше/стёртое значение возвращено, чужое (kept) не перетёрто; itd.onboard возвращается к значению при входе при любом отличии; itd.uiScale (ITGAME-155): масштаб, выбранный в песочнице (отметка в её записи переживает F5), или стёртый — к значению при входе (не было — ключ удалён), выбранный владельцем в своей вкладке — kept; выбор вкладки в памяти забыт — меню и канвас снова по ключу
   itd.claim('acc151')               — вкладка занята (ITGAME-151): жёлтая полоса 40 px сверху «▶ АГЕНТ работает в этой вкладке (метка, sha) — не кликай» (клики проходят сквозь неё), заголовок «▶ АГЕНТ — смотри, не кликай»; считает настоящие нажатия (события одного нажатия за 50 мс — одно) → {ok, active, label, sha, sec, downs, own, allowed, foreign, synthetic, onCanvas, reloads, mine, allow, presses[{n, t, kind, button, onCanvas, wins, got}]}; чужое нажатие — foreign и красная вспышка, dispatchEvent — только synthetic; переживает F5 и itd.reset(); повторный вызов меняет метку, счёт не сбрасывает; отказ bad_label
   itd.claim.mine(n?, ms?)           — следующие n (1..20, по умолчанию 1) настоящих нажатий за ms (100..120000, по умолчанию 20000) — твои (own), без вспышки: зови перед своим настоящим кликом (CDP-клик тоже isTrusted) → {ok, pending, ms}; отказ bad_args

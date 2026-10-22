@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "90115e72321f",
+  "hash": "4e18b30aa480",
   "methods": {
     "version": {
       "kind": "prop",
@@ -264,10 +264,11 @@ export const CONTRACT = {
       "kind": "prop",
       "type": "SandboxApi",
       "readonly": true,
-      "doc": "Песочница агента (ITGAME-77): itd.sandbox('acc3') → {ok, sid, owner:{sid,\ndiff}} — ставит вкладке свой sid a-<метка>-<время> и запоминает общие ключи\nвладельца (localStorage itd.sid/itd.diff/itd.onboard, ITGAME-21, itd.uiScale, ITGAME-155) и вкладки (sessionStorage); меню\nперечитывает сводку. Пока песочница есть, новая партия и финал («Сдаться»)\nберут новый sid песочницы, а не общий ключ. Ставится из меню (в партии —\ncode in_party). itd.sandbox.restore() → {sidSame, diffSame, fake, restored,\nkept, removed}: сверка (то и есть замер гарда), возврат ключей как при\nвходе — для itd.sid/itd.diff наше (fake) или стёртое значение возвращается,\nчужое (kept) не перетирается; itd.onboard (его пишет только HUD) возвращается\nк значению при входе при ЛЮБОМ отличии, даже если его записала вкладка владельца;\nitd.uiScale (ITGAME-155) — как itd.sid: масштаб, выбранный в песочнице (отметка\nв её записи переживает F5), или стёртый возвращается (не было при входе — ключ\nудалён), выбранный владельцем в своей вкладке — kept; выбор вкладки в памяти\nзабыт, меню и канвас снова по ключу; тоже только из меню. itd.sandbox.fakeOwner() → {sid, diff} —\n«чужой» общий ключ вызовом игры (agent javascript_tool писать в\nlocalStorage не может); restore() вернёт настоящий.",
+      "doc": "Песочница агента (ITGAME-77): itd.sandbox('acc3') → {ok, sid, owner:{sid,\ndiff}} — ставит вкладке свой sid a-<метка>-<время> и запоминает общие ключи\nвладельца (localStorage itd.sid/itd.diff/itd.onboard, ITGAME-21, itd.uiScale, ITGAME-155) и вкладки (sessionStorage); меню\nперечитывает сводку. Пока песочница есть, новая партия и финал («Сдаться»)\nберут новый sid песочницы, а не общий ключ. Ставится из меню (в партии —\ncode in_party). Повторный itd.sandbox(метка) без restore() не переснимает ключи\nвладельца (ITGAME-167): остаются снятые первым входом — owner в ответе тот же,\nдаже если общий ключ сейчас чужой (fakeOwner), — меняются метка и sid; restore()\nвернёт ключи первого входа. itd.sandbox.state() → {ok, active: false} или {ok,\nactive: true, label, sid, at, owner: {sid, diff}, chain} — запись песочницы вкладки\nна чтение: at — первый вход, owner — снятые тогда ключи, chain — метки входов без\nrestore по порядку. itd.sandbox.restore() → {sidSame, diffSame, fake, restored,\nkept, removed}: сверка (то и есть замер гарда), возврат ключей как при\nвходе — для itd.sid/itd.diff наше (fake) или стёртое значение возвращается,\nчужое (kept) не перетирается; itd.onboard (его пишет только HUD) возвращается\nк значению при входе при ЛЮБОМ отличии, даже если его записала вкладка владельца;\nitd.uiScale (ITGAME-155) — как itd.sid: масштаб, выбранный в песочнице (отметка\nв её записи переживает F5), или стёртый возвращается (не было при входе — ключ\nудалён), выбранный владельцем в своей вкладке — kept; выбор вкладки в памяти\nзабыт, меню и канвас снова по ключу; тоже только из меню. itd.sandbox.fakeOwner() → {sid, diff} —\n«чужой» общий ключ вызовом игры (agent javascript_tool писать в\nlocalStorage не может); restore() вернёт настоящий.",
       "examples": [
         "itd.sandbox('acc3')",
         "itd.sandbox.fakeOwner()",
+        "itd.sandbox.state()",
         "itd.sandbox.restore()"
       ]
     },
@@ -2964,6 +2965,11 @@ export const CONTRACT = {
           "type": "() => FakeOwnerResult",
           "optional": false,
           "doc": "Поставить «чужой» общий ключ (localStorage itd.sid/itd.diff) вызовом игры; restore() его уберёт."
+        },
+        "state": {
+          "type": "() => SandboxState | { ok: true; active: false; }",
+          "optional": false,
+          "doc": "Прочитать запись песочницы вкладки (ITGAME-167), ничего не меняя: {ok, active:false} или {ok, active:true, label, sid, at, owner, chain}."
         }
       },
       "call": [
@@ -3047,6 +3053,46 @@ export const CONTRACT = {
           "type": "string",
           "optional": true,
           "doc": ""
+        }
+      }
+    },
+    "SandboxState": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "true",
+          "optional": false,
+          "doc": ""
+        },
+        "active": {
+          "type": "true",
+          "optional": false,
+          "doc": "запись есть; без неё — {ok: true, active: false}"
+        },
+        "label": {
+          "type": "string",
+          "optional": false,
+          "doc": "метка последнего входа"
+        },
+        "sid": {
+          "type": "string",
+          "optional": false,
+          "doc": "sid песочницы, в чью партию уходят команды (= itd.server().sid)"
+        },
+        "at": {
+          "type": "number",
+          "optional": false,
+          "doc": "epoch ms первого входа без restore — тогда сняты ключи владельца"
+        },
+        "owner": {
+          "type": "{ sid: boolean; diff: string | null; }",
+          "optional": false,
+          "doc": "ключи владельца, снятые первым входом (как owner в ответе itd.sandbox()): есть ли общий sid, его сложность"
+        },
+        "chain": {
+          "type": "string[]",
+          "optional": false,
+          "doc": "метки входов без restore по порядку, последняя — label: повторный вход ключи владельца не переснимает"
         }
       }
     },

@@ -38,6 +38,9 @@
 //       во время itd.away (сокет не открыт) → not_connected, вкладка в партии, окна «Нет связи» нет; в партии
 //       на 2x → {ok:true, menuReady:true}, hud/office не активны, меню активно, сокет closed, liveSid null,
 //       в журнале партии — exit =2 от вкладки (тот же кадр, что у кнопки); контракт: ExitResult
+//   A20 (ITGAME-167) itd.sandbox.state() в контракте: SandboxApi.state → SandboxState | {ok, active:false}, SandboxState —
+//       active/label/sid/at/owner/chain с doc; doc itd.sandbox — state() и «повторный вход не переснимает ключи
+//       владельца»; itd.sandbox.state — функция
 //   + на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию
@@ -119,9 +122,10 @@ async function run() {
         itdTraceFns: [typeof window.itd.trace, typeof window.itd.trace.start, typeof window.itd.trace.stop].join(),
         itdTraceMore: [typeof window.itd.trace.summary, typeof window.itd.trace.peek].join(),
         itdClaimFns: [typeof window.itd.claim, ...['mine', 'allow', 'deny', 'state', 'stop'].map((k) => typeof window.itd.claim[k])].join(),
+        itdSandboxFns: [typeof window.itd.sandbox, ...['restore', 'fakeOwner', 'state'].map((k) => typeof window.itd.sandbox[k])].join(),
       }
     })
-    const { c1: contract, c2Hash, c3StateDoc, itdKeys, itdVersion, socketNow, itdTraceFns, itdTraceMore, itdClaimFns } = data
+    const { c1: contract, c2Hash, c3StateDoc, itdKeys, itdVersion, socketNow, itdTraceFns, itdTraceMore, itdClaimFns, itdSandboxFns } = data
 
     // ── A1: schema
     check('A1: schema === 1', contract.schema === 1, `schema=${contract.schema}`)
@@ -264,6 +268,23 @@ async function run() {
         ['n', 't', 'kind', 'button', 'onCanvas', 'wins', 'got'].every((f) => a17.press.includes(f)) &&
         a17.fns === 'function,function,function,function,function,function',
       JSON.stringify(a17),
+    )
+
+    // ── A20 (ITGAME-167): itd.sandbox.state() в контракте
+    const a20 = {
+      state: T.SandboxApi?.fields?.state,
+      fields: Object.fromEntries(Object.entries(T.SandboxState?.fields ?? {}).map(([k, v]) => [k, !!v.doc])),
+      doc: contract.methods.sandbox?.doc ?? '',
+      ex: contract.methods.sandbox?.examples ?? [],
+      fns: itdSandboxFns,
+    }
+    check(
+      'A20: контракт itd.sandbox.state() — SandboxApi.state → SandboxState | {ok, active:false}, SandboxState active/label/sid/at/owner/chain с doc, doc itd.sandbox — state() и «повторный вход не переснимает», itd.sandbox.* — функции (ITGAME-167)',
+      (a20.state?.type ?? '').includes('SandboxState') && (a20.state?.type ?? '').includes('active: false') && !!a20.state?.doc &&
+        ['active', 'label', 'sid', 'at', 'owner', 'chain'].every((f) => a20.fields[f] === true) &&
+        a20.doc.includes('itd.sandbox.state()') && a20.doc.includes('не переснимает') &&
+        a20.ex.includes('itd.sandbox.state()') && a20.fns === 'function,function,function,function',
+      JSON.stringify(a20),
     )
 
     // ── A12 (ITGAME-131): из меню debug-вызовы отказывают на клиенте, без запроса

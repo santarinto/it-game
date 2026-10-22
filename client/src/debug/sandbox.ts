@@ -1,5 +1,5 @@
 import type Phaser from 'phaser'
-import { SANDBOX_KEY, adoptTabSid, forgetTabSid, sandboxRecord, sandboxSid } from '../net'
+import { SANDBOX_KEY, adoptTabSid, client, forgetTabSid, sandboxRecord, sandboxSid, sessionId } from '../net'
 import type { SandboxRecord } from '../net'
 import { localStore, sessionStore } from '../storage'
 import { ZOOM_KEY, onZoomWrite, rereadZoom } from '../uiscale'
@@ -42,6 +42,18 @@ export interface SandboxRestore {
   error?: string
 }
 
+// itd.sandbox.state() (ITGAME-167): запись песочницы вкладки (sessionStorage itd.sandbox) на чтение — агент
+// не мог узнать, снял ли restore() песочницу после «Tool failed», и писал в отчёт «не знаю».
+export interface SandboxState {
+  ok: true
+  active: true // запись есть; без неё — {ok: true, active: false}
+  label: string // метка последнего входа
+  sid: string // sid песочницы, в чью партию уходят команды (= itd.server().sid)
+  at: number // epoch ms первого входа без restore — тогда сняты ключи владельца
+  owner: { sid: boolean; diff: string | null } // ключи владельца, снятые первым входом (как owner в ответе itd.sandbox()): есть ли общий sid, его сложность
+  chain: string[] // метки входов без restore по порядку, последняя — label: повторный вход ключи владельца не переснимает
+}
+
 export interface FakeOwnerResult {
   ok: boolean
   sid?: string // «чужой» общий sid: fake-owner-<время>
@@ -50,14 +62,16 @@ export interface FakeOwnerResult {
   error?: string
 }
 
-// itd.sandbox — функция с двумя методами: itd.sandbox('acc3'), itd.sandbox.restore(),
-// itd.sandbox.fakeOwner().
+// itd.sandbox — функция с методами: itd.sandbox('acc3'), itd.sandbox.restore(),
+// itd.sandbox.fakeOwner(), itd.sandbox.state().
 export interface SandboxApi {
   (label: string): SandboxResult
   /** Выйти: сверить и вернуть ключи владельца, убрать служебные; не в партии. */
   restore: () => SandboxRestore
   /** Поставить «чужой» общий ключ (localStorage itd.sid/itd.diff) вызовом игры; restore() его уберёт. */
   fakeOwner: () => FakeOwnerResult
+  /** Прочитать запись песочницы вкладки (ITGAME-167), ничего не меняя: {ok, active:false} или {ok, active:true, label, sid, at, owner, chain}. */
+  state: () => SandboxState | { ok: true; active: false }
 }
 
 const inParty = (game: Phaser.Game): boolean => game.scene.isActive('hud')
@@ -85,12 +99,14 @@ export function makeSandbox(game: Phaser.Game): SandboxApi {
     if (inParty(game)) {
       return { ok: false, code: 'in_party', error: 'вкладка в партии — сначала «В меню»/«Сдаться», песочница ставится из меню' }
     }
-    // Повторный вход не переснимает ключи владельца: при входе они уже были сняты.
+    // Повторный вход не переснимает ключи владельца: при входе они уже были сняты. Метка
+    // добавляется в цепочку (ITGAME-167): state() покажет все входы без restore.
     const prev = sandboxRecord()
     const rec: SandboxRecord = prev
-      ? { ...prev, label }
+      ? { ...prev, label, chain: [...(prev.chain ?? [prev.label]), label] }
       : {
           label,
+          chain: [label],
           ownerSid: localStore.get(SID),
           ownerDiff: localStore.get(DIFF),
           ownerOnboard: localStore.get(ONBOARD),
@@ -171,5 +187,14 @@ export function makeSandbox(game: Phaser.Game): SandboxApi {
     return { ok: true, sid: fake.sid, diff: fake.diff }
   }
 
-  return Object.assign(enter, { restore, fakeOwner })
+  const state = (): SandboxState | { ok: true; active: false } => {
+    const rec = sandboxRecord()
+    if (!rec) return { ok: true, active: false }
+    return {
+      ok: true, active: true, label: rec.label, sid: client.liveSid() ?? sessionId(), at: rec.at,
+      owner: { sid: rec.ownerSid !== null, diff: rec.ownerDiff }, chain: rec.chain ?? [rec.label],
+    }
+  }
+
+  return Object.assign(enter, { restore, fakeOwner, state })
 }
