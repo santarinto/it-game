@@ -884,7 +884,7 @@ seat is a grey `desk_pc_broken` with «✖ замена» (`office.dead.i`) and 
 dead PC before anything else and upgrades one seat an hour only when no
 expansion was left unaffordable; `random` knows both commands. The visreg
 baselines (`fresh`, `mid_day10`, `full_office`, `spare_pcs`, `broken_pc`, …)
-drift by the new desk labels — re-recording them is the owner's call.
+regenerated in ITGAME-192: the 9px desk labels of each PC add one `tiny` per workplace.
 
 **Virus on seats** (ITGAME-103, design in the GDD «Вирус (ITGAME-103)»): the
 infection lives on the occupied seat like a breakdown — `Employee.Infected`
@@ -1881,7 +1881,7 @@ menu). No emoji are drawn since ITGAME-83: icons are sprites next to a Text
 them. The committed baseline (11 scenarios, `broken_pc`, since ITGAME-138
 `virus_outbreak` and since ITGAME-145 `admin_dept` included — the last one is a
 shot of the department room: `ROOM` in `visreg.mjs` clicks its tab after
-the load) was regenerated **2026-10-17** for ITGAME-145: the fifth nav tab
+the load) was regenerated **2026-10-23** for ITGAME-192 (after ITGAME-135): 9px workplace level labels on each desk add one `tiny` per PC; before that **2026-10-17** for ITGAME-145: the fifth nav tab
 «АДМ» changes every party shot, and its 8px grey price/«k/3» line adds one
 `tiny` and on some scenarios one `contrast` — the same as the closed «О2»/«О3»
 tabs already in the baseline, accepted to keep the tabs alike; the menu shot

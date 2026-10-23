@@ -12,7 +12,7 @@
       "overlaps": 0,
       "offscreen": 0,
       "contrast": 16,
-      "tiny": 14
+      "tiny": 15
     }
   },
   "broke_day3": {
@@ -20,7 +20,7 @@
       "overlaps": 0,
       "offscreen": 0,
       "contrast": 17,
-      "tiny": 16
+      "tiny": 18
     }
   },
   "mid_day10": {
@@ -28,7 +28,7 @@
       "overlaps": 0,
       "offscreen": 0,
       "contrast": 7,
-      "tiny": 7
+      "tiny": 12
     }
   },
   "full_office": {
@@ -36,7 +36,7 @@
       "overlaps": 0,
       "offscreen": 0,
       "contrast": 6,
-      "tiny": 7
+      "tiny": 19
     }
   },
   "soft_lock": {
@@ -44,7 +44,7 @@
       "overlaps": 0,
       "offscreen": 0,
       "contrast": 16,
-      "tiny": 14
+      "tiny": 15
     }
   },
   "pre_victory": {
@@ -52,7 +52,7 @@
       "overlaps": 0,
       "offscreen": 0,
       "contrast": 15,
-      "tiny": 15
+      "tiny": 16
     }
   },
   "spare_pcs": {
@@ -60,7 +60,7 @@
       "overlaps": 0,
       "offscreen": 0,
       "contrast": 10,
-      "tiny": 10
+      "tiny": 18
     }
   },
   "broken_pc": {
@@ -68,7 +68,7 @@
       "overlaps": 0,
       "offscreen": 0,
       "contrast": 16,
-      "tiny": 16
+      "tiny": 19
     }
   },
   "virus_outbreak": {
@@ -76,7 +76,7 @@
       "overlaps": 0,
       "offscreen": 0,
       "contrast": 24,
-      "tiny": 27
+      "tiny": 36
     }
   },
   "admin_dept": {
