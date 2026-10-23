@@ -12,7 +12,7 @@ import (
 )
 
 // eventKinds — порядок видов событий пула в строке статистики.
-var eventKinds = []game.EventID{game.EventVirus, game.EventDeadline, game.EventAudit, game.EventRaise, game.EventStar}
+var eventKinds = []game.EventID{game.EventVirus, game.EventDeadline, game.EventAudit, game.EventRaise, game.EventStar, game.EventLeave}
 
 // dayRecord — один сыгранный день (есть DayReport; недоигранный день победы
 // не считается).
@@ -66,10 +66,10 @@ func eventStatsLine(diff, policy string, seeds, days int, recs []dayRecord) stri
 		}
 		return float64(a) / float64(n)
 	}
-	return fmt.Sprintf("sim events: diff=%s policy=%s seeds=%d days=%d played=%d breakdowns=%.3f outbreaks=%.3f infected=%.3f pool=%.3f virus=%.3f deadline=%.3f audit=%.3f raise=%.3f star=%.3f second=%.1f%% total=%.3f max=%d ge3=%.1f%% capped=%.1f%%",
+	return fmt.Sprintf("sim events: diff=%s policy=%s seeds=%d days=%d played=%d breakdowns=%.3f outbreaks=%.3f infected=%.3f pool=%.3f virus=%.3f deadline=%.3f audit=%.3f raise=%.3f star=%.3f leave=%.3f second=%.1f%% total=%.3f max=%d ge3=%.1f%% capped=%.1f%%",
 		diff, policy, seeds, days, n, per(bd), per(out), per(inf), per(pool),
 		per(kind[game.EventVirus]), per(kind[game.EventDeadline]), per(kind[game.EventAudit]),
-		per(kind[game.EventRaise]), per(kind[game.EventStar]),
+		per(kind[game.EventRaise]), per(kind[game.EventStar]), per(kind[game.EventLeave]),
 		pct(second, n), per(bd+pool), maxTotal, pct(ge3, n), pct(capped, n))
 }
 
@@ -91,6 +91,27 @@ func answerRaise(g *game.Game, mode string) {
 	opt := 0
 	if mode == "decline" {
 		opt = 1
+	}
+	_ = g.ChooseEvent(opt)
+}
+
+// leaveFromHour — с этого часа --answer-leave by-hour отпускает, раньше — нет:
+// после обеда отпущенный теряет меньше, чем приносит завтрашняя мотивация
+// (ITGAME-198, расчёт в задаче).
+const leaveFromHour = 15
+
+// answerLeave — ответ sim на карточку «Просит уйти пораньше» (--answer-leave,
+// ITGAME-198): release — опция 0, keep — опция 1, by-hour — release с
+// leaveFromHour, раньше keep; пусто — sim карточку не трогает (молчание
+// работает как keep: сотрудник через силу с появления карточки).
+func answerLeave(g *game.Game, mode string) {
+	if mode == "" || g.ActiveEvent == nil || g.ActiveEvent.ID != game.EventLeave {
+		return
+	}
+	opt := 1
+	cfg := g.Config()
+	if mode == "release" || mode == "by-hour" && cfg.WorkdayStart+g.TickInDay/cfg.TicksPerHour >= leaveFromHour {
+		opt = 0
 	}
 	_ = g.ChooseEvent(opt)
 }

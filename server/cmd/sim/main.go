@@ -21,6 +21,8 @@
 //	--event-stats   по строке «sim events: …» на политику в stderr: поломки,
 //	                вспышки, события пула за сыгранный день
 //	--answer-raise  accept | decline — sim отвечает на «Просит повышения»
+//	--answer-leave  release | keep | by-hour — sim отвечает на «Просит уйти
+//	                пораньше» (ITGAME-198); by-hour — отпускает с 15:00
 //	--policy expand greedy + покупка следующего офиса, когда все набраны
 package main
 
@@ -41,6 +43,9 @@ type policyFunc func(g *game.Game, rng *rand.Rand, hour int)
 
 // raiseAnswer — ответ на «Просит повышения» (--answer-raise): accept | decline.
 var raiseAnswer string
+
+// leaveAnswer — ответ на «Просит уйти пораньше» (--answer-leave): release | keep | by-hour.
+var leaveAnswer string
 
 // eventsText — колонка events: имена событий вместо их числа (--events-text).
 var eventsText bool
@@ -71,7 +76,13 @@ func main() {
 	auditStatsFlag := flag.Bool("audit-stats", false, "строка статистики аудита в stderr после сводки")
 	eventStatsFlag := flag.Bool("event-stats", false, "строка статистики случайных событий в stderr на каждую политику")
 	answerRaiseFlag := flag.String("answer-raise", "", "accept | decline — sim отвечает на «Просит повышения» в тик появления (пусто — не отвечает)")
+	answerLeaveFlag := flag.String("answer-leave", "", "release | keep | by-hour — sim отвечает на «Просит уйти пораньше» в тик появления (пусто — не отвечает)")
 	flag.Parse()
+	if m := *answerLeaveFlag; m != "" && m != "release" && m != "keep" && m != "by-hour" {
+		fmt.Fprintf(os.Stderr, "sim: --answer-leave %q не понят (release | keep | by-hour)\n", m)
+		os.Exit(1)
+	}
+	leaveAnswer = *answerLeaveFlag
 	if m := *answerRaiseFlag; m != "" && m != "accept" && m != "decline" {
 		fmt.Fprintf(os.Stderr, "sim: --answer-raise %q не понят (accept | decline)\n", m)
 		os.Exit(1)
@@ -159,6 +170,7 @@ func runOne(w *csv.Writer, cfg game.Config, name string, policy policyFunc, seed
 			}
 			if report == nil {
 				answerRaise(g, raiseAnswer)
+				answerLeave(g, leaveAnswer)
 			}
 			if report != nil {
 				outcome = dayOutcome(g, report)

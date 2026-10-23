@@ -10,6 +10,7 @@
 // сломанное место на обеде — без подписи «обед» поверх кнопки мастера (ITGAME-184) и со столом
 // desk_pc_broken (ITGAME-230),
 // тултип не остаётся рядом с окном роутера/увольнения (ITGAME-89),
+// «Просит уйти пораньше» → «Отпустить»: место бледнеет, тултип «ушёл домой» (ITGAME-198),
 // рамки ?debug=1 объектов под окном (роутер, выход в меню, карточка события, «Пока вас не было», отчёт дня) лежат под его
 // подложкой, рамки кнопок окна — над ней (ITGAME-84/97), слот шлюза серверной рисует gateway (не router), полка
 // быта (office.amenity.cooler/fridge/coffee_machine) и слот сети офиса
@@ -1357,6 +1358,71 @@ async function caseAmenityShelf(browser) {
   }
 }
 
+// ── Кейс: «Просит уйти пораньше» → «Отпустить» (ITGAME-198) ──────────────────
+// Карточку ставит itd.restore (как в caseRaiseTooltip), ответ — настоящий event_choice. Отпущенный
+// сотрудник бледнеет (alpha 0.35), в тултипе — «ушёл домой −100%» и «мотивация: ушёл домой»; второй
+// сотрудник не тронут.
+async function caseLeaveRelease(browser) {
+  const page = await browser.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e)))
+  await page.setViewport({ width: 1920, height: 1080 })
+  try {
+    await loadScenario(page, 'broken_pc', 'leave')
+    const save = (await page.evaluate(async () => (await window.itd.snapshot()).save))
+    await page.evaluate(async (tick) => {
+      await window.itd.restore({ activeEvent: { ID: 'leave', Tick: tick, Office: 0, Slot: 1 } })
+    }, save.tickInDay)
+    const open = await page.evaluate(() => window.itd.wait(() => window.itd.state().activeEvent != null, 5000).then(() => true, () => false))
+    if (!open) throw new Error('карточка «уйти пораньше» не открылась')
+    // state() отдаёт только id события — заголовок и опции читаем текстами сцен.
+    const card = await page.evaluate(() => ({
+      id: window.itd.state().activeEvent,
+      texts: window.__itd.scene.getScenes(true).flatMap((sc) => sc.children.list)
+        .filter((o) => o.type === 'Text' && o.visible).map((o) => o.text),
+    }))
+    check('leave: карточка «Просит уйти пораньше» с опциями «Отпустить» / «Не отпускать»',
+      card.id === 'leave' && ['Просит уйти пораньше', 'Отпустить', 'Не отпускать'].every((t) => card.texts.includes(t)),
+      JSON.stringify({ id: card.id, texts: card.texts.filter((t) => /пораньше|отпуск/i.test(t)) }))
+    await shot(page, 'leave_card')
+    await page.evaluate(() => window.itd.cmd('event_choice', 0, { slot: 0 }))
+    await page.waitForFunction(() => window.itd.state().activeEvent == null, { timeout: 5000 })
+    await delay(300)
+
+    const imgs = await dumpImages(page, 'office')
+    const w1 = imgs.find((o) => o.id === 'office.worker.1')
+    const w0 = imgs.find((o) => o.id === 'office.worker.0')
+    check('leave: отпущенный (worker.1) бледный — alpha 0.35, worker.0 — 1',
+      Math.abs((w1?.alpha ?? 0) - 0.35) < 0.01 && w0?.alpha === 1, JSON.stringify({ w0, w1 }))
+
+    const n1 = await page.evaluate(() => window.itd.nodes().find((n) => n.id === 'office.worker.1'))
+    const box = await canvasBox(page)
+    await page.mouse.move(box.x + 10, box.y + 600 * box.k)
+    await delay(100)
+    await page.mouse.move(box.x + n1.cx * box.k, box.y + n1.cy * box.k)
+    await delay(200)
+    const tip = await page.evaluate(() => {
+      const c = window.__itd.scene.getScene('office').children.list.find((o) => o.type === 'Container')
+      return { visible: c?.visible ?? null, text: c?.list?.find((o) => o.type === 'Text')?.text ?? '' }
+    })
+    const lines = tip.text.split('\n')
+    check('leave: тултип — «ушёл домой -100%» и «мотивация: ушёл домой»',
+      tip.visible === true && lines.includes('ушёл домой -100%') && lines.includes('мотивация: ушёл домой'), JSON.stringify(lines))
+    const off = await page.evaluate(() => window.itd.offscreen())
+    await shot(page, 'leave_tooltip')
+    await page.mouse.move(box.x + 10, box.y + 600 * box.k)
+    await delay(200)
+    const ov = await page.evaluate(() => window.itd.overlaps())
+    check('leave: itd.offscreen() пуст с тултипом, itd.overlaps() пуст без него', off.length === 0 && ov.length === 0,
+      JSON.stringify({ off: off.slice(0, 5), ov: ov.slice(0, 5) }))
+    check('leave: нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))
+  } catch (e) {
+    check('leave: кейс выполнен без ошибок', false, e instanceof Error ? e.message : String(e))
+  } finally {
+    await page.close().catch(() => {})
+  }
+}
+
 // ── Главный прогон: свежий браузер на кейс (без утечек между сценариями) ────
 let stopServer = null
 if (!process.env.QA_BASE) {
@@ -1370,7 +1436,7 @@ if (!process.env.QA_BASE) {
 
 try {
   for (const runCase of [
-    caseFullOffice, caseLunch, caseBrokenPc, caseBrokenLunch, caseVirus, caseTooltipUnderModal, caseRaiseTooltip, caseDebugFramesUnderWindows, caseServerRoomGateway, caseServerRoomEmptyRacks, caseSparePcs, caseAmenityShelf,
+    caseFullOffice, caseLunch, caseBrokenPc, caseBrokenLunch, caseVirus, caseTooltipUnderModal, caseRaiseTooltip, caseLeaveRelease, caseDebugFramesUnderWindows, caseServerRoomGateway, caseServerRoomEmptyRacks, caseSparePcs, caseAmenityShelf,
   ]) {
     const browser = await puppeteer.launch({
       executablePath: chromePath(),

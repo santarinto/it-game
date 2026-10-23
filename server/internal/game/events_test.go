@@ -28,7 +28,7 @@ func eventGame() *Game {
 func forceEvent(g *Game, id EventID) {
 	g.DayEvents = []DayEvent{{ID: id, Tick: 0}}
 	switch id {
-	case EventVirus, EventRaise:
+	case EventVirus, EventRaise, EventLeave:
 		g.DayEvents[0].Office = 0
 		g.DayEvents[0].Slot = 0
 	}
@@ -59,7 +59,7 @@ func TestRollDayEvents(t *testing.T) {
 	if ev.Tick < lo || ev.Tick >= hi {
 		t.Errorf("тик события %d вне окна [%d,%d)", ev.Tick, lo, hi)
 	}
-	if !slices.Contains([]EventID{EventVirus, EventDeadline, EventAudit, EventRaise, EventStar}, ev.ID) {
+	if !slices.Contains([]EventID{EventVirus, EventDeadline, EventAudit, EventRaise, EventStar, EventLeave}, ev.ID) {
 		t.Errorf("неизвестный тип события: %q", ev.ID)
 	}
 	// Второе событие и уникальность типов.
@@ -651,7 +651,7 @@ func TestNextDayResetsEventState(t *testing.T) {
 
 func TestActiveEventInfoAllTypes(t *testing.T) {
 	g := eventGame()
-	for _, id := range []EventID{EventVirus, EventDeadline, EventAudit, EventRaise, EventStar} {
+	for _, id := range []EventID{EventVirus, EventDeadline, EventAudit, EventRaise, EventStar, EventLeave} {
 		forceEvent(g, id)
 		g.Tick()
 		info := g.ActiveEventInfo()

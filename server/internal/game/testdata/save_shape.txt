@@ -1,4 +1,4 @@
-format 4
+format 5
 actionPoints int
 activeEvent *struct
 activeEvent.AVTier int
@@ -71,6 +71,7 @@ config.MotivateTicks int
 config.OfficeCols int
 config.OfficePrices []int
 config.OfficeSlots int
+config.OverworkMult float64
 config.PCLevels []struct
 config.PCLevels[].Mult float64
 config.PCLevels[].Name string
@@ -195,6 +196,7 @@ offices[].CoffeeEventTicks []int
 offices[].CoffeeMachine bool
 offices[].Cooler bool
 offices[].Employees []struct
+offices[].Employees[].AwayFrom int
 offices[].Employees[].CoffeeUntil int
 offices[].Employees[].HireDay int
 offices[].Employees[].IncomePerTick int
@@ -203,10 +205,12 @@ offices[].Employees[].MotivateCooldownUntil int
 offices[].Employees[].MotivatedUntil int
 offices[].Employees[].Name string
 offices[].Employees[].OffendedUntil int
+offices[].Employees[].OverworkedUntil int
 offices[].Employees[].PCBroken bool
 offices[].Employees[].RaisePct int
 offices[].Employees[].RepairClicks int
 offices[].Employees[].RepairNeeded int
+offices[].Employees[].RestedDay int
 offices[].Employees[].SalaryAdd int
 offices[].Employees[].Star bool
 offices[].Employees[].UnpaidToday bool

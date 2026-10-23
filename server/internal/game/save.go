@@ -38,7 +38,9 @@ var ErrBadSave = errors.New("bad_save")
 // дохода компании); Config.RaiseBoostMult убран; решение владельца 21.10.
 // 4 — ITGAME-127: очки действий директора — Config.ActionPointsPerDay и Save.actionPoints
 // (остаток на сегодня); решение владельца 21.10.
-const SaveFormat = 4
+// 5 — ITGAME-198: «просит уйти пораньше» — Employee.AwayFrom, OverworkedUntil, RestedDay
+// и Config.OverworkMult; решение владельца 24.10.
+const SaveFormat = 5
 
 // Save — сериализуемый слепок Game: конфиг плюс все поля состояния.
 // Поле в день отчёта (Phase=day_report) валидно: TickInDay при этом равен
@@ -167,7 +169,7 @@ func cloneConfig(c Config) Config {
 }
 
 // bindActiveEvent — копия плана дня и активное событие как указатель в
-// неё (ITGAME-52). ChooseEvent, retargetRaiseEvents и activateEvents
+// неё (ITGAME-52). ChooseEvent, retargetSlotEvents и activateEvents
 // полагаются на то, что ActiveEvent — элемент DayEvents; JSON этой связи
 // не хранит, и после реконнекта выбор закрывал бы отдельную копию, а
 // элемент плана оставался нерешённым и всплывал снова. Элемент ищется по

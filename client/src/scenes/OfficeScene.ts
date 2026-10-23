@@ -503,6 +503,9 @@ export class OfficeScene extends Phaser.Scene {
           const workerKey = e.level >= 1 && e.level <= 3 ? `worker_${e.level}` : 'worker'
           slotImg = addSprite(this, wx, wy, workerKey, 'person')
         }
+        // Отпущен домой (ITGAME-198): место пустует до вечера — сотрудник
+        // бледный; что случилось, говорит тултип («ушёл домой»).
+        if (!s.isLunch && e.effects?.some((ef) => ef.token === 'away')) slotImg.setAlpha(0.35)
         // ITGAME-92: одна зона клика на рабочее место (см. SLOT_ZONE_DEPTH).
         // Картинка слота (worker или desk_pc на обеде) — без ввода, но с id
         // office.worker.i: itd.nodes() видит текстуру, а itd.click/itd.hover
@@ -806,9 +809,11 @@ export class OfficeScene extends Phaser.Scene {
       ? 'мотивация: после починки ПК'
       : e.infected
         ? 'мотивация: после чистки'
+        : e.effects?.some((ef) => ef.token === 'away')
+        ? 'мотивация: ушёл домой'
         : e.motivateReadyAt ? `мотивация: после ${e.motivateReadyAt}` : 'мотивация: готова (клик)')
     lines.push(`уволить: ${fmtMoney(e.firePrice)} (правый клик)`)
-    const EFFECT_NAMES: Record<string, string> = { thirst: 'жажда', hunger: 'голоден', coffee: 'выпил кофе', motivated: 'мотивирован', offended: 'обижен', virus: 'вирус' }
+    const EFFECT_NAMES: Record<string, string> = { thirst: 'жажда', hunger: 'голоден', coffee: 'выпил кофе', motivated: 'мотивирован', offended: 'обижен', virus: 'вирус', away: 'ушёл домой', overworked: 'через силу', rested: 'отдохнул' }
     // Ремень безопасности: старый сервер мог прислать null вместо [] —
     // краш тултипа обрывал перерисовку всей сцены.
     for (const ef of e.effects ?? []) {

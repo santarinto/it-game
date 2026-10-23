@@ -43,6 +43,11 @@ type Employee struct {
 	RaisePct      int
 	OffendedUntil int // отказ в повышении: дебафф пока тик < OffendedUntil
 
+	// Просит уйти пораньше (ITGAME-198).
+	AwayFrom        int // отпущен домой: с этого тика дня до вечера выработка 0; 0 — на месте
+	OverworkedUntil int // не отпущен: ×OverworkMult, пока тик < OverworkedUntil
+	RestedDay       int // отпущен накануне: весь день с этим номером ×MotivateMult; ночь его не сбрасывает
+
 	// Сотрудники 2.0 (итерация 15).
 	Star    bool // звезда: выработка уже умножена при найме, бейдж ★
 	HireDay int  // день найма: компенсация увольнения в тот же день ниже
@@ -265,7 +270,7 @@ func (g *Game) accrueXP() {
 		}
 		for i := range o.Employees {
 			e := &o.Employees[i]
-			if e.PCBroken || o.Workplace(i).Dead || g.XPNext(e) == 0 { // «требуется замена» (ITGAME-135) не производит
+			if e.PCBroken || o.Workplace(i).Dead || e.away(g.TickInDay) || g.XPNext(e) == 0 { // «требуется замена» (ITGAME-135) не производит; отпущенный домой (ITGAME-198) — тоже
 				continue
 			}
 			e.XP += rate

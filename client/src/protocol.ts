@@ -1,7 +1,8 @@
 // Зеркало server/internal/ws/protocol.go — менять синхронно.
 
 export interface EffectInfo {
-  token: 'thirst' | 'hunger' | 'coffee' | 'motivated' | 'offended'
+  // away / overworked / rested — «просит уйти пораньше» (ITGAME-198)
+  token: 'thirst' | 'hunger' | 'coffee' | 'motivated' | 'offended' | 'virus' | 'away' | 'overworked' | 'rested'
   percent: number
   until: string // «HH:MM»; '' — до конца дня
 }
@@ -104,7 +105,7 @@ export interface OfficeInfo {
 }
 
 export interface ActiveEventInfo {
-  id: 'virus' | 'deadline' | 'audit' | 'raise' | 'star'
+  id: 'virus' | 'deadline' | 'audit' | 'raise' | 'star' | 'leave'
   title: string
   text: string
   options: string[] // индекс опции уходит в event_choice (slot)

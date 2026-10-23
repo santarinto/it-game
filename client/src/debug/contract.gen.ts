@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "e3843e268d64",
+  "hash": "7b2c60cd864a",
   "methods": {
     "version": {
       "kind": "prop",
@@ -752,7 +752,7 @@ export const CONTRACT = {
       "kind": "object",
       "fields": {
         "id": {
-          "type": "'virus' | 'deadline' | 'audit' | 'raise' | 'star'",
+          "type": "'virus' | 'deadline' | 'audit' | 'raise' | 'star' | 'leave'",
           "optional": false,
           "doc": ""
         },
@@ -2083,7 +2083,7 @@ export const CONTRACT = {
       "kind": "object",
       "fields": {
         "token": {
-          "type": "'thirst' | 'hunger' | 'coffee' | 'motivated' | 'offended'",
+          "type": "'virus' | 'thirst' | 'hunger' | 'coffee' | 'motivated' | 'offended' | 'away' | 'overworked' | 'rested'",
           "optional": false,
           "doc": ""
         },

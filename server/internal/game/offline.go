@@ -89,12 +89,25 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 		g.beginLedger()
 		g.TickInDay = dayTicks
 		exact := dayExact
+		// Сегодня чей-то день отдыха «отпустили вчера» (ITGAME-198): он
+		// заработан, а не налит, поэтому догон его честно считает — на
+		// своей копии шаблона, чтобы dayExact остальных дней остался без баффа.
+		rested := g.restedToday()
+		if rested && !tpl.adminsBusy() {
+			m := g.offlineTemplate()
+			m.MarketToday = 0
+			g.lendRest(m)
+			exact = m.exactIncome(0, dayTicks, nil)
+		}
 		// Админам есть что чинить и чистить (ITGAME-101): день считается по
 		// тикам на шаблоне, его места переходят в живую игру, и шаблон
 		// пересобирается. На дефолтном конфиге очередь пустеет за день
 		// (15 + 12 × 3 кликов на офис против 2 × 54), с дельтой конфига —
 		// за сколько выйдет.
 		if tpl.adminsBusy() {
+			if rested {
+				g.lendRest(tpl)
+			}
 			exact = tpl.offlineIncome(0, dayTicks)
 			g.adoptSeats(tpl)
 			tpl = g.offlineTemplate()
@@ -200,6 +213,11 @@ func (g *Game) offlineTemplate() *Game {
 			o.Employees[j].CoffeeUntil = 0
 			o.Employees[j].MotivatedUntil = 0
 			o.Employees[j].OffendedUntil = 0
+			o.Employees[j].AwayFrom = 0
+			o.Employees[j].OverworkedUntil = 0
+			// Шаблон — день без баффов: отдых «отпустили вчера»
+			// (ITGAME-198) догон кладёт только в его день (lendRest).
+			o.Employees[j].RestedDay = 0
 		}
 		o.BossUnpaidToday = false
 		o.AdminUnpaidToday = false
@@ -218,6 +236,8 @@ func (g *Game) resetForNextDay() {
 			o.Employees[j].MotivatedUntil = 0
 			o.Employees[j].MotivateCooldownUntil = 0
 			o.Employees[j].OffendedUntil = 0
+			o.Employees[j].AwayFrom = 0
+			o.Employees[j].OverworkedUntil = 0
 		}
 		o.BossUnpaidToday = false
 		o.AdminUnpaidToday = false
@@ -251,4 +271,29 @@ func (g *Game) checkOfflineWin(s *OfflineSummary) bool {
 	}
 	s.Balance = g.Money
 	return false
+}
+
+// restedToday — есть ли у кого-то день отдыха «отпустили вчера»
+// (ITGAME-198) с номером сегодняшнего дня.
+func (g *Game) restedToday() bool {
+	for i := range g.Offices {
+		for j := range g.Offices[i].Employees {
+			if g.rested(&g.Offices[i].Employees[j]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// lendRest — вернуть шаблону офлайн-дня отдых «отпустили вчера»
+// живой игры и поставить ему сегодняшний день (ITGAME-198). Сотрудники
+// шаблона — копия живых по тем же индексам.
+func (g *Game) lendRest(tpl *Game) {
+	tpl.Day = g.Day
+	for i := range g.Offices {
+		for j := range g.Offices[i].Employees {
+			tpl.Offices[i].Employees[j].RestedDay = g.Offices[i].Employees[j].RestedDay
+		}
+	}
 }

@@ -1830,13 +1830,16 @@ policy run, after the summary: averages per played day (a day with a
 `DayReport`; the unfinished victory day is not counted) of `breakdowns`
 (PC breakdowns), `outbreaks` (virus activations that infected a PC),
 `infected` (new PC infections during the day, outbreaks plus waves), `pool` and its kinds `virus`,
-`deadline`, `audit`, `raise`, `star` (the day plan right after `NextDay`),
+`deadline`, `audit`, `raise`, `star`, `leave` (the day plan right after `NextDay`),
 `total` (breakdowns + pool), plus `second` (share of days with two pool
 events), `max` (largest daily total), `ge3` (share of days with total
 ≥ 3) and `capped` (share of days whose total reached the run's daily
 random-event budget `EventBudget`; always 0% with no budget).
 `--answer-raise accept|decline` makes the sim answer every «Просит
-повышения» card the tick it appears (default: it does not answer). None of
+повышения» card the tick it appears (default: it does not answer).
+`--answer-leave release|keep|by-hour` does the same for «Просит уйти
+пораньше» (ITGAME-198); `by-hour` releases from 15:00 and keeps earlier.
+Unanswered, that card already works as `keep`. None of
 this touches the CSV or the save. Reference (300 seeds × 30 days, greedy,
 re-measured 21.10 after ITGAME-196/203: breakdown 1.5%/tick, daily event
 budget, random 1–3% raise, exact income): easy 300/300 wins (median

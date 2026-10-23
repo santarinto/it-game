@@ -154,7 +154,7 @@ func (g *Game) Fire(office, slot int) error {
 		return ErrNotEnoughMoney
 	}
 	g.spend(CmdFire, comp)
-	g.retargetRaiseEvents(office, slot)
+	g.retargetSlotEvents(office, slot)
 	infected := o.Employees[slot].Infected
 	o.syncWorkplaces()
 	n := len(o.Employees)
@@ -168,14 +168,14 @@ func (g *Game) Fire(office, slot int) error {
 	return nil
 }
 
-// retargetRaiseEvents — события «просит повышения» хранят индекс
-// сотрудника; увольнение сдвигает индексы. Адресат уволен — событие
+// retargetSlotEvents — события «просит повышения» и «просит уйти пораньше»
+// (ITGAME-198) хранят индекс сотрудника; увольнение сдвигает индексы. Адресат уволен — событие
 // закрывается (активное — с логом, ожидающее — молча). Активное — элемент
 // DayEvents (ITGAME-52), поэтому один проход сдвигает его ровно один раз.
-func (g *Game) retargetRaiseEvents(office, firedSlot int) {
+func (g *Game) retargetSlotEvents(office, firedSlot int) {
 	for i := range g.DayEvents {
 		ev := &g.DayEvents[i]
-		if ev.ID != EventRaise || ev.Office != office || ev.Resolved {
+		if (ev.ID != EventRaise && ev.ID != EventLeave) || ev.Office != office || ev.Resolved {
 			continue
 		}
 		if ev.Slot > firedSlot {
@@ -187,7 +187,11 @@ func (g *Game) retargetRaiseEvents(office, firedSlot int) {
 		}
 		ev.Resolved = true
 		if g.ActiveEvent == ev {
-			g.logEvent("повышение: сотрудник уволен до ответа")
+			if ev.ID == EventLeave {
+				g.logEvent("просьба уйти пораньше: сотрудник уволен до ответа")
+			} else {
+				g.logEvent("повышение: сотрудник уволен до ответа")
+			}
 			g.ActiveEvent = nil
 		}
 	}
@@ -473,6 +477,10 @@ func (g *Game) NextDay() error {
 			o.Employees[j].MotivatedUntil = 0
 			o.Employees[j].MotivateCooldownUntil = 0
 			o.Employees[j].OffendedUntil = 0
+			// Отпущенный вчера (ITGAME-198) утром на месте; его RestedDay
+			// ночь переживает — это и есть награда.
+			o.Employees[j].AwayFrom = 0
+			o.Employees[j].OverworkedUntil = 0
 		}
 		o.BossUnpaidToday = false
 		o.AdminUnpaidToday = false

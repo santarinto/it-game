@@ -19,6 +19,7 @@ const (
 	EventAudit    = EventID("audit")
 	EventRaise    = EventID("raise")
 	EventStar     = EventID("star")
+	EventLeave    = EventID("leave") // просит уйти пораньше (ITGAME-198)
 )
 
 // Доли дедлайна от ожидаемого дохода окна (GDD): премия 35%, штраф 15%,
@@ -37,8 +38,8 @@ const starIncomeBonus = 6
 type DayEvent struct {
 	ID        EventID
 	Tick      int  // тик активации (тост)
-	Office    int  // вирус/повышение: адресат
-	Slot      int  // повышение: индекс сотрудника
+	Office    int  // вирус/повышение/уйти пораньше: адресат
+	Slot      int  // повышение/уйти пораньше: индекс сотрудника
 	RaisePct  int  // повышение: 1–3 %, роллится при плане (ITGAME-203); у остальных 0
 	Dismissed bool // тост закрыт игроком (аудит ещё ждёт своего чека)
 	Resolved  bool // сыграло (выбор/авто/чек), в очереди не участвует
@@ -62,8 +63,8 @@ type EventInfo struct {
 // DayIncidents + len(DayEvents): события пула занимают место при плане в
 // NextDay, поломка ПК (и гибель ПК от износа) — когда случилась. Волна вируса —
 // разнос уже идущей вспышки, а не новое событие: не тратит. Своего счётчика
-// в сейве нет — оба слагаемых сохраняются и так. Событие, которое ляжет в план
-// DayEvents (будущее ITGAME-198 «опоздал / ушёл раньше»), учтётся само.
+// в сейве нет — оба слагаемых сохраняются и так. Любое событие плана DayEvents
+// («просит уйти пораньше», ITGAME-198) учитывается само.
 func (g *Game) randomBudgetLeft() int {
 	if g.cfg.EventBudget <= 0 {
 		return math.MaxInt
@@ -102,7 +103,8 @@ func (g *Game) rollDayEvents() {
 }
 
 // rollOneEvent — кандидат из пула доступных типов по весам
-// (вирус 20×VirusWeightK, дедлайн 20, аудит 15, повышение 10, звезда 15);
+// (вирус 20×VirusWeightK, дедлайн 20, аудит 15, повышение 10, звезда 15,
+// уйти пораньше 10 — ITGAME-198);
 // аудит — с дня cfg.AuditMinDay.
 // Вес вируса скалируется сложностью (Сложность 2.0: хардкор — вирусы чаще).
 func (g *Game) rollOneEvent(used map[EventID]bool, lo, hi int) (DayEvent, bool) {
@@ -122,6 +124,7 @@ func (g *Game) rollOneEvent(used map[EventID]bool, lo, hi int) (DayEvent, bool) 
 	add(EventAudit, 15, g.Day >= g.cfg.AuditMinDay)
 	add(EventRaise, 10, g.randomStaffedOffice() >= 0)
 	add(EventStar, 15, g.starOffice() >= 0)
+	add(EventLeave, 10, g.randomStaffedOffice() >= 0)
 	if len(cands) == 0 {
 		return DayEvent{}, false
 	}
@@ -162,6 +165,10 @@ func (g *Game) makeEvent(id EventID, tick int) DayEvent {
 		ev.Office = oi
 		ev.Slot = g.rng.IntN(len(g.Offices[oi].Employees))
 		ev.RaisePct = 1 + g.rng.IntN(3) // одно число для карточки, журнала и согласия
+	case EventLeave:
+		oi := g.randomStaffedOffice()
+		ev.Office = oi
+		ev.Slot = g.rng.IntN(len(g.Offices[oi].Employees))
 	}
 	return ev
 }
@@ -229,6 +236,11 @@ func (g *Game) activateEvents() {
 			continue
 		}
 		g.ActiveEvent = ev
+		if ev.ID == EventLeave {
+			// Пока директор не ответил, сотрудник не отпущен: работает через
+			// силу. Без этого молчание выгоднее обоих ответов (ITGAME-198).
+			g.Offices[ev.Office].Employees[ev.Slot].OverworkedUntil = g.cfg.DayTicks()
+		}
 		if ev.ID == EventVirus {
 			if k := g.seedOutbreak(ev.Office); k > 0 {
 				g.logEvent(fmt.Sprintf("вирус в офисе %d: %d ПК", ev.Office+1, k))
@@ -252,7 +264,7 @@ func (g *Game) eventStillValid(ev *DayEvent) bool {
 	case EventVirus:
 		o := &g.Offices[ev.Office]
 		return o.Unlocked && len(o.Employees) > 0
-	case EventRaise:
+	case EventRaise, EventLeave:
 		return ev.Slot < len(g.Offices[ev.Office].Employees)
 	case EventStar:
 		return g.starOffice() >= 0
@@ -350,6 +362,8 @@ func (g *Game) autoResolveEvents() {
 		g.logEvent("просьба о повышении проигнорирована")
 	case EventStar:
 		g.logEvent("звёздный кандидат ушёл")
+	case EventLeave:
+		g.logEvent(g.Offices[ev.Office].Employees[ev.Slot].Name + ": просьба уйти пораньше без ответа, работал через силу")
 	case EventAudit:
 		// Чек либо уже прошёл в tickEvents, либо догонит тост прямо
 		// на тике проверки — просто закрываем.
@@ -462,6 +476,20 @@ func (g *Game) ChooseEvent(option int) error {
 		default:
 			return ErrBadOption
 		}
+	case EventLeave:
+		e := &g.Offices[ev.Office].Employees[ev.Slot]
+		switch option {
+		case 0:
+			// Тик активации > 0 (окно с 12:00), поэтому 0 в AwayFrom — «на месте».
+			e.AwayFrom = max(1, g.TickInDay)
+			e.OverworkedUntil = 0
+			e.RestedDay = g.Day + 1
+			g.logEvent(fmt.Sprintf("%s: отпущен домой, завтра отдохнувший (+%d%% весь день)", e.Name, pct(g.cfg.MotivateMult)))
+		case 1:
+			g.logEvent(fmt.Sprintf("%s: не отпущен, до конца дня работает через силу (−%d%%)", e.Name, g.overworkPct()))
+		default:
+			return ErrBadOption
+		}
 	default:
 		return ErrBadOption
 	}
@@ -484,6 +512,11 @@ func (g *Game) eventMoney(delta int, what string) {
 
 func (g *Game) logEvent(s string) {
 	g.EventLog = append(g.EventLog, g.Clock()+" "+s)
+}
+
+// overworkPct — на сколько % «через силу» режет выработку до конца дня (из OverworkMult).
+func (g *Game) overworkPct() int {
+	return int(math.Round((1 - g.cfg.OverworkMult) * 100))
 }
 
 func virusDebuffPct(mult float64) int {
@@ -552,6 +585,12 @@ func (g *Game) ActiveEventInfo() *EventInfo {
 				fmt.Sprintf("Нанять $%d", g.cfg.HirePrice*2),
 				"Пропустить",
 			}}
+	case EventLeave:
+		e := &g.Offices[ev.Office].Employees[ev.Slot]
+		return &EventInfo{ID: string(ev.ID), Title: "Просит уйти пораньше",
+			Text: fmt.Sprintf("%s просит отпустить домой пораньше. Отпустить — место пустует до конца дня, зато завтра весь день +%d%% выработки. Не отпускать — до конца дня −%d%%, и пока нет ответа — тоже.",
+				e.Name, pct(g.cfg.MotivateMult), g.overworkPct()),
+			Options: []string{"Отпустить", "Не отпускать"}}
 	}
 	return nil
 }
