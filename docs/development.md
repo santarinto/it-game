@@ -1083,9 +1083,9 @@ zero («Админы:    починили 1 ПК»), no line when both are; the 
 `seatsLabel` (also the antivirus window's); `not_infected` / `not_broken`
 from a command while the active office has an admin raise no toast and no sound
 — the player's finishing click there regularly loses the race to the admin's
-tick; `itd.state()` gives `adminDept` and `admins` (count). Fixture
-`admin_dept`: day 5, 11:00, $8,000, the department bought, office 1 (8 staff,
-router t2, core 1) with an admin whose queue runs seat 2 → 7 → repair 4 and
+tick; `itd.state()` gives `adminDept` and `admins` (count). Fixture `admin_dept`: day 5, 11:00, $8,000, the department bought, office 1 (8 staff,
+router t2, core 1, seats 2 and 7 infected since yesterday with `dayVirusPCs: 0`)
+with an admin whose queue runs seat 2 → 7 → repair 4 and
 then he is free, office 2 (4 staff) without an admin and a broken seat 3,
 office 3 closed.
 
