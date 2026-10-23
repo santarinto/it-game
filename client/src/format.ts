@@ -1,6 +1,6 @@
 // Деньги в UI — только через fmtMoney, чтобы формат был единым.
 export function fmtMoney(n: number): string {
-  return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US')
+  return (n < 0 ? '−$' : '$') + Math.abs(n).toLocaleString('en-US')
 }
 
 // «4 места», «15 мест», «21 место» — тариф антивируса, строка «Админы» отчёта дня.

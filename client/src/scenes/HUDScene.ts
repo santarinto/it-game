@@ -1342,11 +1342,11 @@ export class HUDScene extends Phaser.Scene {
     }
     const head = [
       `Доход:     ${fmtMoney(r.income)}`,
-      // Без штата зарплата $0 — без минуса, «-$0» читается как ошибка (ITGAME-147).
-      `Зарплата: ${r.payroll > 0 ? '-' : ' '}${fmtMoney(r.payroll)}`,
-      ...(r.gatewayOpex > 0 ? [`Интернет: -${fmtMoney(r.gatewayOpex)}`] : []),
+      // Без штата зарплата $0 — без минуса, «−$0» читается как ошибка (ITGAME-147).
+      `Зарплата: ${r.payroll > 0 ? '−' : ' '}${fmtMoney(r.payroll)}`,
+      ...(r.gatewayOpex > 0 ? [`Интернет: −${fmtMoney(r.gatewayOpex)}`] : []),
       // Подписка на антивирус — опекс, как шлюз (ITGAME-137).
-      ...(r.antivirus > 0 ? [`Антивирус: -${fmtMoney(r.antivirus)}`] : []),
+      ...(r.antivirus > 0 ? [`Антивирус: −${fmtMoney(r.antivirus)}`] : []),
       // Деньги исходов событий входят в прибыль (ITGAME-53); расшифровка —
       // в журнале ниже.
       ...(r.eventMoney ? [`События:  ${r.eventMoney > 0 ? '+' : ''}${fmtMoney(r.eventMoney)}`] : []),

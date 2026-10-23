@@ -1,9 +1,16 @@
-// Строки «Админы» отчёта дня (ITGAME-159), множественное «мест» (seatsLabel) и строки денег
-// экрана банкротства (bankruptLines, ITGAME-176).
+// Строки «Админы» отчёта дня (ITGAME-159), множественное «мест» (seatsLabel), строки денег
+// экрана банкротства (bankruptLines, ITGAME-176) и единый формат денег fmtMoney (ITGAME-231).
 // src/format.ts без импортов — Node берёт его как есть (как eventlog.ts в daylog.test.mjs).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { adminsReportLines, bankruptLines, seatsLabel, virusReportLines } from '../../src/format.ts'
+import { adminsReportLines, bankruptLines, fmtMoney, seatsLabel, virusReportLines } from '../../src/format.ts'
+
+test('fmtMoney: положительное $X, ноль $0, отрицательное −$X со знаком «−» (U+2212, ITGAME-231)', () => {
+  assert.equal(fmtMoney(1234), '$1,234')
+  assert.equal(fmtMoney(0), '$0')
+  assert.equal(fmtMoney(-1234), '−$1,234')
+  assert.equal(fmtMoney(-1234).charCodeAt(0), 0x2212)
+})
 
 // Колонка значений отчёта: «Доход:     $X» — значение с 12-го знака.
 const COL = 'Доход:     '.length

@@ -141,8 +141,8 @@ async function speedLook(page) {
 }
 
 const D1_TOL = 50 // $: один живой тик 53 может поймать поломку ПК; офлайн-промотка детерминирована
-// «+$3,266/день» / «-$526/день» → 3266 / -526 (формат fmtMoney)
-const parseMoney = (text) => (typeof text === 'string' && /\d/.test(text) ? Number(text.replace(/[^\d-]/g, '')) : NaN)
+// «+$3,266/день» / «−$526/день» → 3266 / -526 (формат fmtMoney)
+const parseMoney = (text) => (typeof text === 'string' && /\d/.test(text) ? Number(text.replace(/[^\d−-]/g, '').replace(/−/g, '-')) : NaN)
 const dayProfitNow = (page) =>
   page.evaluate(() => window.itd.nodes().find((n) => n.id === 'hud.dayProfit')?.text ?? null)
 // Честная промотка офлайн-движком (itd.step → /api/debug/advance), ≤ 10 тиков за вызов.

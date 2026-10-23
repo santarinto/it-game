@@ -25,7 +25,7 @@ const check = (name, pass, fact) => {
   results.push({ name, pass, fact })
   console.log(`${pass ? 'PASS' : 'FAIL'}: ${name} — ${fact}`)
 }
-const money = (n) => (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US')
+const money = (n) => (n < 0 ? '−$' : '$') + Math.abs(n).toLocaleString('en-US')
 
 let stopServer = null
 if (!process.env.QA_BASE) {

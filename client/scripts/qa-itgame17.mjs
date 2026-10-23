@@ -508,12 +508,12 @@ try {
     covered: window.itd.server().snapshot.offices[0].employees.filter((e) => e.avCovered).length,
   }))
   check('AV7: в офисе щит у каждого защищённого места', shields.covered > 0 && shields.polys === shields.covered, JSON.stringify(shields))
-  // Отчёт дня: «Антивирус: -$12» рядом с «Интернет».
+  // Отчёт дня: «Антивирус: −$12» рядом с «Интернет».
   await page.evaluate(() => window.itd.set({ tickInDay: 53 }))
   await page.evaluate(() => window.itd.speed(1))
   await page.waitForFunction(() => window.itd.text().some((n) => /^День \d+ завершён$/.test(n.text ?? '')), { timeout: 8000 }).catch(() => {})
   const body = await page.evaluate(() => (window.itd.text().find((n) => (n.text ?? '').startsWith('Доход:')) ?? {}).text ?? '')
-  check('AV8: отчёт дня — строка «Антивирус: -$12»', body.split('\n').includes('Антивирус: -$12'), JSON.stringify(body.split('\n').slice(0, 7)))
+  check('AV8: отчёт дня — строка «Антивирус: −$12»', body.split('\n').includes('Антивирус: −$12'), JSON.stringify(body.split('\n').slice(0, 7)))
   await page.evaluate(() => window.itd.key('enter'))
   await delay(300)
 

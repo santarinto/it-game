@@ -9,15 +9,15 @@
 // ITGAME_DEBUG=1 — itd.scenario/itd.set/itd.advanceDays ходят в /api/debug/*).
 //   D1  Hard + itd.scenario('doomed_debt'): state.bankruptInDays > 0, плашка hud.doom
 //       с «До банкротства N …», кнопки hud.doom.surrender и hud.doom.close, строка в журнале,
-//       hud.debt «Долг -$2,000 из -$5,000 · 10%/день», itd.state().debtLimit = creditLimit = 5000 (ITGAME-177)
+//       hud.debt «Долг −$2,000 из −$5,000 · 10%/день», itd.state().debtLimit = creditLimit = 5000 (ITGAME-177)
 //   D2  настоящий клик по hud.doom.close: плашка снята; через тики того же дня не возвращается
 //   D3  следующий день (advanceDays(1), утро): плашка снова, N на 1 меньше
 //   D4  настоящий клик по «Сдаться»: окно «Удалить партию навсегда?», партия на паузе;
 //       «Отмена» — окна нет, скорость вернулась, партия жива
 //   D5  плашка не пересекается с текстами (itd.overlaps пуст), не за экраном, ошибок нет
 //   D6  itd.scenario('fresh'): плашки нет, bankruptInDays 0
-//   D7  Normal + doomed_debt: creditLimit 0, debtLimit 750 = payrollPerDay (и itd.state().debtLimit — тот же, ITGAME-177), bankruptInDays 1, плашка «До банкротства 1 день», hud.debt «Овердрафт -$2,000 (мин. лимит -$750)» в ряду «Расходы», правее их, до x 832 (ITGAME-178)
-//   D8  Normal, itd.set({money: -100}): bankruptInDays ≥ 2, плашка с тем же N, «Овердрафт -$100 (мин. лимит -$750)»
+//   D7  Normal + doomed_debt: creditLimit 0, debtLimit 750 = payrollPerDay (и itd.state().debtLimit — тот же, ITGAME-177), bankruptInDays 1, плашка «До банкротства 1 день», hud.debt «Овердрафт −$2,000 (мин. лимит −$750)» в ряду «Расходы», правее их, до x 832 (ITGAME-178)
+//   D8  Normal, itd.set({money: -100}): bankruptInDays ≥ 2, плашка с тем же N, «Овердрафт −$100 (мин. лимит −$750)»
 //   D9  Normal, $400 в 18:50 и живой тик: day_report, «19:00 овердрафт: долг $X из $750 (расходы дня), без процентов» в hud.log и в отчёте, процент 0, книга сведена
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
@@ -93,7 +93,7 @@ try {
     d1.diff === 'hard' && d1.days > 0 &&
       ['hud.doom', 'hud.doom.text', 'hud.doom.surrender', 'hud.doom.close'].every((id) => d1.ids.includes(id)) &&
       typeof d1.text === 'string' && d1.text.startsWith(`До банкротства ${d1.days} `) &&
-      d1.debt === 'Долг -$2,000 из -$5,000 · 10%/день' && d1.debtLimit === 5000 && d1.creditLimit === 5000,
+      d1.debt === 'Долг −$2,000 из −$5,000 · 10%/день' && d1.debtLimit === 5000 && d1.creditLimit === 5000,
     JSON.stringify(d1),
   )
 
@@ -209,7 +209,7 @@ try {
     d7.diff === 'normal' && d7.creditLimit === 0 && d7.debtLimit === 750 && d7.debtLimit === d7.payroll &&
       d7.stateDebtLimit === 750 && d7.stateDebtLimit === d7.debtLimit &&
       d7.days === 1 && d7.ids.includes('hud.doom') && d7.text === 'До банкротства 1 день' &&
-      d7.debt === 'Овердрафт -$2,000 (мин. лимит -$750)' && d7.errors.length === 0 &&
+      d7.debt === 'Овердрафт −$2,000 (мин. лимит −$750)' && d7.errors.length === 0 &&
       pay7 && debt7 && debt7.y === pay7.y && debt7.x > pay7.x + pay7.w && debt7.x + debt7.w <= 832,
     JSON.stringify(d7))
 
@@ -229,9 +229,9 @@ try {
       debt: node('hud.debt')?.text ?? null,
     }
   }, doomIds.toString())
-  note('D8: Normal, −$100 — bankruptInDays ≥ 2, плашка с тем же N, «Овердрафт -$100 (мин. лимит -$750)»',
+  note('D8: Normal, −$100 — bankruptInDays ≥ 2, плашка с тем же N, «Овердрафт −$100 (мин. лимит −$750)»',
     d8.days >= 2 && d8.ids.includes('hud.doom') && typeof d8.text === 'string' &&
-      d8.text.startsWith(`До банкротства ${d8.days} `) && d8.debt === 'Овердрафт -$100 (мин. лимит -$750)',
+      d8.text.startsWith(`До банкротства ${d8.days} `) && d8.debt === 'Овердрафт −$100 (мин. лимит −$750)',
     JSON.stringify(d8))
 
   // D9 — Normal, живой вечер: $400 в 18:50 и один тик → −$X в пределах $750, овердрафт без процента
@@ -258,7 +258,7 @@ try {
   note('D9: Normal, вечер в минусе — day_report, строка овердрафта в ленте и отчёте, процент 0, книга сведена',
     d9.phase === 'day_report' && d9.balance < 0 && -d9.balance <= 750 && d9.debtLimit === 750 &&
       d9.feed.includes(`19:00 ${line9}`) && d9.report.replace(/\s+/g, ' ').includes(line9) && !/кредит/.test(d9.feed) &&
-      d9.debt === `Овердрафт -$${(-d9.balance).toLocaleString('en-US')} (мин. лимит -$750)` &&
+      d9.debt === `Овердрафт −$${(-d9.balance).toLocaleString('en-US')} (мин. лимит −$750)` &&
       d9.interest === 0 && d9.balanced === true,
     JSON.stringify({ ...d9, line9 }))
   await p7.close()

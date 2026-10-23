@@ -126,7 +126,7 @@ try {
   })
   check('Модал дня открылся', reportOpened.hasBtn === true, `hasBtn=${reportOpened.hasBtn}`)
   check('Скорость на паузе (0) во время модала', reportOpened.speed === 0, `speed=${reportOpened.speed}`)
-  // Z0 (ITGAME-147): у fresh штата нет — «Зарплата:  $0» без минуса, «-$0» читался как ошибка.
+  // Z0 (ITGAME-147): у fresh штата нет — «Зарплата:  $0» без минуса, «−$0» читался как ошибка.
   const salary0 = await page.evaluate(() =>
     (window.itd.text().find((n) => n.scene === 'hud' && (n.text ?? '').startsWith('Доход:'))?.text ?? '')
       .split('\n').find((l) => l.startsWith('Зарплата:')) ?? null)
