@@ -196,6 +196,65 @@ func TestAuditPassAndFail(t *testing.T) {
 	}
 }
 
+// ITGAME-235: проверка формулировок карточки и ленты при штрафе 0 и штрафе > 0.
+func TestAuditZeroFineAndPositiveFine(t *testing.T) {
+	cases := []struct {
+		name         string
+		prevIncome   int
+		wantCardText string
+		wantFeedLine string
+		wantFine     int
+	}{
+		{
+			name:         "fine 0 (no income yesterday)",
+			prevIncome:   0,
+			wantCardText: "иначе штраф (сейчас $0: вчера не было дохода).",
+			wantFeedLine: "аудит провален, штрафа нет (вчера не было дохода)",
+			wantFine:     0,
+		},
+		{
+			name:         "fine > 0 (income yesterday)",
+			prevIncome:   1000,
+			wantCardText: "иначе штраф $200.",
+			wantFeedLine: "аудит провален (−$200)",
+			wantFine:     200,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := eventGame()
+			g.cfg.AuditFineShare = 0.2
+			g.PrevDayIncome = tc.prevIncome
+			if got := g.auditFine(); got != tc.wantFine {
+				t.Fatalf("auditFine() = %d, want %d", got, tc.wantFine)
+			}
+			forceEvent(g, EventAudit)
+			g.Tick()
+			info := g.ActiveEventInfo()
+			if info == nil {
+				t.Fatal("ActiveEventInfo() is nil")
+			}
+			if !strings.Contains(info.Text, tc.wantCardText) {
+				t.Errorf("card text %q does not contain %q", info.Text, tc.wantCardText)
+			}
+			if err := g.ChooseEvent(0); err != nil {
+				t.Fatal(err)
+			}
+			for g.TickInDay <= g.cfg.auditTick() {
+				g.Tick()
+			}
+			log := strings.Join(g.EventLog, "; ")
+			if !strings.Contains(log, tc.wantFeedLine) {
+				t.Errorf("event log %q does not contain %q", log, tc.wantFeedLine)
+			}
+			if strings.Contains(log, "−$0") {
+				t.Errorf("event log %q contains illegal −$0", log)
+			}
+		})
+	}
+}
+
 // Аудит не роллится до cfg.AuditMinDay (ITGAME-50): на старте штраф
 // неподъёмен, игрок ещё не мог собрать топ-конфиг.
 func TestAuditNotBeforeMinDay(t *testing.T) {

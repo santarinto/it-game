@@ -293,7 +293,11 @@ func (g *Game) tickEvents(income int) {
 			} else {
 				fine := g.auditFine()
 				g.eventMoney(-fine, "аудит провален")
-				g.logEvent(fmt.Sprintf("аудит провален (−$%d)", fine))
+				if fine == 0 {
+					g.logEvent("аудит провален, штрафа нет (вчера не было дохода)")
+				} else {
+					g.logEvent(fmt.Sprintf("аудит провален (−$%d)", fine))
+				}
 			}
 		}
 	}
@@ -521,9 +525,14 @@ func (g *Game) ActiveEventInfo() *EventInfo {
 				goal, g.ClockAt(g.cfg.deadlineTick()), reward, fine),
 			Options: []string{"Взяться", fmt.Sprintf("Отказаться (−$%d)", refuse)}}
 	case EventAudit:
+		fine := g.auditFine()
+		fineText := fmt.Sprintf("иначе штраф $%d.", fine)
+		if fine == 0 {
+			fineText = "иначе штраф (сейчас $0: вчера не было дохода)."
+		}
 		return &EventInfo{ID: string(ev.ID), Title: "Аудит безопасности",
-			Text: fmt.Sprintf("В %s аудиторы проверят сеть: шлюз и core ур.%d+ — субсидия $%d, иначе штраф $%d.",
-				g.ClockAt(g.cfg.auditTick()), g.cfg.AuditMinCore, g.cfg.AuditReward, g.auditFine()),
+			Text: fmt.Sprintf("В %s аудиторы проверят сеть: шлюз и core ур.%d+ — субсидия $%d, %s",
+				g.ClockAt(g.cfg.auditTick()), g.cfg.AuditMinCore, g.cfg.AuditReward, fineText),
 			Options: []string{"Принять к сведению"}}
 	case EventRaise:
 		e := &g.Offices[ev.Office].Employees[ev.Slot]
