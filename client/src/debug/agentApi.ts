@@ -12,7 +12,8 @@ import { checkStale, lastStale } from '../buildstamp'
 import { makeSandbox } from './sandbox'
 import type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult, SandboxState } from './sandbox'
 import { makeClaim } from './claim'
-import type { ClaimApi } from './claim'
+import type { ClaimApi, ClaimResizeDims, ClaimResizeLast, ClaimResizes } from './claim'
+export type { ClaimResizeDims, ClaimResizeLast, ClaimResizes }
 import { isHiddenOriginal, makeSpriteApi, triedKeys } from './spriteTry'
 import type { SpriteApi } from './spriteTry'
 export type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult, SandboxState }
@@ -1035,7 +1036,7 @@ export interface ItdApi {
    * полоса краснеет на 600 мс. dispatchEvent — только synthetic. У нажатия wins и got — как в
    * itd.trace; itd.claim.deny() закрывает окно allow → {what, target, presses, hit}. Повторный
    * itd.claim(метка) меняет метку, счёт не сбрасывает. Переживает F5 и itd.reset() (sessionStorage
-   * itd.claim, reloads); itd.claim.stop() → итог, полоса снята, заголовок «вкладка свободна».
+   * itd.claim, reloads, resizes: {n, first, last}); itd.claim.stop() → итог, полоса снята, заголовок «вкладка свободна».
    * Отказы: bad_label, bad_args, no_claim, no_allow.
    * @example itd.claim('acc151')
    * @example itd.claim.mine()
@@ -2071,11 +2072,11 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.sandbox.fakeOwner()           — «чужой» общий ключ itd.sid/itd.diff вызовом игры (проверить гард «Сдаться») → {sid, diff}; restore() вернёт настоящий
   itd.sandbox.state()               — запись песочницы вкладки на чтение (ITGAME-167), ничего не меняет: {ok, active:false} или {ok, active:true, label, sid, at — первый вход, owner:{sid, diff} — ключи владельца, снятые тогда, chain — метки входов без restore по порядку}
   itd.sandbox.restore()             — выйти из песочницы (из меню): {sidSame, diffSame, fake, restored, kept, removed} — sidSame/diffSame: общий ключ тот, что при входе (или fake); itd.sid/itd.diff: наше/стёртое значение возвращено, чужое (kept) не перетёрто; itd.onboard возвращается к значению при входе при любом отличии; itd.uiScale (ITGAME-155): масштаб, выбранный в песочнице (отметка в её записи переживает F5), или стёртый — к значению при входе (не было — ключ удалён), выбранный владельцем в своей вкладке — kept; выбор вкладки в памяти забыт — меню и канвас снова по ключу
-  itd.claim('acc151')               — вкладка занята (ITGAME-151): жёлтая полоса 40 px сверху «▶ АГЕНТ работает в этой вкладке (метка, sha) — не кликай» (клики проходят сквозь неё), заголовок «▶ АГЕНТ — смотри, не кликай»; считает настоящие нажатия (события одного нажатия за 50 мс — одно) → {ok, active, label, sha, sec, downs, own, allowed, foreign, synthetic, onCanvas, reloads, mine, allow, presses[{n, t, kind, button, onCanvas, wins, got}]}; чужое нажатие — foreign и красная вспышка, dispatchEvent — только synthetic; переживает F5 и itd.reset(); повторный вызов меняет метку, счёт не сбрасывает; отказ bad_label
+  itd.claim('acc151')               — вкладка занята (ITGAME-151): жёлтая полоса 40 px сверху «▶ АГЕНТ работает в этой вкладке (метка, sha) — не кликай» (клики проходят сквозь неё), заголовок «▶ АГЕНТ — смотри, не кликай»; считает настоящие нажатия (события одного нажатия за 50 мс — одно) → {ok, active, label, sha, sec, downs, own, allowed, foreign, synthetic, onCanvas, reloads, resizes, mine, allow, presses[{n, t, kind, button, onCanvas, wins, got}]}; чужое нажатие — foreign и красная вспышка, dispatchEvent — только synthetic; переживает F5 и itd.reset(); повторный вызов меняет метку, счёт не сбрасывает; отказ bad_label
   itd.claim.mine(n?, ms?)           — следующие n (1..20, по умолчанию 1) настоящих нажатий за ms (100..120000, по умолчанию 20000) — твои (own), без вспышки: зови перед своим настоящим кликом (CDP-клик тоже isTrusted) → {ok, pending, ms}; отказ bad_args
   itd.claim.allow(что, {target?})   — «нажми сам»: зелёная полоса «▶ ТВОЙ ХОД: что — только это», нажатия — allowed; target — id цели (btn.hire или btn:hire); новое окно заменяет открытое; отказ bad_args
   itd.claim.deny()                  — закрыть окно allow → {what, target, presses, hit}: hit — target в got разрешённого нажатия окна (null без target); нет окна — no_allow
-  itd.claim.state()                 — счёт на сейчас; без полосы — {ok: true, active: false}
+  itd.claim.state()                 — счёт на сейчас (включая resizes); без полосы — {ok: true, active: false}
   itd.claim.stop()                  — снять полосу и слушатели, стереть sessionStorage itd.claim, заголовок «вкладка свободна» → итог (active: false); без полосы — no_claim
   await itd.stale()                 — вкладка на старом JS? {client, server, dist, stale, at, shown}: shown — метка «устарело, обнови» видна на экране (скрытая живёт в DOM как display:none 0×0); client — sha вкладки, dist — sha сборки, которую стенд отдаст на F5, server — sha бинаря (/api/version); stale null — сверить не с чем (vite dev; сборка без git и без штампа BUILD_SHA/-ldflags — sha dev/unknown; со штампом sha есть); красная метка «устарело, обнови» в #topbar — та же проверка
   itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне палитры манифеста ключа (hd32/sweetie16; у render: smooth не считаются), дубли ключей; source: tried — проба itd.sprite.try

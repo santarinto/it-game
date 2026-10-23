@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "4e18b30aa480",
+  "hash": "e3843e268d64",
   "methods": {
     "version": {
       "kind": "prop",
@@ -276,7 +276,7 @@ export const CONTRACT = {
       "kind": "prop",
       "type": "ClaimApi",
       "readonly": true,
-      "doc": "Вкладка агента занята (ITGAME-151): itd.claim('acc151') ставит жёлтую полосу 40 px поверх\nстраницы «▶ АГЕНТ работает в этой вкладке (метка, sha) — не кликай» (pointer-events: none —\nвёрстку и клики не трогает) и заголовок вкладки «▶ АГЕНТ — смотри, не кликай»; считает каждое\nнастоящее нажатие (pointerdown/mousedown с isTrusted, события одного нажатия за 50 мс — одно):\nown — после itd.claim.mine(n?, ms?) (настоящий клик агента через CDP тоже isTrusted), allowed —\nпока открыт itd.claim.allow(что, {target?}) (зелёная полоса «▶ ТВОЙ ХОД: …»), иначе foreign —\nполоса краснеет на 600 мс. dispatchEvent — только synthetic. У нажатия wins и got — как в\nitd.trace; itd.claim.deny() закрывает окно allow → {what, target, presses, hit}. Повторный\nitd.claim(метка) меняет метку, счёт не сбрасывает. Переживает F5 и itd.reset() (sessionStorage\nitd.claim, reloads); itd.claim.stop() → итог, полоса снята, заголовок «вкладка свободна».\nОтказы: bad_label, bad_args, no_claim, no_allow.",
+      "doc": "Вкладка агента занята (ITGAME-151): itd.claim('acc151') ставит жёлтую полосу 40 px поверх\nстраницы «▶ АГЕНТ работает в этой вкладке (метка, sha) — не кликай» (pointer-events: none —\nвёрстку и клики не трогает) и заголовок вкладки «▶ АГЕНТ — смотри, не кликай»; считает каждое\nнастоящее нажатие (pointerdown/mousedown с isTrusted, события одного нажатия за 50 мс — одно):\nown — после itd.claim.mine(n?, ms?) (настоящий клик агента через CDP тоже isTrusted), allowed —\nпока открыт itd.claim.allow(что, {target?}) (зелёная полоса «▶ ТВОЙ ХОД: …»), иначе foreign —\nполоса краснеет на 600 мс. dispatchEvent — только synthetic. У нажатия wins и got — как в\nitd.trace; itd.claim.deny() закрывает окно allow → {what, target, presses, hit}. Повторный\nitd.claim(метка) меняет метку, счёт не сбрасывает. Переживает F5 и itd.reset() (sessionStorage\nitd.claim, reloads, resizes: {n, first, last}); itd.claim.stop() → итог, полоса снята, заголовок «вкладка свободна».\nОтказы: bad_label, bad_args, no_claim, no_allow.",
       "examples": [
         "itd.claim('acc151')",
         "itd.claim.mine()",
@@ -1596,6 +1596,71 @@ export const CONTRACT = {
         }
       }
     },
+    "ClaimResizeDims": {
+      "kind": "object",
+      "fields": {
+        "iw": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "ih": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "dpr": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        }
+      }
+    },
+    "ClaimResizeLast": {
+      "kind": "object",
+      "fields": {
+        "sec": {
+          "type": "number",
+          "optional": false,
+          "doc": "Секунды от claim()."
+        },
+        "iw": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "ih": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "dpr": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        }
+      }
+    },
+    "ClaimResizes": {
+      "kind": "object",
+      "fields": {
+        "n": {
+          "type": "number",
+          "optional": false,
+          "doc": "Число изменений размера окна с claim()."
+        },
+        "first": {
+          "type": "ClaimResizeDims",
+          "optional": false,
+          "doc": "Первые зафиксированные размеры при claim()."
+        },
+        "last": {
+          "type": "ClaimResizeLast | null",
+          "optional": false,
+          "doc": "Последние зафиксированные размеры окна и время (null, если ресайза не было)."
+        }
+      }
+    },
     "ClaimState": {
       "kind": "object",
       "fields": {
@@ -1658,6 +1723,11 @@ export const CONTRACT = {
           "type": "number",
           "optional": false,
           "doc": "Сколько перезагрузок вкладки claim пережил."
+        },
+        "resizes": {
+          "type": "ClaimResizes",
+          "optional": false,
+          "doc": "Смена размеров окна вкладки агента (ITGAME-232): число изменений и последние размеры."
         },
         "mine": {
           "type": "{ pending: number; leftMs: number; } | null",

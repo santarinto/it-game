@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  CLAIM_KEY, GROUP_MS, PRESS_CAP, addPress, checkAllow, checkLabel, checkMine, closeAllow, joinsGroup, newRecord,
+  CLAIM_KEY, GROUP_MS, PRESS_CAP, addPress, addResize, checkAllow, checkLabel, checkMine, closeAllow, joinsGroup, newRecord,
   normTarget, openAllow, parseRecord, serialize, setMine, stateOf,
 } from '../../src/debug/claimCore.ts'
 
@@ -136,4 +136,44 @@ test('serialize/parseRecord: круг без потерь, мусор — null',
   assert.equal(parseRecord('{"label":1}'), null)
   assert.equal(parseRecord('null'), null)
   assert.equal(CLAIM_KEY, 'itd.claim')
+})
+
+test('addResize: смена размеров окна и dpr фиксируется в resizes (n, first, last)', () => {
+  const dims0 = { iw: 1920, ih: 1080, dpr: 1 }
+  const rec = newRecord('qa', 'abc1234', T0, dims0)
+  assert.equal(rec.resizes.n, 0)
+  assert.deepEqual(rec.resizes.first, dims0)
+  assert.equal(rec.resizes.last, null)
+
+  // Те же размеры — не ресайз
+  assert.equal(addResize(rec, T0 + 1000, dims0), false)
+  assert.equal(rec.resizes.n, 0)
+  assert.equal(rec.resizes.last, null)
+
+  // Смена ширины 1920 → 1400 через 3.2 сек
+  const dims1 = { iw: 1400, ih: 1080, dpr: 1 }
+  assert.equal(addResize(rec, T0 + 3200, dims1), true)
+  assert.equal(rec.resizes.n, 1)
+  assert.deepEqual(rec.resizes.last, { iw: 1400, ih: 1080, dpr: 1, sec: 3 })
+  assert.deepEqual(rec.resizes.first, dims0)
+
+  // Повтор тех же размеров dims1 — false
+  assert.equal(addResize(rec, T0 + 4000, dims1), false)
+  assert.equal(rec.resizes.n, 1)
+
+  // Смена dpr 1 → 1.5 через 5.8 сек
+  const dims2 = { iw: 1400, ih: 1080, dpr: 1.5 }
+  assert.equal(addResize(rec, T0 + 5800, dims2), true)
+  assert.equal(rec.resizes.n, 2)
+  assert.deepEqual(rec.resizes.last, { iw: 1400, ih: 1080, dpr: 1.5, sec: 6 })
+
+  // stateOf глубоко копирует resizes
+  const st = stateOf(rec, T0 + 6000, true)
+  assert.equal(st.resizes.n, 2)
+  assert.deepEqual(st.resizes.first, dims0)
+  assert.deepEqual(st.resizes.last, { iw: 1400, ih: 1080, dpr: 1.5, sec: 6 })
+
+  // Сериализация сохраняет resizes
+  const restored = parseRecord(serialize(rec))
+  assert.deepEqual(restored.resizes, rec.resizes)
 })

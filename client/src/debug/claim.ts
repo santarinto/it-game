@@ -3,10 +3,11 @@ import { sessionStore } from '../storage'
 import { makeGotCatcher } from './trace'
 import type { PointerProbe } from './trace'
 import {
-  CLAIM_KEY, MINE_DEFAULT_MS, addPress, checkAllow, checkLabel, checkMine, closeAllow, joinsGroup, newRecord,
+  CLAIM_KEY, MINE_DEFAULT_MS, addPress, addResize, checkAllow, checkLabel, checkMine, closeAllow, joinsGroup, newRecord,
   openAllow, parseRecord, refuse, serialize, setMine, stateOf,
 } from './claimCore'
-import type { ClaimAllowResult, ClaimRecord, ClaimRefusal, ClaimState } from './claimCore'
+import type { ClaimAllowResult, ClaimRecord, ClaimRefusal, ClaimResizeDims, ClaimResizeLast, ClaimResizes, ClaimState } from './claimCore'
+export type { ClaimAllowResult, ClaimRecord, ClaimRefusal, ClaimResizeDims, ClaimResizeLast, ClaimResizes, ClaimState } from './claimCore'
 
 // itd.claim (ITGAME-151): вкладка агента занята — полоса 40 px поверх страницы и счёт
 // каждого настоящего нажатия в ней. Ретро 17.10: человек трижды нажимал во вкладке агента
@@ -114,6 +115,40 @@ export function makeClaim(game: Phaser.Game, probe: PointerProbe, sha: string): 
     save()
   }
 
+  const getDims = (): ClaimResizeDims => ({
+    iw: typeof window !== 'undefined' ? window.innerWidth : 0,
+    ih: typeof window !== 'undefined' ? window.innerHeight : 0,
+    dpr: typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1,
+  })
+
+  let dprMql: MediaQueryList | null = null
+
+  const onResize = () => {
+    if (!rec) return
+    if (addResize(rec, Date.now(), getDims())) {
+      save()
+    }
+  }
+
+  const updateDprWatcher = () => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    if (dprMql) {
+      dprMql.removeEventListener('change', onDprChange)
+      dprMql = null
+    }
+    try {
+      dprMql = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`)
+      dprMql.addEventListener('change', onDprChange)
+    } catch {
+      dprMql = null
+    }
+  }
+
+  const onDprChange = () => {
+    onResize()
+    updateDprWatcher()
+  }
+
   const install = () => {
     if (!bar) {
       bar = document.createElement('div')
@@ -129,6 +164,8 @@ export function makeClaim(game: Phaser.Game, probe: PointerProbe, sha: string): 
     document.title = TITLE_BUSY
     window.addEventListener('pointerdown', onDown, true)
     window.addEventListener('mousedown', onDown, true)
+    window.addEventListener('resize', onResize)
+    updateDprWatcher()
     // itd.reset() сносит все itd.* — активная полоса пишет себя снова перед уходом страницы
     window.addEventListener('pagehide', save)
   }
@@ -136,6 +173,11 @@ export function makeClaim(game: Phaser.Game, probe: PointerProbe, sha: string): 
   const uninstall = () => {
     window.removeEventListener('pointerdown', onDown, true)
     window.removeEventListener('mousedown', onDown, true)
+    window.removeEventListener('resize', onResize)
+    if (dprMql) {
+      dprMql.removeEventListener('change', onDprChange)
+      dprMql = null
+    }
     window.removeEventListener('pagehide', save)
     got.flush()
     if (flashTimer !== null) clearTimeout(flashTimer)
@@ -154,7 +196,7 @@ export function makeClaim(game: Phaser.Game, probe: PointerProbe, sha: string): 
     // Повторный вызов меняет только метку: счёт сбрасывает stop() → claim()
     if (rec) rec.label = label
     else {
-      rec = newRecord(label, sha, Date.now())
+      rec = newRecord(label, sha, Date.now(), getDims())
       install()
     }
     paint()
@@ -210,6 +252,7 @@ export function makeClaim(game: Phaser.Game, probe: PointerProbe, sha: string): 
     rec.reloads += 1
     rec.sha = sha // JS вкладки после перезагрузки — может быть уже другая сборка
     if (rec.mine && Date.now() >= rec.mine.until) rec.mine = null
+    addResize(rec, Date.now(), getDims())
     install()
     save()
   }

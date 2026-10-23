@@ -41,6 +41,26 @@ export interface ClaimAllowWindow {
   from: number
 }
 
+export interface ClaimResizeDims {
+  iw: number
+  ih: number
+  dpr: number
+}
+
+export interface ClaimResizeLast extends ClaimResizeDims {
+  /** Секунды от claim(). */
+  sec: number
+}
+
+export interface ClaimResizes {
+  /** Число изменений размера окна с claim(). */
+  n: number
+  /** Первые зафиксированные размеры при claim(). */
+  first: ClaimResizeDims
+  /** Последние зафиксированные размеры окна и время (null, если ресайза не было). */
+  last: ClaimResizeLast | null
+}
+
 export interface ClaimRecord {
   label: string
   sha: string
@@ -51,6 +71,7 @@ export interface ClaimRecord {
   synthetic: number
   onCanvas: number
   reloads: number
+  resizes: ClaimResizes
   mine: { pending: number; until: number } | null // until — Date.now()
   allow: ClaimAllowWindow | null
   presses: ClaimPress[]
@@ -75,6 +96,8 @@ export interface ClaimState {
   onCanvas: number
   /** Сколько перезагрузок вкладки claim пережил. */
   reloads: number
+  /** Смена размеров окна вкладки агента (ITGAME-232): число изменений и последние размеры. */
+  resizes: ClaimResizes
   /** Бюджет itd.claim.mine(): сколько ещё нажатий — own и сколько мс он жив; null — нет. */
   mine: { pending: number; leftMs: number } | null
   /** Открытое окно allow; hit — target в got разрешённого нажатия окна (null без target). */
@@ -103,11 +126,26 @@ export function refuse(code: ClaimRefusal['code'], error: string): ClaimRefusal 
   return { ok: false, code, error }
 }
 
-export function newRecord(label: string, sha: string, now: number): ClaimRecord {
+export function newRecord(label: string, sha: string, now: number, dims?: ClaimResizeDims): ClaimRecord {
   return {
     label, sha, at: now, own: 0, allowed: 0, foreign: 0, synthetic: 0, onCanvas: 0, reloads: 0,
+    resizes: {
+      n: 0,
+      first: dims ? { ...dims } : { iw: 0, ih: 0, dpr: 1 },
+      last: null,
+    },
     mine: null, allow: null, presses: [],
   }
+}
+
+export function addResize(rec: ClaimRecord, now: number, dims: ClaimResizeDims): boolean {
+  const curr = rec.resizes.last ?? rec.resizes.first
+  if (dims.iw !== curr.iw || dims.ih !== curr.ih || dims.dpr !== curr.dpr) {
+    rec.resizes.n += 1
+    rec.resizes.last = { ...dims, sec: Math.round((now - rec.at) / 1000) }
+    return true
+  }
+  return false
 }
 
 const filled = (s: unknown, max: number): boolean => typeof s === 'string' && s.trim() !== '' && s.length <= max
@@ -204,6 +242,11 @@ export function stateOf(rec: ClaimRecord, now: number, active: boolean): ClaimSt
     ok: true, active, label: rec.label, sha: rec.sha, sec: Math.round((now - rec.at) / 1000), downs: downsOf(rec),
     own: rec.own, allowed: rec.allowed, foreign: rec.foreign, synthetic: rec.synthetic, onCanvas: rec.onCanvas,
     reloads: rec.reloads,
+    resizes: {
+      n: rec.resizes.n,
+      first: { ...rec.resizes.first },
+      last: rec.resizes.last ? { ...rec.resizes.last } : null,
+    },
     mine: mine ? { pending: mine.pending, leftMs: mine.until - now } : null,
     allow: rec.allow ? { ...rec.allow, hit: allowHit(rec) } : null,
     presses: rec.presses.map(copyPress),
@@ -223,7 +266,21 @@ export function parseRecord(raw: string | null): ClaimRecord | null {
     const r = JSON.parse(raw) as Partial<ClaimRecord> | null
     if (!r || typeof r.label !== 'string' || typeof r.sha !== 'string' || !Array.isArray(r.presses)) return null
     if (!COUNTERS.every((k) => Number.isFinite(r[k]))) return null
-    return { ...(r as ClaimRecord), mine: r.mine ?? null, allow: r.allow ?? null }
+    const resizes: ClaimResizes = r.resizes && Number.isFinite(r.resizes.n) && r.resizes.first
+      ? {
+          n: r.resizes.n,
+          first: { iw: r.resizes.first.iw ?? 0, ih: r.resizes.first.ih ?? 0, dpr: r.resizes.first.dpr ?? 1 },
+          last: r.resizes.last
+            ? {
+                iw: r.resizes.last.iw ?? 0,
+                ih: r.resizes.last.ih ?? 0,
+                dpr: r.resizes.last.dpr ?? 1,
+                sec: r.resizes.last.sec ?? 0,
+              }
+            : null,
+        }
+      : { n: 0, first: { iw: 0, ih: 0, dpr: 1 }, last: null }
+    return { ...(r as ClaimRecord), resizes, mine: r.mine ?? null, allow: r.allow ?? null }
   } catch {
     return null
   }

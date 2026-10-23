@@ -18,6 +18,8 @@
 //   8b itd.reset() снёс itd.claim, F5 → полоса на месте (pagehide записал её снова), reloads 2
 //   9  stop() → итог active:false, полосы нет, заголовок «вкладка свободна», sessionStorage itd.claim нет,
 //      state() {active:false}; второй stop() → no_claim; mine()/allow('x')/deny() после stop → no_claim
+//   10 resizes (ITGAME-232): claim → без ресайза n 0; setViewport → resizes.n ≥ 1, last.iw новый;
+//      stop() несёт resizes
 //   + на странице нет pageerror
 //
 // Self-serve: без QA_BASE поднимает Go-сервер на QA_PORT (по умолчанию :4198 — свой порт задачи;
@@ -114,6 +116,7 @@ async function run() {
     check(
       '1: claim(qa151) → полоса fixed, pointer-events none, 40 px, data-mode claim, метка и sha в тексте; заголовок занят; холст на месте',
       c1.ok === true && c1.active === true && c1.label === 'qa151' && c1.downs === 0 &&
+        c1.resizes?.n === 0 && c1.resizes?.last === null && c1.resizes?.first?.iw === 1920 &&
         b1?.position === 'fixed' && b1.pe === 'none' && b1.h === 40 && b1.mode === 'claim' &&
         b1.text.includes('qa151') && b1.text.includes(sha) && t1 === BUSY && rect1 === rect0,
       JSON.stringify({ c1, b1, t1, rect0, rect1 }),
@@ -266,6 +269,23 @@ async function run() {
         after9.again.ok === false && after9.again.code === 'no_claim' &&
         [after9.mine, after9.allow, after9.deny].every((r) => r.ok === false && r.code === 'no_claim'),
       JSON.stringify({ f9, after9 }),
+    )
+
+    // ── 10
+    // ITGAME-232: resizes фиксирует смену размеров окна за заход
+    const c10 = await page.evaluate(() => window.itd.claim('qa151-resize'))
+    await page.setViewport({ width: 1400, height: 1080 })
+    await page.waitForFunction(() => (window.itd.claim.state().resizes?.n ?? 0) >= 1, { timeout: 5000 })
+    const s10 = await st()
+    await page.setViewport({ width: 1920, height: 1080 })
+    await page.waitForFunction(() => (window.itd.claim.state().resizes?.n ?? 0) >= 2, { timeout: 5000 })
+    const stop10 = await page.evaluate(() => window.itd.claim.stop())
+    check(
+      '10: resizes — без ресайза n 0; setViewport → resizes.n ≥ 1, last.iw новый; stop() возвращает resizes',
+      c10.ok === true && c10.resizes.n === 0 && c10.resizes.last === null && c10.resizes.first.iw === 1920 &&
+        s10.active === true && s10.resizes.n >= 1 && s10.resizes.last?.iw === 1400 && s10.resizes.first.iw === 1920 &&
+        stop10.ok === true && stop10.resizes.n >= 2 && stop10.resizes.last?.iw === 1920,
+      JSON.stringify({ c10, s10, stop10 }),
     )
 
     check('на странице нет pageerror', pageErrors.length === 0, pageErrors.join(' | '))
