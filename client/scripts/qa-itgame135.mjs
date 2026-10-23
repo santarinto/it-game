@@ -29,6 +29,7 @@ import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
 import { waitMenuReady } from './lib/menu.mjs'
+import { fmtMoney } from '../src/format.ts'
 
 const SELF_PORT = Number(process.env.QA_PORT) || 4193
 const BASE = process.env.QA_BASE || `http://127.0.0.1:${SELF_PORT}`
@@ -135,7 +136,7 @@ try {
       .filter((o) => o.type === 'Rectangle' && o.fillColor === 0x94b0c2 && o.fillAlpha > 0).map((o) => o.getData('id') ?? null)),
   }
   check('W2: мёртвое место — «✖ замена», «заменить $500», desk_pc_broken с тоном, одна серая зона office.slot.2',
-    w2.label === '✖ замена' && w2.btn === `заменить $${replace.toLocaleString('en-US')}` && w2.btnZone && w2.desk?.key === 'desk_pc_broken' &&
+    w2.label === '✖ замена' && w2.btn === `заменить ${fmtMoney(replace)}` && w2.btnZone && w2.desk?.key === 'desk_pc_broken' &&
       w2.desk.tint !== 0xffffff && w2.glow.length === 1 && w2.glow[0] === 'office.slot.2', JSON.stringify(w2))
 
   // W3
@@ -162,8 +163,8 @@ try {
     sent: await sentSince(at),
   }
   check('W5: клик по подписи — «Рабочее место 4 — офис 1», «Апгрейд до ЖК $350», «Заменить ПК $500», ничего не ушло',
-    w5.title === 'Рабочее место 4 — офис 1' && w5.up === `Апгрейд до ${levels[1].name} $${levels[1].price}` &&
-      w5.rep === `Заменить ПК $${replace}` && w5.sent.length === 0, JSON.stringify(w5))
+    w5.title === 'Рабочее место 4 — офис 1' && w5.up === `Апгрейд до ${levels[1].name} ${fmtMoney(levels[1].price)}` &&
+      w5.rep === `Заменить ПК ${fmtMoney(replace)}` && w5.sent.length === 0, JSON.stringify(w5))
 
   // W6
   const before6 = await snap()

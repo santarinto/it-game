@@ -22,6 +22,7 @@
 import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
+import { fmtMoney } from '../src/format.ts'
 
 const SELF_PORT = Number(process.env.QA_PORT) || 4188
 
@@ -258,7 +259,7 @@ try {
   note('D9: Normal, вечер в минусе — day_report, строка овердрафта в ленте и отчёте, процент 0, книга сведена',
     d9.phase === 'day_report' && d9.balance < 0 && -d9.balance <= 750 && d9.debtLimit === 750 &&
       d9.feed.includes(`19:00 ${line9}`) && d9.report.replace(/\s+/g, ' ').includes(line9) && !/кредит/.test(d9.feed) &&
-      d9.debt === `Овердрафт −$${(-d9.balance).toLocaleString('en-US')} (мин. лимит −$750)` &&
+      d9.debt === `Овердрафт ${fmtMoney(d9.balance)} (мин. лимит ${fmtMoney(-750)})` &&
       d9.interest === 0 && d9.balanced === true,
     JSON.stringify({ ...d9, line9 }))
   await p7.close()

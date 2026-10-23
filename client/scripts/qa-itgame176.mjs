@@ -16,6 +16,7 @@ import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
 import { waitMenuReady } from './lib/menu.mjs'
+import { fmtMoney } from '../src/format.ts'
 
 const SELF_PORT = Number(process.env.QA_PORT) || 4185
 const BASE = process.env.QA_BASE || `http://127.0.0.1:${SELF_PORT}`
@@ -25,7 +26,6 @@ const check = (name, pass, fact) => {
   results.push({ name, pass, fact })
   console.log(`${pass ? 'PASS' : 'FAIL'}: ${name} — ${fact}`)
 }
-const money = (n) => (n < 0 ? '−$' : '$') + Math.abs(n).toLocaleString('en-US')
 
 let stopServer = null
 if (!process.env.QA_BASE) {
@@ -81,7 +81,7 @@ try {
   const verify = (tag, f, limitWant) => {
     const debt = f.debt
     const short = debt - f.debtLimit
-    const want = ['Долг на момент банкротства: ' + money(debt), 'На зарплаты не хватило: ' + money(short)]
+    const want = ['Долг на момент банкротства: ' + fmtMoney(debt), 'На зарплаты не хватило: ' + fmtMoney(short)]
     const at = f.lines.indexOf(want[0])
     check(`${tag}: «БАНКРОТСТВО», порог ${limitWant}, долг и нехватка — две строки подряд, X = state.debt, Y = X − порог > 0`,
       f.title === 'БАНКРОТСТВО' && f.debtLimit === limitWant && short > 0 && at >= 0 && f.lines[at + 1] === want[1] &&

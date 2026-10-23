@@ -44,6 +44,7 @@ import puppeteer from 'puppeteer-core'
 import { chromePath } from './lib/chrome.mjs'
 import { selfServe } from './lib/selfserve.mjs'
 import { waitMenuReady } from './lib/menu.mjs'
+import { fmtMoney } from '../src/format.ts'
 
 const CLIENT_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 const SELF_PORT = Number(process.env.QA_PORT) || 4174
@@ -410,7 +411,7 @@ async function runCase(browser, zoom, def) {
         }
       })
       check(`${label}: V7 отчёт дня без новых заражений — «Вирус:     новых нет (−$X)» по save.dayVirusLost, ≤ 392 px, overlaps пуст`,
-        free && v7.lost > 0 && v7.line === `Вирус:     новых нет (−$${v7.lost.toLocaleString('en-US')})`
+        free && v7.lost > 0 && v7.line === `Вирус:     новых нет (−${fmtMoney(v7.lost)})`
           && v7.width > 0 && v7.width <= 440 - 2 * 24 && v7.overlaps.length === 0,
         JSON.stringify(v7))
     }
