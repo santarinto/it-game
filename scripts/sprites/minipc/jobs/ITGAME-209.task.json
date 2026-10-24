@@ -1,0 +1,32 @@
+{
+  "taskId": "5",
+  "about": "ITGAME-209",
+  "createdAt": "2026-10-24T21:18:45+00:00",
+  "spec": "scripts/sprites/minipc/jobs/ITGAME-209.json",
+  "specSha256": "f88a1df8ad74a61c12f76670e7378e36f0960e0ac81845e66808c65149fb91be",
+  "profile": {
+    "version": "graphics@01d72cf",
+    "sha256": "0e5e204dbd85c815b408bfb0ccfa7a41aa3eaf56faed9e6556b6f40322960a2c"
+  },
+  "class": "iso",
+  "keys": [
+    {
+      "key": "iso_floor_office",
+      "status": "open"
+    },
+    {
+      "key": "iso_desk_crt",
+      "status": "open"
+    }
+  ],
+  "crops": {
+    "iso_floor_office": {
+      "bytes": 17006,
+      "sha256": "4d2f7ec42b3954d7f8c104cc7ce426cd068171072453ab30b530a3e93f3537d6"
+    },
+    "iso_desk_crt": {
+      "bytes": 5785,
+      "sha256": "ee4fb816fc523380b485c626a270d6041a6fe5d111d6f22e405b24865f8c98b5"
+    }
+  }
+}
