@@ -2064,6 +2064,8 @@ writes a file.
 
 PostgreSQL is optional: gameplay and saves don't use it. It backs the
 `/admin` page (current balance config and the `lib_equipment` catalog).
+Live parties for analytics are proposed, not built yet:
+[docs/design/party-analytics.md](design/party-analytics.md) (ITGAME-237).
 
 Put `DATABASE_URL=postgres://user:pass@localhost:5432/itdirector` into
 `.env` in the repo root (gitignored); the `Makefile` loads it and exports
