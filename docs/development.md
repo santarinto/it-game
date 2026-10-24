@@ -299,8 +299,9 @@ handshake is the query, the protocol has no hello message. `GameClient` in
 (`server/internal/ws/client.go`) uses the type for two things only: one log
 line per `/ws` connection, `сессия <sid>: вкладка подключена, клиент mobile`,
 and the counter `itgame_ws_connects_total{client}` (see [Metrics](#metrics)).
-No parameter (a bundle from before ITGAME-162, scripts, `load-bots.mjs`) is
-`desktop`, and the log line adds `(без client=)`. Any other value — case
+No parameter (a bundle from before ITGAME-162, scripts) is `desktop`, and the
+log line adds `(без client=)`; `load-bots.mjs` sends `client=bot` (ITGAME-240),
+so load bots are a series of their own and not people on stage. Any other value — case
 matters, `Mobile` included — is `unknown`: the connection is not dropped and
 the game is the same, the metric takes the label `unknown` (a finite set,
 never the raw text) and the log line quotes what came, up to 32 characters:
@@ -1975,7 +1976,7 @@ cardinality and the player's privacy; labels are finite sets only.
 |---|---|---|
 | `itgame_build_info{sha,version}` | gauge | always 1, the binary as `/api/version` reports it |
 | `itgame_ws_connections` | gauge | open `/ws` tab connections |
-| `itgame_ws_connects_total{client}` | counter | `/ws` tab connections opened, by `?client=`: `desktop` (no parameter too), `mobile`, `unknown` (ITGAME-162) |
+| `itgame_ws_connects_total{client}` | counter | `/ws` tab connections opened, by `?client=`: `desktop` (no parameter too), `mobile`, `bot` (`load-bots.mjs`, ITGAME-240), `unknown` (ITGAME-162) |
 | `itgame_sessions_live` | gauge | live party actors (agent headless sessions included) |
 | `itgame_tick_seconds` | histogram | actor time per tick: the game step and the save |
 | `itgame_save_seconds` | histogram | `store.Put`: temp file plus rename |
@@ -2002,7 +2003,7 @@ up `saves`/`save_errors` itself. The `ws` package `init` calls
 `metrics.Preset`, which creates every difficulty × outcome, the outcomes of
 `party_days`, and every `knownCommands` name plus `unknown` × `ok|rejected`;
 the same `init` creates `ws_connects` for every `clientKinds` value
-(`desktop`, `mobile`, `unknown`). The client type is a series of its own, not
+(`desktop`, `mobile`, `bot`, `unknown`). The client type is a series of its own, not
 a `client` label on `itgame_ws_connections`: the dashboard reads that gauge by
 name, and a label would split it.
 Without this, a vector creates a series only on its first `Inc`, so
@@ -2017,7 +2018,10 @@ difficulty must be added to the list in `ws/metrics.go` `init`.
 
 ITGAME-193. `client/scripts/load-bots.mjs` plays parties over `/ws`. Each bot
 has its own sid (`loadbot-<run>-<i>-<gen>`), difficulties rotate, and the
-speed is 3. On each snapshot a bot sends at most one command:
+speed is 3. Each connects to `/ws?...&client=bot` (ITGAME-240), so Prometheus
+counts it as `itgame_ws_connects_total{client="bot"}` and the party analytics
+tables keep it as `client = 'bot'`, not `desktop`. On each snapshot a bot sends
+at most one command:
 
 - `next_day` on the day report;
 - an event option, moving to the next option when the server answers
@@ -2135,8 +2139,8 @@ Prod and stage have their own databases, so there is no environment column.
   `last_seen_at`/`expires_at` only grow, day and balance change only from a
   record not older than `last_seen_at`, the outcome is written once, a day
   row is written once (`ON CONFLICT DO NOTHING`).
-- `client` is `desktop`, `mobile`, `unknown` (`?client=`) or `agent` — a
-  headless `/ws/agent` session. Analytics takes
+- `client` is `desktop`, `mobile`, `bot` (load-bots), `unknown` (`?client=`) or
+  `agent` — a headless `/ws/agent` session. Analytics takes
   `client IN ('desktop', 'mobile') AND NOT debug AND scenario = ''`.
 
 ```sql

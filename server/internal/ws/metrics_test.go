@@ -298,5 +298,5 @@ func TestMetricsPresetSeries(t *testing.T) {
 	want("itgame_commands_total", "cmd=unknown,result=ok", "cmd=unknown,result=rejected")
 	want("itgame_saves_total", "result=ok", "result=stale")
 	want("itgame_save_errors_total", "op=write", "op=rename")
-	want("itgame_ws_connects_total", "client=desktop", "client=mobile", "client=unknown")
+	want("itgame_ws_connects_total", "client=desktop", "client=mobile", "client=bot", "client=unknown")
 }

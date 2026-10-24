@@ -332,7 +332,7 @@ func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn,
 type sessionOpts struct {
 	Seed     string // ?seed=1234: сид новой партии; пусто — случайный
 	Scenario string // ?scenario=soft_lock: фиксура старта новой партии
-	Client   string // вид клиента для аналитики партий (ITGAME-239): desktop | mobile | unknown | agent
+	Client   string // вид клиента для аналитики партий (ITGAME-239): desktop | mobile | bot | unknown | agent
 }
 
 // persist — записать сейв сессии. false — сессию забрал другой актор.

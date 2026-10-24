@@ -8,7 +8,7 @@ import (
 )
 
 // Тип клиента вкладки (ITGAME-162, эпик мобилки ITGAME-225): вкладка называет
-// себя параметром подключения /ws?client=desktop|mobile — рядом с sid и
+// себя параметром подключения /ws?client=desktop|mobile|bot — рядом с sid и
 // difficulty: рукопожатие /ws целиком в query, отдельного hello в протоколе
 // нет. Тип знают только лог подключения и метрика itgame_ws_connects_total
 // {client}: протокол, снапшот и частота тиков у типов общие, а одна партия
@@ -19,6 +19,10 @@ type clientKind string
 const (
 	clientDesktop = clientKind("desktop")
 	clientMobile  = clientKind("mobile")
+	// clientBot — load-bots (ITGAME-193), с ITGAME-240 они называют себя сами:
+	// иначе нагрузочные боты неотличимы от людей и в метрике, и в аналитике
+	// партий (там фильтр client IN ('desktop', 'mobile') их отсекает).
+	clientBot = clientKind("bot")
 	// clientUnknown — значение не из протокола. Соединение не рвём и играем как
 	// обычно (от типа игра не зависит), но и в desktop не записываем: метрика
 	// не врёт, и чужой или сломанный клиент виден. Метка — конечный набор, не
@@ -27,17 +31,19 @@ const (
 )
 
 // clientKinds — все значения метки client (ряды нулями с init, см. metrics.go).
-var clientKinds = []clientKind{clientDesktop, clientMobile, clientUnknown}
+var clientKinds = []clientKind{clientDesktop, clientMobile, clientBot, clientUnknown}
 
 // parseClientKind — ?client= подключения. Пусто (параметра нет: вкладки до
-// ITGAME-162, скрипты, load-bots) — desktop; desktop и mobile — как есть
-// (регистр важен: Mobile — unknown); прочее — unknown.
+// ITGAME-162, скрипты) — desktop; desktop, mobile и bot — как есть (регистр
+// важен: Mobile — unknown); прочее — unknown.
 func parseClientKind(raw string) clientKind {
 	switch clientKind(raw) {
 	case "", clientDesktop:
 		return clientDesktop
 	case clientMobile:
 		return clientMobile
+	case clientBot:
+		return clientBot
 	default:
 		return clientUnknown
 	}

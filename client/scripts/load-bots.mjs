@@ -74,7 +74,7 @@ class Bot {
 
   connect() {
     if (stopping) return
-    this.ws = new WebSocket(`${base}/ws?difficulty=${this.diff}&sid=${encodeURIComponent(this.sid)}`)
+    this.ws = new WebSocket(`${base}/ws?difficulty=${this.diff}&sid=${encodeURIComponent(this.sid)}&client=bot`)
     this.open = false
     this.ws.onopen = () => (this.open = true)
     this.ws.onmessage = (ev) => this.onMessage(JSON.parse(ev.data))

@@ -17,13 +17,15 @@ import (
 	"itdirector/internal/metrics"
 )
 
-// ?client= подключения (ITGAME-162): нет параметра — desktop, desktop и
-// mobile — как есть, прочее — unknown.
+// ?client= подключения (ITGAME-162, bot — ITGAME-240): нет параметра —
+// desktop, desktop, mobile и bot — как есть, прочее — unknown.
 func TestParseClientKind(t *testing.T) {
 	for raw, want := range map[string]clientKind{
 		"":         clientDesktop,
 		"desktop":  clientDesktop,
 		"mobile":   clientMobile,
+		"bot":      clientBot,
+		"Bot":      clientUnknown,
 		"tablet":   clientUnknown,
 		"Mobile":   clientUnknown,
 		"desktop ": clientUnknown,
@@ -42,6 +44,7 @@ func TestConnectLine(t *testing.T) {
 		{"", "сессия s-1: вкладка подключена, клиент desktop (без client=)"},
 		{"desktop", "сессия s-1: вкладка подключена, клиент desktop"},
 		{"mobile", "сессия s-1: вкладка подключена, клиент mobile"},
+		{"bot", "сессия s-1: вкладка подключена, клиент bot"},
 		{"tablet", `сессия s-1: вкладка подключена, клиент unknown (client="tablet")`},
 		{"a\nb", `сессия s-1: вкладка подключена, клиент unknown (client="a\nb")`},
 		{strings.Repeat("я", 40), `сессия s-1: вкладка подключена, клиент unknown (client="` + strings.Repeat("я", 32) + `…")`},
@@ -108,6 +111,7 @@ func TestClientKindOnConnect(t *testing.T) {
 		{"none", "", clientDesktop, "клиент desktop (без client=)"},
 		{"desktop", "&client=desktop", clientDesktop, "клиент desktop\n"},
 		{"mobile", "&client=mobile", clientMobile, "клиент mobile\n"},
+		{"bot", "&client=bot", clientBot, "клиент bot\n"},
 		{"tablet", "&client=tablet", clientUnknown, `клиент unknown (client="tablet")`},
 	} {
 		counter := metrics.WSConnects.WithLabelValues(string(c.kind))
