@@ -130,7 +130,8 @@ func TestPartyLogChoicesAndDays(t *testing.T) {
 }
 
 // Банкротство — финал lost/bankrupt; рестарт — новая партия без фикстуры
-// прошлой; «Сдаться» — финал abandon; ухода после финала нет.
+// прошлой; «Сдаться» — финал abandon; ухода после финала нет. Подключение
+// ботом — client = bot в записях (ITGAME-240).
 func TestPartyLogBankruptcyRestartAbandon(t *testing.T) {
 	cfg := game.DefaultConfig()
 	cfg.StarChancePct = 0
@@ -140,7 +141,7 @@ func TestPartyLogBankruptcyRestartAbandon(t *testing.T) {
 	cfg.SalaryPerDay = 100000 // как TestMetricsBankruptcyAndRestart: второй вечер — банкротство
 	sink := &recSink{}
 	srv := newSavesServer(t, &Handler{Config: cfg, TickInterval: 10 * time.Millisecond, Saves: newTestStore(t), Parties: sink})
-	c, ctx := dialURL(t, srv.URL, "/ws?sid=partylog-broke-1&scenario=fresh")
+	c, ctx := dialURL(t, srv.URL, "/ws?sid=partylog-broke-1&scenario=fresh&client=bot")
 	readResume(t, ctx, c)
 	if err := wsjson.Write(ctx, c, clientMessage{Type: "hire", Office: 0}); err != nil {
 		t.Fatal(err)
@@ -177,6 +178,9 @@ func TestPartyLogBankruptcyRestartAbandon(t *testing.T) {
 	starts, fins := sink.of(partylog.KindStart), sink.of(partylog.KindFinish)
 	if len(starts) != 2 || starts[0].PID == starts[1].PID {
 		t.Fatalf("старты: %+v — хотим два с разными pid", starts)
+	}
+	if starts[0].Client != "bot" || starts[1].Client != "bot" {
+		t.Errorf("client стартов %q, %q — хотим bot (load-bots, ITGAME-240)", starts[0].Client, starts[1].Client)
 	}
 	if starts[0].Scenario != "fresh" || starts[1].Scenario != "" {
 		t.Errorf("фикстуры стартов %q, %q — хотим fresh и пусто после рестарта", starts[0].Scenario, starts[1].Scenario)

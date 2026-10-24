@@ -198,36 +198,35 @@ FROM parties p;
 при этом верен.
 Дыра в `party_days` — сама по себе ответ «игрок долго не заходил».
 
-**Боты.** load-bots ходят на `/ws` без `?client=` и считаются `desktop`. Им —
-`?client=bot`, в `clientKinds` — вид `bot`; это же значение метки Prometheus,
-так что таблица метрик в `docs/development.md` и `TestMetricsPresetSeries`
-меняются вместе.
+**Боты.** load-bots ходят на `/ws` с `?client=bot`, в `clientKinds` — вид `bot`;
+это же значение метки Prometheus (сделано в ITGAME-240, см. «Как сделано»).
 
 **Заодно в акторе.** Переменная `scenario` на рестарте не сбрасывается — новая
 партия тащит в сейв и журнал фикстуру прошлой. Чинится той же задачей.
 
 ## Запросы под вопросы
 
-Аналитика — `NOT debug AND scenario = '' AND client <> 'bot'` на базе прода.
+Аналитика — `NOT debug AND scenario = '' AND client IN ('desktop', 'mobile')` на базе
+прода: `bot` — нагрузочные боты, `agent` — headless-сессии моста, `unknown` — чужой клиент.
 
 ```sql
 -- 1. Где проигрывают: день и причина по сложности
 SELECT difficulty, lose_reason, day, count(*)
 FROM parties
-WHERE outcome = 'lost' AND NOT debug AND scenario = '' AND client <> 'bot'
+WHERE outcome = 'lost' AND NOT debug AND scenario = '' AND client IN ('desktop', 'mobile')
 GROUP BY 1, 2, 3 ORDER BY 1, 2, 3;
 
 -- 2. На каком дне бросают: «Сдаться» и тихий уход
 SELECT status, day, count(*)
 FROM party_status
-WHERE status IN ('abandon', 'dropped') AND NOT debug AND scenario = '' AND client <> 'bot'
+WHERE status IN ('abandon', 'dropped') AND NOT debug AND scenario = '' AND client IN ('desktop', 'mobile')
 GROUP BY 1, 2 ORDER BY 1, 2;
 
 -- 3. Три последних дня перед проигрышем
 SELECT p.id, p.difficulty, p.lose_reason, d.day, d.balance, d.income, d.payroll, d.staff, d.pcs
 FROM parties p JOIN party_days d ON d.party_id = p.id
 WHERE p.outcome = 'lost' AND d.day > p.day - 3
-  AND NOT p.debug AND p.scenario = '' AND p.client <> 'bot'
+  AND NOT p.debug AND p.scenario = '' AND p.client IN ('desktop', 'mobile')
 ORDER BY p.id, d.day;
 ```
 
@@ -253,7 +252,7 @@ ORDER BY p.id, d.day;
 
 1. Миграция `0003_parties.sql`, писатель с буфером и метрикой потерь, точки в
    акторе, сброс `scenario` на рестарте; тесты на `TEST_DATABASE_URL`.
-2. `?client=bot` у load-bots и вид `bot` в метриках.
+2. `?client=bot` у load-bots и вид `bot` в метриках — сделано (ITGAME-240).
 3. Запросы — в `docs/development.md`, раздел «Database».
 
 Задачи minipc не нужно: окружение — это база, юниты не меняются.
