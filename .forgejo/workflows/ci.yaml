@@ -43,7 +43,9 @@
 # Observability (MINIPC-78/87 parity): every job reports start/finish via
 # tools/ci-notify.sh (vendored from the minipc repo, OBS_PROJECT=itgame);
 # finish-unless-done in an always()-tail separates "failed" from "never ran".
-# Without OBS_TOKEN the script is a silent no-op.
+# Without OBS_TOKEN the script is a silent no-op. The collector address is
+# OBS_ENDPOINT in the workflow env below: the LAN one, not the script's
+# default 10.8.1.12 (ITGAME-234).
 #
 # DEPLOY_ENABLED is the CT1 latch, "0" until the owner's word: the deploy
 # job then reports the skip and finishes GREEN (tests prove themselves, both
@@ -73,6 +75,13 @@ concurrency:
 
 env:
   OBS_TOKEN: ${{ secrets.OBS_TOKEN }}
+  # The collector over LAN (the box's ufw admits 192.168.1.0/24; it works from
+  # the box itself too, so the deploy job is fine). The script's default
+  # 10.8.1.12 is behind AWG, and aiserver-test lost that route on 21.10 02:32:
+  # until this, test-server/test-client events silently vanished (the script
+  # swallows errors) and a red test woke nobody. MINIPC-370 / ITGAME-234;
+  # minipc did the same in v0.1.404.
+  OBS_ENDPOINT: http://192.168.1.78:9880
   DEPLOY_ENABLED: "1"
 
 jobs:

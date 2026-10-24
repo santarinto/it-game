@@ -1918,7 +1918,9 @@ pushed commit — with `git fetch --depth 1 origin <sha>` and the job token
 (no `actions/checkout`); on `mode=rollback` the test jobs skip their steps.
 Runs are serialized per ref: queued on `main`, the older run cancelled on
 other branches (see [Deploy](#deploy)). Each job reports start/finish through
-`tools/ci-notify.sh`. Not in CI: `go vet`, the sim report, and everything
+`tools/ci-notify.sh`; the collector address is `OBS_ENDPOINT` in the workflow
+`env:` — the LAN `192.168.1.78:9880`, since the test runner lost the AWG route
+to `10.8.1.12` (ITGAME-234). Not in CI: `go vet`, the sim report, and everything
 that needs a browser or a running server — `smoke-ui` (menu and
 `OFFICE=1`), the `qa:*` suites, `live-check-*`, `visreg`. Run what your
 change touches locally (see [Tests](#tests)) before pushing to `main`: a
