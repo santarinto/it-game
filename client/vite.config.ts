@@ -85,12 +85,17 @@ export default defineConfig({
     // наружу карта не светится (нет sourceMappingURL в бандле); сами
     // .map отдаются Go-сервером за ITGAME_SOURCEMAP_TOKEN (ITGAME-28).
     sourcemap: 'hidden',
-    // Два входа (ITGAME-161): игра и заглушка мобильного захода, куда уводит гейт
-    // index.html; по адресу /mobile.html потом встанет мобильный клиент (ITGAME-227).
+    // Два входа (ITGAME-161): игра и мобильный клиент (ITGAME-227) по адресу /mobile.html,
+    // куда уводит гейт index.html. Phaser нужен обоим — свой чанк phaser-*.js: без него
+    // Rollup кладёт общий код в чанк с именем первого попавшегося модуля (format-*.js),
+    // а вендор, который меняется редко, переживает выкатки в кэше браузера.
     rollupOptions: {
       input: {
         index: fileURLToPath(new URL('./index.html', import.meta.url)),
         mobile: fileURLToPath(new URL('./mobile.html', import.meta.url)),
+      },
+      output: {
+        manualChunks: (id) => (id.includes('/node_modules/phaser/') ? 'phaser' : undefined),
       },
     },
   },

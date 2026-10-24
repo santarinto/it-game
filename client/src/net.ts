@@ -23,11 +23,6 @@ export const AWAY_MODES = ['close', 'net'] as const
 
 export type AwayMode = (typeof AWAY_MODES)[number]
 
-// Тип этого клиента в подключении /ws (ITGAME-162): вкладка называет себя
-// серверу параметром client= рядом с sid и difficulty — только для лога и
-// метрики сервера, игра у типов та же. Мобильный клиент (ITGAME-227) — 'mobile'.
-const CLIENT_KIND: ClientKind = 'desktop'
-
 // Ответ ручки drop (mode net): когда сервер замолчал и когда заметит уход.
 export interface AwayDrop {
   at: number // epoch ms: сервер перестал читать и писать в соединение вкладки
@@ -424,6 +419,11 @@ function oneShotHandler(l: Listener, m: OneShotMessage): (() => void) | null {
 }
 
 export class GameClient {
+  // Тип этого клиента в подключении /ws (ITGAME-162): вкладка называет себя
+  // серверу параметром client= рядом с sid и difficulty — только для лога и
+  // метрики сервера, игра у типов та же. Вход мобилки (src/mobile/main.ts,
+  // ITGAME-227) ставит 'mobile' до первого connect().
+  kind: ClientKind = 'desktop'
   latest: StateMessage | null = null
   speedSeq = 0
   // Телеметрия сокета для агентского фасада window.itd (ITGAME-24):
@@ -628,7 +628,7 @@ export class GameClient {
     if (scenario) extra.set('scenario', scenario)
     const qs = extra.toString()
     this.ws = new WebSocket(
-      `${proto}://${location.host}/ws?difficulty=${this.difficulty}&sid=${urlSid}&client=${CLIENT_KIND}${qs ? `&${qs}` : ''}`,
+      `${proto}://${location.host}/ws?difficulty=${this.difficulty}&sid=${urlSid}&client=${this.kind}${qs ? `&${qs}` : ''}`,
     )
     // События сокета, который уже заменён (suspend/resume из bfcache), —
     // не наши: запоздалый close старого сокета запустил бы реконнект и

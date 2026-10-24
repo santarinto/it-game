@@ -70,7 +70,7 @@ test('закрытый sessionStorage — без ухода и без исклю
   assert.deepEqual(run({ search: '?desktop=1', storageThrows: true }).replaced, [])
 })
 
-test('заглушка ведёт на ?desktop=1, main.ts ждёт ту же метку', () => {
+test('мобильная страница ведёт на ?desktop=1, main.ts ждёт ту же метку', () => {
   assert.match(read('../../mobile.html'), /href="\/\?desktop=1"/)
   assert.match(read('../../src/main.ts'), /dataset\.mobileGate === 'redirect'/)
 })
