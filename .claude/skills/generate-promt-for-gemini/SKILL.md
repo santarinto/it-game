@@ -62,6 +62,7 @@ QUEUE, fixed order, one at a time:
 PER TASK:
 - task.context.where(code=X): read body, log, constraints in full. Then | set(status: in_progress, model: ...).
 - Change. Then run ALL the task's checks in ONE shell command into a log and read only the summary lines: <CHECKS, e.g. (cd client && npm run build && npm test && npm run <suite>…) > /tmp/gemini-<code>.log 2>&1; plus (cd server && go test ./...) when Go changed>. <project check rules: one suite at a time, never bare <cmd>>.
+- Checks order: first a targeted run of ONLY the affected test files; the full suite exactly ONCE, right before the commit (localmind full pytest ~7.5 min, a rerun is a wasted turn per wait).
 - Update the docs that quote a changed string or behaviour.
 - Commit: git add <paths> only; write the message to a file with a quoted heredoc (cat > /tmp/msg <<'EOF' … EOF) and git commit -F /tmp/msg — never -m (the shell eats $0, $1). Style of git log -5, task code at the end, checks with counts. No Co-Authored-By trailer.
 - task.where(code=X) | log("<what changed, checks with numbers, sha, decisions>", model: ...) after each step.
@@ -70,7 +71,7 @@ PER TASK:
 
 AUTHORIZED without asking: edit any file in this worktree, run the checks above, commit on <branch>, read anything in the repo and the tracker, log/set status on the queued codes.
 
-NEVER: git push, merge, rebase; touch main or the main checkout <repo>; <project deploy/release targets>; edit <project shared dirs>, ~/.claude, ~/.gemini; git add -A or git add .; set done; create, close or edit other tracker tasks; run DDL/INSERT/UPDATE/DELETE or CREATE/ALTER/DROP against ANY database, the tracker's included — if the tracker refuses you (unknown_caller, permission), stop and report it, never repair it; <stand ports>; leave the tree red after a commit; <NIGHT: ask anything | DAY: ask anything but the one question above>.
+NEVER: git push, merge, rebase; touch main or the main checkout <repo>; <project deploy/release targets>; edit <project shared dirs>, ~/.claude, ~/.gemini; git add -A or git add .; set done; create, close or edit other tracker tasks; run DDL/INSERT/UPDATE/DELETE or CREATE/ALTER/DROP against ANY database, the tracker's included — if the tracker refuses you (unknown_caller, permission), stop and report it, never repair it; <stand ports>; leave the tree red after a commit; bend production code to fit a test double or stub (hasattr/isinstance for a fake) — fix the stub instead (LM-279: hasattr(self.jobs, "unfinished") for the _Silent double hid a real sync valkey key scan in create_app); <NIGHT: ask anything | DAY: ask anything but the one question above>.
 
 ESCAPE: if the same check fails twice in a row on one task after a fix attempt, print RETURNED for it (and for the rest, reason "budget exhausted", if you were compacted), then go to FINAL.
 
@@ -92,6 +93,7 @@ DONE WHEN: every queued code printed exactly one TASK line and FINAL with the lo
 2. **Ветка:** `git log --format='%h %(trailers:key=Co-Authored-By,valueonly)%n%B' main..<branch>`.
    Сообщение без `bash` на месте `$…` и без чужого trailer'а; испорченное — `git commit --amend -F`.
 3. **Дифф каждой задачи** против её тела: правка той ширины, что заявлена; задетые проверки обновлены.
+   Прод-код не подогнан под заглушку (hasattr/isinstance ради двойника); полный сьют гонялся один раз.
 4. **Гейты сам**, одним фоновым запуском в лог; в worktree ничего не править, пока идут.
 5. **Перезаписанные эталоны** (скриншоты, снапшоты) — попиксельно старое против нового и глазами
    на самый большой дифф: в эталон не должно уйти ничего, кроме заявленного.
