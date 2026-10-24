@@ -2122,7 +2122,11 @@ Prod and stage have their own databases, so there is no environment column.
   in `itgame_partylog_dropped_total{reason}`.
 - **After the save.** The actor (`internal/ws/partylog.go`) sends a record
   only after a successful `persist`, like the party journal: an evicted actor
-  writes nothing. The party is `sid_hash` (`sha256(sid)` — the raw `sid` is a
+  starts, closes and chooses nothing. Its exit still sends `seen`, with the
+  day, balance and time of its last save, so it cannot move the party past
+  what the new tab resumed. Times are save times: a player who paused and
+  pressed «Сдаться» hours later gets `ended_at` from the last save before the
+  pause. The party is `sid_hash` (`sha256(sid)` — the raw `sid` is a
   save key and is not stored) plus `n`, the restart number; the actor keeps a
   random party token in memory and the writer maps it to the row. An unknown
   token (a resume, a lost start) takes the last party of the `sid`, or opens a

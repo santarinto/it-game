@@ -547,8 +547,8 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 			pm.settle(g)
 			jn.debug(req, rv.rev != rev) // мутация = новая версия состояния
 			if rv.rev != rev {
+				pt.observe(g, false) // промотка или откат: дни, финал или его отмена
 				pt.debug(g)
-				pt.observe(g, false)
 			}
 		case cmd := <-commands:
 			if cmd.Cmd == cmdAbandon {
@@ -562,9 +562,9 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 				return false
 			}
 			var rejected *errorMessage
-			// Событие до выбора (ITGAME-239): Apply его гасит.
+			// Событие до выбора (ITGAME-239): Apply его гасит. Тост аудита — не выбор.
 			var chosen game.DayEvent
-			if cmd.Cmd == game.CmdEventChoice && g.ActiveEvent != nil {
+			if cmd.Cmd == game.CmdEventChoice && g.ActiveEvent != nil && g.ActiveEvent.ID != game.EventAudit {
 				chosen = *g.ActiveEvent
 			}
 			if cmd.Cmd == cmdSetSpeed {
@@ -609,7 +609,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 				} else if !h.persist(sid, gen, g, speed, resumeSpeed, lastReport, scenario, journal.last(journal.cap), rv.rev, saveFormat) {
 					return true
 				} else {
-					pt.touch()
+					pt.touch(g)
 				}
 			}
 			if cmd.Cmd == game.CmdRestart {
@@ -653,7 +653,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 					if !h.persist(sid, gen, g, speed, resumeSpeed, lastReport, scenario, journal.last(journal.cap), rv.rev, saveFormat) {
 						return true
 					}
-					pt.touch()
+					pt.touch(g)
 				}
 			}
 			metrics.TickSeconds.Observe(time.Since(tickStart).Seconds())

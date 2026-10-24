@@ -31,6 +31,8 @@ type partyTrack struct {
 	lastClosed int       // последний записанный закрытый день
 	ended      bool      // финал записан
 	saved      time.Time // последний успешный сейв актора
+	savedDay   int       // день и баланс того сейва: уход пишет их, а не живую g
+	savedMoney int64
 }
 
 func newPartyTrack(h *Handler, sid, client string, withSaves bool) *partyTrack {
@@ -49,8 +51,11 @@ func newPID() string {
 	return hex.EncodeToString(b)
 }
 
-// touch — сейв прошёл: от него считаются last_seen_at и expires_at.
-func (pt *partyTrack) touch() { pt.saved = time.Now() }
+// touch — сейв g прошёл: от него считаются last_seen_at и expires_at, а уход
+// актора пишет день и баланс этого сейва — не состояние, что сейва не дождалось.
+func (pt *partyTrack) touch(g *game.Game) {
+	pt.saved, pt.savedDay, pt.savedMoney = time.Now(), g.Day, int64(g.Money)
+}
 
 func (pt *partyTrack) record(kind partylog.Kind, g *game.Game) partylog.Record {
 	at := pt.saved
@@ -73,7 +78,7 @@ func (pt *partyTrack) start(g *game.Game, scenario string) {
 	}
 	pt.pid, pt.scenario, pt.ended = newPID(), scenario, false
 	pt.lastClosed = maxClosedDay(g)
-	pt.touch()
+	pt.touch(g)
 	pt.sink.Send(pt.record(partylog.KindStart, g))
 }
 
@@ -84,7 +89,7 @@ func (pt *partyTrack) resumed(g *game.Game, scenario string, preClosed int) {
 		return
 	}
 	pt.pid, pt.scenario, pt.ended, pt.lastClosed = newPID(), scenario, false, preClosed
-	pt.touch()
+	pt.touch(g)
 	pt.sink.Send(pt.record(partylog.KindResume, g))
 	pt.observe(g, true)
 }
@@ -159,12 +164,13 @@ func (pt *partyTrack) choice(g *game.Game, ev game.DayEvent, day, option int) {
 	pt.sink.Send(r)
 }
 
-// debug — debug-мутация состояния: партия вон из аналитики.
+// debug — debug-мутация состояния: партия вон из аналитики. После финала —
+// нет: исход уже записан, а партия у писателя закрыта.
 func (pt *partyTrack) debug(g *game.Game) {
-	if pt.sink == nil || pt.pid == "" {
+	if pt.sink == nil || pt.pid == "" || pt.ended {
 		return
 	}
-	pt.touch()
+	pt.touch(g)
 	pt.sink.Send(pt.record(partylog.KindDebug, g))
 }
 
@@ -174,7 +180,9 @@ func (pt *partyTrack) leave(g *game.Game) {
 	if pt.sink == nil || pt.pid == "" || pt.ended || g == nil {
 		return
 	}
-	pt.sink.Send(pt.record(partylog.KindSeen, g))
+	r := pt.record(partylog.KindSeen, g)
+	r.Day, r.Money = pt.savedDay, pt.savedMoney
+	pt.sink.Send(r)
 }
 
 // pending — активное событие с выбором до тика: если вечер его погасит,

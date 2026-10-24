@@ -253,3 +253,42 @@ func TestPartyTrackOfflineDays(t *testing.T) {
 		t.Errorf("первая запись %s, хотим resume", rs[0].Kind)
 	}
 }
+
+// Уход пишет день и баланс последнего сейва, а не состояние, что сейва не
+// дождалось: вытесненный актор с несохранённым next_day не двигает партию.
+func TestPartyTrackLeaveUsesSavedState(t *testing.T) {
+	g := game.NewSeeded(savesTestConfig(), 1)
+	sink := &recSink{}
+	pt := &partyTrack{sink: sink, sidHash: "h", ttl: time.Hour}
+	pt.start(g, "")
+	g.Day, g.Money = 7, 12345 // применено, но не сохранено
+	pt.leave(g)
+	seen := sink.of(partylog.KindSeen)
+	if len(seen) != 1 || seen[0].Day != 1 || seen[0].Money == 12345 {
+		t.Fatalf("уход: %+v — хотим день 1 и баланс сейва", seen)
+	}
+}
+
+// Debug-мутация после финала не пишется: исход уже записан.
+func TestPartyTrackNoDebugAfterFinal(t *testing.T) {
+	g := game.NewSeeded(savesTestConfig(), 1)
+	sink := &recSink{}
+	pt := &partyTrack{sink: sink, sidHash: "h", ttl: time.Hour}
+	pt.start(g, "")
+	g.Phase, g.LoseReason = game.PhaseGameOver, game.LoseBankrupt
+	pt.observe(g, false)
+	pt.observe(g, false)
+	pt.debug(g)
+	if n := len(sink.of(partylog.KindFinish)); n != 1 {
+		t.Errorf("финалов %d, хотим 1", n)
+	}
+	if d := sink.of(partylog.KindDebug); len(d) != 0 {
+		t.Errorf("debug после финала записан: %+v", d)
+	}
+	g.Phase = game.PhaseRunning // откат из финала: партия снова идёт
+	pt.observe(g, false)
+	pt.debug(g)
+	if n := len(sink.of(partylog.KindDebug)); n != 1 {
+		t.Errorf("debug после отката из финала: %d записей, хотим 1", n)
+	}
+}

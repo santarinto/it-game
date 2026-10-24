@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -123,9 +124,7 @@ func (w *Writer) loop() {
 			metrics.PartylogDropped.WithLabelValues("no_db").Inc()
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), w.query)
-		err = w.apply(ctx, pool, r)
-		cancel()
+		err = w.applySafe(pool, r)
 		if err != nil {
 			metrics.PartylogDropped.WithLabelValues("error").Inc()
 			if err.Error() != w.last {
@@ -136,6 +135,19 @@ func (w *Writer) loop() {
 		}
 		w.last = ""
 	}
+}
+
+// applySafe — одна запись под таймаутом; паника запроса — потерянная запись,
+// а не упавший сервер.
+func (w *Writer) applySafe(pool *pgxpool.Pool, r Record) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("паника: %v", p)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), w.query)
+	defer cancel()
+	return w.apply(ctx, pool, r)
 }
 
 func (w *Writer) apply(ctx context.Context, pool *pgxpool.Pool, r Record) error {
