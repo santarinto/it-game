@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "7b2c60cd864a",
+  "hash": "bf594f5171b4",
   "methods": {
     "version": {
       "kind": "prop",
@@ -290,8 +290,10 @@ export const CONTRACT = {
       "kind": "prop",
       "type": "SpriteApi",
       "readonly": true,
-      "doc": "Примерка спрайта (ITGAME-119): itd.sprite.try(key, dataUrl) ставит PNG вместо\nтекстуры ключа манифеста во вкладке и перевешивает живые объекты сцен →\n{ok, key, w, h, sha256, objects, problems, warnings, stats} — problems считает\nтот же контракт, что npm run check:sprites (палитра, альфа, шум), текстура при\nнарушениях всё равно стоит. Третий аргумент {filter: 'linear'} — билинейный\nфильтр только этой текстуре (вся игра — NEAREST по pixelArt): детальный\nисходник крупнее слота сжимается гладко; по умолчанию — фильтр ключа (linear у\nrender: smooth в манифесте, иначе nearest), в квитанции\nи list() — filter. Отказы: unknown_key (ключа нет в sprites.json),\nbad_src (не data:image/png;base64 или PNG битый), bad_size (не size·frames ×\nsize ключа), bad_filter (не nearest/linear).\nРевизии minipc (ITGAME-157, через Go-ручки /api/debug/sprite/*, сервер с\nITGAME_MINIPC_URL/TOKEN): itd.sprite.pull(taskId, key, rev) ставит замороженную\nревизию — квитанция та же плюс source: 'pull', taskId, rev, sha256 minipc;\nitd.sprite.watch(taskId) → {ok, taskId, keys, skipped, receipts} ставит latest\nкаждого ключа задания из манифеста и опрашивает раз в секунду (ключи не из\nsprites.json — в skipped); itd.sprite.unwatch() → {ok, taskId, polls, updates,\nerrors, lastError}. Отказы: bad_task, bad_rev, not_found, sha_mismatch, too_large,\nminipc_not_configured, minipc_unreachable, minipc_auth, minipc_error, debug_off,\nserver_unreachable. itd.sprite.list() → [{key, w, h, filter, sha256, problems,\nsource, taskId?, rev?}];\nitd.sprite.reset(key?) → {ok, reset[]} — вернуть исходную текстуру (без ключа —\nвсе), not_tried — ключ не подменён; опрос watch reset не снимает, следующая\nревизия встанет снова. В репо, dist и сейв ничего не пишется, перезагрузка\nстраницы снимает подмену и опрос.",
+      "doc": "Примерка спрайта (ITGAME-119): itd.sprite.try(key, dataUrl) ставит PNG вместо\nтекстуры ключа манифеста во вкладке и перевешивает живые объекты сцен →\n{ok, key, w, h, sha256, objects, problems, warnings, stats} — problems считает\nтот же контракт, что npm run check:sprites (палитра, альфа, шум), текстура при\nнарушениях всё равно стоит. Третий аргумент {filter: 'linear'} — билинейный\nфильтр только этой текстуре (вся игра — NEAREST по pixelArt): детальный\nисходник крупнее слота сжимается гладко; по умолчанию — фильтр ключа (linear у\nrender: smooth в манифесте, иначе nearest), в квитанции\nи list() — filter. Отказы: unknown_key (ключа нет в sprites.json),\nbad_src (не data:image/png;base64 или PNG битый), bad_size (не size·frames ×\nsize ключа), bad_filter (не nearest/linear).\nРевизии minipc (ITGAME-157, через Go-ручки /api/debug/sprite/*, сервер с\nITGAME_MINIPC_URL/TOKEN): itd.sprite.pull(taskId, key, rev) ставит замороженную\nревизию — квитанция та же плюс source: 'pull', taskId, rev, sha256 minipc;\nitd.sprite.watch(taskId) → {ok, taskId, keys, skipped, receipts} ставит latest\nкаждого ключа задания из манифеста и опрашивает раз в секунду (ключи не из\nsprites.json — в skipped); itd.sprite.unwatch() → {ok, taskId, polls, updates,\nerrors, lastError}. Отказы: bad_task, bad_rev, not_found, sha_mismatch, too_large,\nminipc_not_configured, minipc_unreachable, minipc_auth, minipc_error, debug_off,\nserver_unreachable. itd.sprite.list() → [{key, w, h, filter, sha256, problems,\nsource, taskId?, rev?}];\nitd.sprite.reset(key?) → {ok, reset[]} — вернуть исходную текстуру (без ключа —\nвсе), not_tried — ключ не подменён; опрос watch reset не снимает, следующая\nревизия встанет снова. В репо, dist и сейв ничего не пишется, перезагрузка\nстраницы снимает подмену и опрос.\nМесто, которого в сцене ещё нет (ITGAME-209, пилот изометрии):\nitd.sprite.place(key, {x, y, scene?, grid?}) кладёт картинку ключа манифеста\nповерх сцены (по умолчанию office) в мировых координатах якоря — у класса iso\nцентр ромба клетки, иначе центр кадра; масштаб — экранный размер класса;\ngrid: [cols, rows] (1..8) — сетка клеток изометрии 2:1, сзади вперёд; каждый\nследующий вызов — слоем выше (пол первым, предметы поверх) →\n{ok, key, scene, ids, displayW, displayH}, id картинок — pilot.<key>.<n> в\nitd.nodes(). try/pull/watch по тому же ключу перевешивают и их. Отказы:\nunknown_key, bad_scene (сцена не активна), bad_place. itd.sprite.unplace() →\n{ok, removed} — убрать всё положенное.",
       "examples": [
+        "itd.sprite.place('iso_floor_office', { x: 640, y: 300, grid: [3, 3] })",
+        "itd.sprite.unplace()",
         "await itd.sprite.try('desk_pc', dataUrl)",
         "await itd.sprite.try('icon_money', dataUrl, { filter: 'linear' })",
         "await itd.sprite.pull(1, 'icon_trophy', 3)",
@@ -3381,6 +3383,16 @@ export const CONTRACT = {
     "SpriteApi": {
       "kind": "object",
       "fields": {
+        "place": {
+          "type": "SpritePlaceResult",
+          "optional": false,
+          "doc": ""
+        },
+        "unplace": {
+          "type": "{ ok: true; removed: number; }",
+          "optional": false,
+          "doc": ""
+        },
         "try": {
           "type": "Promise<SpriteReceipt>",
           "optional": false,
@@ -3419,6 +3431,35 @@ export const CONTRACT = {
         "linear",
         "nearest"
       ]
+    },
+    "SpritePlaceOptions": {
+      "kind": "object",
+      "fields": {
+        "x": {
+          "type": "number",
+          "optional": false,
+          "doc": "мировые координаты якоря: у класса iso — центр ромба клетки, иначе центр кадра"
+        },
+        "y": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "scene": {
+          "type": "string",
+          "optional": true,
+          "doc": "ключ сцены Phaser; по умолчанию office"
+        },
+        "grid": {
+          "type": "[number, number]",
+          "optional": true,
+          "doc": ""
+        }
+      }
+    },
+    "SpritePlaceResult": {
+      "kind": "alias",
+      "type": "{ ok: true; key: string; scene: string; ids: string[]; displayW: number; displayH: number; } | { ok: false; key: string; code: 'unknown_key' | 'bad_scene' | 'bad_place'; error: string; }"
     },
     "SpritePullCode": {
       "kind": "enum",

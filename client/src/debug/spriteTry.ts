@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { checkSpriteImage } from '../../scripts/lib/sprite-check-core.mjs'
 import type { SpriteCheckResult } from '../../scripts/lib/sprite-check-core.mjs'
 import { PALETTES, SPRITES } from '../assets/manifest'
+import { SPRITE_TARGET, spriteScale } from '../pixelart'
 
 // itd.sprite (ITGAME-119): подмена текстуры по ключу манифеста во вкладке — примерка
 // спрайта на сцене без коммита и пересборки (docs/design/sprite-pipeline.md). Подмена
@@ -89,7 +90,23 @@ export interface SpriteResetResult {
   error?: string
 }
 
+// Примерка на месте, которого в сцене ещё нет (ITGAME-209, пилот изометрии): картинка
+// ключа манифеста поверх сцены. grid — сетка cols×rows клеток изометрии 2:1 (плитка пола:
+// стыки и повтор), без него — одна картинка.
+export interface SpritePlaceOptions {
+  x: number // мировые координаты якоря: у класса iso — центр ромба клетки, иначе центр кадра
+  y: number
+  scene?: string // ключ сцены Phaser; по умолчанию office
+  grid?: [number, number]
+}
+
+export type SpritePlaceResult =
+  | { ok: true; key: string; scene: string; ids: string[]; displayW: number; displayH: number }
+  | { ok: false; key: string; code: 'unknown_key' | 'bad_scene' | 'bad_place'; error: string }
+
 export interface SpriteApi {
+  place(key: string, opts: SpritePlaceOptions): SpritePlaceResult
+  unplace(): { ok: true; removed: number }
   try(key: string, src: string, opts?: SpriteTryOptions): Promise<SpriteReceipt>
   pull(taskId: string | number, key: string, rev: number, opts?: SpriteTryOptions): Promise<SpriteReceipt>
   watch(taskId: string | number): Promise<SpriteWatchResult>
@@ -340,8 +357,17 @@ interface Watch {
   stopped: boolean
 }
 
+// Якорь класса iso: центр ромба клетки 256×128 у нижнего края квадратного холста
+// 256×256 (решение владельца 25.10, docs/design/graphics.md «Изометрия»).
+const ISO_ANCHOR_Y = 0.75
+const PLACE_DEPTH = 100000 // поверх всего в сцене: примерка, не раскладка
+const PLACE_GRID_MAX = 8
+const PLACE_LAYER = 100 // каждый вызов place — слой выше прошлого: пол кладут первым, предметы поверх
+
 export function makeSpriteApi(game: Phaser.Game): SpriteApi {
   let watch: Watch | null = null
+  const placed: Phaser.GameObjects.Image[] = []
+  let layer = 0
   // Эпоха подмен: reset() её сдвигает — ревизия опроса, начатого раньше, не встаёт.
   let epoch = 0
 
@@ -407,6 +433,48 @@ export function makeSpriteApi(game: Phaser.Game): SpriteApi {
   }
 
   return {
+    place(key, opts) {
+      const spec = SPRITES[key]
+      if (!spec) return { ok: false, key, code: 'unknown_key', error: `ключа '${key}' нет в манифесте sprites.json` }
+      const name = opts?.scene ?? 'office'
+      const scene = game.scene.getScene(name)
+      if (!scene || !scene.sys.isActive()) return { ok: false, key, code: 'bad_scene', error: `сцена '${name}' не активна` }
+      const [cols, rows] = opts.grid ?? [1, 1]
+      const okNum = (n: unknown) => typeof n === 'number' && Number.isFinite(n)
+      const okSide = (n: number) => Number.isInteger(n) && n >= 1 && n <= PLACE_GRID_MAX
+      if (!okNum(opts.x) || !okNum(opts.y) || !okSide(cols) || !okSide(rows)) {
+        return { ok: false, key, code: 'bad_place', error: `x, y — числа, grid — [cols, rows] по 1..${PLACE_GRID_MAX}` }
+      }
+      const target = SPRITE_TARGET[spec.class]
+      const iso = spec.class === 'iso'
+      const ids: string[] = []
+      let last: Phaser.GameObjects.Image | null = null
+      // Сзади вперёд: клетка (i, j) с большим i + j ближе к зрителю и рисуется позже.
+      const cells: [number, number][] = []
+      for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) cells.push([i, j])
+      cells.sort((a, b) => a[0] + a[1] - (b[0] + b[1]))
+      const base = PLACE_DEPTH + layer++ * PLACE_LAYER
+      for (const [i, j] of cells) {
+        const x = opts.x + ((i - j) * target) / 2
+        const y = opts.y + ((i + j) * target) / 4
+        const img = scene.add.image(x, y, key).setScale(spriteScale(scene, key, target))
+        img.setOrigin(0.5, iso ? ISO_ANCHOR_Y : 0.5).setDepth(base + i + j)
+        const id = `pilot.${key}.${placed.length}`
+        img.setData('id', id)
+        placed.push(img)
+        ids.push(id)
+        last = img
+      }
+      return { ok: true, key, scene: name, ids, displayW: last?.displayWidth ?? 0, displayH: last?.displayHeight ?? 0 }
+    },
+
+    unplace() {
+      const removed = placed.length
+      for (const img of placed.splice(0)) img.destroy()
+      layer = 0
+      return { ok: true, removed }
+    },
+
     try: (key, src, opts) => apply(game, key, src, opts, { source: 'try' }),
 
     async pull(taskId, key, rev, opts) {

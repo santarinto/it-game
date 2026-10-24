@@ -2694,6 +2694,28 @@ the original source. While a key is swapped, `itd.assets()` reports
 visreg baseline in that state. `sha256` is `null` when the page is not a
 secure context (`crypto.subtle` is absent on `http://<lan-ip>`).
 
+**A place the scene does not have yet** (ITGAME-209, the isometric pilot):
+`itd.sprite.place(key, {x, y, scene?, grid?})` puts the image of a manifest key
+on top of a scene (`office` by default) at world coordinates of its anchor —
+for the class `iso` the centre of the cell's rhombus (`origin 0.5, 0.75`, see
+`docs/design/graphics.md`, «Изометрия»), otherwise the frame centre — scaled to
+the class's screen size. `grid: [cols, rows]` (1..8) lays a 2:1 grid of cells
+back to front; every later call lies one layer higher, so put the floor first
+and objects after it. Images get ids `pilot.<key>.<n>` in `itd.nodes()`, and
+`try`/`pull`/`watch` on the same key re-point them like any other object.
+Refusals: `unknown_key`, `bad_scene` (scene not active), `bad_place`.
+`itd.sprite.unplace()` removes everything placed. The camera of the office is
+zoomed, so take the point from it:
+
+```js
+const at = window.__itd.scene.getScene('office').cameras.main.getWorldPoint(560, 330)
+itd.sprite.place('iso_floor_office', { x: at.x, y: at.y, grid: [3, 3] })
+itd.sprite.place('iso_desk_crt', { x: at.x, y: at.y + 64 })
+```
+
+`node client/scripts/qa-itgame209.mjs` (self-serve, after `npm run build`)
+checks it; `QA_SHOT=<png>` saves the frame.
+
 The pipeline this is the first step of: `docs/design/sprite-pipeline.md`.
 
 ### Sprite pipeline (minipc)

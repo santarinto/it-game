@@ -8,7 +8,7 @@ import manifestData from './sprites.json'
 
 // Классы спрайтов — целевые размеры на экране см. SPRITE_TARGET в
 // ../pixelart.ts (сопоставление 1:1 с ключами там).
-export type SpriteClass = 'desk' | 'person' | 'rack' | 'amenity' | 'tile' | 'icon'
+export type SpriteClass = 'desk' | 'person' | 'rack' | 'amenity' | 'tile' | 'icon' | 'iso'
 
 export type PaletteName = 'sweetie16' | 'hd32'
 

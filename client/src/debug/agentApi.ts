@@ -1072,6 +1072,18 @@ export interface ItdApi {
    * все), not_tried — ключ не подменён; опрос watch reset не снимает, следующая
    * ревизия встанет снова. В репо, dist и сейв ничего не пишется, перезагрузка
    * страницы снимает подмену и опрос.
+   * Место, которого в сцене ещё нет (ITGAME-209, пилот изометрии):
+   * itd.sprite.place(key, {x, y, scene?, grid?}) кладёт картинку ключа манифеста
+   * поверх сцены (по умолчанию office) в мировых координатах якоря — у класса iso
+   * центр ромба клетки, иначе центр кадра; масштаб — экранный размер класса;
+   * grid: [cols, rows] (1..8) — сетка клеток изометрии 2:1, сзади вперёд; каждый
+   * следующий вызов — слоем выше (пол первым, предметы поверх) →
+   * {ok, key, scene, ids, displayW, displayH}, id картинок — pilot.<key>.<n> в
+   * itd.nodes(). try/pull/watch по тому же ключу перевешивают и их. Отказы:
+   * unknown_key, bad_scene (сцена не активна), bad_place. itd.sprite.unplace() →
+   * {ok, removed} — убрать всё положенное.
+   * @example itd.sprite.place('iso_floor_office', { x: 640, y: 300, grid: [3, 3] })
+   * @example itd.sprite.unplace()
    * @example await itd.sprite.try('desk_pc', dataUrl)
    * @example await itd.sprite.try('icon_money', dataUrl, { filter: 'linear' })
    * @example await itd.sprite.pull(1, 'icon_trophy', 3)

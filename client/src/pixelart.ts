@@ -221,6 +221,9 @@ export const SPRITE_TARGET = {
   amenity: 64,
   icon: 32, // UI-иконки: icon_money, icon_network не рисуются; icon_trophy (ITGAME-83) — в меню 16px через setDisplaySize
   tile: 64, // плитка пола (office_floor_tile) — пока нигде не рисуется
+  // изометрия 2:1 (ITGAME-121/122/209): клетка 128 на экране, холст 256×256, ромб у нижнего края;
+  // пока только в примерке itd.sprite.place
+  iso: 128,
 } as const
 
 // spriteScale — множитель для add.image(...).setScale(...): во сколько

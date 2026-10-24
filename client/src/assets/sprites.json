@@ -40,6 +40,14 @@
       "maxSpecks": 4, "maxWhitePct": 60,
       "note": "шахматка — светлый пол плитки, точки часть дизайна, перегенерировать не срочно"
     },
+    "iso_floor_office": {
+      "size": 256, "frames": 1, "palette": "hd32", "class": "iso",
+      "note": "заглушка пилота изометрии ITGAME-209: геометрия холста (ромб клетки 256×128 у нижнего края), не арт; заменяется ревизией minipc"
+    },
+    "iso_desk_crt": {
+      "size": 256, "frames": 1, "palette": "hd32", "class": "iso",
+      "note": "заглушка пилота изометрии ITGAME-209: геометрия холста (стол стоит на ромбе клетки), не арт; заменяется ревизией minipc"
+    },
     "icon_money": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon" },
     "icon_network": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon" },
     "icon_trophy": {
