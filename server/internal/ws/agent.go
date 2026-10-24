@@ -77,6 +77,7 @@ func (h *Handler) ServeAgent(w http.ResponseWriter, r *http.Request) {
 	opts := sessionOpts{
 		Seed:     r.URL.Query().Get("seed"),
 		Scenario: r.URL.Query().Get("scenario"),
+		Client:   "agent", // headless-сессия моста: в аналитике партий не игрок
 	}
 
 	// Живая сессия — наблюдатель: не отбираем, не Begin-им, не сейвим.

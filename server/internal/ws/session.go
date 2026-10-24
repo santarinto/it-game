@@ -32,6 +32,9 @@ type Handler struct {
 	ReadTimeout time.Duration
 	// Journal — журнал партии для реплея (ITGAME-46): включает ITGAME_DEBUG=1.
 	Journal bool
+	// Parties — записи партий для аналитики в PostgreSQL (ITGAME-239, partylog.go);
+	// nil — не пишем. Пишутся только партии с сейвами.
+	Parties PartySink
 
 	// Реестр живых сессий (ITGAME-26/29): sid → актор с его каналами.
 	// Регистрирует сам актор, выписывается на выходе; агентские коннекты
@@ -289,6 +292,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	opts := sessionOpts{
 		Seed:     r.URL.Query().Get("seed"),
 		Scenario: r.URL.Query().Get("scenario"),
+		Client:   string(parseClientKind(r.URL.Query().Get("client"))),
 	}
 
 	// Политика занятости (ITGAME-29): игрок всегда запускает свой актор —
@@ -328,6 +332,7 @@ func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn,
 type sessionOpts struct {
 	Seed     string // ?seed=1234: сид новой партии; пусто — случайный
 	Scenario string // ?scenario=soft_lock: фиксура старта новой партии
+	Client   string // вид клиента для аналитики партий (ITGAME-239): desktop | mobile | unknown | agent
 }
 
 // persist — записать сейв сессии. false — сессию забрал другой актор.
@@ -387,6 +392,11 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 	)
 	// Сейв отвергнут из-за чужого формата (ITGAME-174): первый снапшот скажет клиенту почему.
 	var incompatible bool
+	// Аналитика партий (ITGAME-239): сейв был, но не поднялся; последний закрытый день сейва до догона.
+	var (
+		reset     bool
+		preClosed int
+	)
 	withSaves := h.Saves != nil && store.ValidSID(sid)
 	var rt *resumeTrace // журнал партии (ITGAME-46): сейв до офлайн-догона
 	if h.Journal {
@@ -402,12 +412,19 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		res := h.resume(sid, gen, rt)
 		g, speed, lastReport, offline, resumed = res.g, res.speed, res.last, res.offline, res.g != nil
 		scenario, journal, savedAt, rv.rev, incompatible = res.scenario, res.journal, res.savedAt, res.rev, res.incompatible
+		reset, preClosed = res.reset, res.preClosed
 		if h.afterLoad != nil {
 			h.afterLoad(sid)
 		}
 	}
 	// Метрики партии (ITGAME-189): старт, подъём из сейва, финал.
 	var pm partyMetrics
+	// Партия для аналитики (ITGAME-239): записи — после успешного сейва.
+	pt := newPartyTrack(h, sid, opts.Client, withSaves)
+	if reset {
+		pt.reset()
+	}
+	defer func() { pt.leave(g) }()
 	// Первый снапшот сессии: start — новая партия, resume — из сейва.
 	if resumed {
 		rv.bump(causeResume)
@@ -426,6 +443,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 				// сессию уже забрал следующий актор
 				return true
 			}
+			pt.resumed(g, scenario, preClosed)
 		}
 	}
 	if g == nil {
@@ -447,6 +465,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		if withSaves && !h.persist(sid, gen, g, speed, 0, lastReport, scenario, journal.last(journal.cap), rv.rev, saveFormat) {
 			return true
 		}
+		pt.start(g, scenario)
 	}
 
 	jn := h.openJournal(sid, &g, &speed, &resumeSpeed, &scenario, rv, resumed, rt, sess.owner, sess.ownerSrc)
@@ -527,10 +546,15 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 			// debug-промотка могла привести к финалу
 			pm.settle(g)
 			jn.debug(req, rv.rev != rev) // мутация = новая версия состояния
+			if rv.rev != rev {
+				pt.debug(g)
+				pt.observe(g, false)
+			}
 		case cmd := <-commands:
 			if cmd.Cmd == cmdAbandon {
 				countCommand(cmd.Cmd, nil)
 				pm.finish(g, "abandon")
+				pt.finish(g, "abandon", "", false)
 				jn.command(cmd, nil)
 				if withSaves {
 					h.Saves.Delete(sid)
@@ -538,6 +562,11 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 				return false
 			}
 			var rejected *errorMessage
+			// Событие до выбора (ITGAME-239): Apply его гасит.
+			var chosen game.DayEvent
+			if cmd.Cmd == game.CmdEventChoice && g.ActiveEvent != nil {
+				chosen = *g.ActiveEvent
+			}
 			if cmd.Cmd == cmdSetSpeed {
 				if cmd.Speed < 0 || cmd.Speed > 3 {
 					rejected = &errorMessage{Type: "error", Code: "bad_speed"}
@@ -567,6 +596,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 			rv.bump(causeCmd)
 			if cmd.Cmd == game.CmdRestart {
 				pm.started(g) // после банкротства — новая партия
+				scenario = "" // игра с нуля, не фикстура прошлой партии
 			}
 			pm.settle(g)
 			// Успешная команда — точка сейва: покупки и переходы дней
@@ -578,8 +608,16 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 					h.Saves.Finish(sid, gen)
 				} else if !h.persist(sid, gen, g, speed, resumeSpeed, lastReport, scenario, journal.last(journal.cap), rv.rev, saveFormat) {
 					return true
+				} else {
+					pt.touch()
 				}
 			}
+			if cmd.Cmd == game.CmdRestart {
+				pt.start(g, "")
+			} else if cmd.Cmd == game.CmdEventChoice && chosen.ID != "" {
+				pt.choice(g, chosen, g.Day, cmd.Slot)
+			}
+			pt.observe(g, false)
 			// В журнал — после сейва, как и тик: команда вытесненного актора,
 			// чей сейв не прошёл, не подтверждена и в партии не живёт.
 			jn.command(cmd, nil)
@@ -588,6 +626,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		case <-tickC:
 			tickStart := time.Now()
 			wasRunning := g.Phase == game.PhaseRunning
+			pending := pt.pending(g) // вечер погасит невыбранное — это игнор (ITGAME-239)
 			report := g.Tick()
 			if report != nil {
 				lastReport = report
@@ -614,10 +653,15 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 					if !h.persist(sid, gen, g, speed, resumeSpeed, lastReport, scenario, journal.last(journal.cap), rv.rev, saveFormat) {
 						return true
 					}
+					pt.touch()
 				}
 			}
 			metrics.TickSeconds.Observe(time.Since(tickStart).Seconds())
 			pm.settle(g)
+			if report != nil && pending != nil && g.ActiveEvent == nil {
+				pt.choice(g, *pending, report.Day, -1)
+			}
+			pt.observe(g, false)
 			// В журнал — после сейва: тик вытесненного актора, чей сейв не
 			// прошёл, никто не увидит, и реплею он не нужен (ITGAME-46).
 			jn.tick(finished || report != nil)
@@ -660,6 +704,8 @@ type resumeResult struct {
 	savedAt      time.Time
 	rev          uint64
 	incompatible bool // сейв этого sid другого формата (ITGAME-174): первый снапшот скажет почему
+	reset        bool // сейв был, но не поднялся: партия sid кончилась (аналитика, ITGAME-239)
+	preClosed    int  // последний закрытый день сейва до офлайн-догона (ITGAME-239)
 }
 
 // resume — восстановить игру из сейва (если есть и валиден). Невалидный
@@ -678,19 +724,22 @@ func (h *Handler) resume(sid string, gen uint64, rt *resumeTrace) resumeResult {
 	var head saveHead
 	if json.Unmarshal(raw, &head) == nil && head.SID == sid && incompatibleSave(head.Game.Format) {
 		h.Saves.Finish(sid, gen) // не Delete: тот закрыл бы kick — наш же (владеем с Begin)
-		r.incompatible = true
+		r.incompatible, r.reset = true, true
 		return r
 	}
 	var ss sessionSave
 	if json.Unmarshal(raw, &ss) != nil || ss.SID != sid || incompatibleSave(ss.Game.Format) {
 		h.Saves.Finish(sid, gen)
+		r.reset = true
 		return r
 	}
 	g, err := game.Restore(ss.Game)
 	if err != nil {
 		h.Saves.Finish(sid, gen)
+		r.reset = true
 		return r
 	}
+	r.preClosed = maxClosedDay(g)
 	speed := min(max(ss.Speed, 0), 3)
 	miss := offlineTicks(ss.SavedAt, speed, h.TickInterval)
 	rt.capture(g, speed, ss.ResumeSpeed, ss.Scenario, ss.Rev, miss) // журнал: сейв до догона (ITGAME-46)

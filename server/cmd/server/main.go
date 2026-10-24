@@ -10,10 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"itdirector/internal/admin"
 	"itdirector/internal/db"
 	"itdirector/internal/game"
 	"itdirector/internal/metrics"
+	"itdirector/internal/partylog"
 	"itdirector/internal/spriteproxy"
 	"itdirector/internal/store"
 	"itdirector/internal/ws"
@@ -132,6 +135,17 @@ func newMux(cfg game.Config, database *db.Conn, saves *store.Store, staticDir st
 	// Журнал партии для реплея (ITGAME-46) — под тем же гейтом, что и
 	// /api/debug/*: на проде у игроков не пишется.
 	wsHandler := &ws.Handler{Config: cfg, TickInterval: time.Second, Saves: saves, ReadTimeout: readTimeout, Journal: debugRoutes}
+	// Живые партии для аналитики (ITGAME-239): нужны база и сейвы. База может
+	// подняться позже сервера — писатель спрашивает её на каждой записи.
+	if database != nil && saves != nil {
+		wsHandler.Parties = partylog.New(func() (*pgxpool.Pool, error) {
+			d, err := database.Get()
+			if err != nil {
+				return nil, err
+			}
+			return d.Pool, nil
+		}, 1024, log.Printf)
+	}
 	mux.Handle("GET /ws", wsHandler)
 	// Чит денег (ITGAME-194): без гейта ITGAME_DEBUG — хендлер сам пускает
 	// только запрос с localhost.

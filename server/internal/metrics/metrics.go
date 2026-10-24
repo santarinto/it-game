@@ -89,7 +89,16 @@ var (
 		Name: "itgame_commands_total",
 		Help: "Команды игроков: cmd — имя известной команды (иначе unknown), result — ok или rejected.",
 	}, []string{"cmd", "result"})
+	// PartylogDropped — записи партий для аналитики (ITGAME-239, internal/partylog),
+	// не дошедшие до базы: игра их не ждёт.
+	PartylogDropped = reg.NewCounterVec(prometheus.CounterOpts{
+		Name: "itgame_partylog_dropped_total",
+		Help: "Записи партий в PostgreSQL, потерянные: full — буфер полон, no_db — базы нет, error — запрос упал.",
+	}, []string{"reason"})
 )
+
+// PartylogReasons — причины потерь у PartylogDropped.
+var PartylogReasons = []string{"full", "no_db", "error"}
 
 var buildInfo = reg.NewGaugeVec(prometheus.GaugeOpts{
 	Name: "itgame_build_info",
@@ -109,6 +118,9 @@ func init() {
 	}
 	for _, op := range []string{"write", "rename"} {
 		SaveErrors.WithLabelValues(op)
+	}
+	for _, r := range PartylogReasons {
+		PartylogDropped.WithLabelValues(r)
 	}
 }
 

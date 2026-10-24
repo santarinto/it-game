@@ -80,6 +80,10 @@ func ValidSID(sid string) bool {
 
 func (s *Store) path(sid string) string { return filepath.Join(s.dir, sid+".json") }
 
+// TTL — сколько сейв ждёт игрока (-save-ttl): аналитика партий (ITGAME-239)
+// считает по нему, когда партия брошена.
+func (s *Store) TTL() time.Duration { return s.ttl }
+
 // Load — данные сейва или false (нет / истёк / битый). Истёкший удаляется.
 func (s *Store) Load(sid string) ([]byte, bool) {
 	if !ValidSID(sid) {

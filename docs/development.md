@@ -1988,6 +1988,7 @@ cardinality and the player's privacy; labels are finite sets only.
 | `itgame_parties_finished_total{outcome,difficulty}` | counter | `bankrupt`, `victory` or `abandon`, counted once per finale |
 | `itgame_party_days{outcome}` | histogram | the game day at the finale |
 | `itgame_commands_total{cmd,result}` | counter | player commands, `ok` or `rejected`; a name outside the protocol is `unknown` |
+| `itgame_partylog_dropped_total{reason}` | counter | party records for the PostgreSQL analytics (ITGAME-239) that never reached the database: `full` (buffer), `no_db`, `error` (query failed) |
 
 Plus the standard `go_*` and `process_*` series. The `cmd` label takes a
 name only from `knownCommands` (`server/internal/ws/metrics.go`): outside
@@ -2064,8 +2065,7 @@ writes a file.
 
 PostgreSQL is optional: gameplay and saves don't use it. It backs the
 `/admin` page (current balance config and the `lib_equipment` catalog).
-Live parties for analytics are proposed, not built yet:
-[docs/design/party-analytics.md](design/party-analytics.md) (ITGAME-237).
+It also stores live parties for analytics — see [Party analytics](#party-analytics).
 
 Put `DATABASE_URL=postgres://user:pass@localhost:5432/itdirector` into
 `.env` in the repo root (gitignored); the `Makefile` loads it and exports
@@ -2102,6 +2102,62 @@ Checked 20.10: both instances log «БД подключена, миграции 
 the two tables (`lib_equipment`, `schema_migrations`); on an empty
 PostgreSQL 18.6 the current `main` applies both migrations, seeds the nine
 catalog rows and `/admin` lists them.
+
+### Party analytics
+
+ITGAME-239, design and the owner's decisions in
+[docs/design/party-analytics.md](design/party-analytics.md). With
+`DATABASE_URL` set **and** saves on, the session actor sends every party to
+PostgreSQL (migration `0003_parties.sql`): `parties` (one row per party:
+build, difficulty, fixture, seed, client, outcome, last day and balance, the
+`debug` flag), `party_days` (each closed day: balance, income, payroll, staff,
+offices, PCs and the whole `game.DayLedger` as `jsonb`), `party_choices` (an
+event option, `-1` — ignored until the evening) and the view `party_status`
+(`running`, `dropped` — no outcome and the save expired, or the outcome).
+Prod and stage have their own databases, so there is no environment column.
+
+- **Never in the game's way.** `ws.Handler.Parties` (a `partylog.Writer`)
+  takes records without blocking; one goroutine writes them in order. A full
+  buffer, a missing database or a failed query loses the record and counts it
+  in `itgame_partylog_dropped_total{reason}`.
+- **After the save.** The actor (`internal/ws/partylog.go`) sends a record
+  only after a successful `persist`, like the party journal: an evicted actor
+  writes nothing. The party is `sid_hash` (`sha256(sid)` — the raw `sid` is a
+  save key and is not stored) plus `n`, the restart number; the actor keeps a
+  random party token in memory and the writer maps it to the row. An unknown
+  token (a resume, a lost start) takes the last party of the `sid`, or opens a
+  `partial` row when that party already ended or its day is higher.
+- **Monotonic.** A late record of an evicted actor rolls nothing back:
+  `last_seen_at`/`expires_at` only grow, day and balance change only from a
+  record not older than `last_seen_at`, the outcome is written once, a day
+  row is written once (`ON CONFLICT DO NOTHING`).
+- `client` is `desktop`, `mobile`, `unknown` (`?client=`) or `agent` — a
+  headless `/ws/agent` session. Analytics takes
+  `client IN ('desktop', 'mobile') AND NOT debug AND scenario = ''`.
+
+```sql
+-- where parties are lost: day and reason by difficulty
+SELECT difficulty, lose_reason, day, count(*) FROM parties
+WHERE outcome = 'lost' AND NOT debug AND scenario = '' AND client IN ('desktop', 'mobile')
+GROUP BY 1, 2, 3 ORDER BY 1, 2, 3;
+
+-- on which day players quit: «Сдаться» or just gone
+SELECT status, day, count(*) FROM party_status
+WHERE status IN ('abandon', 'dropped') AND NOT debug AND scenario = '' AND client IN ('desktop', 'mobile')
+GROUP BY 1, 2 ORDER BY 1, 2;
+
+-- the last three days before a loss
+SELECT p.id, p.difficulty, p.lose_reason, d.day, d.balance, d.income, d.payroll, d.staff, d.pcs
+FROM parties p JOIN party_days d ON d.party_id = p.id
+WHERE p.outcome = 'lost' AND d.day > p.day - 3
+  AND NOT p.debug AND p.scenario = '' AND p.client IN ('desktop', 'mobile')
+ORDER BY p.id, d.day;
+```
+
+On the stand they run through the MCP server `itd-db` (read-only).
+Tests: `internal/partylog` against `TEST_DATABASE_URL`, the actor side in
+`internal/ws/partylog_test.go` with a fake sink, the wiring in
+`cmd/server/partylog_test.go`.
 
 ## Local stand (`:15555`)
 
