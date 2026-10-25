@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "bf594f5171b4",
+  "hash": "6ebf31a08ac5",
   "methods": {
     "version": {
       "kind": "prop",
@@ -17,7 +17,7 @@ export const CONTRACT = {
       "kind": "method",
       "params": [],
       "returns": "AgentState",
-      "doc": "Баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий\n(null до первого снапшота); debtLimit — порог долга, глубже которого вечер\nбанкротит: лимит кредита или, на Лёгком/Норме, овердрафт = расходы дня\n(creditLimit там 0, ITGAME-156); menuReady — меню создано, активно, его перезапуск\nне в очереди (itd.sandbox()/restore() перезапускают меню) и сводка сейва\nустоялась: после true плашки меню больше не сдвигаются (ITGAME-88), cx/cy можно\nбрать для настоящего клика. Анимации въезда у меню нет.",
+      "doc": "Баланс, день, часы, доход, ФОТ, штат, сеть, долг, цель, сид/сценарий\n(null до первого снапшота); debtLimit — порог долга, глубже которого вечер\nбанкротит: лимит кредита или, на Лёгком/Норме, овердрафт = расходы дня\n(creditLimit там 0, ITGAME-156); menuReady — меню создано, активно, его перезапуск\nне в очереди (itd.sandbox()/restore() перезапускают меню), сводка сейва\nустоялась и input-слой принял объекты меню (ITGAME-165): после true плашки меню больше не сдвигаются (ITGAME-88), cx/cy можно\nбрать для настоящего клика. Анимации въезда у меню нет.",
       "examples": [
         "itd.state()",
         "await itd.wait(s => s.menuReady)"
@@ -219,7 +219,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "HitResult",
-      "doc": "Попадёт ли НАСТОЯЩИЙ клик в центр объекта в него самого: настоящий\nхит-тест Phaser, тот же, что stack() (hitArea, renderList, topOnly; сцены\nсверху вниз). ok:false + top — кто перехватит клик (например, затемнение\nотчёта дня поверх HUD); top null — точку не берёт никто (hitArea объекта\nеё не накрывает). itd.click() этого не проверяет: он мимо хит-теста.",
+      "doc": "Попадёт ли НАСТОЯЩИЙ клик в центр объекта в него самого: настоящий\nхит-тест Phaser, тот же, что stack() (hitArea, renderList, topOnly; сцены\nсверху вниз). ok:false + top — кто перехватит клик (например, затемнение\nотчёта дня поверх HUD); top null — точку не берёт никто (hitArea объекта\nеё не накрывает). itd.click() этого не проверяет: он мимо хит-теста.\nОбъект, созданный в этом кадре (окно только что открыто), input-слой Phaser принимает со\nследующего шага лупа: до тех пор ok:false, pending:true и why — это не перекрытие (ITGAME-165),\nповторите через кадр; screen() ставит такому объекту флаг P, stack(id) — pending:true.",
       "examples": [
         "itd.hit('btn.menu')",
         "itd.hit('btn.menu').top"
@@ -244,7 +244,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "ScreenMap | (AgentResult & { code: 'bad_frame'; })",
-      "doc": "Карта экрана одним вызовом (ITGAME-72): {ok: true, meta, n, items}. meta — sha, tab\n(sid), day, clock, t, bal, speed, phase, staff, pay, hudClock/hudBal (что\nнарисовано в HUD, рядом с серверными clock/bal), blocker, title (заголовок\nверхнего окна), stale (последний itd.stale()). items — строки 'safe|подпись|x|y|флаги' по видимым\nинтерактивам с id: подпись — тексты, целиком лежащие в рамке элемента (сосед,\nчей центр лёг на её кромку, — не подпись), x/y — центр в CSS px окна, с frame — в рамке снимка такой\nширины (frame — px, число ≥ 100; 1, 0, NaN, строка — {ok:false, code:'bad_frame'}, ITGAME-148); флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), D —\nнеактивна (нет денег/мест). free — только без X, scene — одна сцена.",
+      "doc": "Карта экрана одним вызовом (ITGAME-72): {ok: true, meta, n, items}. meta — sha, tab\n(sid), day, clock, t, bal, speed, phase, staff, pay, hudClock/hudBal (что\nнарисовано в HUD, рядом с серверными clock/bal), blocker, title (заголовок\nверхнего окна), stale (последний itd.stale()). items — строки 'safe|подпись|x|y|флаги' по видимым\nинтерактивам с id: подпись — тексты, целиком лежащие в рамке элемента (сосед,\nчей центр лёг на её кромку, — не подпись), x/y — центр в CSS px окна, с frame — в рамке снимка такой\nширины (frame — px, число ≥ 100; 1, 0, NaN, строка — {ok:false, code:'bad_frame'}, ITGAME-148); флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), P — input-слой\nPhaser ещё не принял объект (создан в этом кадре, например окно только что открыто; вместо X — это не перекрытие, через кадр флаг уйдёт,\nITGAME-165), D — неактивна (нет денег/мест). meta.ready — false, пока есть объекты с P: карте и\nitd.hit()/stack() можно верить. free — только без X и P (по чему настоящий клик попадёт сейчас), scene — одна сцена.",
       "examples": [
         "itd.screen()",
         "itd.screen({ free: true, frame: 1280 })"
@@ -318,7 +318,7 @@ export const CONTRACT = {
         }
       ],
       "returns": "StackResult",
-      "doc": "Стек под точкой по НАСТОЯЩЕМУ хит-тесту Phaser (InputManager.hitTest:\nhitArea, камера, видимость контейнеров; порядок — sortGameObjects по\nrenderList камеры; сцены сверху вниз, globalTopOnly + topOnly). Точка —\nцентр (cx/cy) объекта по id/safe-id или мировые gx, gy (1280×720).\nstack — все interactive под точкой сверху вниз ('safe scene dN Type WxH';\n'!' — сцена ниже забравшей клик), wins — кто получит pointerdown (объект; в itd.trace().pointer[].wins с ITGAME-179 — метка-строка, как got).\nhit() и флаг X в screen() — тот же хит-тест, только верх в центре объекта.\nОбъект, добавленный в этом кадре, виден со следующего кадра (ITGAME-113):\nsetInteractive() ставит его в очередь input-плагина, в список хит-теста он\nпопадает на следующем шаге лупа — и настоящий клик в тот же момент его\nтоже не видит (уходит тому, кто под ним). Нужен сразу — дождаться кадра:\nawait new Promise(r => requestAnimationFrame(r)); в скрытой вкладке кадр\nпрогревает сам stack().",
+      "doc": "Стек под точкой по НАСТОЯЩЕМУ хит-тесту Phaser (InputManager.hitTest:\nhitArea, камера, видимость контейнеров; порядок — sortGameObjects по\nrenderList камеры; сцены сверху вниз, globalTopOnly + topOnly). Точка —\nцентр (cx/cy) объекта по id/safe-id или мировые gx, gy (1280×720).\nstack — все interactive под точкой сверху вниз ('safe scene dN Type WxH';\n'!' — сцена ниже забравшей клик), wins — кто получит pointerdown (объект; в itd.trace().pointer[].wins с ITGAME-179 — метка-строка, как got).\nhit() и флаг X в screen() — тот же хит-тест, только верх в центре объекта.\nОбъект, добавленный в этом кадре, виден со следующего кадра (ITGAME-113):\nsetInteractive() ставит его в очередь input-плагина, в список хит-теста он\nпопадает на следующем шаге лупа — и настоящий клик в тот же момент его\nтоже не видит (уходит тому, кто под ним). Нужен сразу — дождаться кадра:\nawait new Promise(r => requestAnimationFrame(r)); в скрытой вкладке кадр\nпрогревает сам stack(). Очередь stack() не читает, но по id говорит о ней сам:\nцель в очереди — pending:true и why (wins без неё — не перекрытие, ITGAME-165).",
       "examples": [
         "itd.stack('office:slot:0')",
         "itd.stack(260, 190).wins"
@@ -2362,7 +2362,12 @@ export const CONTRACT = {
         "why": {
           "type": "string",
           "optional": true,
-          "doc": "нет узла / узел невидим"
+          "doc": "нет узла / узел невидим / input-слой ещё не принял объект (pending)"
+        },
+        "pending": {
+          "type": "true",
+          "optional": true,
+          "doc": "ITGAME-165: объект создан в этом кадре, input-слой Phaser примет его на следующем шаге лупа; до тех пор ok false — это не перекрытие"
         }
       }
     },
@@ -3270,6 +3275,11 @@ export const CONTRACT = {
           "type": "boolean | null",
           "optional": false,
           "doc": "вкладка на старом JS по последней проверке (itd.stale(), ITGAME-78); null — не проверяли или не с чем"
+        },
+        "ready": {
+          "type": "boolean",
+          "optional": false,
+          "doc": "ITGAME-165: input-слой Phaser принял все новые объекты — флаги X и hit() говорят про настоящий клик; false — есть объекты с флагом P (создан в этом кадре, виден хит-тесту со следующего)"
         }
       }
     },
@@ -3767,7 +3777,12 @@ export const CONTRACT = {
         "why": {
           "type": "string",
           "optional": true,
-          "doc": ""
+          "doc": "у stack(id) с pending — пояснение"
+        },
+        "pending": {
+          "type": "true",
+          "optional": true,
+          "doc": "ITGAME-165: stack(id) — сама цель создана в этом кадре и input-слой её ещё не принял: wins её не назовёт, пока не пройдёт шаг лупа"
         }
       }
     },
