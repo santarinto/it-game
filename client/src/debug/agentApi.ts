@@ -634,7 +634,11 @@ export interface ScreenMeta {
   blocker: string | null // «safe|сцена@depth» перекрытия во весь холст или null
   title: string | null // заголовок верхнего окна (markTitle) или null
   stale: boolean | null // вкладка на старом JS по последней проверке (itd.stale(), ITGAME-78); null — не проверяли или не с чем
-  ready: boolean // ITGAME-165: input-слой Phaser принял все новые объекты — флаги X и hit() говорят про настоящий клик; false — есть объекты с флагом P (создан в этом кадре, виден хит-тесту со следующего)
+  // ITGAME-165: true — очередь input-слоя Phaser пуста во ВСЕХ активных сценах (каждый объект, включая без id и невидимые,
+  // уже в списке хит-теста): карте, free и itd.hit() можно верить. false — очередь не пуста (где-то объект создан в этом
+  // кадре): отсутствие флага ничего не обещает (затемнение без id тоже в очереди — кнопки под ним идут без X), free пуст,
+  // повторите через кадр. null — очередь не читается (Phaser сменил внутренности), карта как до ITGAME-165, возможен ложный X
+  ready: boolean | null
 }
 
 export interface ScreenMap {
@@ -644,7 +648,7 @@ export interface ScreenMap {
   // 'safe|подпись|x|y|флаги': подпись — тексты, целиком лежащие внутри bounds (≤22 символа, «-» у
   // иконок без текста), x/y — центр в CSS px окна (или в рамке frame), флаги:
   // A — выбрана (active), X — перекрыта (hit не ok), P — input-слой ещё не принял объект (создан
-  // в этом кадре, ITGAME-165; вместо X, meta.ready false), D — неактивна (disabled)
+  // в этом кадре, ITGAME-165; вместо X, meta.ready false — тогда флагам без P верить нельзя), D — неактивна (disabled)
   items: string[]
 }
 
@@ -670,7 +674,7 @@ export interface StackResult {
   // (выше её другая сцена уже забрала его)
   stack: string[]
   wins: HitTarget | null // кто получит pointerdown; null — никто
-  why?: string // у stack(id) с pending — пояснение
+  why?: string // нет узла / узел невидим / нужны id или gx, gy; у stack(id) цели в очереди input-слоя — pending-пояснение (ITGAME-165)
   pending?: true // ITGAME-165: stack(id) — сама цель создана в этом кадре и input-слой её ещё не принял: wins её не назовёт, пока не пройдёт шаг лупа
 }
 
@@ -812,7 +816,8 @@ export interface ItdApi {
    * (creditLimit там 0, ITGAME-156); menuReady — меню создано, активно, его перезапуск
    * не в очереди (itd.sandbox()/restore() перезапускают меню), сводка сейва
    * устоялась и input-слой принял объекты меню (ITGAME-165): после true плашки меню больше не сдвигаются (ITGAME-88), cx/cy можно
-   * брать для настоящего клика. Анимации въезда у меню нет.
+   * брать для настоящего клика. Анимации въезда у меню нет. В скрытой вкладке прогревает луп
+   * (как screen()/hit()), на видимой кадры не трогает.
    * @example itd.state()
    * @example await itd.wait(s => s.menuReady)
    */
@@ -987,8 +992,12 @@ export interface ItdApi {
    * чей центр лёг на её кромку, — не подпись), x/y — центр в CSS px окна, с frame — в рамке снимка такой
    * ширины (frame — px, число ≥ 100; 1, 0, NaN, строка — {ok:false, code:'bad_frame'}, ITGAME-148); флаги A — выбрана, X — перекрыта (настоящий клик не попадёт), P — input-слой
    * Phaser ещё не принял объект (создан в этом кадре, например окно только что открыто; вместо X — это не перекрытие, через кадр флаг уйдёт,
-   * ITGAME-165), D — неактивна (нет денег/мест). meta.ready — false, пока есть объекты с P: карте и
-   * itd.hit()/stack() можно верить. free — только без X и P (по чему настоящий клик попадёт сейчас), scene — одна сцена.
+   * ITGAME-165), D — неактивна (нет денег/мест). meta.ready — true: очередь input-слоя пуста во всех
+   * активных сценах, карте, free и itd.hit() можно верить; false: очередь не пуста (в ней и объекты без id,
+   * невидимые, чужой сцены — scene не учитывается), отсутствие флага ничего не обещает (кнопки под
+   * только что открытым окном идут без X, а через кадр их накроет), free пуст — повторите через кадр;
+   * null: очередь не читается (Phaser сменил внутренности). free — только без X и P (по чему настоящий
+   * клик попадёт сейчас) и только при ready не false, scene — одна сцена.
    * @example itd.screen()
    * @example itd.screen({ free: true, frame: 1280 })
    */
@@ -1474,8 +1483,9 @@ function buildState(game: Phaser.Game): AgentState {
   // 42 px (карточка «Продолжить» появлялась на «загружаю сводку…» и пропадала)
   // уже после menuReady. Пока в очереди есть операция над меню — не готово.
   const queue = (game.scene as unknown as { _queue?: { keyA?: string }[] })._queue ?? []
-  // ITGAME-165: и input-слой принял объекты меню — созданные между кадрами (асинхронный обработчик,
-  // перезапуск сцены) объекты до следующего шага лупа хит-тест не видит (screen() ставил X)
+  // ITGAME-165: и input-слой принял объекты меню. При перезапуске сцены объекты create() разбираются в том же
+  // шаге; через границу кадра в очереди остаётся только асинхронная перестройка (peekSave().then(buildMain)
+  // в MenuScene.create) — до следующего шага лупа хит-тест её объектов не видит (screen() ставил X)
   const menuReady = game.scene.isActive('menu') && !queue.some((op) => op.keyA === 'menu') && (menu?.saveSettled ?? true) &&
     inputQueued(game, 'menu').count === 0
   const s = client.latest
@@ -1691,23 +1701,36 @@ function hitAt(game: Phaser.Game, x: number, y: number): HitTarget | null {
 // ITGAME-165: объекты, которых input-слой Phaser ещё не принял. setInteractive() кладёт объект в
 // InputPlugin._pendingInsertion, в список хит-теста (_list) его переносит preUpdate сцены на следующем
 // шаге лупа (измерено: 6 объектов окна «Выйти в меню?» — pending 6 → 0 ровно за один кадр). Всё это
-// время nodes()/stack(wins) уже видят объект, а hitAt() отдаёт подложку — флаг X в screen() и hit().ok
-// выглядели перекрытием. keys — 'сцена|id' у объектов с id (data-ключ), count — все в очереди.
-// Читаем только активные сцены: у них шаг лупа очередь обязательно разберёт.
-function inputQueued(game: Phaser.Game, only?: string): { count: number; keys: Set<string> } {
+// время nodes() объект уже видит, а hitAt() (тот же phaserHits по _list, что у stack()) отдаёт подложку —
+// флаг X в screen() и hit().ok выглядели перекрытием. keys — 'сцена|id' у объектов с id (data-ключ),
+// count — ВСЕ в очереди (и без id, невидимые, уничтоженные до шага: clear() очередь вставки не трогает).
+// Читаем только активные сцены: у них шаг лупа очередь обязательно разберёт. readable false — у
+// активной сцены нет массива _pendingInsertion (внутренности Phaser изменились; диапазон ^3.90.0
+// допускает минорные версии): P и ready:false пропали бы молча, поэтому ready тогда null и один console.warn.
+let queueWarned = false
+function inputQueued(game: Phaser.Game, only?: string): { count: number; keys: Set<string>; readable: boolean } {
   const keys = new Set<string>()
   let count = 0
+  let readable = true
   for (const sc of game.scene.getScenes(true)) {
     if (only && sc.scene.key !== only) continue
-    const queue = (sc.input as unknown as { _pendingInsertion?: Phaser.GameObjects.GameObject[] } | undefined)?._pendingInsertion
-    if (!queue) continue
+    if (!sc.input) continue
+    const queue = (sc.input as unknown as { _pendingInsertion?: Phaser.GameObjects.GameObject[] })._pendingInsertion
+    if (!Array.isArray(queue)) {
+      readable = false
+      continue
+    }
     for (const o of queue) {
       count++
       const raw = (o as unknown as { getData?(k: string): unknown }).getData?.('id')
       if (typeof raw === 'string') keys.add(`${sc.scene.key}|${raw}`)
     }
   }
-  return { count, keys }
+  if (!readable && !queueWarned) {
+    queueWarned = true
+    console.warn('[itd] InputPlugin._pendingInsertion не читается (версия Phaser?): флаг P и screen().meta.ready отключены, X в первом кадре после появления окна может быть ложным')
+  }
+  return { count, keys, readable }
 }
 
 function blockerOf(game: Phaser.Game): HitTarget | null {
@@ -1786,7 +1809,7 @@ function buildScreen(game: Phaser.Game, opts: ScreenOptions = {}): ScreenMap {
     blocker: b ? `${b.safe ?? b.scene}@${b.depth}` : null,
     title: b?.title ?? topTitle(game),
     stale: lastStale()?.stale ?? null,
-    ready: queued.count === 0,
+    ready: queued.readable ? queued.count === 0 : null,
   }
   // Подпись — тексты, чей bounds ЦЕЛИКОМ внутри bounds элемента (допуск 2 px). Раньше
   // хватало центра текста в рамке, и чужой текст с центром на кромке клеился: ✕ окна
@@ -1801,7 +1824,8 @@ function buildScreen(game: Phaser.Game, opts: ScreenOptions = {}): ScreenMap {
     // P (ITGAME-165): объект создан в этом кадре — input-слой его ещё не принял, это не перекрытие
     const pend = queued.keys.has(`${n.scene}|${n.id}`)
     const ok = !pend && hitAt(game, n.cx, n.cy)?.id === n.id
-    if (opts.free && !ok) continue
+    // free при ready:false пуст: очередь не пуста где-то ещё (затемнение без id), и «без флага» ничего не обещает
+    if (opts.free && (!ok || queued.count > 0)) continue
     const label = texts
       .filter((t) => t.scene === n.scene && inside(t, n))
       .map((t) => oneLine(t.text as string))
@@ -2109,7 +2133,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.offscreen()                   — линтер: вылезание за канвас 1280×720; + {scene:'page', type:'canvas'} — канвас не влез в окно (CSS px)
   itd.hit('btn.menu')               — попадёт ли НАСТОЯЩИЙ клик в центр объекта в него (хит-тест Phaser, как stack): {ok, at{x,y}, top{scene,id,safe,type,depth,title}} — top перехватит (затемнение отчёта поверх HUD); itd.click этого не видит; pending:true + why — объект создан в этом кадре, input-слой примет его со следующего (ok:false — не перекрытие, повторите через кадр)
   itd.blocker()                     — что перекрывает ввод во весь холст (затемнение отчёта, модалка) или null: {scene, type, id, safe, depth, title — заголовок окна}
-  itd.screen({frame?, free?, scene?}) — карта экрана: {ok: true, meta:{sha, tab, day, clock, t, bal, speed, phase, staff, pay, hudClock, hudBal, blocker, title, stale, ready}, n, items:['safe|подпись|x|y|флаги']}; подпись — тексты целиком в рамке элемента; x/y — центр в CSS px окна (frame — в рамке снимка такой ширины, px, число ≥ 100, иначе {ok:false, code:'bad_frame'}); флаги A выбрана, X перекрыта, P input-слой ещё не принял объект (создан в этом кадре, окно только что открыто; не перекрытие — через кадр уйдёт; ITGAME-165), D неактивна; ready false — есть объекты с P; free — только без X и P
+  itd.screen({frame?, free?, scene?}) — карта экрана: {ok: true, meta:{sha, tab, day, clock, t, bal, speed, phase, staff, pay, hudClock, hudBal, blocker, title, stale, ready}, n, items:['safe|подпись|x|y|флаги']}; подпись — тексты целиком в рамке элемента; x/y — центр в CSS px окна (frame — в рамке снимка такой ширины, px, число ≥ 100, иначе {ok:false, code:'bad_frame'}); флаги A выбрана, X перекрыта, P input-слой ещё не принял объект (создан в этом кадре, окно только что открыто; не перекрытие — через кадр уйдёт; ITGAME-165), D неактивна; ready true — очередь input-слоя пуста, карте можно верить; false — очередь не пуста (не только объекты с P: и без id), отсутствие флага ничего не обещает, free пуст; null — очередь не читается; free — только без X и P при ready не false
   itd.stack('office:slot:0')      — стек под центром объекта (или itd.stack(gx, gy)) по НАСТОЯЩЕМУ хит-тесту Phaser (hitArea, renderList, topOnly): {ok, at{x,y}, stack['safe scene dN Type WxH'], wins{scene,id,safe,type,depth,title}} — wins получит pointerdown; '!' — сцена под забравшей клик; объект, добавленный в этом кадре, виден со следующего кадра (и настоящий клик в тот же момент его не видит; у stack(id) в этом случае pending:true)
   itd.zones('office:slot:0', 'office:master:0') — где зона A перекрыта B и наоборот (сетка 1 px, тот же хит-тест): {aUnderB[{x,y,w,h}], bUnderA[…], area{a, aUnderB, b, bUnderA}}
   itd.offline()                     — последний офлайн-догон страницы {ticks, days, shown, at, droppedAt, leftAt, liveTicks, open, paused, seq, awayId} — liveTicks: шло вживую, пока сервер не заметил уход: shown:false — догон внутри дня, окна «Пока вас не было» не было; пока окно открыто, партия на паузе; ПОСЛЕДНИЙ, не «текущий»: seq — номер догона на странице, awayId — itd.away, во время которого пришёл (null — F5/реконнект); сверять по ключу, не по at
@@ -2267,7 +2291,10 @@ function makeApi(game: Phaser.Game, claim: ClaimApi): ItdApi {
 
   const api: ItdApi = {
     version: BUILD,
-    state: () => buildState(game),
+    state: () => {
+      warmIfHidden() // ITGAME-165: как screen()/hit(): без прогрева menuReady на скрытой вкладке расходился с картой до пульса
+      return buildState(game)
+    },
     server: buildServer,
     nodes: () => warmedNodes(),
     text: () => warmedNodes().filter((n) => n.text !== null && n.text !== ''),
