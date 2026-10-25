@@ -859,17 +859,19 @@ export interface ItdApi {
   /**
    * Клик по id СИНТЕТИЧЕСКИМ событием (ITGAME-153) — третий класс ввода между настоящим кликом
    * по координатам и itd.click(): mousedown/mouseup (MouseEvent на канвас; PointerEvent эта
-   * сборка Phaser не слушает) в центре объекта (cx/cy → CSS px по getBoundingClientRect холста:
-   * масштаб UI, «по окну» и dpr учтены), так что событие проходит настоящий хит-тест Phaser, а
-   * got/sent — то, что игра с ним сделала. Прежде чем слать, зовёт тот же хит-тест, что
+   * сборка Phaser не слушает) в центре объекта (cx/cy → CSS px обратным преобразованием Phaser:
+   * canvasBounds и displayScale ScaleManager, как у transformX/Y — масштаб UI, «по окну» и dpr
+   * учтены, а холст, сдвинутый до перечитывания границ Phaser (раз в ~0.5 с), не уводит down мимо),
+   * так что событие проходит настоящий хит-тест Phaser, а got/sent — то, что игра с ним сделала. Прежде чем слать, зовёт тот же хит-тест, что
    * itd.stack(cx, cy): получит клик не цель — {ok: false, code: 'covered', wins} и события нет;
    * no_node — нет id, hidden — узел невидим, no_hit — точку не берёт никто, bad_args — button не
    * 0|2 или holdMs не число 0..2000. {button: 2} — правая кнопка (увольнение в офисе), holdMs —
-   * мс между down и up (по умолчанию 40), upOutside — up на document.body вне холста.
+   * мс между down и up (по умолчанию 40). Вызывать с await, по одному (не Promise.all).
    * Ответ: {ok, synthetic: true, id, at — мировые, client — CSS px, wins — метка победителя
    * хит-теста до события, got: {down, up} — до кого дошло, gone — получившие down и ушедшие
    * до up (пустой up с gone [цель] — «клик принят, цель ушла»), sent — команды от down до 60 мс
-   * после up, src 'itd'}. ok — события отправлены, а не «игра отреагировала»: смотри got и sent.
+   * после up: src 'itd' у ушедших синхронно внутри dispatch, 'ui' у ушедших позже (tween,
+   * реакция UI на снапшот)}. ok — события отправлены, а не «игра отреагировала»: смотри got и sent.
    * isTrusted у них false: itd.claim считает такие нажатия synthetic, не чужими (и не own);
    * itd.trace.pointer метит их synthetic: true. Это не настоящий клик: «клик сработал»
    * доказывает только он; tap — «косвенно, но через хит-тест».
@@ -917,10 +919,12 @@ export interface ItdApi {
    * игрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().
    * ITGAME-45: sent — с id команды, states — снапшоты окна {rev, cause, re?}:
    * ответ на команду — state с re = её id. ITGAME-179: sent[].src — itd (ушла внутри
-   * вызова itd.*: cmd/click/key/pause/resume/speed/step) или ui (настоящий клик/клавиша,
-   * реакция UI); itd.trace.summary(id? | tr) — окно строками по времени, не закрывая.
-   * ITGAME-88: pointer — настоящие
-   * mousedown/mouseup в окне: {type: down|up, button, x, y (мировые 1280×720),
+   * вызова itd.*: cmd/click/key/pause/resume/speed/step/tap; у tap — только ушедшие внутри
+   * dispatchEvent) или ui (настоящий клик/клавиша, реакция UI, отправка позже dispatch tap);
+   * itd.trace.summary(id? | tr) — окно строками по времени, не закрывая.
+   * ITGAME-88: pointer — нажатия указателя
+   * mousedown/mouseup в окне (настоящие и, с synthetic: true, события с isTrusted false —
+   * itd.tap, dispatchEvent): {type: down|up, button, x, y (мировые 1280×720),
    * onCanvas, wins — метка победителя хит-теста Phaser в момент события, та же форма,
    * что got (safe id или тип без id; полная строка — stack[0]), stack — как itd.stack,
    * got — до кого дошёл pointerdown/up (GAMEOBJECT_POINTER_DOWN/UP объекта; кнопка,
@@ -1823,6 +1827,11 @@ interface InputInternals {
   sortGameObjects(list: Phaser.GameObjects.GameObject[], p: unknown): Phaser.GameObjects.GameObject[]
 }
 
+// Главная камера верхней активной сцены (у всех сцен игры одна HIRES_CAMERA): phaserHits, pointerProbe, itd.tap.
+function mainCamera(game: Phaser.Game): Phaser.Cameras.Scene2D.Camera | undefined {
+  return game.scene.getScenes(false, true).find((sc) => sc.sys.isActive() && sc.cameras?.main)?.cameras.main
+}
+
 // Мировая точка → координаты указателя (пиксели канваса): обращаем аффинное
 // getWorldPoint главной камеры (у всех сцен игры одна HIRES_CAMERA).
 function screenOf(cam: Phaser.Cameras.Scene2D.Camera, gx: number, gy: number): { x: number; y: number } {
@@ -1841,7 +1850,7 @@ function screenOf(cam: Phaser.Cameras.Scene2D.Camera, gx: number, gy: number): {
 
 function phaserHits(game: Phaser.Game, gx: number, gy: number): PhaserHit[] {
   const scenes = game.scene.getScenes(false, true) // сверху вниз, как updateInputPlugins
-  const ref = scenes.find((sc) => sc.sys.isActive() && sc.cameras?.main)?.cameras.main
+  const ref = mainCamera(game)
   if (!ref) return []
   const { x, y } = screenOf(ref, gx, gy)
   const out: PhaserHit[] = []
@@ -1900,7 +1909,7 @@ function stackAt(game: Phaser.Game, gx: number, gy: number): { stack: string[]; 
 // камеры верхней активной сцены (у всех сцен одна HIRES_CAMERA) → stackAt.
 function pointerProbe(game: Phaser.Game): PointerProbe {
   return (ev) => {
-    const cam = game.scene.getScenes(false, true).find((sc) => sc.sys.isActive() && sc.cameras?.main)?.cameras.main
+    const cam = mainCamera(game)
     const px = game.scale.transformX(ev.pageX)
     const py = game.scale.transformY(ev.pageY)
     const w = cam ? cam.getWorldPoint(px, py) : { x: px, y: py }
@@ -2073,7 +2082,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
                                        active — состояние переключателя (btn.speed.*, nav.*, btn.skip_reports, btn.debug, menu.zoom.*), null у прочих; НЕ GameObject.active
   itd.click('btn.hire')             — клик по id: дергает pointerdown-обработчик напрямую, мимо input-слоя
                                        ok:false + code 'debounced' — обработчик отбросил клик (дребезг switchRoom 250 мс игрового времени)
-  await itd.tap('btn.hire', {button?, holdMs?, upOutside?}) — клик по id СИНТЕТИЧЕСКИМ MouseEvent (mousedown/mouseup на канвас в центре объекта, CSS px по getBoundingClientRect холста: масштаб и dpr учтены), проходит настоящий хит-тест Phaser (ITGAME-153): третий класс ввода между настоящим кликом и itd.click; перед отправкой зовёт хит-тест как itd.stack(cx, cy) — получит не цель → {ok:false, code:'covered', wins}, события нет; no_node | hidden | no_hit (точку не берёт никто) | bad_args (button не 0|2, holdMs не число 0..2000); button 2 — правая, holdMs — мс между down и up (по умолчанию 40), upOutside — up на document.body вне холста → {ok, synthetic: true, id, at{x,y} мировые, client{x,y} CSS px, wins — метка победителя хит-теста до события, got{down[], up[]} — до кого дошло, gone[] — получившие down и ушедшие до up, sent[] — команды от down до 60 мс после up, src 'itd'}; ok — события отправлены, не «игра отреагировала»: смотри got/sent. isTrusted false: itd.claim считает их synthetic (не own, не foreign), itd.trace.pointer метит synthetic: true; настоящий клик это не заменяет
+  await itd.tap('btn.hire', {button?, holdMs?}) — клик по id СИНТЕТИЧЕСКИМ MouseEvent (mousedown/mouseup на канвас в центре объекта, CSS px обратным преобразованием Phaser — canvasBounds/displayScale: масштаб и dpr учтены), проходит настоящий хит-тест Phaser (ITGAME-153): третий класс ввода между настоящим кликом и itd.click; перед отправкой зовёт хит-тест как itd.stack(cx, cy) — получит не цель → {ok:false, code:'covered', wins}, события нет; no_node | hidden | no_hit (точку не берёт никто) | bad_args (button не 0|2, holdMs не число 0..2000); button 2 — правая, holdMs — мс между down и up (по умолчанию 40); вызывать с await, по одному (не Promise.all) → {ok, synthetic: true, id, at{x,y} мировые, client{x,y} CSS px, wins — метка победителя хит-теста до события, got{down[], up[]} — до кого дошло, gone[] — получившие down и ушедшие до up, sent[] — команды от down до 60 мс после up (src 'itd' — ушли синхронно внутри dispatch, 'ui' — позже: tween, реакция UI на снапшот)}; ok — события отправлены, не «игра отреагировала»: смотри got/sent. isTrusted false: itd.claim считает их synthetic (не own, не foreign), itd.trace.pointer метит synthetic: true; настоящий клик это не заменяет
   itd.hover('office.worker.0')      — наведение по id (тултипы)
   itd.key('1'|'enter'|'space'|'esc')— клавиша: 1-4 сложность в меню, up/down — фокус меню, enter — пункт в фокусе меню / отчёт дня, space/esc — отчёт дня
   itd.cmd('hire')                   — команда с квитанцией сервера ('abandon' — путём кнопки «Сдаться»: сейв удалён, вкладка в меню; 'exit' — только сохранение на сервере, вкладка остаётся в игре, в меню не уводит: выход — itd.exit()): Promise<{ok, code?, id, rev}> — ответ на ЭТУ команду по id (state|error с re = id; тики и чужие команды не в счёт), rev — версия снапшота-ответа; серверные коды: no_free_pc, not_enough_money, …; транспортные: not_connected, receipt_timeout, disconnected
@@ -2082,7 +2091,7 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
                                        Рабочие места (ITGAME-135): itd.cmd('upgrade_pc', 0, {slot: i}) — апгрейд ПК стола i: ЭЛТ → ЖК → 2×ЖК (pc_max_level, pc_dead, not_enough_money); itd.cmd('replace_pc', 0, {slot: i}) — замена мёртвого или изношенного ПК (pc_fresh у нового); snapshot().state.offices[o].workplaces[i] {level, wear, dead, nextPrice}, prices.pcLevels / pcReplace, state.pcWearLimit, itd.state().deadPCs; на столе подпись office.pc.i → окно modal.pc.upgrade / modal.pc.replace; мёртвое место — office.dead.i и кнопка office.replace.i; repair_click по нему — pc_dead; фикстура worn_pcs
                                        Админ (ITGAME-101): itd.cmd('buy_admin_dept') — отдел админов (admin_dept_already), без него hire_admin — admin_dept_locked; itd.cmd('hire_admin', 0) / itd.cmd('fire_admin', 0) — найм и увольнение админа офиса (admin_already, no_admin, not_enough_money); state.offices[i].admin, adminSlot/adminKind — его следующая цель (-1/'' — свободен), adminFirePrice; 2 клика в тик сами, сначала заражённые места, потом сломанное. Комната — вкладка nav.adminDept («АДМ», ITGAME-145): закрыта — dept.buy «Купить отдел», открыта — места dept.admin.0..2 (наведение — тултип, ПКМ — «Уволить админа?»), строки dept.name.N / dept.status.N («чинит место 5» / «чистит место 3» / «свободен»), найм — кнопки колонки btn.admin.0..2; в офисе у админа кнопки и слота нет, тултип места — «чинит админ» / «чистит админ»; фикстура admin_dept
   await itd.exit()                  — «Сохранить и выйти» одним вызовом (ITGAME-166), путь кнопки: exit (пауза, «Продолжить» на прежней скорости), disconnect, стоп сцен партии, меню; ждёт menuReady (до 10 с) → {ok: true, menuReady}; открытое окно выхода закроется само; отказы not_in_party (вкладка в меню), not_connected (нет связи: вкладка в партии, окна «Нет связи» нет)
-  itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, id, src, …}] по порядку (src: itd — ушла синхронно внутри itd.* — cmd/click/key/pause/resume/speed/step; ui — настоящий клик/клавиша или реакция UI), recv[error/day_report…] (у error info.re/rev), states[{rev, cause, re?}] — снапшоты окна, transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}], pointer[{type: down|up, button, x, y — мировые, onCanvas, wins — метка победителя хит-теста Phaser в момент события, та же форма, что got (safe id или тип без id; полная строка — stack[0]), stack — как itd.stack, got — до кого дошёл pointerdown/up объекта, в т.ч. удалившегося в обработчике (✕ модалки) — на up его уже нет; [] — до объектов не дошло, gone — на up: получившие этот down и снятые до up (уничтожены, без input, скрыты, сцена не идёт) — «клик принят, цель ушла»; на down []; synthetic: true — событие itd.tap/dispatchEvent (isTrusted false), у настоящего поля нет}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой); itd.click() в pointer не попадает (мимо input-слоя)
+  itd.trace(() => itd.click('btn.pc'), 1000) — живая трассировка: подписка ДО action, окно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него → {ok, error?, result, t0, t1, actionMs, keys[{key, source: dom|itd, handled — есть подписчик, scenes, acted[{scene, action}] — сцена реально отработала; [] — guard отбросил}], sent[{type, office, id, src, …}] по порядку (src: itd — ушла синхронно внутри itd.* — cmd/click/key/pause/resume/speed/step/tap (у tap — внутри dispatchEvent); ui — настоящий клик/клавиша, реакция UI или отправка позже dispatch tap), recv[error/day_report…] (у error info.re/rev), states[{rev, cause, re?}] — снапшоты окна, transitions[{kind: phase|speed|day|scenes, from, to}], toasts[{text, where}], sounds[{name, key, ok}], pointer[{type: down|up, button, x, y — мировые, onCanvas, wins — метка победителя хит-теста Phaser в момент события, та же форма, что got (safe id или тип без id; полная строка — stack[0]), stack — как itd.stack, got — до кого дошёл pointerdown/up объекта, в т.ч. удалившегося в обработчике (✕ модалки) — на up его уже нет; [] — до объектов не дошло, gone — на up: получившие этот down и снятые до up (уничтожены, без input, скрыты, сцена не идёт) — «клик принят, цель ушла»; на down []; synthetic: true — событие itd.tap/dispatchEvent (isTrusted false), у настоящего поля нет}]}; t — мс от t0. Реальная клавиатура — page.keyboard.press внутри окна (action может быть паузой); itd.click() в pointer не попадает (мимо input-слоя)
   itd.trace.start({maxMs?})          — открытое окно (ITGAME-88): подписки сразу → {ok, id, t0, maxMs, open}; настоящий клик/клавиша — другим вызовом инструмента; само закроется через maxMs (по умолчанию 120000, до 600000; cut: true); коды bad_max, too_many (больше 8 окон)
   itd.trace.stop(id?)               — закрыть окно (без id — последнее) → тот же TraceResult, что у itd.trace() (+ id, windowMs = длина окна); нет окна — {ok:false, code:'no_trace'}. Пример: const {id} = itd.trace.start(); …клик…; const tr = itd.trace.stop(id); tr.pointer[0].wins — 'btn:pc', tr.sent[0].src, itd.trace.summary(tr).lines
   itd.trace.peek(id?)               — прочитать окно, не закрывая (ITGAME-160): копия TraceResult на сейчас (t1 — сейчас, windowMs от t0; cut-окно — каким закрылось), окно, maxMs и луп не трогает; нет окна — {ok:false, code:'no_trace'}. Счёт посреди пункта без stop → start
@@ -2272,21 +2281,25 @@ function makeApi(game: Phaser.Game, claim: ClaimApi): ItdApi {
       return { ok: true, id, scene: hit.scene }
     },
     tap: makeTap({
-      canvas: () => game.canvas as HTMLCanvasElement | null,
+      canvas: () => game.canvas as HTMLCanvasElement,
       node: (id) => {
         const real = realId(id)
         return activeNodes(game).find((x) => x.id === real) ?? null
       },
-      stack: (gx, gy) => {
-        const { wins, hits } = stackAt(game, gx, gy)
-        return { wins, objs: hits.map((h) => h.obj) }
+      stack: (gx, gy) => ({ wins: stackAt(game, gx, gy).wins }),
+      // Обратное к ScaleManager.transformX/Y: pageX = x / displayScale + canvasBounds.left. Не getBoundingClientRect:
+      // Phaser перечитывает границы холста по resize и раз в ~0.5 с, сдвинутый холст до этого читается по старым
+      toClient: (gx, gy) => {
+        const cam = mainCamera(game)
+        if (!cam) throw new Error('itd.tap: нет активной камеры') // stack() победителя уже нашёл — сюда не доходим
+        const p = screenOf(cam, gx, gy)
+        const sm = game.scale
+        return {
+          x: p.x / sm.displayScale.x + sm.canvasBounds.left - (window.pageXOffset || 0),
+          y: p.y / sm.displayScale.y + sm.canvasBounds.top - (window.pageYOffset || 0),
+        }
       },
-      pointerPx: (gx, gy) => {
-        const cam = game.scene.getScenes(false, true).find((sc) => sc.sys.isActive() && sc.cameras?.main)?.cameras.main
-        return cam ? screenOf(cam, gx, gy) : null
-      },
-      gameWidth: () => game.scale.width,
-      gameHeight: () => game.scale.height,
+      probe: pointerProbe(game),
       warm: warmIfHidden,
     }),
     hover(id) {

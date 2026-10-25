@@ -40,7 +40,7 @@ export interface TraceSent {
   t: number
   type: string
   office?: number
-  src: 'itd' | 'ui' // itd — ушла синхронно внутри вызова itd.* (cmd, click, key, pause, resume, speed, step; play — через cmd; отправка, отложенная обработчиком — tween, delayedCall, — уже ui); ui — всё прочее: настоящий клик/клавиша, реакция UI на снапшот
+  src: 'itd' | 'ui' // itd — ушла синхронно внутри вызова itd.* (cmd, click, key, pause, resume, speed, step, tap — у tap только внутри dispatchEvent; play — через cmd; отправка, отложенная обработчиком — tween, delayedCall, — уже ui); ui — всё прочее: настоящий клик/клавиша, реакция UI на снапшот
   [k: string]: unknown
 }
 

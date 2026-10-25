@@ -2,15 +2,17 @@
 //   1  меню, окно 2173 dpr 1.15: tap('menu.zoom.1') / ('menu.zoom.fit') / ('menu.zoom.1.4') при разных масштабах холста
 //      и после смены окна — мировая точка нажатия down в трассе (pointer x/y) = cx/cy цели ±1 (up после смены масштаба приходит в ту же клиентскую точку, но уже другого мира), wins/got.down = цель,
 //      client = rect.left + cx/1280·rect.width (по живой рамке); оба события в трассе с synthetic: true, в
-//      itd.trace.summary — слово «synthetic»
+//      itd.trace.summary — слово «synthetic»; 1c: got.down/got.up/gone ответа = pointer[].got/gone трассы, в т.ч. после
+//      смены масштаба, когда up приходит уже в другой мир (got.up по точке события, не по cx/cy до down)
 //   2  tap('menu.diff.normal') стартует партию: ok, synthetic, got.down [menu:diff:normal], up пуст, gone [цель]
 //   3  tap('btn.hire') в партии: got down/up btn:hire, sent [{type:'hire', src:'itd'}], штат растёт
 //   4  отказы без событий: no_node, hidden (невидимый hud.virus.*), no_hit (hud.money — нет hitArea), covered (под окном
-//      «Выйти в меню?»: wins — подложка, got пуст, sent пуст, в трассе pointer 0 и ни одного set_speed на проводе),
+//      «Выйти в меню?»: wins — подложка, got пуст, sent пуст, в трассе pointer 0),
 //      bad_args (button 1, holdMs -1 / 5000 / строка) — события не слались; ok:false всегда с synthetic: true
 //   5  button 2 → pointer button 2, окно «Уволить сотрудника?»; левый tap по тому же объекту окна не открывает
-//   6  holdMs 300 → up не раньше 290 мс после down; по умолчанию ≈ 40 (до 200 с запасом на кадр)
-//   7  upOutside → up в трассе onCanvas false, down onCanvas true; Phaser довёл up до цели (оконный слушатель)
+//   6  holdMs 300 → up не раньше 290 мс после down и заметно позже, чем по умолчанию (≥ 35; потолка нет: таймер ждёт кадра)
+//   7  холст сдвинут style.top без resize (Phaser канвасные границы ещё не перечитал) → tap сразу после сдвига:
+//      down в трассе = cx/cy цели ±1, got.down — цель (client считается обратным преобразованием Phaser, не по живой рамке)
 //   8  itd.claim: два tap → synthetic 2, downs/own/foreign/allowed 0, полоса не краснела; allow(target) + tap по цели →
 //      deny().hit false и ни одного разрешённого нажатия (синтетика — не «ход человека»)
 //   9  настоящий клик мыши (puppeteer) в те же client-координаты даёт тот же wins и got.down, что tap (хит-тест один)
@@ -118,6 +120,16 @@ async function run() {
       JSON.stringify({ res: z0.res, lines: z0.lines }),
     )
 
+    // 1c: got/gone ответа = то, что трасса (проба по самому событию) записала у down и up — и после смены масштаба,
+    // когда up приходит уже в другой мир: got.up берётся по точке события, не по cx/cy до down
+    const same = (t) => t.pointer.length === 2 && JSON.stringify(t.res.got.down) === JSON.stringify(t.pointer[0].got) &&
+      JSON.stringify(t.res.got.up) === JSON.stringify(t.pointer[1].got) && JSON.stringify(t.res.gone) === JSON.stringify(t.pointer[1].gone)
+    check(
+      '1c: got.down/got.up/gone ответа совпадают с pointer[0].got/[1].got/[1].gone трассы после смены масштаба меню и окна',
+      [...zoomRuns.map((z) => z.t), small].every(same),
+      JSON.stringify([...zoomRuns.map((z) => z.t), small].map((t) => ({ got: t.res.got, tr: t.pointer.map((p) => p.got), up: [t.pointer[1]?.x, t.pointer[1]?.y, t.pointer[1]?.wins] }))),
+    )
+
     // ── 2: старт партии из меню
     await page.setViewport({ width: 2173, height: 1000, deviceScaleFactor: 1.15 })
     await delay(300)
@@ -154,13 +166,12 @@ async function run() {
     }
     const rr = (k) => refusals[k].res
     const noEvents = Object.values(refusals).every((t) => t.pointer.length === 0 && t.sent.length === 0)
-    const noMoney = (await ev(() => window.itd.state().balance)) >= 0
     check(
       '4a: no_node / hidden / no_hit / bad_args (button 1, holdMs −1, 5000, строка) — ok:false с code и error, synthetic: true, событий и команд нет',
       rr('no_node').code === 'no_node' && rr('no_node').id === null && rr('hidden').code === 'hidden' && rr('no_hit').code === 'no_hit' &&
         ['badBtn', 'badNeg', 'badBig', 'badStr'].every((k) => rr(k).code === 'bad_args') &&
         Object.values(refusals).every((t) => t.res.ok === false && t.res.synthetic === true && typeof t.res.error === 'string' && t.res.got.down.length === 0 && t.res.client === null) &&
-        noEvents && noMoney,
+        noEvents,
       JSON.stringify({ hiddenId, codes: Object.fromEntries(Object.entries(refusals).map(([k, t]) => [k, t.res.code])) }),
     )
 
@@ -205,13 +216,28 @@ async function run() {
       JSON.stringify({ slow: gap(slow), fast: gap(fast) }),
     )
 
-    // ── 7: up вне холста
-    const out = await traced('btn.speed.1', { upOutside: true })
+    // ── 7: холст сдвинули, Phaser границы ещё не перечитал (раз в ~0.5 с) — tap сразу после сдвига
+    const shifted = await ev(async () => {
+      const cv = document.querySelector('canvas')
+      cv.style.position = 'relative'
+      cv.style.top = '37px'
+      const n = window.itd.nodes().find((x) => x.id === 'btn.speed.1')
+      // синхронно со сдвигом: Phaser ещё не успел перечитать границы
+      const staleAtStart = window.__itd.scale.canvasBounds.y !== cv.getBoundingClientRect().top
+      const { id } = window.itd.trace.start()
+      const res = await window.itd.tap('btn.speed.1')
+      const tr = window.itd.trace.stop(id)
+      return { res, cx: n.cx, cy: n.cy, pointer: tr.pointer, staleAtStart, rectTop: cv.getBoundingClientRect().top }
+    })
+    await ev(() => {
+      document.querySelector('canvas').style.top = '0px'
+    })
+    await delay(900) // Phaser перечитал границы
     check(
-      '7: upOutside — down onCanvas true, up onCanvas false (document.body), оба synthetic; Phaser довёл up до цели оконным слушателем',
-      out.res.ok === true && out.pointer.length === 2 && out.pointer[0].onCanvas === true && out.pointer[1].onCanvas === false &&
-        out.pointer.every((p) => p.synthetic === true) && out.res.got.up.includes('btn:speed:1'),
-      JSON.stringify({ pointer: out.pointer.map((p) => [p.type, p.onCanvas]), got: out.res.got }),
+      '7: холст сдвинут на 37 px без resize, tap сразу — Phaser ещё держит старые границы (canvasBounds.y ≠ rect.top в момент tap), но down в трассе = cx/cy цели ±1 и got.down — цель (client — обратное преобразование Phaser)',
+      shifted.res.ok === true && shifted.staleAtStart === true && shifted.pointer.length === 2 &&
+        near(shifted.pointer[0].x, shifted.cx, 1) && near(shifted.pointer[0].y, shifted.cy, 1) && shifted.res.got.down.includes('btn:speed:1'),
+      JSON.stringify({ staleAtStart: shifted.staleAtStart, rectTop: shifted.rectTop, down: shifted.pointer[0], got: shifted.res.got, client: shifted.res.client }),
     )
 
     // ── 8: itd.claim

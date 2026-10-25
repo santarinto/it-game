@@ -2,7 +2,7 @@ import type Phaser from 'phaser'
 import { client } from '../net'
 import type { WireEntry } from '../net'
 import { goneObj, inItdCall, makeGotCatcher } from './trace'
-import type { TraceSent, TraceTarget } from './trace'
+import type { PointerProbe, TraceSent, TraceTarget } from './trace'
 
 // itd.tap (ITGAME-153): клик по id синтетическим MouseEvent на канвас — третий класс ввода между
 // настоящим (CDP-клик по координатам: рамка снимка, снимок, клик, трасса — 2–4 вызова) и itd.click
@@ -10,6 +10,8 @@ import type { TraceSent, TraceTarget } from './trace'
 // разбирает их в DOM-обработчике синхронно, так что got/sent — то, что игра сделала с событием.
 // isTrusted у них false: itd.claim считает такое нажатие synthetic, не чужим (claim.ts: onDown).
 // Слушает Phaser именно MouseEvent — PointerEvent этой сборке неинтересен (проба 24.10: pointer и sent пусты).
+// Вызывать с await, по одному: параллельные tap (Promise.all) делят зажатую кнопку, claim склеит их down
+// в один synthetic (< 50 мс), а sent первого поймает команды второго.
 
 export const TAP_HOLD_MS = 40 // между mousedown и mouseup по умолчанию — как у быстрого настоящего клика
 export const TAP_HOLD_MAX_MS = 2000
@@ -20,8 +22,6 @@ export interface TapOptions {
   button?: 0 | 2
   /** Мс между mousedown и mouseup, 0..2000, по умолчанию 40. */
   holdMs?: number
-  /** mouseup — на document.body вне холста (Phaser ловит его оконным слушателем): отпускание кнопки за пределами канваса. */
-  upOutside?: boolean
 }
 
 export type TapCode = 'no_node' | 'hidden' | 'no_hit' | 'covered' | 'bad_args'
@@ -36,7 +36,7 @@ export interface TapResult {
   id: string | null
   /** Центр объекта, мировые 1280×720 (= nodes().cx/cy); null — узла нет. */
   at: { x: number; y: number } | null
-  /** Куда пришло событие, CSS px окна (по getBoundingClientRect холста: масштаб и dpr учтены); null — события не было. */
+  /** Куда пришло событие, CSS px окна: обратное преобразование Phaser (canvasBounds и displayScale ScaleManager, как у transformX/Y), так что down попадает в at, даже если холст сдвинули, а Phaser границы ещё не перечитал; null — события не было. */
   client: { x: number; y: number } | null
   /** Победитель хит-теста Phaser в точке до события — метка, как itd.trace pointer[].wins (safe id или тип без id); null — никто. */
   wins: string | null
@@ -44,19 +44,20 @@ export interface TapResult {
   got: { down: string[]; up: string[] }
   /** Получившие down и снятые до up (уничтожены, без input, скрыты, сцена не идёт), как itd.trace pointer[].gone: пустой up с gone [цель] — «клик принят, цель ушла» (menu.diff.*, ✕ окна), не «не дошёл». */
   gone: string[]
-  /** Команды, ушедшие на сервер от down до TAP_SETTLE_MS после up, как itd.trace sent; src 'itd' внутри dispatchEvent. */
+  /** Команды, ушедшие на сервер от down до TAP_SETTLE_MS (60 мс) после up, как itd.trace sent: src 'itd' у ушедших синхронно внутри dispatchEvent (обработчик down/up), 'ui' у ушедших позже (tween, delayedCall, реакция UI на снапшот). */
   sent: TraceSent[]
 }
 
-// Что фасад даёт tap: хит-тест, пересчёт мировой точки в пиксели канваса, узел по id.
+// Что фасад даёт tap: хит-тест, пересчёт мировой точки в клиентские px, проба события, узел по id.
 export interface TapDeps {
-  canvas: () => HTMLCanvasElement | null
+  canvas: () => HTMLCanvasElement
   node: (id: string) => { id: string | null; scene: string; visible: boolean; cx: number; cy: number } | null
-  stack: (gx: number, gy: number) => { wins: TraceTarget | null; objs: Phaser.GameObjects.GameObject[] }
-  /** Мировая точка → пиксели указателя Phaser (пространство game.scale.gameSize); null — нет активной камеры. */
-  pointerPx: (gx: number, gy: number) => { x: number; y: number } | null
-  gameWidth: () => number
-  gameHeight: () => number
+  /** Победитель хит-теста в мировой точке (как itd.stack). */
+  stack: (gx: number, gy: number) => { wins: TraceTarget | null }
+  /** Мировая точка → CSS px окна, обратным преобразованием Phaser (transformX/Y); звать после того, как stack() нашёл победителя — активная камера тогда есть. */
+  toClient: (gx: number, gy: number) => { x: number; y: number }
+  /** Проба по самому событию — тот же путь, что у трассы и claim (pageX → transformX → камера → хит-тест). */
+  probe: PointerProbe
   warm: () => void
 }
 
@@ -91,15 +92,11 @@ export function makeTap(deps: TapDeps): (id: string, opts?: TapOptions) => Promi
       return refuse('covered', `itd.tap: клик в центр '${rawId}' получит ${base.wins}, не цель — событие не слали (itd.stack)`, base)
     }
 
-    // Мировая точка → клиентские координаты по живой рамке холста (масштаб UI, «по окну», dpr)
+    // Мировая точка → клиентские координаты тем же преобразованием, что Phaser применит к событию в обратную сторону
     const cv = deps.canvas()
-    const px = deps.pointerPx(n.cx, n.cy)
-    const gw = deps.gameWidth()
-    const gh = deps.gameHeight()
-    if (!cv || !px || gw <= 0 || gh <= 0) return refuse('no_hit', 'itd.tap: нет холста или активной камеры', base)
-    const r = cv.getBoundingClientRect()
-    const clientX = r.left + (px.x / gw) * r.width
-    const clientY = r.top + (px.y / gh) * r.height
+    const pt = deps.toClient(n.cx, n.cy)
+    const clientX = pt.x
+    const clientY = pt.y
     base.client = { x: Math.round(clientX * 10) / 10, y: Math.round(clientY * 10) / 10 }
 
     const sent: TraceSent[] = []
@@ -113,8 +110,19 @@ export function makeTap(deps: TapDeps): (id: string, opts?: TapOptions) => Promi
     const gotUp: string[] = []
     const downObjs: { obj: Phaser.GameObjects.GameObject; label: string }[] = []
     let gone: string[] = []
-    const fire = (type: 'mousedown' | 'mouseup', target: EventTarget, objs: Phaser.GameObjects.GameObject[]): void => {
+    const fire = (type: 'mousedown' | 'mouseup'): void => {
       const down = type === 'mousedown'
+      const ev = new MouseEvent(type, {
+        bubbles: true, cancelable: true, clientX, clientY, button, buttons: down ? 1 << (button === 2 ? 1 : 0) : 0, view: window,
+      })
+      // Объекты под событием — по точке самого события (pageX → камера), а не по cx/cy до down: down мог сменить
+      // масштаб, камеру или сцену, и up приходит уже в другой мир (menu.zoom.*) — так считает и трасса
+      let objs: Phaser.GameObjects.GameObject[] = []
+      try {
+        objs = deps.probe(ev).objs
+      } catch (e) {
+        console.error('[tap] pointer probe упал:', e)
+      }
       if (!down) gone = downObjs.filter((d) => goneObj(d.obj)).map((d) => d.label) // момент up до Phaser, как в трассе
       got.arm(objs, down, (label, obj) => {
         if (down) downObjs.push({ obj, label })
@@ -122,19 +130,21 @@ export function makeTap(deps: TapDeps): (id: string, opts?: TapOptions) => Promi
       })
       inDispatch = true
       try {
-        inItdCall(() => target.dispatchEvent(new MouseEvent(type, {
-          bubbles: true, cancelable: true, clientX, clientY, button, buttons: down ? 1 << (button === 2 ? 1 : 0) : 0, view: window,
-        })))
+        inItdCall(() => cv.dispatchEvent(ev))
       } finally {
         inDispatch = false
       }
       got.flush() // Phaser разослал событие синхронно — слушатели got свою работу сделали
     }
+    let pressed = false
     try {
-      fire('mousedown', cv, s.objs)
-      await sleep(holdMs)
-      // up — по хит-тесту на момент up: down мог закрыть окно или сменить сцену
-      fire('mouseup', opts.upOutside ? document.body : cv, deps.stack(n.cx, n.cy).objs)
+      try {
+        pressed = true
+        fire('mousedown')
+        await sleep(holdMs)
+      } finally {
+        if (pressed) fire('mouseup') // кнопка не остаётся зажатой, что бы ни случилось между down и up
+      }
       await sleep(TAP_SETTLE_MS)
     } finally {
       untap()
