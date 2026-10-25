@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "bf594f5171b4",
+  "hash": "0703a3349d74",
   "methods": {
     "version": {
       "kind": "prop",
@@ -76,6 +76,28 @@ export const CONTRACT = {
         "itd.click('btn.hire')"
       ]
     },
+    "tap": {
+      "kind": "method",
+      "params": [
+        {
+          "name": "id",
+          "type": "string",
+          "optional": false
+        },
+        {
+          "name": "opts",
+          "type": "TapOptions",
+          "optional": true
+        }
+      ],
+      "returns": "Promise<TapResult>",
+      "doc": "Клик по id СИНТЕТИЧЕСКИМ событием (ITGAME-153) — третий класс ввода между настоящим кликом\nпо координатам и itd.click(): mousedown/mouseup (MouseEvent на канвас; PointerEvent эта\nсборка Phaser не слушает) в центре объекта (cx/cy → CSS px обратным преобразованием Phaser:\ncanvasBounds и displayScale ScaleManager, как у transformX/Y — масштаб UI, «по окну» и dpr\nучтены, а холст, сдвинутый до перечитывания границ Phaser (раз в ~0.5 с), не уводит down мимо),\nтак что событие проходит настоящий хит-тест Phaser, а got/sent — то, что игра с ним сделала. Прежде чем слать, зовёт тот же хит-тест, что\nitd.stack(cx, cy): получит клик не цель — {ok: false, code: 'covered', wins} и события нет;\nno_node — нет id, hidden — узел невидим, no_hit — точку не берёт никто, bad_args — button не\n0|2 или holdMs не число 0..2000. {button: 2} — правая кнопка (увольнение в офисе), holdMs —\nмс между down и up (по умолчанию 40). Вызывать с await, по одному (не Promise.all).\nОтвет: {ok, synthetic: true, id, at — мировые, client — CSS px, wins — метка победителя\nхит-теста до события, got: {down, up} — до кого дошло, gone — получившие down и ушедшие\nдо up (пустой up с gone [цель] — «клик принят, цель ушла»), sent — команды от down до 60 мс\nпосле up: src 'itd' у ушедших синхронно внутри dispatch, 'ui' у ушедших позже (tween,\nреакция UI на снапшот)}. ok — события отправлены, а не «игра отреагировала»: смотри got и sent.\nisTrusted у них false: itd.claim считает такие нажатия synthetic, не чужими (и не own);\nitd.trace.pointer метит их synthetic: true. Это не настоящий клик: «клик сработал»\nдоказывает только он; tap — «косвенно, но через хит-тест».",
+      "examples": [
+        "await itd.tap('btn.hire')",
+        "await itd.tap('office:worker:0', { button: 2 })",
+        "(await itd.tap('btn.event.0')).got"
+      ]
+    },
     "hover": {
       "kind": "method",
       "params": [
@@ -145,7 +167,7 @@ export const CONTRACT = {
       "kind": "prop",
       "type": "TraceApi",
       "readonly": true,
-      "doc": "Живая трассировка окна вокруг action (ITGAME-37): подписка ДО action,\nокно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь\nигрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().\nITGAME-45: sent — с id команды, states — снапшоты окна {rev, cause, re?}:\nответ на команду — state с re = её id. ITGAME-179: sent[].src — itd (ушла внутри\nвызова itd.*: cmd/click/key/pause/resume/speed/step) или ui (настоящий клик/клавиша,\nреакция UI); itd.trace.summary(id? | tr) — окно строками по времени, не закрывая.\nITGAME-88: pointer — настоящие\nmousedown/mouseup в окне: {type: down|up, button, x, y (мировые 1280×720),\nonCanvas, wins — метка победителя хит-теста Phaser в момент события, та же форма,\nчто got (safe id или тип без id; полная строка — stack[0]), stack — как itd.stack,\ngot — до кого дошёл pointerdown/up (GAMEOBJECT_POINTER_DOWN/UP объекта; кнопка,\nудалившая себя в pointerdown, в got на down есть, на up её нет; ITGAME-148: gone — на up: получившие этот\ndown и снятые до up (уничтожены, без input, скрыты, сцена не идёт) — «клик принят, цель ушла»; на down [])}; itd.click() сюда не попадает\n(мимо input-слоя). Открытое окно для клика другим вызовом инструмента:\nitd.trace.start() → {id} … клик … itd.trace.stop(id?) → тот же TraceResult\n(windowMs — длина окна; само закроется через maxMs, по умолчанию 120 с, cut: true).\nitd.trace.peek(id?) — то же окно на сейчас, не закрывая (ITGAME-160).",
+      "doc": "Живая трассировка окна вокруг action (ITGAME-37): подписка ДО action,\nокно windowMs (0..10000, по умолчанию 1000) ПОСЛЕ него — реальный путь\nигрока (клавиши/команды/переходы/тосты/звуки), а не срез log()/net().\nITGAME-45: sent — с id команды, states — снапшоты окна {rev, cause, re?}:\nответ на команду — state с re = её id. ITGAME-179: sent[].src — itd (ушла внутри\nвызова itd.*: cmd/click/key/pause/resume/speed/step/tap; у tap — только ушедшие внутри\ndispatchEvent) или ui (настоящий клик/клавиша, реакция UI, отправка позже dispatch tap);\nitd.trace.summary(id? | tr) — окно строками по времени, не закрывая.\nITGAME-88: pointer — нажатия указателя\nmousedown/mouseup в окне (настоящие и, с synthetic: true, события с isTrusted false —\nitd.tap, dispatchEvent): {type: down|up, button, x, y (мировые 1280×720),\nonCanvas, wins — метка победителя хит-теста Phaser в момент события, та же форма,\nчто got (safe id или тип без id; полная строка — stack[0]), stack — как itd.stack,\ngot — до кого дошёл pointerdown/up (GAMEOBJECT_POINTER_DOWN/UP объекта; кнопка,\nудалившая себя в pointerdown, в got на down есть, на up её нет; ITGAME-148: gone — на up: получившие этот\ndown и снятые до up (уничтожены, без input, скрыты, сцена не идёт) — «клик принят, цель ушла»; на down []), synthetic: true — у события с isTrusted false (itd.tap, dispatchEvent), у настоящего поля нет}; itd.click() сюда не попадает\n(мимо input-слоя). Открытое окно для клика другим вызовом инструмента:\nitd.trace.start() → {id} … клик … itd.trace.stop(id?) → тот же TraceResult\n(windowMs — длина окна; само закроется через maxMs, по умолчанию 120 с, cut: true).\nitd.trace.peek(id?) — то же окно на сейчас, не закрывая (ITGAME-160).",
       "examples": [
         "itd.trace(() => itd.click('btn.pc'), 1000)",
         "itd.trace.start()",
@@ -1587,7 +1609,7 @@ export const CONTRACT = {
           "doc": ""
         },
         "code": {
-          "type": "'bad_label' | 'bad_args' | 'no_claim' | 'no_allow'",
+          "type": "'bad_args' | 'bad_label' | 'no_claim' | 'no_allow'",
           "optional": false,
           "doc": ""
         },
@@ -4096,6 +4118,91 @@ export const CONTRACT = {
         }
       }
     },
+    "TapCode": {
+      "kind": "enum",
+      "values": [
+        "bad_args",
+        "covered",
+        "hidden",
+        "no_hit",
+        "no_node"
+      ]
+    },
+    "TapOptions": {
+      "kind": "object",
+      "fields": {
+        "button": {
+          "type": "0 | 2",
+          "optional": true,
+          "doc": "0 — левая (по умолчанию), 2 — правая (увольнение в офисе); buttons у down 1 | 2, у up 0."
+        },
+        "holdMs": {
+          "type": "number",
+          "optional": true,
+          "doc": "Мс между mousedown и mouseup, 0..2000, по умолчанию 40."
+        }
+      }
+    },
+    "TapResult": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "boolean",
+          "optional": false,
+          "doc": ""
+        },
+        "code": {
+          "type": "TapCode",
+          "optional": true,
+          "doc": "no_node — нет такого id; hidden — узел невидим; covered — хит-тест в центре отдаёт клик другому (wins), событие не слали; no_hit — точку не берёт никто (нет hitArea); bad_args — button не 0|2, holdMs не число 0..2000."
+        },
+        "error": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
+        },
+        "synthetic": {
+          "type": "true",
+          "optional": false,
+          "doc": "Всегда true: события с isTrusted false (itd.claim считает их synthetic), не настоящий клик и не itd.click."
+        },
+        "id": {
+          "type": "string | null",
+          "optional": false,
+          "doc": ""
+        },
+        "at": {
+          "type": "{ x: number; y: number; } | null",
+          "optional": false,
+          "doc": "Центр объекта, мировые 1280×720 (= nodes().cx/cy); null — узла нет."
+        },
+        "client": {
+          "type": "{ x: number; y: number; } | null",
+          "optional": false,
+          "doc": "Куда пришло событие, CSS px окна: обратное преобразование Phaser (canvasBounds и displayScale ScaleManager, как у transformX/Y), так что down попадает в at, даже если холст сдвинули, а Phaser границы ещё не перечитал; null — события не было."
+        },
+        "wins": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "Победитель хит-теста Phaser в точке до события — метка, как itd.trace pointer[].wins (safe id или тип без id); null — никто."
+        },
+        "got": {
+          "type": "{ down: string[]; up: string[]; }",
+          "optional": false,
+          "doc": "До кого Phaser довёл down и up (GAMEOBJECT_POINTER_DOWN/UP): safe id или тип без id; [] — до объектов не дошло. Кнопка, удалившая себя в pointerdown, в down есть, в up её нет."
+        },
+        "gone": {
+          "type": "string[]",
+          "optional": false,
+          "doc": "Получившие down и снятые до up (уничтожены, без input, скрыты, сцена не идёт), как itd.trace pointer[].gone: пустой up с gone [цель] — «клик принят, цель ушла» (menu.diff.*, ✕ окна), не «не дошёл»."
+        },
+        "sent": {
+          "type": "TraceSent[]",
+          "optional": false,
+          "doc": "Команды, ушедшие на сервер от down до TAP_SETTLE_MS (60 мс) после up, как itd.trace sent: src 'itd' у ушедших синхронно внутри dispatchEvent (обработчик down/up), 'ui' у ушедших позже (tween, delayedCall, реакция UI на снапшот)."
+        }
+      }
+    },
     "TinyEntry": {
       "kind": "object",
       "fields": {
@@ -4197,6 +4304,11 @@ export const CONTRACT = {
           "optional": false,
           "doc": "до кого Phaser реально довёл pointerdown/up в этом событии (GAMEOBJECT_POINTER_DOWN/UP объекта): safe id или тип без id; [] — до объектов не дошло. Кнопка, удалившая себя в pointerdown, в got на down есть, на up её нет — она в gone"
         },
+        "synthetic": {
+          "type": "true",
+          "optional": true,
+          "doc": "ITGAME-153: событие с isTrusted false (itd.tap, dispatchEvent) — не настоящий клик; у настоящего поля нет"
+        },
         "gone": {
           "type": "string[]",
           "optional": false,
@@ -4280,7 +4392,7 @@ export const CONTRACT = {
         "pointer": {
           "type": "TracePointer[]",
           "optional": false,
-          "doc": "ITGAME-88: настоящие нажатия указателя в окне (mousedown/mouseup): мировые x/y,\nwins — метка победителя (как got), stack — хит-тест Phaser в момент события, got — до кого дошёл\npointerdown/up (GAMEOBJECT_POINTER_DOWN/UP самих объектов, ITGAME-112:\nсценовый gameobjectdown терял объект, удаливший себя в обработчике).\nitd.click() сюда не попадает: он мимо input-слоя.\nПусто при «команда не ушла» — клик до страницы не дошёл; есть запись с\ngot [] — дошёл до хит-теста, цели нет; got с целью — до неё дошёл\npointerdown/up, обработчик сам решил не слать (или закрыл своё окно: такой\nобъект в got на down есть, а на up его уже нет — удалённый до отпускания\nне попадает в хит-тест Phaser).\nITGAME-148: на up — gone: получившие down и снятые до up; пустой up с gone [цель] — клик\nпринят, цель ушла (menu.diff.*, «Сохранить и выйти», btn.next_day, ✕), не «не дошёл»."
+          "doc": "ITGAME-88: нажатия указателя в окне (mousedown/mouseup; ITGAME-153: событие с isTrusted false — itd.tap, dispatchEvent — тоже здесь, с synthetic: true): мировые x/y,\nwins — метка победителя (как got), stack — хит-тест Phaser в момент события, got — до кого дошёл\npointerdown/up (GAMEOBJECT_POINTER_DOWN/UP самих объектов, ITGAME-112:\nсценовый gameobjectdown терял объект, удаливший себя в обработчике).\nitd.click() сюда не попадает: он мимо input-слоя.\nПусто при «команда не ушла» — клик до страницы не дошёл; есть запись с\ngot [] — дошёл до хит-теста, цели нет; got с целью — до неё дошёл\npointerdown/up, обработчик сам решил не слать (или закрыл своё окно: такой\nобъект в got на down есть, а на up его уже нет — удалённый до отпускания\nне попадает в хит-тест Phaser).\nITGAME-148: на up — gone: получившие down и снятые до up; пустой up с gone [цель] — клик\nпринят, цель ушла (menu.diff.*, «Сохранить и выйти», btn.next_day, ✕), не «не дошёл»."
         },
         "id": {
           "type": "number",
@@ -4315,7 +4427,7 @@ export const CONTRACT = {
         "src": {
           "type": "'itd' | 'ui'",
           "optional": false,
-          "doc": "itd — ушла синхронно внутри вызова itd.* (cmd, click, key, pause, resume, speed, step; play — через cmd; отправка, отложенная обработчиком — tween, delayedCall, — уже ui); ui — всё прочее: настоящий клик/клавиша, реакция UI на снапшот"
+          "doc": "itd — ушла синхронно внутри вызова itd.* (cmd, click, key, pause, resume, speed, step, tap — у tap только внутри dispatchEvent; play — через cmd; отправка, отложенная обработчиком — tween, delayedCall, — уже ui); ui — всё прочее: настоящий клик/клавиша, реакция UI на снапшот"
         }
       },
       "index": [
