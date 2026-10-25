@@ -1201,6 +1201,45 @@ documenting separately:
   the whole 1280×720 canvas (report dimmer, modal backdrop) or `null`.
   Both carry `safe` and `title` — the window title a scene stored on that
   backdrop with `markTitle()` (ITGAME-72).
+- **`itd.tap(id, {button?, holdMs?, upOutside?})`** (ITGAME-153) — a click by id with
+  a *synthetic* event: the third class of input between a real click by
+  coordinates (a screenshot frame, a screenshot, the click, the trace — 2–4 tool
+  calls) and `itd.click()` (straight into the handler, past the hit test). It
+  dispatches `mousedown` and, after `holdMs` (0..2000, default 40), `mouseup` as
+  `MouseEvent`s on the canvas at the object's centre — Phaser listens to mouse
+  events, not `PointerEvent` (a probe on 24.10: `pointer` and `sent` stayed
+  empty) — so the event goes through the real hit test, `InputManager.onMouseDown`
+  and the scene's `pointerdown` handler. Client coordinates come from the canvas'
+  live `getBoundingClientRect` (UI scale, «по окну», window size, dpr; the world
+  point is turned into the pointer's pixel space with the camera, as `screen()`
+  and the trace probe do), never from constants. Before dispatching it asks the
+  same hit test as `itd.stack(cx, cy)`: when the winner is not the target the
+  event is not sent — `{ok: false, code: 'covered', wins}` (the day report's dimmer
+  over a HUD button, a window over the room). Other refusals: `no_node` (no such
+  id), `hidden` (`visible: false`), `no_hit` (nothing takes the point: no hit
+  area, or it misses the centre — `hud.money`), `bad_args` (`button` not 0 or 2,
+  `holdMs` not a number 0..2000). `button: 2` is a right click (`buttons` 2 on
+  `down`, 0 on `up`; in the office it opens «Уволить сотрудника?»);
+  `upOutside: true` sends the `mouseup` to `document.body` outside the canvas, which
+  Phaser catches with its window listener. The answer is `{ok, code?, error?,
+  synthetic: true, id, at, client, wins, got, gone, sent}`: `at` is the centre in
+  world px (= `nodes().cx/cy`), `client` the CSS px the event went to, `wins` the
+  hit test's winner before the event (a label like `pointer[].wins`), `got`
+  `{down, up}` who Phaser handed the press to (`GAMEOBJECT_POINTER_DOWN/UP`, as
+  `itd.trace().pointer[].got`), `gone` those that got `down` and left before `up`
+  (an empty `up` with `gone [target]` is «accepted, target left»: `menu.diff.*`, ✕
+  of a window), `sent` the commands that left from `down` to 60 ms after `up`
+  (`src: 'itd'`: sent synchronously inside the dispatch; a send deferred by a
+  tween is not caught — read it with `itd.trace`). `ok: true` means the events were
+  sent, not that the game reacted — look at `got` and `sent`.
+  The events have `isTrusted === false`, so they are marked everywhere:
+  `itd.claim` counts them as `synthetic` — not `own`, not `foreign` (the bar does
+  not flash), not an `allowed` press of the human (`claim.ts` `onDown`; checked by
+  `qa:tap` 8) — and `itd.trace().pointer[]` carries `synthetic: true` on them
+  (`summary()` prints the word `synthetic`). `tap` is *not* a real click: «the click
+  works» is still proved by a real mouse click; `qa:tap` 9 shows both reach the same
+  `wins`/`got` at the same point. Not covered: the wheel, a hidden tab (its timers
+  are throttled to ~1 s, so `holdMs` stretches). Code: `client/src/debug/tap.ts`.
 - **`itd.screen({frame?, free?, scene?})`** (ITGAME-72) — the screen map in
   one call: `{ok: true, meta, n, items}`. `meta` is `sha`, `tab` (sid prefix), the
   server's `day`/`clock`/`t`/`bal`/`speed`/`phase`/`staff`/`pay`, what the HUD
@@ -1374,7 +1413,7 @@ documenting separately:
   agent's own CDP clicks are `isTrusted` too, so it declares them; `allowed`
   while `itd.claim.allow(what, {target})` is open (green bar «▶ ТВОЙ ХОД: …»);
   otherwise `foreign`, and the bar flashes red for 600 ms. `dispatchEvent`
-  presses only raise `synthetic`. Each press keeps `wins` and `got` as in
+  presses (and every `itd.tap`, ITGAME-153) only raise `synthetic`. Each press keeps `wins` and `got` as in
   `itd.trace`; `itd.claim.deny()` closes the allow window → `{what, target,
   presses, hit}`, `hit` meaning the target got an allowed press. The record
   lives in `sessionStorage` `itd.claim` and is rewritten on `pagehide`, so it
@@ -1595,7 +1634,9 @@ documenting separately:
   command didn't go out» splits into: no entry (the click never reached the
   page), `got: []` (it reached the hit test, nothing there), `got` with the
   target (the handler itself decided not to send). `itd.click()` emits on the
-  object directly and never shows up in `pointer`.
+  object directly and never shows up in `pointer`; `itd.tap()` and any
+  `dispatchEvent` do, with `synthetic: true` (their `isTrusted` is false;
+  ITGAME-153), a real press has no such field.
   Since ITGAME-148 the `up` entry also has `gone`: the objects that got this
   press's `down` and are no longer a Phaser input candidate at release —
   destroyed, `input` removed or disabled, hidden themselves or through a parent
@@ -1766,13 +1807,14 @@ client with headless Chromium via the `window.itd`/`window.__itd` facade
 | `npm run qa:admins` | the admin department (ITGAME-145), real mouse clicks at `itd.screen()` points: D1 the «АДМ» tab with its lock and $3,000, the closed room «Отдел админов закрыт» with `dept.buy` and no hire column; D2 `dept.buy` at $600 — sent, refused, still closed; D3 bought — `buy_admin_dept`, −$3,000, three seats, the tab «0/3» without a lock; D4 `btn.admin.0` enabled «Админ О1 / $600», О2/О3 disabled with «Офис 2 не куплен»; D5 a click on a disabled button sends nothing; D6 `hire_admin 0`, «Админ О1 ✓», the admin seated, «свободен», «1/3»; D7 `admin_dept` with live ticks — the target line goes «чистит место 2» → «чистит место 7» → «чинит место 4» → «свободен»; D8 the admin's tooltip, D8b it survives a snapshot under the cursor and does not stick once the cursor left in one move (no `pointerout` reaches the re-created sprite — the bounds check `OfficeScene` has since ITGAME-89); D9 a right click — «Уволить админа?» with «Компенсация: $300», the confirm sends `fire_admin 0`, the seat is empty; D10 the office seat tooltip «чистит админ» on the admin's target and not on a clean seat; D11 `not_infected` in an office with an admin raises no toast, `not_broken` in an office without one does; D12 the day report's admin lines (ITGAME-159), once the admin is free so both parts are there: «Админы:    починили k ПК,» and «           вычистили m мест» under the value column, k and m the day's counts from the save, a Russian plural, each line ≤ 392 px by the report Text's own `measureText`, the body inside the panel with ≥ 16 px margins, no `hud` overlaps/offscreen; D13 three admins with long names — overlaps/offscreen empty at both zooms; no pageerror | :4192, self-serve |
 | `npm run qa:pc` | workplaces (ITGAME-135) on `worn_pcs`, paused, real mouse clicks at `itd.screen()` points: W1 level labels `office.pc.i` «ЖК»/«2×ЖК»/«ЭЛТ», none on the dead desk, `deadPCs` 1; W2 the dead seat — «✖ замена», «заменить $500», a grey-tinted `desk_pc_broken`, one grey flashing zone; W3 the worn label orange; W4 the tooltip «ПК: ЭЛТ ×1.0 · износ k/N — следующая поломка: замена», kept over the label; W5–W6 the label opens «Рабочее место 4 — офис 1», «Апгрейд до ЖК $350» sends `upgrade_pc`, the label and income follow; W7 a free desk upgrades, no replace button at wear 0; W8 a disabled upgrade sends nothing; W9 a right click on the label fires; W10 `pc_fresh`, `pc_max_level`, `pc_dead` refusals; W11 a left click on the dead seat opens the window, no repair or motivate; W12 «заменить $500» sends `replace_pc`, the desk is back to ЭЛТ and earns; W13 a dead seat at lunch has no «обед», no overlaps; W14 overlaps/offscreen empty at both zooms; no pageerror | :4193, self-serve |
 | `npm run qa:claim` | `itd.claim` (ITGAME-151) in the menu, real mouse clicks: 1 the bar — fixed, `pointer-events: none`, 40 px, label and sha, busy title, canvas rect unchanged; 2 a click on empty canvas without `mine` → `foreign` 1, one press per click, red flash then back; 3 `mine()` → the click is `own`; 4 an expired `mine(1, 200)` → `foreign`; 5 `dispatchEvent` → `synthetic` only; 6a `allow(…, {target: 'menu.diff.normal'})` and a click on it → `deny().hit` true, `got` has the target; 6b `elementFromPoint` at `#build` is `#build` (the click passes through the bar), a click on it → `hit` false, `onCanvas` false, `no_allow` without a window; 7 `bad_label`/`bad_args`; 7b `claim('other')` relabels and keeps every count; 8a F5 keeps the bar and the count, `reloads` 1; 8b `itd.reset()` + F5 keeps it, `reloads` 2; 9 `stop()` → bar gone, «вкладка свободна», key gone, second `stop()`, `mine()`, `allow('x')`, `deny()` → `no_claim`; 10 `resizes` (ITGAME-232): `claim` → без ресайза n 0; `setViewport` → `resizes.n` ≥ 1, `last.iw` новый; `stop()` возвращает `resizes`; no pageerror | :4198, self-serve |
+| `npm run qa:tap` | `itd.tap` (ITGAME-153) in the menu and a party at 2173 px, dpr 1.15: 1 the pointer's world point of the `down` is the target's `cx/cy` ±1 at UI scales 1 / fit / 1.4 and after a 1280×720 window, `client` from `getBoundingClientRect`, both events `synthetic: true`, `summary()` says `synthetic`; 2 `menu.diff.normal` starts the party, `got.down` the target, `up` empty, `gone` the target; 3 `btn.hire` — `got` down and up, `sent` one `hire` with `src: 'itd'`, staff grows; 4 `no_node`/`hidden`/`no_hit`/`bad_args` (button 1, holdMs −1, 5000, a string) and `covered` under «Выйти в меню?» (`wins` the dimmer, nothing sent, no `pointer`, no `set_speed`); 5 `button: 2` — `pointer` button 2, «Уволить сотрудника?» opens, a left tap opens the workplace window instead; 6 `holdMs: 300` — `up` ≥ 290 ms after `down`; 7 `upOutside` — `up` `onCanvas` false and still delivered to the target; 8 `itd.claim`: two taps → `synthetic` 2, `downs`/`own`/`foreign`/`allowed` 0, the bar stays `claim`, `allow(target)` + a tap → `deny().hit` false; 9 a real puppeteer click at the tap's `client` point has the same `wins` and `got` and no `synthetic`; 10 the contract (`methods.tap`, `TapOptions`/`TapResult`/`TapCode`, `TracePointer.synthetic`) and `help()`; no pageerror | :4194, self-serve |
 | `npm run qa:bankrupt` | the bankruptcy screen (ITGAME-176): `broke_day3` played to the evening at speed 3 — B1 Normal, overdraft: the limit is the evening's expenses (`state.debtLimit` $500), «БАНКРОТСТВО», «Долг на момент банкротства: $X» (X = `state.debt`) and right under it «На зарплаты не хватило: $Y» (Y = X − the limit > 0), no «Баланс» line, no overlaps/offscreen about the title, the body or «В меню»; B2 Hardcore, credit: the debt set to −$9,999 before the evening, the limit $10,000, the same checks; no pageerror (the `shortfall` field of `game_over` itself is pinned by `TestSessionBankruptcyAndRestart`) | :4185, self-serve |
 | `npm run qa:version` | the build version and save compatibility (ITGAME-140, ITGAME-169): V1 `/api/version` → `version` год.мес.день.час.мин = `itd.version.version` = the menu's «версия X» (`menu.version`, inside the field); V2 a party → «Сохранить и выйти»: the save file carries the server's version and `game.format`, the menu shows «ПРОДОЛЖИТЬ»; V3 the server restarted on the same saves dir with the file's version set to 2000.01.01.00.00 (a deploy of a new build of the same format): «ПРОДОЛЖИТЬ» with $4,321 and no `menu.stale`, «Продолжить» resumes the party with $4321 and its save carries the server's version again; V4 a save without `version` (before ITGAME-140) — «ПРОДОЛЖИТЬ» too; V5/V6 `game.format` one below / one above the server's, set by the route without a restart (V5 `itd.staleSave` from the menu, V6 a raw `POST /api/debug/format`): `{sid, was, format, live: false}`, only `game.format` changed and `savedAt` kept (ITGAME-154); then no `menu.continue`, the card `menu.stale` «СЕЙВ НЕСОВМЕСТИМ», «начните новую партию:», overlaps/offscreen empty; the card's line is the owner's sentence (two lines joined by a space), no menu text but `menu.version` matches a build version, «от версии», «от старой версии», «, игра » or «формат», the title and the line inside `menu.stale` (≥ 16 px left and right, ≥ 8 px top and bottom), the title above the line, «начните новую партию:» below the card, the corner still «версия X» (ITGAME-149); V7 a real mouse click on «НОРМА» from the card: no «Начать заново?», a new sid, day 1, its save carries the server's version and format, the old file untouched; V8 a live party marked (`live: true`, the file at once FORMAT+1 with the server's version) — `itd.away(1)` answers `not_resumed` with `incompatible: true` and «несовместим» in the reason (ITGAME-224), a new party day 1 under the same sid, the file back to the server's format, no menu card; in the game the window (ITGAME-174, owner 21.10) — button `modal.incompatible.ok`, the exact sentence «Сейв несовместим с новой версией — начата новая партия» (title + line joined by a space), inside the frame, overlaps/offscreen empty; a real mouse click on «ОК» closes it, the party is the new one (day 1, same sid), the speed untouched, and a debug reemit right after (`btn.debug` twice) does not bring it back (ITGAME-224: the flag is a one-shot event, not part of the stored snapshot); V9 a live mark then «Сохранить и выйти» → the card; V10 no pageerror | :4189, self-serve on its own saves dir (restarted for V3/V4 only — the build version is set by a file edit; the format by the route) |
 | `npm run smoke-ui` | menu boots, clean console; `OFFICE=1` + live WS → office scene | :4173, `vite preview` |
 | `npm run visreg` | screenshot diff + layout linter per fixture scenario | :4173, self-serve, `VISREG_PORT` overrides |
 
 `qa:buttons`/`qa:hud`/`qa:facade`/`qa:slots`/`qa:sprite-try`/`qa:sprite-pull`/`qa:sprite`/`qa:trace`/`qa:contract`/`qa:tabs`/
-`qa:party`/`qa:report-pause`/`qa:journal`/`qa:version`/`qa:pc`/`qa:admins`/`qa:claim`/`qa:bankrupt`/`visreg` share `client/scripts/lib/selfserve.mjs`: it rebuilds `bin/itdirector` on every
+`qa:party`/`qa:report-pause`/`qa:journal`/`qa:version`/`qa:pc`/`qa:admins`/`qa:claim`/`qa:tap`/`qa:bankrupt`/`visreg` share `client/scripts/lib/selfserve.mjs`: it rebuilds `bin/itdirector` on every
 run (`go build` into a temp file, then an atomic rename — a no-op relink takes
 under 1 s, so QA never runs against a binary older than `server/`) and runs it
 over `client/dist`, refuses WHATWG bad ports (e.g. 4190, 6000 — fetch and

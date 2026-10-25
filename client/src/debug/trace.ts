@@ -54,6 +54,7 @@ export interface TracePointer {
   wins: string | null // ITGAME-179: метка победителя хит-теста Phaser в момент события — та же форма, что got (safe id или тип без id); полная строка — stack[0]; null — ни одна hitArea не накрывает точку
   stack: string[] // все interactive под точкой сверху вниз, как itd.stack().stack
   got: string[] // до кого Phaser реально довёл pointerdown/up в этом событии (GAMEOBJECT_POINTER_DOWN/UP объекта): safe id или тип без id; [] — до объектов не дошло. Кнопка, удалившая себя в pointerdown, в got на down есть, на up её нет — она в gone
+  synthetic?: true // ITGAME-153: событие с isTrusted false (itd.tap, dispatchEvent) — не настоящий клик; у настоящего поля нет
   gone: string[] // ITGAME-148: на up — получившие down этого нажатия и снятые до up (уничтожены, без input или input выключен, скрыты сами или контейнером, сцена не идёт): «клик принят, цель ушла»; на down — []; утащенный из-под указателя — не gone
 }
 
@@ -79,7 +80,7 @@ export interface TraceResult {
   toasts: { t: number; text: string; where: 'top' | 'bottom'; ms: number; scene: string }[]
   sounds: { t: number; name: string; key: string; volume: number; ok: boolean; scene: string }[]
   /**
-   * ITGAME-88: настоящие нажатия указателя в окне (mousedown/mouseup): мировые x/y,
+   * ITGAME-88: нажатия указателя в окне (mousedown/mouseup; ITGAME-153: событие с isTrusted false — itd.tap, dispatchEvent — тоже здесь, с synthetic: true): мировые x/y,
    * wins — метка победителя (как got), stack — хит-тест Phaser в момент события, got — до кого дошёл
    * pointerdown/up (GAMEOBJECT_POINTER_DOWN/UP самих объектов, ITGAME-112:
    * сценовый gameobjectdown терял объект, удаливший себя в обработчике).
@@ -191,7 +192,7 @@ interface OpenTrace {
 // (setVisible(false), alpha 0 — willRender: так меню прячет menu.diff.* под «Начать заново?»);
 // сцена остановлена/усыплена/на паузе — не isActive(). Утащенный из-под указателя живой
 // объект — не gone.
-function goneObj(obj: Phaser.GameObjects.GameObject): boolean {
+export function goneObj(obj: Phaser.GameObjects.GameObject): boolean {
   if (!obj.scene || !obj.input || !obj.input.enabled) return true
   if (!obj.scene.sys.isActive()) return true
   const cam = obj.scene.cameras?.main
@@ -371,6 +372,7 @@ function openTrace(game: Phaser.Game, probe: PointerProbe, windowMs: number): Op
       // ITGAME-179: метка победителя той же формы, что got (stackTarget: safe = id с «:», type)
       wins: hit.wins ? (hit.wins.safe ?? hit.wins.type) : null, stack: hit.stack, got: [], gone: [],
     }
+    if (!ev.isTrusted) rec.synthetic = true
     r.pointer.push(rec)
     if (!down) {
       // ITGAME-148: момент up до Phaser (capture) — тот же, что у хит-теста wins/stack
@@ -539,7 +541,7 @@ export function summarizeTrace(r: TraceResult): string[] {
   const add = (k: number, t: number, parts: string[]) => out.push({ t, k, line: `t${Math.round(t)} ${parts.join(' ')}` })
   for (const p of r.pointer ?? []) {
     add(0, p.t, ['ptr', p.type, ...(p.button ? [`b${p.button}`] : []), `${Math.round(p.x)},${Math.round(p.y)}`,
-      p.onCanvas ? 'canvas' : 'page', 'wins', p.wins ?? '-', `got [${p.got.join(' ')}]`, ...(p.gone?.length ? [`gone [${p.gone.join(' ')}]`] : [])])
+      ...(p.synthetic ? ['synthetic'] : []), p.onCanvas ? 'canvas' : 'page', 'wins', p.wins ?? '-', `got [${p.got.join(' ')}]`, ...(p.gone?.length ? [`gone [${p.gone.join(' ')}]`] : [])])
   }
   for (const e of r.keys ?? []) {
     add(1, e.t, ['key', e.key, e.source, ...(e.repeat ? ['repeat'] : []),
