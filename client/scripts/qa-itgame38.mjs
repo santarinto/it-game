@@ -88,6 +88,12 @@
 //   K3  (ITGAME-88) nodes().fill: маркер меню (Triangle) и плашки — '#rrggbb' = fillColor объекта, у Text — null
 //   K4  (ITGAME-88) menuReady после itd.sandbox.restore(): сразу false (перезапуск меню в очереди),
 //       после wait — плашка menu.diff.normal не сдвигается 1,5 с
+//   H4  (ITGAME-165) «⌂ → Выйти в меню?» в том же ходу, что открыл окно: объекты в _pendingInsertion — screen() ставит
+//       кнопкам P (не X), meta.ready false, free их не берёт, hit() ok:false pending:true, stack(id) pending:true; через
+//       кадр — без флагов, ready true, hit ok; объект под окном — настоящий X
+//   K5  (ITGAME-165) объект меню в _pendingInsertion: menuReady false, screen() P, meta.ready false; через кадр — всё чисто;
+//       K5b путь ITGAME-163 (sandbox → wait(menuReady) → screen в одном ходу): без X/P, ready true — сам случай 163 не воспроизведён
+//   H4 зеркальный случай: затемнение без id в очереди, кнопка HUD под ним без флага, но free пуст, пока ready false
 //   V1/V2 + (ITGAME-88) stale().shown: false на свежей вкладке, true на подмене, снова false
 //   + на странице нет pageerror
 //
@@ -611,6 +617,72 @@ async function run() {
       !!h3 && h3.listed && h3.next.wins === 'qa.h3' && !!h3.next.stack[0]?.startsWith('qa:h3 hud ') &&
         !!h3tr && h3tr.slice(2).every((p) => p.wins === 'qa:h3' && p.got.length === 1 && p.got[0] === 'qa:h3'),
       JSON.stringify({ next: h3?.next, pointer: h3tr?.slice(2) }),
+    )
+
+    // ── H4 (ITGAME-165): окно, только что открытое «⌂ → Выйти в меню?». screen(), hit() и stack(id) в ТОМ ЖЕ
+    // ходу, что открыл окно, не называют это перекрытием: объекты окна в _pendingInsertion input-плагина (хит-тест
+    // отдаёт подложку), screen() ставит им P вместо X, hit() — pending:true, stack(id) — pending:true,
+    // meta.ready false, free их не берёт. Через кадр — без флагов, ready true, hit ok, wins — кнопка окна.
+    // Настоящее перекрытие флаг P не прячет: объект под окном, созданный в этот же ход, после кадра — X.
+    const h4 = await page.evaluate(async () => {
+      const itd = window.itd
+      const game = window.__itd
+      const hud = game.scene.getScene('hud')
+      const frame = () => new Promise((r) => requestAnimationFrame(r))
+      const rows = (m, pre) => m.items.filter((i) => i.startsWith(pre)).map((i) => ({ id: i.split('|')[0], flags: i.split('|')[4] }))
+      // поле очереди переименовали бы — понятный FAIL, а не TypeError (диапазон phaser ^3.90.0)
+      const queue = () => (Array.isArray(hud.input._pendingInsertion) ? hud.input._pendingInsertion : null)
+      if (!queue()) return { noQueue: 'в Phaser нет hud.input._pendingInsertion — H4 нечем проверять, обновите inputQueued() в agentApi.ts' }
+      await frame() // чтобы очередь была чиста до открытия окна
+      const empty0 = queue().length
+      itd.click('btn.menu')
+      const under = hud.add.rectangle(640, 360, 60, 40, 0x00ffff).setDepth(1).setInteractive()
+      under.setData('id', 'qa.h4under')
+      const queued = queue().length
+      const noId = queue().filter((o) => typeof o.getData?.('id') !== 'string').length
+      const snap = () => ({
+        ready: itd.screen().meta.ready,
+        modal: rows(itd.screen(), 'modal:btn:'),
+        under: rows(itd.screen(), 'qa:h4under|'),
+        // зеркальный случай (ревью ITGAME-165): затемнение окна без id тоже в очереди, кнопка HUD под ним
+        // в этот момент идёт БЕЗ флага — free не вправе её обещать, пока ready false
+        hudBtn: rows(itd.screen(), 'btn:menu|'),
+        freeN: itd.screen({ free: true }).n,
+        free: rows(itd.screen({ free: true }), 'modal:btn:').length,
+        hit: itd.hit('modal.btn.0'),
+        stack: itd.stack('modal.btn.0'),
+        hitUnder: itd.hit('qa.h4under'),
+      })
+      const now = snap()
+      await frame()
+      const next = snap()
+      const left = queue().length
+      itd.click('modal.btn.2') // «Отмена»
+      under.destroy()
+      await frame()
+      return { empty0, queued, noId, left, now, next, closed: itd.screen().meta.title }
+    })
+    const flagsOf = (r) => r.map((x) => x.flags)
+    check(
+      'H4: окно «Выйти в меню?» в том же ходу, что его открыл: объекты в _pendingInsertion; screen() — P у modal:btn:* (не X), под окном P; meta.ready false; free без них; hit() ok:false pending:true; stack(id) pending:true',
+      !h4.noQueue && h4.empty0 === 0 && h4.queued >= 3 && h4.now.modal.length === 3 && flagsOf(h4.now.modal).every((f) => f.includes('P') && !f.includes('X')) &&
+        h4.now.under.length === 1 && h4.now.under[0].flags.includes('P') && h4.now.ready === false && h4.now.free === 0 &&
+        h4.now.hit.ok === false && h4.now.hit.pending === true && !!h4.now.hit.why && h4.now.stack.pending === true &&
+        h4.now.hitUnder.pending === true,
+      JSON.stringify(h4.noQueue ?? h4.now),
+    )
+    check(
+      'H4: зеркальный случай — в очереди и затемнение окна без id (объектов больше, чем с id), кнопка HUD btn:menu под ним в этот момент без флага, но free:true пуст (n 0), пока meta.ready false; через кадр btn:menu под окном — X, free по-прежнему не берёт её',
+      !h4.noQueue && h4.noId >= 1 && h4.queued > h4.noId && h4.now.ready === false && h4.now.hudBtn.length === 1 && h4.now.hudBtn[0].flags === '' &&
+        h4.now.freeN === 0 && h4.next.ready === true && h4.next.hudBtn.length === 1 && h4.next.hudBtn[0].flags === 'X',
+      JSON.stringify(h4.noQueue ?? { queued: h4.queued, noId: h4.noId, now: { ready: h4.now.ready, hudBtn: h4.now.hudBtn, freeN: h4.now.freeN }, next: { ready: h4.next.ready, hudBtn: h4.next.hudBtn } }),
+    )
+    check(
+      'H4: через один кадр очередь пуста, флагов у кнопок окна нет, meta.ready true, free их берёт, hit() ok без pending, stack(id).wins — кнопка окна; объект под окном — X (настоящее перекрытие, не P)',
+      !h4.noQueue && h4.left === 0 && h4.next.modal.length === 3 && flagsOf(h4.next.modal).every((f) => f === '') && h4.next.ready === true && h4.next.free === 3 &&
+        h4.next.hit.ok === true && h4.next.hit.pending === undefined && h4.next.stack.pending === undefined && h4.next.stack.wins?.id === 'modal.btn.0' &&
+        h4.next.under.length === 1 && h4.next.under[0].flags === 'X' && h4.next.hitUnder.ok === false && h4.next.hitUnder.pending === undefined,
+      JSON.stringify(h4.noQueue ?? { left: h4.left, next: h4.next, closed: h4.closed }),
     )
 
     // ── B2: skipReports=1 — смена дня без модалки, sound/toast по прибыли
@@ -1219,6 +1291,49 @@ async function run() {
     await pk.evaluate(() => localStorage.removeItem('itd.sid'))
     await pk.evaluate(() => window.itd.sandbox('qa87'))
     await pk.waitForFunction(() => window.itd.state().menuReady === true, { timeout: 20000 })
+    // K5 (ITGAME-165): menuReady — и input-слой принял объекты меню. Объект, созданный в меню прямо сейчас
+    // (синтетика: так асинхронная перестройка peekSave().then(buildMain) создаёт объекты между кадрами),
+    // стоит в _pendingInsertion: menuReady false, screen() — P вместо X и meta.ready false; через кадр —
+    // menuReady true, флагов нет. Путь ITGAME-163 (sandbox → wait(menuReady) → screen) — в K5b ниже, но
+    // сам случай 163 («X на всех menu:diff:* 7–9 с») не воспроизведён: K5b на старом коде тоже зелёный.
+    const k5 = await pk.evaluate(async () => {
+      const menu = window.__itd.scene.getScene('menu')
+      const frame = () => new Promise((r) => requestAnimationFrame(r))
+      if (!Array.isArray(menu.input._pendingInsertion)) {
+        return { noQueue: 'в Phaser нет menu.input._pendingInsertion — K5 нечем проверять, обновите inputQueued() в agentApi.ts' }
+      }
+      await frame()
+      const ready0 = window.itd.state().menuReady
+      const rect = menu.add.rectangle(30, 30, 20, 20, 0xff00ff).setInteractive()
+      rect.setData('id', 'qa.k5')
+      const queued = menu.input._pendingInsertion.includes(rect)
+      const row = () => window.itd.screen().items.find((i) => i.startsWith('qa:k5|'))?.split('|')[4]
+      const now = { menuReady: window.itd.state().menuReady, flags: row(), ready: window.itd.screen().meta.ready }
+      await frame()
+      const next = { menuReady: window.itd.state().menuReady, flags: row(), ready: window.itd.screen().meta.ready, left: menu.input._pendingInsertion.length }
+      rect.destroy()
+      return { ready0, queued, now, next }
+    })
+    check(
+      'K5: объект меню в _pendingInsertion — menuReady false, screen() P (не X), meta.ready false; через кадр — menuReady true, флагов нет, ready true',
+      !k5.noQueue && k5.ready0 === true && k5.queued && k5.now.menuReady === false && k5.now.flags === 'P' && k5.now.ready === false &&
+        k5.next.menuReady === true && k5.next.flags === '' && k5.next.ready === true && k5.next.left === 0,
+      JSON.stringify(k5),
+    )
+    // K5b: путь приёмки ITGAME-163 как есть — sandbox() → wait(menuReady) → screen({frame:1214}) в одном ходу, без пауз
+    const k5b = await pk.evaluate(async () => {
+      window.itd.sandbox('qa165')
+      await new Promise((r) => setTimeout(r, 300))
+      await window.itd.wait((s) => s.menuReady, 8000)
+      const scr = window.itd.screen({ frame: 1214 })
+      const diff = scr.items.filter((i) => i.startsWith('menu:diff:')).map((i) => i.split('|')[4])
+      return { ready: scr.meta.ready, diff }
+    })
+    check(
+      'K5b: sandbox() → 300 мс → wait(menuReady) → screen({frame:1214}) в одном ходу: четыре menu:diff:* без X и P, meta.ready true (случай ITGAME-163 этим не воспроизводится — путь покрыт, баг нет)',
+      k5b.ready === true && k5b.diff.length === 4 && k5b.diff.every((f) => !f.includes('X') && !f.includes('P')),
+      JSON.stringify(k5b),
+    )
     await pk.evaluate(() => window.itd.click('menu.diff.normal'))
     await pk.waitForFunction(() => window.itd.state().scenario === 'broken_pc' && window.itd.state().phase === 'running', { timeout: 20000 })
     await pk.evaluate(() => window.itd.pause())
