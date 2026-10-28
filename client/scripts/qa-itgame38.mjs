@@ -92,7 +92,8 @@
 //       кнопкам P (не X), meta.ready false, free их не берёт, hit() ok:false pending:true, stack(id) pending:true; через
 //       кадр — без флагов, ready true, hit ok; объект под окном — настоящий X
 //   K5  (ITGAME-165) объект меню в _pendingInsertion: menuReady false, screen() P, meta.ready false; через кадр — всё чисто;
-//       K5b путь ITGAME-163 (sandbox → wait(menuReady) → screen в одном ходу): без X/P, ready true — сам случай 163 не воспроизведён
+//       K5b путь ITGAME-163 (sandbox → wait(menuReady) → screen в одном ходу): без X/P, ready true;
+//       K5c (ITGAME-242) перестройка меню buildMain(): кнопки в очереди дают P (не X), menuReady false, meta.ready false; после кадра всё чисто
 //   H4 зеркальный случай: затемнение без id в очереди, кнопка HUD под ним без флага, но free пуст, пока ready false
 //   V1/V2 + (ITGAME-88) stale().shown: false на свежей вкладке, true на подмене, снова false
 //   + на странице нет pageerror
@@ -1330,9 +1331,42 @@ async function run() {
       return { ready: scr.meta.ready, diff }
     })
     check(
-      'K5b: sandbox() → 300 мс → wait(menuReady) → screen({frame:1214}) в одном ходу: четыре menu:diff:* без X и P, meta.ready true (случай ITGAME-163 этим не воспроизводится — путь покрыт, баг нет)',
+      'K5b: sandbox() → 300 мс → wait(menuReady) → screen({frame:1214}) в одном ходу: четыре menu:diff:* без X и P, meta.ready true',
       k5b.ready === true && k5b.diff.length === 4 && k5b.diff.every((f) => !f.includes('X') && !f.includes('P')),
       JSON.stringify(k5b),
+    )
+    // K5c (ITGAME-242): воссоздание условий ITGAME-163 — перестройка buildMain() пересоздаёт diffBg в _pendingInsertion:
+    // до шага лупа menuReady false, ready false, флаг P (не X); через кадр — всё чисто
+    const k5c = await pk.evaluate(async () => {
+      const menu = window.__itd.scene.getScene('menu')
+      const frame = () => new Promise((r) => requestAnimationFrame(r))
+      menu.buildMain()
+      const whenQueued = {
+        menuReady: window.itd.state().menuReady,
+        ready: window.itd.screen().meta.ready,
+        queued: menu.input._pendingInsertion?.length ?? 0,
+        flags: window.itd.screen().items.find((i) => i.startsWith('menu:diff:normal|'))?.split('|')[4],
+      }
+      await frame()
+      const afterFrame = {
+        menuReady: window.itd.state().menuReady,
+        ready: window.itd.screen().meta.ready,
+        queued: menu.input._pendingInsertion?.length ?? 0,
+        flags: window.itd.screen().items.find((i) => i.startsWith('menu:diff:normal|'))?.split('|')[4],
+      }
+      return { whenQueued, afterFrame }
+    })
+    check(
+      'K5c (ITGAME-242): перестройка buildMain() кладёт кнопки в _pendingInsertion: menuReady false, ready false, флаг P (не X); через кадр — всё чисто',
+      k5c.whenQueued.menuReady === false &&
+        k5c.whenQueued.ready === false &&
+        k5c.whenQueued.queued >= 4 &&
+        k5c.whenQueued.flags === 'AP' &&
+        k5c.afterFrame.menuReady === true &&
+        k5c.afterFrame.ready === true &&
+        k5c.afterFrame.queued === 0 &&
+        k5c.afterFrame.flags === 'A',
+      JSON.stringify(k5c),
     )
     await pk.evaluate(() => window.itd.click('menu.diff.normal'))
     await pk.waitForFunction(() => window.itd.state().scenario === 'broken_pc' && window.itd.state().phase === 'running', { timeout: 20000 })
