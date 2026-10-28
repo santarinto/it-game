@@ -84,6 +84,9 @@ export function makeClaim(game: Phaser.Game, probe: PointerProbe, sha: string): 
   const onDown = (ev: MouseEvent) => {
     const r = rec
     if (!r) return
+    // Клик по форме опроса itd.ask или самой полосе claim — не игровое нажатие
+    const targetEl = ev.target as Element | null
+    if (targetEl && (targetEl.closest?.('#itd-ask') || targetEl.closest?.('#' + BAR_ID))) return
     // Часы самого события: pointerdown и следующий за ним mousedown Chromium штампует одним timeStamp,
     // так что медленный обработчик (проба, запись в sessionStorage, GC) не разрежет одно нажатие надвое
     const now = ev.timeStamp

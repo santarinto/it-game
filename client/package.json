@@ -34,6 +34,7 @@
     "qa:pc": "node scripts/qa-itgame135.mjs",
     "qa:claim": "node scripts/qa-itgame151.mjs",
     "qa:tap": "node scripts/qa-itgame153.mjs",
+    "qa:ask": "node scripts/qa-itgame152.mjs",
     "qa:bankrupt": "node scripts/qa-itgame176.mjs",
     "check:sprites": "node scripts/check-sprites.mjs",
     "check:emoji": "node scripts/check-emoji.mjs",

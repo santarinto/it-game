@@ -14,6 +14,9 @@ import type { FakeOwnerResult, SandboxApi, SandboxRestore, SandboxResult, Sandbo
 import { makeClaim } from './claim'
 import type { ClaimApi, ClaimResizeDims, ClaimResizeLast, ClaimResizes } from './claim'
 export type { ClaimResizeDims, ClaimResizeLast, ClaimResizes }
+import { makeAsk } from './ask'
+import type { AskAnswer, AskApi, AskDock, AskItem, AskOptions, AskRecord, AskRefusal, AskResult, AskStartResult, AskState, AskWhere } from './ask'
+export type { AskAnswer, AskApi, AskDock, AskItem, AskOptions, AskRecord, AskRefusal, AskResult, AskStartResult, AskState, AskWhere }
 import { makeTap } from './tap'
 import type { TapCode, TapOptions, TapResult } from './tap'
 export type { TapCode, TapOptions, TapResult }
@@ -1094,6 +1097,23 @@ export interface ItdApi {
    * @example itd.claim.stop()
    */
   readonly claim: ClaimApi
+  /**
+   * Опрос добивки человеком прямо в странице (ITGAME-152): форма внутри страницы
+   * с кнопками «корректно/нет/непонятно» (check) или choices/своим вводом (value),
+   * полем комментария, кнопкой «Отправить агенту» и свертыванием.
+   * Размещение dock: 'auto' (по умолчанию: под холстом если >=220px, справа если >=320px,
+   * иначе оверлей), 'bottom', 'right', 'overlay'.
+   * Ответ содержит sha, ui, iw, ih, dpr, title и массив ответов. Пункт «нажми сам»
+   * (target) валидируется совместно с itd.claim.
+   * Состояние и ответы переживают F5 (sessionStorage itd.ask).
+   * @example itd.ask([{n: 1, text: 'Виден ли шрифт?', kind: 'check'}])
+   * @example itd.ask([{n: 2, text: 'Нажми кнопку найма', target: 'btn:hire'}])
+   * @example itd.ask.result()
+   * @example await itd.ask.wait()
+   * @example itd.ask.state()
+   * @example itd.ask.close()
+   */
+  readonly ask: AskApi
   /**
    * Примерка спрайта (ITGAME-119): itd.sprite.try(key, dataUrl) ставит PNG вместо
    * текстуры ключа манифеста во вкладке и перевешивает живые объекты сцен →
@@ -2191,6 +2211,11 @@ const HELP = `itd — агентский API игры (ITGAME-24/25/26/30/37/38/
   itd.claim.deny()                  — закрыть окно allow → {what, target, presses, hit}: hit — target в got разрешённого нажатия окна (null без target); нет окна — no_allow
   itd.claim.state()                 — счёт на сейчас (включая resizes); без полосы — {ok: true, active: false}
   itd.claim.stop()                  — снять полосу и слушатели, стереть sessionStorage itd.claim, заголовок «вкладка свободна» → итог (active: false); без полосы — no_claim
+  itd.ask(items, {dock?})           — опрос добивки человеком прямо в странице (ITGAME-152): items — [{n, text, kind?: 'check'|'value', choices?, target?}], dock — 'auto'|'bottom'|'right'|'overlay'; переживает F5 (sessionStorage itd.ask); target проверяется с хит-тестом itd.claim → {ok, n, where}; отказ bad_args
+  itd.ask.result()                  — итог опроса человека → {at, sha, ui, iw, ih, dpr, title, answers[{n, status, comment, target?, hit?}]} или null, если ещё не отправлен
+  await itd.ask.wait(ms?)           — ждать ответа человека (до ms мс, по умолчанию 120_000) → AskResult | null
+  itd.ask.state()                   — состояние формы → {active, where, collapsed, submitted, result, answers}
+  itd.ask.close()                   — убрать форму и очистить sessionStorage itd.ask → {ok: true}
   await itd.stale()                 — вкладка на старом JS? {client, server, dist, stale, at, shown}: shown — метка «устарело, обнови» видна на экране (скрытая живёт в DOM как display:none 0×0); client — sha вкладки, dist — sha сборки, которую стенд отдаст на F5, server — sha бинаря (/api/version); stale null — сверить не с чем (vite dev; сборка без git и без штампа BUILD_SHA/-ldflags — sha dev/unknown; со штампом sha есть); красная метка «устарело, обнови» в #topbar — та же проверка
   itd.assets()                      — аудит текстур: размер, прозрачность %, доля #f4f4f4, цвета вне палитры манифеста ключа (hd32/sweetie16; у render: smooth не считаются), дубли ключей; source: tried — проба itd.sprite.try
   itd.assetSet()                    — чем рисуют сцены: png (подменён из assets/) или pixelart (кодоген-фолбэк); active: tried — проба itd.sprite.try
@@ -2511,6 +2536,7 @@ function makeApi(game: Phaser.Game, claim: ClaimApi): ItdApi {
     stale: () => checkStale(),
     sandbox: makeSandbox(game),
     claim,
+    ask: makeAsk(game, BUILD.sha, () => claim),
     sprite: makeSpriteApi(game),
     stack(safeOrX, gy) {
       warmIfHidden()

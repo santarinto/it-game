@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "66cfa09e8e7d",
+  "hash": "33e1d5707bb5",
   "methods": {
     "version": {
       "kind": "prop",
@@ -306,6 +306,20 @@ export const CONTRACT = {
         "itd.claim.deny().hit",
         "itd.claim.state().foreign",
         "itd.claim.stop()"
+      ]
+    },
+    "ask": {
+      "kind": "prop",
+      "type": "AskApi",
+      "readonly": true,
+      "doc": "Опрос добивки человеком прямо в странице (ITGAME-152): форма внутри страницы\nс кнопками «корректно/нет/непонятно» (check) или choices/своим вводом (value),\nполем комментария, кнопкой «Отправить агенту» и свертыванием.\nРазмещение dock: 'auto' (по умолчанию: под холстом если >=220px, справа если >=320px,\nиначе оверлей), 'bottom', 'right', 'overlay'.\nОтвет содержит sha, ui, iw, ih, dpr, title и массив ответов. Пункт «нажми сам»\n(target) валидируется совместно с itd.claim.\nСостояние и ответы переживают F5 (sessionStorage itd.ask).",
+      "examples": [
+        "itd.ask([{n: 1, text: 'Виден ли шрифт?', kind: 'check'}])",
+        "itd.ask([{n: 2, text: 'Нажми кнопку найма', target: 'btn:hire'}])",
+        "itd.ask.result()",
+        "await itd.ask.wait()",
+        "itd.ask.state()",
+        "itd.ask.close()"
       ]
     },
     "sprite": {
@@ -1286,6 +1300,248 @@ export const CONTRACT = {
           "doc": "спишется вечером, $"
         }
       }
+    },
+    "AskAnswer": {
+      "kind": "object",
+      "fields": {
+        "n": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "status": {
+          "type": "string | null",
+          "optional": false,
+          "doc": ""
+        },
+        "comment": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "target": {
+          "type": "string",
+          "optional": true,
+          "doc": ""
+        },
+        "hit": {
+          "type": "boolean | null",
+          "optional": true,
+          "doc": ""
+        }
+      }
+    },
+    "AskApi": {
+      "kind": "object",
+      "fields": {
+        "result": {
+          "type": "() => AskResult | null",
+          "optional": false,
+          "doc": "Результат опроса или null, если ответ ещё не отправлен."
+        },
+        "wait": {
+          "type": "(ms?: number) => Promise<AskResult | null>",
+          "optional": false,
+          "doc": "Асинхронное ожидание ответа человека (до ms мс, по умолчанию 120_000). Резолвится AskResult или null при таймауте/закрытии."
+        },
+        "state": {
+          "type": "() => AskState",
+          "optional": false,
+          "doc": "Текущее состояние формы опроса."
+        },
+        "close": {
+          "type": "() => { ok: true; }",
+          "optional": false,
+          "doc": "Закрыть форму опроса и очистить состояние в DOM и sessionStorage."
+        }
+      },
+      "call": [
+        "(items: AskItem[], opts?: AskOptions) => AskStartResult | AskRefusal"
+      ]
+    },
+    "AskDock": {
+      "kind": "enum",
+      "values": [
+        "auto",
+        "bottom",
+        "overlay",
+        "right"
+      ]
+    },
+    "AskItem": {
+      "kind": "object",
+      "fields": {
+        "n": {
+          "type": "number",
+          "optional": false,
+          "doc": "Номер пункта (1..N)."
+        },
+        "text": {
+          "type": "string",
+          "optional": false,
+          "doc": "Текст вопроса или задания."
+        },
+        "kind": {
+          "type": "AskKind",
+          "optional": true,
+          "doc": "'check' (кнопки «корректно / нет / непонятно», по умолчанию) или 'value' (кнопки choices или свой ввод)."
+        },
+        "choices": {
+          "type": "string[]",
+          "optional": true,
+          "doc": "Варианты ответов для kind: 'value'."
+        },
+        "target": {
+          "type": "string",
+          "optional": true,
+          "doc": "id цели в игре («нажми сам»): если задана, «корректно» валидируется с хит-тестом/claim."
+        }
+      }
+    },
+    "AskKind": {
+      "kind": "enum",
+      "values": [
+        "check",
+        "value"
+      ]
+    },
+    "AskOptions": {
+      "kind": "object",
+      "fields": {
+        "dock": {
+          "type": "AskDock",
+          "optional": true,
+          "doc": "Размещение: 'auto' (снизу если >=220px, справа если >=320px, иначе оверлей), 'bottom', 'right', 'overlay'."
+        }
+      }
+    },
+    "AskRefusal": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "false",
+          "optional": false,
+          "doc": ""
+        },
+        "code": {
+          "type": "'bad_args' | 'no_ask'",
+          "optional": false,
+          "doc": ""
+        },
+        "error": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        }
+      }
+    },
+    "AskResult": {
+      "kind": "object",
+      "fields": {
+        "at": {
+          "type": "number",
+          "optional": false,
+          "doc": "Время отправки ответа (Date.now())."
+        },
+        "sha": {
+          "type": "string",
+          "optional": false,
+          "doc": "sha сборки игры (itd.version.sha)."
+        },
+        "ui": {
+          "type": "string | null",
+          "optional": false,
+          "doc": "Масштаб интерфейса (itd.uiScale)."
+        },
+        "iw": {
+          "type": "number",
+          "optional": false,
+          "doc": "innerWidth вкладки в момент отправки."
+        },
+        "ih": {
+          "type": "number",
+          "optional": false,
+          "doc": "innerHeight вкладки в момент отправки."
+        },
+        "dpr": {
+          "type": "number",
+          "optional": false,
+          "doc": "devicePixelRatio вкладки."
+        },
+        "title": {
+          "type": "string",
+          "optional": false,
+          "doc": "Заголовок вкладки."
+        },
+        "answers": {
+          "type": "AskAnswer[]",
+          "optional": false,
+          "doc": "Массив ответов по пунктам."
+        }
+      }
+    },
+    "AskStartResult": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "type": "true",
+          "optional": false,
+          "doc": ""
+        },
+        "n": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
+        },
+        "where": {
+          "type": "AskWhere",
+          "optional": false,
+          "doc": ""
+        }
+      }
+    },
+    "AskState": {
+      "kind": "object",
+      "fields": {
+        "active": {
+          "type": "boolean",
+          "optional": false,
+          "doc": ""
+        },
+        "where": {
+          "type": "AskWhere",
+          "optional": true,
+          "doc": ""
+        },
+        "collapsed": {
+          "type": "boolean",
+          "optional": true,
+          "doc": ""
+        },
+        "submitted": {
+          "type": "boolean",
+          "optional": true,
+          "doc": ""
+        },
+        "result": {
+          "type": "AskResult | null",
+          "optional": true,
+          "doc": ""
+        },
+        "answers": {
+          "type": "Record<number, { status: string | null; comment: string; }>",
+          "optional": true,
+          "doc": ""
+        }
+      }
+    },
+    "AskWhere": {
+      "kind": "enum",
+      "values": [
+        "bottom",
+        "overlay",
+        "right"
+      ]
     },
     "AssetReport": {
       "kind": "object",
