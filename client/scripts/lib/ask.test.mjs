@@ -88,6 +88,8 @@ test('newAskRecord, serializeAskRecord, parseAskRecord: круг без поте
   // Мусор парсится безопасно в null
   assert.equal(parseAskRecord('invalid json'), null)
   assert.equal(parseAskRecord('123'), null)
+  assert.equal(parseAskRecord(JSON.stringify({ items: [{ n: 0, text: '' }], answers: {} })), null)
+  assert.equal(parseAskRecord(JSON.stringify({ items: [{ n: 1, text: 'ok' }], answers: 'not an object' })), null)
 })
 
 test('calcDockBoxStyle: стили для bottom, right, overlay и collapsed', () => {
@@ -107,6 +109,7 @@ test('calcDockBoxStyle: стили для bottom, right, overlay и collapsed', 
 
   const sOverlay = calcDockBoxStyle('overlay', canvas, { iw: 1300, ih: 750 }, false)
   assert.equal(sOverlay.boxShadow, '0 4px 16px rgba(0,0,0,0.5)')
+  assert.equal(sOverlay.top, '48px') // Math.max(48, 20 + 8)
 
   const sCollapsed = calcDockBoxStyle('bottom', canvas, vp, true)
   assert.equal(sCollapsed.maxHeight, '48px')

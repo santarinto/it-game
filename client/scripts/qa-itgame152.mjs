@@ -176,22 +176,27 @@ async function run() {
       JSON.stringify(res5),
     )
 
-    // 6: интеграция с itd.claim: клик по форме не триггерит foreign в claim
+    // 6: интеграция с itd.claim: клик по форме не триггерит foreign в claim;
+    // клик «корректно» до нажатия цели блокируется и не устанавливает статус
     const res6 = await page.evaluate(() => {
       window.itd.claim('qa152')
       window.itd.ask([{ n: 1, text: 'Нажми «НОРМА» в игре', target: 'menu:diff:normal' }], { dock: 'bottom' })
-      // Кликаем по кнопкам формы опроса
       const q1 = document.querySelector('#itd-ask [data-n="1"]')
       const btn = Array.from(q1.querySelectorAll('button')).find((b) => b.textContent === 'корректно')
+      // Попытка выбрать «корректно» до клика в игре
       btn?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
       btn?.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
       btn?.click()
-      return window.itd.claim.state()
+      const blockedStatus = window.itd.ask.state().answers[1]?.status
+      return {
+        foreign: window.itd.claim.state().foreign,
+        blockedStatus,
+      }
     })
     check(
-      '6: интеграция с claim: клики по #itd-ask не вызывают foreign в claim',
-      res6.foreign === 0,
-      `claim.foreign=${res6.foreign}`,
+      '6: интеграция с claim: клики по #itd-ask не вызывают foreign в claim; выбор «корректно» блокируется до клика',
+      res6.foreign === 0 && res6.blockedStatus === null,
+      JSON.stringify(res6),
     )
 
     // Клик по кнопке меню menu:diff:normal на канвасе
@@ -202,8 +207,11 @@ async function run() {
     })
     await page.mouse.click(btnPos.x, btnPos.y)
 
-    // 7: Отправка ответа
+    // После клика в игре выбираем «корректно» и отправляем ответ
     const res7 = await page.evaluate(() => {
+      const q1 = document.querySelector('#itd-ask [data-n="1"]')
+      const btn = Array.from(q1.querySelectorAll('button')).find((b) => b.textContent === 'корректно')
+      btn?.click()
       const sendBtn = document.getElementById('itd-ask-send')
       sendBtn?.click()
       return {
@@ -230,6 +238,7 @@ async function run() {
 
     // 9: itd.ask.close()
     const res9 = await page.evaluate(() => {
+      window.itd.claim.stop()
       const closeRes = window.itd.ask.close()
       const el = document.getElementById('itd-ask')
       const st = window.itd.ask.state()

@@ -186,7 +186,8 @@ export function parseAskRecord(json: string): AskRecord | null {
   try {
     const parsed = JSON.parse(json)
     if (!parsed || typeof parsed !== 'object') return null
-    if (!Array.isArray(parsed.items) || typeof parsed.answers !== 'object') return null
+    if (checkAskItems(parsed.items) !== null) return null
+    if (!parsed.answers || typeof parsed.answers !== 'object' || Array.isArray(parsed.answers)) return null
     const validDock = ['auto', 'bottom', 'right', 'overlay'].includes(parsed.dock) ? parsed.dock : 'auto'
     const validWhere = ['bottom', 'right', 'overlay'].includes(parsed.where) ? parsed.where : 'overlay'
     return {
@@ -239,7 +240,7 @@ export function calcDockBoxStyle(
     }
     return {
       left: `${Math.max(10, viewport.iw - 380)}px`,
-      top: `${canvasRect.top + 8}px`,
+      top: `${Math.max(48, canvasRect.top + 8)}px`,
       width: `${Math.min(360, viewport.iw - 20)}px`,
       maxHeight: '48px',
       boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
@@ -271,7 +272,7 @@ export function calcDockBoxStyle(
   // overlay
   return {
     left: `${Math.max(10, viewport.iw - 380)}px`,
-    top: `${canvasRect.top + 8}px`,
+    top: `${Math.max(48, canvasRect.top + 8)}px`,
     width: `${Math.min(360, viewport.iw - 20)}px`,
     maxHeight: `${Math.max(120, canvasRect.height * 0.9)}px`,
     boxShadow: '0 4px 16px rgba(0,0,0,0.5)',

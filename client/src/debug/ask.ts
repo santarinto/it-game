@@ -2,6 +2,7 @@ import type Phaser from 'phaser'
 import { sessionStore } from '../storage'
 import {
   ASK_BOX_ID,
+  ASK_COMMENT_MAX,
   ASK_KEY,
   calcDockBoxStyle,
   calcDockWhere,
@@ -127,8 +128,8 @@ export function makeAsk(game: Phaser.Game, sha: string, getClaimApi?: () => Clai
         zIndex: '99999',
         boxSizing: 'border-box',
       })
-      // Останавливаем события мыши/колеса, чтобы ввод в форме не трогал сцену игры
-      ;['mousedown', 'mouseup', 'click', 'wheel', 'touchstart', 'touchend'].forEach((e) => {
+      // Останавливаем события мыши/колеса/клавиатуры, чтобы ввод в форме не трогал сцену игры
+      ;['mousedown', 'mouseup', 'click', 'wheel', 'touchstart', 'touchend', 'keydown', 'keyup'].forEach((e) => {
         box?.addEventListener(e, (ev) => ev.stopPropagation())
       })
       document.body.appendChild(box)
@@ -234,7 +235,10 @@ export function makeAsk(game: Phaser.Game, sha: string, getClaimApi?: () => Clai
       q.style.margin = '12px 0 14px 0'
 
       const titleRow = document.createElement('div')
-      titleRow.innerHTML = `<b>${it.n}.</b> ${it.text}`
+      const numB = document.createElement('b')
+      numB.textContent = `${it.n}. `
+      titleRow.appendChild(numB)
+      titleRow.appendChild(document.createTextNode(it.text))
 
       // Индикатор «нажми сам» / цели
       let hit = false
@@ -296,12 +300,10 @@ export function makeAsk(game: Phaser.Game, sha: string, getClaimApi?: () => Clai
             if (!currentHit) {
               warnRow.textContent = `Клик по цели «${it.target}» ещё не зафиксирован! Сначала нажми кнопку в игре.`
               warnRow.style.display = 'block'
-            } else {
-              warnRow.style.display = 'none'
+              return
             }
-          } else {
-            warnRow.style.display = 'none'
           }
+          warnRow.style.display = 'none'
           st.status = opt
           save()
           render()
@@ -312,6 +314,7 @@ export function makeAsk(game: Phaser.Game, sha: string, getClaimApi?: () => Clai
 
       const commentInput = document.createElement('input')
       commentInput.type = 'text'
+      commentInput.maxLength = ASK_COMMENT_MAX
       commentInput.value = st.comment
       commentInput.placeholder = it.kind === 'value' ? 'свой ответ / комментарий' : 'комментарий (можно пусто)'
       Object.assign(commentInput.style, {
@@ -422,6 +425,11 @@ export function makeAsk(game: Phaser.Game, sha: string, getClaimApi?: () => Clai
       const canvasRect = getCanvasRect()
       const viewport = getViewport()
       const where = calcDockWhere(dock, canvasRect, viewport)
+
+      while (waitResolvers.length > 0) {
+        const r = waitResolvers.shift()
+        r?.(null)
+      }
 
       rec = newAskRecord(items, dock, where)
       save()
