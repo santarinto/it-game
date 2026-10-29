@@ -1,7 +1,7 @@
 # Forgejo Actions — it-game tests + deploy (MINIPC-206, the platform chain:
 # minipc MINIPC-164 / sntbot MINIPC-209 pattern).
 #
-# Tests run on the aiserver docker runner (aiserver-test, label minipc-test —
+# Tests run on the aiserver docker runner (aiserver-test, label lan-test —
 # home to them since LM-200; the first home ci-cd-srv is gone since 15.10,
 # MINIPC-255) on EVERY push (any branch). The deploy job runs on the minipc
 # HOST runner (label minipc-deploy): git.lan is unreachable from the game
@@ -86,7 +86,7 @@ env:
 
 jobs:
   test-server:
-    runs-on: minipc-test
+    runs-on: lan-test
     container: golang:1.26
     services:
       postgres:
@@ -115,7 +115,7 @@ jobs:
         run: sh tools/ci-notify.sh test-server finish-unless-done || true
 
   test-client:
-    runs-on: minipc-test
+    runs-on: lan-test
     container: node:22
     steps:
       - if: inputs.mode == 'rollback'
