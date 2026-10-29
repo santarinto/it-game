@@ -29,7 +29,7 @@ import {
 import type { AchievementDef } from '../meta'
 
 // Комнаты партии — сцены за панелью навигации.
-type Room = 'office' | 'serverRoom' | 'adminDept'
+type Room = 'office' | 'serverRoom' | 'adminDept' | 'tracker'
 const CX = GAME_W / 2 // центр поля — якорь модалок и тостов
 const SPEED_BEFORE_REPORT_KEY = 'itd.speedBeforeReport'
 const REPORT_KEYS = [Phaser.Input.Keyboard.KeyCodes.ENTER, Phaser.Input.Keyboard.KeyCodes.SPACE]
@@ -703,6 +703,8 @@ export class HUDScene extends Phaser.Scene {
       { key: 'serverRoom', office: -1, label: 'СРВ' },
       // Отдел админов (ITGAME-145): закрыт и покупается, как офис.
       { key: 'adminDept', office: -1, label: 'АДМ' },
+      // Трекер задач (ITGAME-201): заглушка канбан-доски.
+      { key: 'tracker', office: -1, label: 'ТРК' },
     ]
     rooms.forEach((r, idx) => {
       const y = HUD_H + 24 + idx * 76
@@ -821,7 +823,8 @@ export class HUDScene extends Phaser.Scene {
     this.navItems.forEach((item, idx) => {
       const active = this.currentRoom === 'serverRoom' ? idx === 3
         : this.currentRoom === 'adminDept' ? idx === 4
-          : idx === nav.activeOffice
+        : this.currentRoom === 'tracker' ? idx === 5
+        : idx === nav.activeOffice
       item.bg.setStrokeStyle(2, active ? 0x41a6f6 : 0x3a3f5c)
       markActive(item.bg, active)
     })
@@ -959,6 +962,10 @@ export class HUDScene extends Phaser.Scene {
       if (idx === 3) return
       if (idx === 4) {
         this.refreshDeptNav(item, s)
+        return
+      }
+      if (idx === 5) {
+        item.sub.setText('задачи')
         return
       }
       const o = s.offices[idx]
@@ -1619,6 +1626,7 @@ export class HUDScene extends Phaser.Scene {
     this.scene.stop('office')
     this.scene.stop('serverRoom')
     this.scene.stop('adminDept')
+    this.scene.stop('tracker')
     this.scene.start('menu') // start глушит hud
   }
 

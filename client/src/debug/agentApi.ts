@@ -621,7 +621,7 @@ export interface HitTarget {
 export interface ScreenOptions {
   frame?: number // ширина рамки снимка инструмента, px, число ≥ 100 (иначе отказ bad_frame, ITGAME-148): x/y сразу в ней (по умолчанию — CSS px окна)
   free?: boolean // только элементы, которые примут настоящий клик (без флага X)
-  scene?: string // только эта сцена (hud, office, serverRoom, adminDept, menu)
+  scene?: string // только эта сцена (hud, office, serverRoom, adminDept, tracker, menu)
 }
 
 export interface ScreenMeta {

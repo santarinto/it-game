@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "67a6a07d235b",
+  "hash": "afbc405b57ce",
   "methods": {
     "version": {
       "kind": "prop",
@@ -3617,7 +3617,7 @@ export const CONTRACT = {
         "scene": {
           "type": "string",
           "optional": true,
-          "doc": "только эта сцена (hud, office, serverRoom, adminDept, menu)"
+          "doc": "только эта сцена (hud, office, serverRoom, adminDept, tracker, menu)"
         }
       }
     },
