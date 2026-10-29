@@ -128,17 +128,27 @@ type officeInfo struct {
 	ServerSlots     int             `json:"serverSlots"`
 	Boss            string          `json:"boss"` // "" — начальника нет
 	BossUnpaidToday bool            `json:"bossUnpaidToday"`
-	// Админ офиса (ITGAME-101): не сотрудник — места не занимает.
-	Admin            string         `json:"admin"` // "" — админа нет
-	AdminUnpaidToday bool           `json:"adminUnpaidToday"`
-	AdminSlot        int            `json:"adminSlot"`      // место, по которому его следующий клик; -1 — свободен или админа нет
-	AdminKind        string         `json:"adminKind"`      // repair | virus | "" — что он там делает
-	AdminFirePrice   int            `json:"adminFirePrice"` // компенсация увольнения; 0 — админа нет
-	Cooler           bool           `json:"cooler"`
-	Fridge           bool           `json:"fridge"`
-	CoffeeMachine    bool           `json:"coffeeMachine"`
-	VirusPCs         int            `json:"virusPCs"`  // заражённых мест офиса (ITGAME-103)
-	Employees        []employeeInfo `json:"employees"` // порядок = порядок найма
+	// Админ офиса (ITGAME-101/144): не сотрудник — места не занимает.
+	Admin            string           `json:"admin"` // "" — админа нет
+	AdminUnpaidToday bool             `json:"adminUnpaidToday"`
+	AdminSlot        int              `json:"adminSlot"`      // место, по которому его следующий клик; -1 — свободен или админа нет
+	AdminKind        string           `json:"adminKind"`      // repair | virus | "" — что он там делает
+	AdminFirePrice   int              `json:"adminFirePrice"` // компенсация увольнения; 0 — админа нет
+	AdminShifts      []adminShiftInfo `json:"adminShifts"`    // нанятые смены админов (ITGAME-144)
+	AdminNextShift   int              `json:"adminNextShift"` // номер следующей свободной смены (1..3); 0 — все заняты
+	Cooler           bool             `json:"cooler"`
+	Fridge           bool             `json:"fridge"`
+	CoffeeMachine    bool             `json:"coffeeMachine"`
+	VirusPCs         int              `json:"virusPCs"`  // заражённых мест офиса (ITGAME-103)
+	Employees        []employeeInfo   `json:"employees"` // порядок = порядок найма
+}
+
+// adminShiftInfo — смена админа офиса в снапшоте (ITGAME-144).
+type adminShiftInfo struct {
+	Shift       int    `json:"shift"`
+	Name        string `json:"name"`
+	UnpaidToday bool   `json:"unpaidToday"`
+	FirePrice   int    `json:"firePrice"`
 }
 
 // employeeInfo — сотрудник в снапшоте: всё, что нужно тултипу.
@@ -411,6 +421,27 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 			adminSlot, adminKind = o.AdminTarget()
 			adminFire = g.AdminFireCompensation(oi)
 		}
+		var adminShifts []adminShiftInfo
+		for _, s := range o.AdminShifts {
+			adminShifts = append(adminShifts, adminShiftInfo{
+				Shift:       s.Shift,
+				Name:        s.Name,
+				UnpaidToday: s.UnpaidToday,
+				FirePrice:   g.AdminShiftFireCompensation(oi, s.Shift),
+			})
+		}
+		if len(adminShifts) == 0 && o.Admin != "" {
+			adminShifts = []adminShiftInfo{{
+				Shift:       1,
+				Name:        o.Admin,
+				UnpaidToday: o.AdminUnpaidToday,
+				FirePrice:   adminFire,
+			}}
+		}
+		if adminShifts == nil {
+			adminShifts = []adminShiftInfo{}
+		}
+		nextAdminShift := o.NextAdminShift()
 		workplaces := make([]workplaceInfo, 0, o.PCs)
 		for i := 0; i < o.PCs; i++ {
 			w := o.Workplace(i)
@@ -423,7 +454,8 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 			Servers: servers, ServerSlots: cfg.ServerSlotsPerOffice(),
 			Boss: o.Boss, BossUnpaidToday: o.BossUnpaidToday,
 			Admin: o.Admin, AdminUnpaidToday: o.AdminUnpaidToday, AdminSlot: adminSlot, AdminKind: adminKind,
-			AdminFirePrice: adminFire, Cooler: o.Cooler,
+			AdminFirePrice: adminFire, AdminShifts: adminShifts, AdminNextShift: nextAdminShift,
+			Cooler: o.Cooler,
 			Fridge: o.Fridge, CoffeeMachine: o.CoffeeMachine, Employees: employees,
 			VirusPCs: g.OfficeInfected(oi),
 		}

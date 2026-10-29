@@ -134,6 +134,7 @@ func (g *Game) AdvanceOffline(miss int) *OfflineSummary {
 	g.Day++
 	g.TickInDay = 0
 	g.beginLedger()
+	g.nightAdminWork(true)
 	g.TickInDay = miss
 	inc = g.creditIncome(g.offlineIncome(0, miss))
 	g.Money += inc
@@ -221,7 +222,11 @@ func (g *Game) offlineTemplate() *Game {
 		}
 		o.BossUnpaidToday = false
 		o.AdminUnpaidToday = false
+		for si := range o.AdminShifts {
+			o.AdminShifts[si].UnpaidToday = false
+		}
 	}
+	tpl.nightAdminWork(true)
 	return tpl
 }
 
@@ -241,6 +246,9 @@ func (g *Game) resetForNextDay() {
 		}
 		o.BossUnpaidToday = false
 		o.AdminUnpaidToday = false
+		for si := range o.AdminShifts {
+			o.AdminShifts[si].UnpaidToday = false
+		}
 		o.CoffeeEventTicks = nil
 	}
 	g.DayIncome = 0

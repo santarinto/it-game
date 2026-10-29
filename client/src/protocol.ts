@@ -78,6 +78,14 @@ export interface WorkplaceInfo {
   nextPrice: number // апгрейд до следующего уровня; 0 — максимум или ПК мёртв
 }
 
+// Смена админа офиса (ITGAME-144).
+export interface AdminShiftInfo {
+  shift: number // 1..3
+  name: string
+  unpaidToday: boolean
+  firePrice: number
+}
+
 export interface OfficeInfo {
   unlocked: boolean
   price: number
@@ -91,12 +99,14 @@ export interface OfficeInfo {
   nextPorts: number // порты следующего тира; 0 — тир максимальный
   boss: string
   bossUnpaidToday: boolean
-  // Админ офиса (ITGAME-101): не сотрудник — места не занимает.
+  // Админ офиса (ITGAME-101/144): не сотрудник — места не занимает.
   admin: string // '' — админа нет
   adminUnpaidToday: boolean
   adminSlot: number // место, по которому его следующий клик; -1 — свободен или админа нет
   adminKind: 'repair' | 'virus' | '' // что он там делает
   adminFirePrice: number // компенсация увольнения; 0 — админа нет
+  adminShifts?: AdminShiftInfo[] // все нанятые смены (ITGAME-144)
+  adminNextShift?: number // номер следующей свободной смены (1..3); 0 — все заняты
   employees: EmployeeInfo[]
   cooler: boolean
   fridge: boolean

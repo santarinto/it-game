@@ -25,7 +25,14 @@ func (g *Game) BuyAdminDept() error {
 	return nil
 }
 
-// HireAdmin нанимает админа офиса: сидит в отделе, работает на свой офис.
+// Константы тиков смен админов (ITGAME-144).
+const (
+	AdminShiftDayTicks    = 54 // 10:00–19:00 (54 тика рабочего дня)
+	AdminShiftNight1Ticks = 45 // 19:00–02:30 (45 тиков = 7.5 часов)
+	AdminShiftNight2Ticks = 45 // 02:30–10:00 (45 тиков = 7.5 часов)
+)
+
+// HireAdmin нанимает админа офиса: найм по очереди заполняет смены 1..3 (ITGAME-144).
 func (g *Game) HireAdmin(office int) error {
 	o, err := g.office(office)
 	if err != nil {
@@ -34,44 +41,101 @@ func (g *Game) HireAdmin(office int) error {
 	if !g.AdminDept {
 		return ErrAdminDeptLocked
 	}
-	if o.Admin != "" {
+	shift := o.NextAdminShift()
+	if shift == 0 {
 		return ErrAdminAlready
 	}
 	if g.Money < g.cfg.AdminPrice {
 		return ErrNotEnoughMoney
 	}
 	g.spend(CmdHireAdmin, g.cfg.AdminPrice)
-	o.Admin = rollName(g.rng)
-	o.AdminUnpaidToday = g.hiredAfterLunch()
-	o.AdminHireDay = g.Day
+	s := AdminShift{
+		Shift:       shift,
+		Name:        rollName(g.rng),
+		UnpaidToday: g.hiredAfterLunch(),
+		HireDay:     g.Day,
+	}
+	o.AdminShifts = append(o.AdminShifts, s)
+	o.syncLegacyAdmin()
 	return nil
 }
 
-// AdminFireCompensation — компенсация увольнения админа офиса: день его
-// зарплаты, в день найма — как у сотрудника на испытательном сроке.
-func (g *Game) AdminFireCompensation(office int) int {
-	if g.Offices[office].AdminHireDay == g.Day {
+// AdminShiftFireCompensation — компенсация увольнения конкретной смены админа офиса:
+// день зарплаты, в день найма — как на испытательном сроке.
+func (g *Game) AdminShiftFireCompensation(office, shift int) int {
+	o := &g.Offices[office]
+	for _, s := range o.AdminShifts {
+		if s.Shift == shift {
+			if s.HireDay == g.Day {
+				return g.cfg.FireCompSameDay
+			}
+			return g.cfg.AdminSalaryPerDay
+		}
+	}
+	if shift == 1 && o.AdminHireDay == g.Day {
 		return g.cfg.FireCompSameDay
 	}
 	return g.cfg.AdminSalaryPerDay
 }
 
-// FireAdmin увольняет админа офиса.
+// AdminFireCompensation — компенсация увольнения админа офиса (последней нанятой смены):
+// день его зарплаты, в день найма — как у сотрудника на испытательном сроке.
+func (g *Game) AdminFireCompensation(office int) int {
+	o := &g.Offices[office]
+	if len(o.AdminShifts) > 0 {
+		last := o.AdminShifts[len(o.AdminShifts)-1]
+		return g.AdminShiftFireCompensation(office, last.Shift)
+	}
+	if o.AdminHireDay == g.Day {
+		return g.cfg.FireCompSameDay
+	}
+	return g.cfg.AdminSalaryPerDay
+}
+
+// FireAdminShift увольняет админа заданной смены офиса (ITGAME-144).
+func (g *Game) FireAdminShift(office, shift int) error {
+	o, err := g.office(office)
+	if err != nil {
+		return err
+	}
+	idx := -1
+	for i, s := range o.AdminShifts {
+		if s.Shift == shift {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 && !(shift == 1 && o.Admin != "") {
+		return ErrNoAdmin
+	}
+	comp := g.AdminShiftFireCompensation(office, shift)
+	if g.Money < comp {
+		return ErrNotEnoughMoney
+	}
+	g.spend(CmdFireAdmin, comp)
+	if idx >= 0 {
+		o.AdminShifts = append(o.AdminShifts[:idx], o.AdminShifts[idx+1:]...)
+	} else {
+		o.Admin, o.AdminUnpaidToday, o.AdminHireDay = "", false, 0
+	}
+	o.syncLegacyAdmin()
+	return nil
+}
+
+// FireAdmin увольняет последнюю нанятую смену админа офиса.
 func (g *Game) FireAdmin(office int) error {
 	o, err := g.office(office)
 	if err != nil {
 		return err
 	}
-	if o.Admin == "" {
+	if len(o.AdminShifts) == 0 && o.Admin == "" {
 		return ErrNoAdmin
 	}
-	comp := g.AdminFireCompensation(office)
-	if g.Money < comp {
-		return ErrNotEnoughMoney
+	shift := 1
+	if len(o.AdminShifts) > 0 {
+		shift = o.AdminShifts[len(o.AdminShifts)-1].Shift
 	}
-	g.spend(CmdFireAdmin, comp)
-	o.Admin, o.AdminUnpaidToday, o.AdminHireDay = "", false, 0
-	return nil
+	return g.FireAdminShift(office, shift)
 }
 
 // Цели админа — что он сейчас кликает (протокол: officeInfo.adminKind).
@@ -257,4 +321,48 @@ func (g *Game) adminCardLine(oi int) string {
 		t -= day
 	}
 	return fmt.Sprintf(" Админ офиса вычистит сам к %s.", g.ClockAt(t))
+}
+
+// nightAdminWork выполняет клики ночных админов (смены 2 и 3) на переходе дня (ITGAME-144).
+// Каждая ночная смена делает 45 тиков × cfg.AdminClicksPerTick ремонта и чистки.
+// silent: true — офлайн-догон (без записи в журнал), false — утро живой игры.
+func (g *Game) nightAdminWork(silent bool) (repaired, cleaned int) {
+	for oi := range g.Offices {
+		o := &g.Offices[oi]
+		if !o.Unlocked {
+			continue
+		}
+		nightClicks := 0
+		for _, s := range o.AdminShifts {
+			if s.Shift == 2 {
+				nightClicks += AdminShiftNight1Ticks * g.cfg.AdminClicksPerTick
+			} else if s.Shift == 3 {
+				nightClicks += AdminShiftNight2Ticks * g.cfg.AdminClicksPerTick
+			}
+		}
+		if nightClicks <= 0 {
+			continue
+		}
+		r, c := o.adminWork(g.cfg, nightClicks, nil)
+		repaired += r
+		cleaned += c
+		if c > 0 {
+			g.virusSettled(oi, cleanedSilent)
+		}
+	}
+	if !silent && (repaired > 0 || cleaned > 0) {
+		g.logNightAdminSummary(repaired, cleaned)
+	}
+	return repaired, cleaned
+}
+
+// logNightAdminSummary записывает сводку ночной работы админов в журнал дня.
+func (g *Game) logNightAdminSummary(repaired, cleaned int) {
+	if repaired > 0 && cleaned > 0 {
+		g.logEvent(fmt.Sprintf("ночью админы починили %d ПК, вычистили %d мест", repaired, cleaned))
+	} else if repaired > 0 {
+		g.logEvent(fmt.Sprintf("ночью админы починили %d ПК", repaired))
+	} else if cleaned > 0 {
+		g.logEvent(fmt.Sprintf("ночью админы вычистили %d мест", cleaned))
+	}
 }

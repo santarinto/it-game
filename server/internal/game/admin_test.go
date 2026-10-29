@@ -59,8 +59,17 @@ func TestHireAdmin(t *testing.T) {
 	if g.TotalEmployees() != staff || g.Network().CoreUsed != connected {
 		t.Errorf("админ вошёл в штат/сеть: штат %d→%d, core %d→%d", staff, g.TotalEmployees(), connected, g.Network().CoreUsed)
 	}
+	if err := g.HireAdmin(0); err != nil {
+		t.Fatalf("второй админ (смена 2): %v", err)
+	}
+	if err := g.HireAdmin(0); err != nil {
+		t.Fatalf("третий админ (смена 3): %v", err)
+	}
+	if len(g.Offices[0].AdminShifts) != 3 {
+		t.Errorf("число смен = %d, хотим 3", len(g.Offices[0].AdminShifts))
+	}
 	if err := g.HireAdmin(0); err != ErrAdminAlready {
-		t.Errorf("второй админ: %v, хотим %v", err, ErrAdminAlready)
+		t.Errorf("четвёртый админ сверх лимита 3 смен: %v, хотим %v", err, ErrAdminAlready)
 	}
 	if err := g.HireAdmin(1); err != ErrOfficeLocked {
 		t.Errorf("админ в закрытом офисе: %v, хотим %v", err, ErrOfficeLocked)
@@ -648,5 +657,178 @@ func TestAdminDeptFixture(t *testing.T) {
 	}
 	if s, _ := g.Offices[1].AdminTarget(); s != 2 || !g.Offices[1].Employees[2].PCBroken {
 		t.Error("офис 2 без админа: сломанное место 3 должно остаться сломанным")
+	}
+}
+
+func TestAdminThreeShiftsAndPayroll(t *testing.T) {
+	g := deptGame(100000)
+	base := g.PayrollPerDay()
+
+	// 1-й найм: смена 1 (день)
+	if err := g.HireAdmin(0); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.PayrollPerDay() - base; got != 300 {
+		t.Fatalf("смена 1 в ФОТ = %d, хотим 300", got)
+	}
+	if !g.Offices[0].HasAdminShift(1) || g.Offices[0].Admin == "" {
+		t.Errorf("смена 1 не установлена")
+	}
+
+	// 2-й найм: смена 2 (ночь 1)
+	if err := g.HireAdmin(0); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.PayrollPerDay() - base; got != 600 {
+		t.Fatalf("смены 1+2 в ФОТ = %d, хотим 600", got)
+	}
+	if !g.Offices[0].HasAdminShift(2) {
+		t.Errorf("смена 2 не установлена")
+	}
+
+	// 3-й найм: смена 3 (ночь 2)
+	if err := g.HireAdmin(0); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.PayrollPerDay() - base; got != 900 {
+		t.Fatalf("3 смены в ФОТ = %d, хотим 900", got)
+	}
+	if !g.Offices[0].HasAdminShift(3) {
+		t.Errorf("смена 3 не установлена")
+	}
+
+	// 4-й найм: отказ
+	if err := g.HireAdmin(0); err != ErrAdminAlready {
+		t.Errorf("найм сверх 3 смен: %v, хотим %v", err, ErrAdminAlready)
+	}
+
+	// Увольнение смены 2 через Apply(CmdFireAdmin, office, shift)
+	if err := g.Apply(CmdFireAdmin, 0, 2); err != nil {
+		t.Fatalf("Apply(fire_admin 0, 2): %v", err)
+	}
+	if g.Offices[0].HasAdminShift(2) {
+		t.Errorf("смена 2 должна быть уволена")
+	}
+	if got := g.PayrollPerDay() - base; got != 600 {
+		t.Errorf("после увольнения смены 2 в ФОТ = %d, хотим 600", got)
+	}
+	if g.Offices[0].NextAdminShift() != 2 {
+		t.Errorf("следующая смена для найма = %d, хотим 2", g.Offices[0].NextAdminShift())
+	}
+
+	// Найм снова занимает освободившуюся смену 2
+	if err := g.HireAdmin(0); err != nil {
+		t.Fatal(err)
+	}
+	if !g.Offices[0].HasAdminShift(2) {
+		t.Errorf("смена 2 не заполнена повторным наймом")
+	}
+}
+
+func TestNightAdminWorkAndSummary(t *testing.T) {
+	g := adminGame(t, 4)
+	// Найм второй и третьей смен
+	if err := g.HireAdmin(0); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.HireAdmin(0); err != nil {
+		t.Fatal(err)
+	}
+
+	oe := g.Offices[0].Employees
+	oe[1].Infected = true
+	oe[2].Infected = true
+	breakSeat(&oe[3], 1)
+
+	g.Phase = PhaseDayReport
+	if err := g.NextDay(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Проверяем, что за ночь поломка починена и заражения вычищены
+	if g.Offices[0].Employees[1].Infected || g.Offices[0].Employees[2].Infected {
+		t.Errorf("ночные админы не вычистили вирус: e1=%v, e2=%v", g.Offices[0].Employees[1].Infected, g.Offices[0].Employees[2].Infected)
+	}
+	if g.Offices[0].Employees[3].PCBroken {
+		t.Errorf("ночные админы не починили ПК")
+	}
+
+	// Проверяем счётчики дня
+	if g.DayAdminRepairs != 1 || g.DayAdminCleaned != 2 {
+		t.Errorf("счётчики дня: repairs=%d cleaned=%d, хотим 1 и 2", g.DayAdminRepairs, g.DayAdminCleaned)
+	}
+
+	// Проверяем строку сводки в журнале в 10:00
+	found := false
+	want := "10:00 ночью админы починили 1 ПК, вычистили 2 мест"
+	for _, l := range g.EventLog {
+		if l == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("сводка ночной работы не найдена в журнале:\n%s\nхотим: %s", strings.Join(g.EventLog, "\n"), want)
+	}
+}
+
+func TestNightAdminSingleActionSummary(t *testing.T) {
+	// Только ремонт
+	g := adminGame(t, 4)
+	if err := g.HireAdmin(0); err != nil {
+		t.Fatal(err)
+	}
+	breakSeat(&g.Offices[0].Employees[2], 1)
+	g.Phase = PhaseDayReport
+	if err := g.NextDay(); err != nil {
+		t.Fatal(err)
+	}
+	want := "10:00 ночью админы починили 1 ПК"
+	found := false
+	for _, l := range g.EventLog {
+		if l == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("только ремонт: не найдено %q в журнале: %v", want, g.EventLog)
+	}
+
+	// Только чистка
+	g2 := adminGame(t, 4)
+	if err := g2.HireAdmin(0); err != nil {
+		t.Fatal(err)
+	}
+	g2.Offices[0].Employees[1].Infected = true
+	g2.Phase = PhaseDayReport
+	if err := g2.NextDay(); err != nil {
+		t.Fatal(err)
+	}
+	wantClean := "10:00 ночью админы вычистили 1 мест"
+	foundClean := false
+	for _, l := range g2.EventLog {
+		if l == wantClean {
+			foundClean = true
+			break
+		}
+	}
+	if !foundClean {
+		t.Errorf("только чистка: не найдено %q в журнале: %v", wantClean, g2.EventLog)
+	}
+
+	// Ничего не требовалось делать — строки нет
+	g3 := adminGame(t, 4)
+	if err := g3.HireAdmin(0); err != nil {
+		t.Fatal(err)
+	}
+	g3.Phase = PhaseDayReport
+	if err := g3.NextDay(); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range g3.EventLog {
+		if strings.Contains(l, "ночью админы") {
+			t.Errorf("не ожидали строки сводки, но получили: %s", l)
+		}
 	}
 }

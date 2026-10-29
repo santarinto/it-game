@@ -486,6 +486,9 @@ func (g *Game) NextDay() error {
 		}
 		o.BossUnpaidToday = false
 		o.AdminUnpaidToday = false
+		for si := range o.AdminShifts {
+			o.AdminShifts[si].UnpaidToday = false
+		}
 		// Роллим кофе-события следующего дня: одно до обеда, одно после.
 		if o.CoffeeMachine {
 			o.CoffeeEventTicks = []int{
@@ -515,6 +518,10 @@ func (g *Game) NextDay() error {
 	g.rollDayEvents()
 	g.Phase = PhaseRunning
 	g.beginLedger()
+	// Ночная работа админов (ITGAME-144): смены 2 и 3 работают перед открытием офиса.
+	nightRepairs, nightCleaned := g.nightAdminWork(false)
+	g.DayAdminRepairs += nightRepairs
+	g.DayAdminCleaned += nightCleaned
 	return nil
 }
 
@@ -613,6 +620,9 @@ func (g *Game) Apply(cmd Command, office, slot int) error {
 	case CmdHireAdmin:
 		return g.HireAdmin(office)
 	case CmdFireAdmin:
+		if slot > 0 {
+			return g.FireAdminShift(office, slot)
+		}
 		return g.FireAdmin(office)
 	case CmdBuyOffice:
 		return g.BuyOffice(office)

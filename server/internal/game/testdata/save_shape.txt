@@ -1,4 +1,4 @@
-format 6
+format 7
 actionPoints int
 activeEvent *struct
 activeEvent.AVTier int
@@ -189,6 +189,11 @@ money int
 offices []struct
 offices[].Admin string
 offices[].AdminHireDay int
+offices[].AdminShifts []struct
+offices[].AdminShifts[].HireDay int
+offices[].AdminShifts[].Name string
+offices[].AdminShifts[].Shift int
+offices[].AdminShifts[].UnpaidToday bool
 offices[].AdminUnpaidToday bool
 offices[].Boss string
 offices[].BossUnpaidToday bool

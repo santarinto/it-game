@@ -51,10 +51,13 @@ func TestSnapshotAdmin(t *testing.T) {
 		t.Errorf("заражённое место: цель %q, хотим virus", s.Offices[0].AdminKind)
 	}
 	raw, _ := json.Marshal(s)
-	for _, key := range []string{`"admin":`, `"adminUnpaidToday":`, `"adminSlot":`, `"adminKind":`, `"adminFirePrice":`, `"adminSalaryPerDay":`, `"adminDept":`} {
+	for _, key := range []string{`"admin":`, `"adminUnpaidToday":`, `"adminSlot":`, `"adminKind":`, `"adminFirePrice":`, `"adminSalaryPerDay":`, `"adminDept":`, `"adminShifts":`, `"adminNextShift":`} {
 		if !strings.Contains(string(raw), key) {
 			t.Errorf("в снапшоте нет %s", key)
 		}
+	}
+	if len(o.AdminShifts) != 1 || o.AdminNextShift != 2 {
+		t.Errorf("смены в снапшоте: len=%d next=%d, хотим 1 и 2", len(o.AdminShifts), o.AdminNextShift)
 	}
 }
 

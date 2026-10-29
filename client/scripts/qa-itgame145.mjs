@@ -147,10 +147,10 @@ try {
   const d5 = await sentSince(at)
   check('D5: клик по выключенной btn.admin.1 ничего не шлёт', d5.length === 0, JSON.stringify(d5))
 
-  // D6
+  // D6: найм смен админов по очереди (ITGAME-144)
   at = await lastAt()
   await realClick('btn.admin.0')
-  const d6 = {
+  const d6a = {
     sent: await sentSince(at),
     admin: await page.evaluate(() => window.itd.server().snapshot.offices[0].admin),
     label: await page.evaluate(() => window.itd.text().find((t) => (t.text ?? '').startsWith('Админ О1'))?.text ?? null),
@@ -158,9 +158,18 @@ try {
     status: await textOf('dept.status.0'),
     nav: await navSub(),
   }
-  check('D6: клик по btn.admin.0 — hire_admin 0, «Админ О1 ✓», админ на месте, «свободен», вкладка «1/3»',
-    d6.sent.length === 1 && d6.sent[0].type === 'hire_admin' && d6.sent[0].office === 0 && d6.admin !== '' && d6.label === 'Админ О1 ✓' &&
-      d6.seat && d6.status === 'свободен' && d6.nav.sub === '1/3', JSON.stringify(d6))
+  at = await lastAt()
+  await realClick('btn.admin.0')
+  await realClick('btn.admin.0')
+  const d6b = {
+    sent: await sentSince(at),
+    label: await page.evaluate(() => window.itd.text().find((t) => (t.text ?? '').startsWith('Админ О1'))?.text ?? null),
+    shifts: await page.evaluate(() => window.itd.server().snapshot.offices[0].adminShifts.length),
+  }
+  check('D6: найм смен по очереди — 1-й найм «Админ О1 (н1)», 3-й найм «Админ О1 ✓», 3 смены в офисе',
+    d6a.sent.length === 1 && d6a.sent[0].type === 'hire_admin' && d6a.admin !== '' && d6a.label === 'Админ О1 (н1)\n$600' &&
+      d6a.seat && d6a.status === 'свободен' && d6a.nav.sub === '1/3' && d6b.shifts === 3 && d6b.label === 'Админ О1 ✓',
+    JSON.stringify({ d6a, d6b }))
 
   // D7: очередь админа на живых тиках
   await page.evaluate(() => window.itd.scenario('admin_dept'))
@@ -324,6 +333,41 @@ try {
   check('D13: три админа с длинными именами — overlaps()/offscreen() пусты на двух масштабах',
     names === 3 && z1.ov.length === 0 && z1.off.length === 0 && z2.ov.length === 0 && z2.off.length === 0 && z1.scale !== z2.scale,
     JSON.stringify({ names, z1, z2 }))
+
+  // D14: ночная работа админов (ITGAME-144) — ночные админы чинят и вычищают офис за ночь
+  await page.evaluate(async () => {
+    const save = (await window.itd.snapshot()).save
+    save.offices[0].AdminShifts = [
+      { Shift: 1, Name: 'День Админ', UnpaidToday: false, HireDay: 1 },
+      { Shift: 2, Name: 'Ночь1 Админ', UnpaidToday: false, HireDay: 1 },
+      { Shift: 3, Name: 'Ночь2 Админ', UnpaidToday: false, HireDay: 1 },
+    ]
+    save.offices[0].Admin = 'День Админ'
+    save.offices[0].Employees.forEach((e) => { e.Infected = false; e.PCBroken = false })
+    save.offices[0].Employees[0].Infected = true
+    save.offices[0].Employees[1].PCBroken = true
+    save.offices[0].Employees[1].RepairNeeded = 5
+    save.phase = 'day_report'
+    save.tickInDay = 54
+    await window.itd.restore({ offices: save.offices, phase: save.phase, tickInDay: save.tickInDay })
+  })
+  await delay(400)
+  await page.evaluate(() => window.itd.cmd('next_day'))
+  await delay(500)
+  const d14 = await page.evaluate(async () => {
+    const save = (await window.itd.snapshot()).save
+    const log = save.eventLog ?? []
+    return {
+      infected: save.offices[0].Employees[0].Infected,
+      pcBroken: save.offices[0].Employees[1].PCBroken,
+      repairs: save.dayAdminRepairs,
+      cleaned: save.dayAdminCleaned,
+      summary: log.find((l) => l.includes('ночью админы починили')),
+    }
+  })
+  check('D14: ночная работа админов — за ночь починили и вычистили, сводка в журнале утра',
+    d14.infected === false && d14.pcBroken === false && d14.repairs === 1 && d14.cleaned === 1 &&
+      d14.summary === '10:00 ночью админы починили 1 ПК, вычистили 1 мест', JSON.stringify(d14))
 
   check('Z: нет pageerror', pageErrors.length === 0, JSON.stringify(pageErrors))
 } catch (e) {

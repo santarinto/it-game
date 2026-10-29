@@ -685,7 +685,13 @@ func (g *Game) PayrollPerDay() int {
 		if o.Boss != "" && !o.BossUnpaidToday {
 			total += g.cfg.BossSalaryPerDay
 		}
-		if o.Admin != "" && !o.AdminUnpaidToday {
+		if len(o.AdminShifts) > 0 {
+			for _, s := range o.AdminShifts {
+				if !s.UnpaidToday {
+					total += g.cfg.AdminSalaryPerDay
+				}
+			}
+		} else if o.Admin != "" && !o.AdminUnpaidToday {
 			total += g.cfg.AdminSalaryPerDay
 		}
 	}

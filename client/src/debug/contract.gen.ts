@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "953396585422",
+  "hash": "67a6a07d235b",
   "methods": {
     "version": {
       "kind": "prop",
@@ -808,6 +808,31 @@ export const CONTRACT = {
           "type": "string[]",
           "optional": false,
           "doc": "индекс опции уходит в event_choice (slot)"
+        }
+      }
+    },
+    "AdminShiftInfo": {
+      "kind": "object",
+      "fields": {
+        "shift": {
+          "type": "number",
+          "optional": false,
+          "doc": "1..3"
+        },
+        "name": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "unpaidToday": {
+          "type": "boolean",
+          "optional": false,
+          "doc": ""
+        },
+        "firePrice": {
+          "type": "number",
+          "optional": false,
+          "doc": ""
         }
       }
     },
@@ -3123,6 +3148,16 @@ export const CONTRACT = {
           "type": "number",
           "optional": false,
           "doc": "компенсация увольнения; 0 — админа нет"
+        },
+        "adminShifts": {
+          "type": "AdminShiftInfo[]",
+          "optional": true,
+          "doc": "все нанятые смены (ITGAME-144)"
+        },
+        "adminNextShift": {
+          "type": "number",
+          "optional": true,
+          "doc": "номер следующей свободной смены (1..3); 0 — все заняты"
         },
         "employees": {
           "type": "EmployeeInfo[]",

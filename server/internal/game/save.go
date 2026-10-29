@@ -41,7 +41,8 @@ var ErrBadSave = errors.New("bad_save")
 // 5 — ITGAME-198: «просит уйти пораньше» — Employee.AwayFrom, OverworkedUntil, RestedDay
 // и Config.OverworkMult; решение владельца 24.10.
 // 6 — ITGAME-197: роли сотрудников — Employee.Role; решение владельца 29.10.
-const SaveFormat = 6
+// 7 — ITGAME-144: смены админов — Office.AdminShifts; решение владельца 22.10.
+const SaveFormat = 7
 
 // Save — сериализуемый слепок Game: конфиг плюс все поля состояния.
 // Поле в день отчёта (Phase=day_report) валидно: TickInDay при этом равен
@@ -150,6 +151,7 @@ func cloneOffices(offices []Office) []Office {
 		out[i].Workplaces = slices.Clone(out[i].Workplaces)
 		out[i].Servers = slices.Clone(out[i].Servers)
 		out[i].CoffeeEventTicks = slices.Clone(out[i].CoffeeEventTicks)
+		out[i].AdminShifts = slices.Clone(out[i].AdminShifts)
 	}
 	return out
 }
@@ -283,6 +285,27 @@ func Restore(s Save) (*Game, error) {
 				return nil, fmt.Errorf("%w: офис %d, место %d: мёртвое место не бывает сломанным или заражённым", ErrBadSave, oi, i)
 			}
 		}
+		foundShift1 := false
+		for si := range o.AdminShifts {
+			if o.AdminShifts[si].Shift == 1 {
+				foundShift1 = true
+				if o.Admin != "" {
+					o.AdminShifts[si].Name = o.Admin
+					o.AdminShifts[si].UnpaidToday = o.AdminUnpaidToday
+					o.AdminShifts[si].HireDay = o.AdminHireDay
+				}
+				break
+			}
+		}
+		if !foundShift1 && o.Admin != "" {
+			o.AdminShifts = append(o.AdminShifts, AdminShift{
+				Shift:       1,
+				Name:        o.Admin,
+				UnpaidToday: o.AdminUnpaidToday,
+				HireDay:     o.AdminHireDay,
+			})
+		}
+		o.syncLegacyAdmin()
 	}
 	if s.PrevDayIncome == 0 && s.Phase == PhaseDayReport {
 		s.PrevDayIncome = s.DayIncome // закрытый день — он и есть «прошлый»
