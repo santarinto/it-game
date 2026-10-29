@@ -1,121 +1,319 @@
 {
   "palettes": {
     "sweetie16": [
-      "1a1c2c", "333c57", "29366f", "5d275d", "257179", "b13e53", "ef7d57",
-      "38b764", "a7f070", "ffcd75", "566c86", "3b5dc9", "41a6f6", "73eff7",
-      "94b0c2", "f4f4f4"
+      "1a1c2c", "333c57", "29366f", "5d275d", "257179", "b13e53", "ef7d57", "38b764", "a7f070", "ffcd75", "566c86", "3b5dc9", "41a6f6", "73eff7", "94b0c2", "f4f4f4"
     ],
     "hd32": [
-      "1a1c2c", "333c57", "29366f", "5d275d", "257179", "b13e53", "ef7d57",
-      "38b764", "a7f070", "ffcd75", "566c86", "3b5dc9", "41a6f6", "73eff7",
-      "94b0c2", "f4f4f4",
-      "272c42", "45546f", "758ea4", "c4d2db", "324a9c", "3e82e0", "5acbf7",
-      "873358", "d05e55", "f7a566", "fae1b5", "2f946f", "70d46a", "22294e",
-      "3c2245", "204753"
+      "1a1c2c", "333c57", "29366f", "5d275d", "257179", "b13e53", "ef7d57", "38b764", "a7f070", "ffcd75", "566c86", "3b5dc9", "41a6f6", "73eff7", "94b0c2", "f4f4f4",
+      "272c42", "45546f", "758ea4", "c4d2db", "324a9c", "3e82e0", "5acbf7", "873358", "d05e55", "f7a566", "fae1b5", "2f946f", "70d46a", "22294e", "3c2245", "204753"
     ]
   },
   "sprites": {
-    "desk_pc": { "size": 128, "frames": 1, "palette": "hd32", "class": "desk" },
-    "desk_pc_off": { "size": 128, "frames": 1, "palette": "hd32", "class": "desk", "fallback": "desk_pc" },
-    "desk_pc_broken": { "size": 128, "frames": 1, "palette": "hd32", "class": "desk", "fallback": "desk_pc" },
-    "desk_empty": { "size": 128, "frames": 1, "palette": "hd32", "class": "desk" },
-    "worker": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "includesDesk": false },
-    "worker_1": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "fallback": "worker" },
-    "worker_2": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "fallback": "worker" },
-    "worker_3": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "fallback": "worker" },
-    "boss": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "fallback": "worker" },
-    "boss_lunch": { "size": 128, "frames": 1, "palette": "hd32", "class": "person", "fallback": "boss" },
-    "router": { "size": 128, "frames": 1, "palette": "hd32", "class": "rack" },
-    "rack_server": { "size": 128, "frames": 1, "palette": "hd32", "class": "rack" },
-    "rack_empty": { "size": 128, "frames": 1, "palette": "hd32", "class": "rack" },
-    "gateway": { "size": 128, "frames": 1, "palette": "hd32", "class": "rack", "fallback": "router" },
+    "desk_pc": {"size":128,"frames":1,"palette":"hd32","class":"desk"},
+    "desk_pc_off": {"size":128,"frames":1,"palette":"hd32","class":"desk","fallback":"desk_pc"},
+    "desk_pc_broken": {"size":128,"frames":1,"palette":"hd32","class":"desk","fallback":"desk_pc"},
+    "desk_empty": {"size":128,"frames":1,"palette":"hd32","class":"desk"},
+    "worker": {"size":128,"frames":1,"palette":"hd32","class":"person","includesDesk":false},
+    "worker_1": {"size":128,"frames":1,"palette":"hd32","class":"person","fallback":"worker"},
+    "worker_2": {"size":128,"frames":1,"palette":"hd32","class":"person","fallback":"worker"},
+    "worker_3": {"size":128,"frames":1,"palette":"hd32","class":"person","fallback":"worker"},
+    "boss": {"size":128,"frames":1,"palette":"hd32","class":"person","fallback":"worker"},
+    "boss_lunch": {"size":128,"frames":1,"palette":"hd32","class":"person","fallback":"boss"},
+    "router": {"size":128,"frames":1,"palette":"hd32","class":"rack"},
+    "rack_server": {"size":128,"frames":1,"palette":"hd32","class":"rack"},
+    "rack_empty": {"size":128,"frames":1,"palette":"hd32","class":"rack"},
+    "gateway": {"size":128,"frames":1,"palette":"hd32","class":"rack","fallback":"router"},
     "cooler": {
-      "size": 128, "frames": 1, "palette": "hd32", "class": "amenity",
-      "seenIn": [{ "fixture": "full_office", "scene": "office" }]
+      "size": 128,
+      "frames": 1,
+      "palette": "hd32",
+      "class": "amenity",
+      "seenIn": [
+        {
+          "fixture": "full_office",
+          "scene": "office"
+        }
+      ]
     },
-    "fridge": { "size": 128, "frames": 1, "palette": "hd32", "class": "amenity" },
-    "coffee_machine": { "size": 128, "frames": 1, "palette": "hd32", "class": "amenity" },
-    "office_floor_tile": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "tile",
-      "maxSpecks": 4, "maxWhitePct": 60,
-      "note": "шахматка — светлый пол плитки, точки часть дизайна, перегенерировать не срочно"
-    },
+    "fridge": {"size":128,"frames":1,"palette":"hd32","class":"amenity"},
+    "coffee_machine": {"size":128,"frames":1,"palette":"hd32","class":"amenity"},
+    "office_floor_tile": {"size":64,"frames":1,"palette":"sweetie16","class":"tile","maxSpecks":4,"maxWhitePct":60,"note":"шахматка — светлый пол плитки, точки часть дизайна, перегенерировать не срочно"},
     "iso_floor_office": {
-      "size": 256, "frames": 1, "palette": "hd32", "class": "iso",
+      "size": 256,
+      "frames": 1,
+      "palette": "hd32",
+      "class": "iso",
       "note": "заглушка пилота изометрии ITGAME-209: геометрия холста (ромб клетки 256×128 у нижнего края), не арт; заменяется ревизией minipc"
     },
     "iso_desk_crt": {
-      "size": 256, "frames": 1, "palette": "hd32", "class": "iso",
+      "size": 256,
+      "frames": 1,
+      "palette": "hd32",
+      "class": "iso",
       "note": "заглушка пилота изометрии ITGAME-209: геометрия холста (стол стоит на ромбе клетки), не арт; заменяется ревизией minipc"
     },
-    "icon_money": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon" },
-    "icon_network": { "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon" },
+    "icon_money": {"size":64,"frames":1,"palette":"sweetie16","class":"icon"},
+    "icon_network": {"size":64,"frames":1,"palette":"sweetie16","class":"icon"},
     "icon_trophy": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
-      "seenIn": [{ "fixture": "fresh", "scene": "menu" }],
+      "size": 64,
+      "frames": 1,
+      "palette": "sweetie16",
+      "class": "icon",
+      "render": "smooth",
+      "seenIn": [
+        {
+          "fixture": "fresh",
+          "scene": "menu"
+        }
+      ],
       "note": "пилот ITGAME-83: генерация владельца → sprite-remap --smooth (площадная выборка с весом альфы до 64, поле 4); smooth — LINEAR на 16px в меню, палитра не проверяется (в sweetie16 нет золота fbcc58 — ремап давал медь)"
     },
     "icon_chart": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
-      "seenIn": [{ "fixture": "fresh", "scene": "menu" }],
+      "size": 64,
+      "frames": 1,
+      "palette": "sweetie16",
+      "class": "icon",
+      "render": "smooth",
+      "seenIn": [
+        {
+          "fixture": "fresh",
+          "scene": "menu"
+        }
+      ],
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/icon_chart.png --key icon_chart --smooth --chroma auto; кнопка «Статистика» 16px, заголовок окна 24px"
     },
     "icon_warning": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "size": 64,
+      "frames": 1,
+      "palette": "sweetie16",
+      "class": "icon",
+      "render": "smooth",
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/icon_warning.png --key icon_warning --smooth --chroma auto; заголовки окон «Партия в другой вкладке» и «Начать заново?» 24px"
     },
     "icon_lock": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "size": 64,
+      "frames": 1,
+      "palette": "sweetie16",
+      "class": "icon",
+      "render": "smooth",
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/icon_lock.png --key icon_lock --smooth --chroma auto; плашка «Заблокировано» на карточке достижения (текст 10px)"
     },
     "ach_first_hire": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "size": 64,
+      "frames": 1,
+      "palette": "sweetie16",
+      "class": "icon",
+      "render": "smooth",
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_first_hire.png --key ach_first_hire --smooth --chroma auto; иконка достижения «Первые кадры» (meta.ts first_hire), у заголовка карточки ~16px"
     },
     "ach_first_day": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "size": 64,
+      "frames": 1,
+      "palette": "sweetie16",
+      "class": "icon",
+      "render": "smooth",
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_first_day.png --key ach_first_day --smooth --chroma auto; иконка достижения «Первый рабочий день» (meta.ts first_day), у заголовка карточки ~16px"
     },
     "ach_coffee_break": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "size": 64,
+      "frames": 1,
+      "palette": "sweetie16",
+      "class": "icon",
+      "render": "smooth",
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_coffee_break.png --key ach_coffee_break --smooth --chroma auto; иконка достижения «Кофейная пауза» (meta.ts coffee_break), у заголовка карточки ~16px"
     },
     "ach_star_hunter": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "size": 64,
+      "frames": 1,
+      "palette": "sweetie16",
+      "class": "icon",
+      "render": "smooth",
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_star_hunter.png --key ach_star_hunter --smooth --chroma auto; иконка достижения «Охотник за звёздами» (meta.ts star_hunter), у заголовка карточки ~16px"
     },
     "ach_survivor_10": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "size": 64,
+      "frames": 1,
+      "palette": "sweetie16",
+      "class": "icon",
+      "render": "smooth",
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_survivor_10.png --key ach_survivor_10 --smooth --chroma auto; иконка достижения «10 дней без банкротства» (meta.ts survivor_10), у заголовка карточки ~16px"
     },
     "ach_three_offices": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "size": 64,
+      "frames": 1,
+      "palette": "sweetie16",
+      "class": "icon",
+      "render": "smooth",
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_three_offices.png --key ach_three_offices --smooth --chroma auto; иконка достижения «Корпорация» (meta.ts three_offices), у заголовка карточки ~16px"
     },
     "ach_full_staff": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "size": 64,
+      "frames": 1,
+      "palette": "sweetie16",
+      "class": "icon",
+      "render": "smooth",
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_full_staff.png --key ach_full_staff --smooth --chroma auto; иконка достижения «Полный штат» (meta.ts full_staff), у заголовка карточки ~16px"
     },
     "ach_core_max": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "size": 64,
+      "frames": 1,
+      "palette": "sweetie16",
+      "class": "icon",
+      "render": "smooth",
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_core_max.png --key ach_core_max --smooth --chroma auto; иконка достижения «Ядро системы» (meta.ts core_max), у заголовка карточки ~16px"
     },
     "ach_network_36": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "size": 64,
+      "frames": 1,
+      "palette": "sweetie16",
+      "class": "icon",
+      "render": "smooth",
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_network_36.png --key ach_network_36 --smooth --chroma auto; иконка достижения «36/36 в сети» (meta.ts network_36), у заголовка карточки ~16px"
     },
     "ach_millionaire": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "size": 64,
+      "frames": 1,
+      "palette": "sweetie16",
+      "class": "icon",
+      "render": "smooth",
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_millionaire.png --key ach_millionaire --smooth --chroma auto; иконка достижения «Первый миллион» (meta.ts millionaire), у заголовка карточки ~16px"
     },
     "ach_clean_win": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "size": 64,
+      "frames": 1,
+      "palette": "sweetie16",
+      "class": "icon",
+      "render": "smooth",
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_clean_win.png --key ach_clean_win --smooth --chroma auto; иконка достижения «Победа без аменити» (meta.ts clean_win), у заголовка карточки ~16px"
     },
     "ach_hardcore_win": {
-      "size": 64, "frames": 1, "palette": "sweetie16", "class": "icon", "render": "smooth",
+      "size": 64,
+      "frames": 1,
+      "palette": "sweetie16",
+      "class": "icon",
+      "render": "smooth",
       "note": "ITGAME-83: генерация владельца → node client/scripts/sprite-remap.mjs <png> client/public/assets/sprites/ach_hardcore_win.png --key ach_hardcore_win --smooth --chroma auto; иконка достижения «Хардкорный директор» (meta.ts hardcore_win; решение владельца 15.10 — свой кубок с красной эмблемой, не icon_trophy), у заголовка карточки ~16px"
+    },
+    "worker_developer": {
+      "size": 128,
+      "frames": 1,
+      "palette": "hd32",
+      "class": "person",
+      "fallback": "worker",
+      "note": "заглушка роли: Программист (ITGAME-197/243) — перекраска рубашки worker.png в акцентный цвет"
+    },
+    "desk_pc_developer": {"size":128,"frames":1,"palette":"hd32","class":"desk","fallback":"desk_pc","note":"заглушка роли: Программист (ITGAME-197/243) — перекраска экрана desk_pc.png"},
+    "iso_desk_developer": {
+      "size": 256,
+      "frames": 1,
+      "palette": "hd32",
+      "class": "iso",
+      "fallback": "iso_desk_crt",
+      "note": "заглушка роли: Программист в изометрии (ITGAME-197/211/243) — перекраска CRT-экрана"
+    },
+    "worker_tester": {
+      "size": 128,
+      "frames": 1,
+      "palette": "hd32",
+      "class": "person",
+      "fallback": "worker",
+      "note": "заглушка роли: Тестировщик (ITGAME-197/243) — перекраска рубашки worker.png в акцентный цвет"
+    },
+    "desk_pc_tester": {"size":128,"frames":1,"palette":"hd32","class":"desk","fallback":"desk_pc","note":"заглушка роли: Тестировщик (ITGAME-197/243) — перекраска экрана desk_pc.png"},
+    "iso_desk_tester": {
+      "size": 256,
+      "frames": 1,
+      "palette": "hd32",
+      "class": "iso",
+      "fallback": "iso_desk_crt",
+      "note": "заглушка роли: Тестировщик в изометрии (ITGAME-197/211/243) — перекраска CRT-экрана"
+    },
+    "worker_support": {
+      "size": 128,
+      "frames": 1,
+      "palette": "hd32",
+      "class": "person",
+      "fallback": "worker",
+      "note": "заглушка роли: Саппорт (ITGAME-197/243) — перекраска рубашки worker.png в акцентный цвет"
+    },
+    "desk_pc_support": {"size":128,"frames":1,"palette":"hd32","class":"desk","fallback":"desk_pc","note":"заглушка роли: Саппорт (ITGAME-197/243) — перекраска экрана desk_pc.png"},
+    "iso_desk_support": {"size":256,"frames":1,"palette":"hd32","class":"iso","fallback":"iso_desk_crt","note":"заглушка роли: Саппорт в изометрии (ITGAME-197/211/243) — перекраска CRT-экрана"},
+    "worker_designer": {
+      "size": 128,
+      "frames": 1,
+      "palette": "hd32",
+      "class": "person",
+      "fallback": "worker",
+      "note": "заглушка роли: Дизайнер (ITGAME-197/243) — перекраска рубашки worker.png в акцентный цвет"
+    },
+    "desk_pc_designer": {"size":128,"frames":1,"palette":"hd32","class":"desk","fallback":"desk_pc","note":"заглушка роли: Дизайнер (ITGAME-197/243) — перекраска экрана desk_pc.png"},
+    "iso_desk_designer": {"size":256,"frames":1,"palette":"hd32","class":"iso","fallback":"iso_desk_crt","note":"заглушка роли: Дизайнер в изометрии (ITGAME-197/211/243) — перекраска CRT-экрана"},
+    "worker_pm": {
+      "size": 128,
+      "frames": 1,
+      "palette": "hd32",
+      "class": "person",
+      "fallback": "worker",
+      "note": "заглушка роли: Проджект-менеджер (ITGAME-197/243) — перекраска рубашки worker.png в акцентный цвет"
+    },
+    "desk_pc_pm": {
+      "size": 128,
+      "frames": 1,
+      "palette": "hd32",
+      "class": "desk",
+      "fallback": "desk_pc",
+      "note": "заглушка роли: Проджект-менеджер (ITGAME-197/243) — перекраска экрана desk_pc.png"
+    },
+    "iso_desk_pm": {
+      "size": 256,
+      "frames": 1,
+      "palette": "hd32",
+      "class": "iso",
+      "fallback": "iso_desk_crt",
+      "note": "заглушка роли: Проджект-менеджер в изометрии (ITGAME-197/211/243) — перекраска CRT-экрана"
+    },
+    "worker_lead": {
+      "size": 128,
+      "frames": 1,
+      "palette": "hd32",
+      "class": "person",
+      "fallback": "worker",
+      "note": "заглушка роли: Лид (ITGAME-197/243) — перекраска рубашки worker.png в акцентный цвет"
+    },
+    "desk_pc_lead": {"size":128,"frames":1,"palette":"hd32","class":"desk","fallback":"desk_pc","note":"заглушка роли: Лид (ITGAME-197/243) — перекраска экрана desk_pc.png"},
+    "iso_desk_lead": {"size":256,"frames":1,"palette":"hd32","class":"iso","fallback":"iso_desk_crt","note":"заглушка роли: Лид в изометрии (ITGAME-197/211/243) — перекраска CRT-экрана"},
+    "worker_analyst": {
+      "size": 128,
+      "frames": 1,
+      "palette": "hd32",
+      "class": "person",
+      "fallback": "worker",
+      "note": "заглушка роли: Системный аналитик (ITGAME-197/243) — перекраска рубашки worker.png в акцентный цвет"
+    },
+    "desk_pc_analyst": {
+      "size": 128,
+      "frames": 1,
+      "palette": "hd32",
+      "class": "desk",
+      "fallback": "desk_pc",
+      "note": "заглушка роли: Системный аналитик (ITGAME-197/243) — перекраска экрана desk_pc.png"
+    },
+    "iso_desk_analyst": {
+      "size": 256,
+      "frames": 1,
+      "palette": "hd32",
+      "class": "iso",
+      "fallback": "iso_desk_crt",
+      "note": "заглушка роли: Системный аналитик в изометрии (ITGAME-197/211/243) — перекраска CRT-экрана"
     }
   },
-  "aliases": {}
+  "aliases": {
+    "desk_developer": "desk_pc_developer",
+    "desk_tester": "desk_pc_tester",
+    "desk_support": "desk_pc_support",
+    "desk_designer": "desk_pc_designer",
+    "desk_pm": "desk_pc_pm",
+    "desk_lead": "desk_pc_lead",
+    "desk_analyst": "desk_pc_analyst"
+  }
 }

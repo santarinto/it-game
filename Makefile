@@ -1,4 +1,4 @@
-.PHONY: help push dev dev-server dev-client stand stand-init test typecheck smoke-ui build sim replay
+.PHONY: help push dev dev-server dev-client stand stand-init test typecheck smoke-ui build sim replay sprite-stub
 .DEFAULT_GOAL := help
 
 # .env (DATABASE_URL) подхватывается автоматически; файла может не быть.
@@ -47,3 +47,6 @@ sim: ## headless-прогоны баланса: make sim ARGS="--diff hard --see
 replay: ## реплей журнала партии (ITGAME-46): make replay ARGS="party.jsonl" | ARGS="-url http://localhost:8080 -sid <sid>"
 	cd server && go build -o ../bin/itdirector-replay ./cmd/replay
 	bin/itdirector-replay $(ARGS)
+
+sprite-stub: ## перегенерировать заглушки спрайтов по ролям (ITGAME-243)
+	cd client && npm run sprite:stub

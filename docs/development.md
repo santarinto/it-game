@@ -2596,6 +2596,15 @@ worker's shirt-color levels (`worker_1..3`). Run
 `scripts/sprites/build-hd.sh` (no args), then
 `cd client && node scripts/check-sprites.mjs`.
 
+**Role placeholders (`npm run sprite:stub`, ITGAME-243):**
+`client/scripts/sprite-stub.mjs` generates placeholder assets for employee roles
+(developer, tester, support, designer, pm, lead, analyst — ITGAME-197) to decouple
+gameplay and balance development from minipc art deliveries. It recolors `worker.png`'s
+shirt, `desk_pc.png`'s monitor screen, and `iso_desk_crt.png`'s screen into distinctive
+accent colors from `hd32`, registers `worker_<role>`, `desk_pc_<role>`, `iso_desk_<role>`
+and `desk_<role>` aliases in `sprites.json`, and verifies the sprite contract.
+Run `npm run sprite:stub` (or `node client/scripts/sprite-stub.mjs --check`).
+
 What actually produced usable art (prompts and detail in
 `scripts/sprites/prompts-hd.txt`): pixflux, `--hd` (`--size 128 --palette
 hd32 --lock-palette`), outline "single color black outline", shading

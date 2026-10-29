@@ -24,6 +24,7 @@
     "qa:sprite": "node scripts/qa-sprite.mjs",
     "sprite:take": "node scripts/sprite-take.mjs",
     "sprite:job": "node scripts/sprite-job.mjs",
+    "sprite:stub": "node scripts/sprite-stub.mjs",
     "qa:trace": "node scripts/qa-itgame37.mjs",
     "qa:contract": "node scripts/qa-itgame39.mjs",
     "qa:party": "node scripts/qa-itgame47.mjs",
