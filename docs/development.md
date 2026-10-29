@@ -2028,10 +2028,10 @@ UI change.
 `.forgejo/workflows/ci.yaml` (Forgejo Actions) runs on every push to any
 branch and on «Run workflow» (inputs `mode`, `ref` — see [Deploy](#deploy)):
 
-- **test-server** — runner `minipc-test`, container `golang:1.26` with a
+- **test-server** — runner `lan-test`, container `golang:1.26` with a
   `postgres:18` service and `TEST_DATABASE_URL` set, so the DB tests run
   instead of skipping: `cd server && go test ./...`;
-- **test-client** — runner `minipc-test`, container `node:22`:
+- **test-client** — runner `lan-test`, container `node:22`:
   `cd client && npm ci && npm run build` (the build runs
   `gen-contract --check`, `tsc --noEmit`, `vite build` and `check-sprites`);
 - **deploy** — after both, on `main` or a dispatch only, on the host runner
