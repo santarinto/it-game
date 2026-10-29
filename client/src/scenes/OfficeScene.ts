@@ -66,6 +66,17 @@ const OFFLINE_LABELS: Record<string, string> = {
 // конфига (только для строки тултипа; сервер считает сам).
 const LEVEL_BONUS: Record<number, number> = { 1: 1, 2: 2, 3: 2 }
 
+// Названия ролей сотрудников (ITGAME-197) для тултипов и модалок.
+export const ROLE_LABELS: Record<string, string> = {
+  developer: 'Программист',
+  tester: 'Тестировщик',
+  support: 'Саппорт',
+  designer: 'Дизайнер',
+  pm: 'ПМ',
+  lead: 'Лид',
+  analyst: 'Аналитик',
+}
+
 // Геометрия оверлеев/бейджей рабочего места относительно центра (x,y)
 // слота. Два варианта — под HD 128px спрайты (desk_pc + worker поверх,
 // контент прижат к низу кадра) и под легаси 64px worker.png (стол/кресло
@@ -381,17 +392,16 @@ export class OfficeScene extends Phaser.Scene {
       // Легаси showWorkerOnly стол не рисует вовсе — он запечён в worker.png.
       let deskImg: Phaser.GameObjects.Image | null = null
       if (!showWorkerOnly) {
+        const deskRoleKey = e?.role && SPRITES[`desk_pc_${e.role}`] ? `desk_pc_${e.role}` : 'desk_pc'
         const deskKey = !hasPc
           ? 'desk_empty'
           : dead
             ? 'desk_pc_broken' // «требуется замена» (ITGAME-135): серый стол поломки
             : e?.pcBroken
             ? 'desk_pc_broken'
-            : s.isLunch
-              ? 'desk_pc'
-              : !e
-                ? 'desk_pc_off'
-                : 'desk_pc'
+            : !e
+              ? 'desk_pc_off'
+              : deskRoleKey
         deskImg = addSprite(this, x, y, deskKey, 'desk')
         if (dead) deskImg.setTint(DEAD_TINT)
         this.objects.push(deskImg)
@@ -500,7 +510,10 @@ export class OfficeScene extends Phaser.Scene {
         } else {
           wx = x
           wy = y
-          const workerKey = e.level >= 1 && e.level <= 3 ? `worker_${e.level}` : 'worker'
+          const roleKey = e.role ? `worker_${e.role}` : ''
+          const workerKey = (roleKey && SPRITES[roleKey])
+            ? roleKey
+            : (e.level >= 1 && e.level <= 3 ? `worker_${e.level}` : 'worker')
           slotImg = addSprite(this, wx, wy, workerKey, 'person')
         }
         // Отпущен домой (ITGAME-198): место пустует до вечера — сотрудник
@@ -750,8 +763,10 @@ export class OfficeScene extends Phaser.Scene {
     // выработка тика округлена — прибавка видна только строкой «повышение +N%» под ней.
     const base = (e.incomePerTick + (e.level > 0 ? LEVEL_BONUS[e.level] : 0)) * s.ticksPerHour
     const effective = e.effectiveIncomePerTick * s.ticksPerHour
+    const roleLabel = e.role ? (ROLE_LABELS[e.role] ?? e.role) : ''
     const lines = [
       e.name,
+      ...(roleLabel ? [`Роль: ${roleLabel}`] : []),
       `Выработка: ${fmtMoney(effective)}/час${effective !== base ? ` (база ${fmtMoney(base)})` : ''}`,
       ...(e.raisePct > 0 ? [`повышение +${e.raisePct}%`] : []),
       `Зарплата:  ${fmtMoney(e.salary)}/день${e.unpaidToday ? ' (сегодня без оплаты)' : ''}`,
@@ -844,8 +859,9 @@ export class OfficeScene extends Phaser.Scene {
       e.level > 0 ? `уровень ${e.level} и опыт ${e.xp}` : null,
       e.star ? 'статус звезды ★' : null,
     ].filter(Boolean)
+    const roleLabel = e.role ? (ROLE_LABELS[e.role] ?? e.role) : ''
     const lines = [
-      `${e.name}`,
+      `${e.name}${roleLabel ? ` (${roleLabel})` : ''}`,
       `Компенсация: ${fmtMoney(e.firePrice)}${e.hiredToday ? ' (день найма — испытательный срок)' : ''}`,
       dead ? 'ПК останется в офисе — требует замены.' : 'ПК останется в офисе — свободен для нового найма.',
       lost.length ? `Теряется: ${lost.join(', ')}.` : 'Опыт теряется (его пока нет).',

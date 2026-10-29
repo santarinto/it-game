@@ -22,6 +22,7 @@ const (
 // Employee — сотрудник: имя и личная выработка, роллятся при найме навсегда.
 type Employee struct {
 	Name          string
+	Role          string // developer | tester | support | designer | pm | lead | analyst (ITGAME-197)
 	IncomePerTick int
 	UnpaidToday   bool // нанят после обеда: в ФОТ текущего дня не входит
 	CoffeeUntil   int  // бафф кофе действует, пока тик дня < CoffeeUntil; 0 — нет

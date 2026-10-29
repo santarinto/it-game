@@ -36,6 +36,8 @@ export interface CoreInfo {
 
 export interface EmployeeInfo {
   name: string
+  // Роль сотрудника (ITGAME-197): developer | tester | support | designer | pm | lead | analyst
+  role: string
   incomePerTick: number
   // Личная выработка с учётом активных эффектов (без сетевого множителя).
   effectiveIncomePerTick: number

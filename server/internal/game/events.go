@@ -464,6 +464,7 @@ func (g *Game) ChooseEvent(option int) error {
 			o := &g.Offices[oi]
 			o.Employees = append(o.Employees, Employee{
 				Name:          rollName(g.rng) + " ★",
+				Role:          rollRole(g.rng),
 				IncomePerTick: g.cfg.IncomeMax + starIncomeBonus,
 				SalaryAdd:     g.cfg.SalaryPerDay,
 				UnpaidToday:   g.hiredAfterLunch(),

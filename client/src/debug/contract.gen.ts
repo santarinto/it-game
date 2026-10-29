@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "33e1d5707bb5",
+  "hash": "953396585422",
   "methods": {
     "version": {
       "kind": "prop",
@@ -2383,6 +2383,11 @@ export const CONTRACT = {
       "kind": "object",
       "fields": {
         "name": {
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        },
+        "role": {
           "type": "string",
           "optional": false,
           "doc": ""

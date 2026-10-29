@@ -368,3 +368,32 @@ func TestSnapshotEmployeeRaisePct(t *testing.T) {
 		t.Errorf("в JSON нет raisePct:5: %s", raw)
 	}
 }
+
+// Роли сотрудников (ITGAME-197) передаются в employeeInfo полем role.
+func TestSnapshotEmployeeRole(t *testing.T) {
+	g := game.New(game.DefaultConfig())
+	g.Money = 5000
+	if err := g.BuyPC(0); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Hire(0); err != nil {
+		t.Fatal(err)
+	}
+	g.Offices[0].Employees[0].Role = game.RoleSupport
+
+	s := snapshot(g, 1, false, "")
+	emps := s.Offices[0].Employees
+	if len(emps) != 1 {
+		t.Fatalf("сотрудников %d, хотим 1", len(emps))
+	}
+	if emps[0].Role != game.RoleSupport {
+		t.Errorf("role = %q, хотим %q", emps[0].Role, game.RoleSupport)
+	}
+	raw, err := json.Marshal(emps[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"role":"support"`) {
+		t.Errorf("в JSON нет role:support: %s", raw)
+	}
+}

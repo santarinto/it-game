@@ -1,4 +1,4 @@
-format 5
+format 6
 actionPoints int
 activeEvent *struct
 activeEvent.AVTier int
@@ -211,6 +211,7 @@ offices[].Employees[].RaisePct int
 offices[].Employees[].RepairClicks int
 offices[].Employees[].RepairNeeded int
 offices[].Employees[].RestedDay int
+offices[].Employees[].Role string
 offices[].Employees[].SalaryAdd int
 offices[].Employees[].Star bool
 offices[].Employees[].UnpaidToday bool

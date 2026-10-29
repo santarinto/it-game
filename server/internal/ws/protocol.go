@@ -143,7 +143,9 @@ type officeInfo struct {
 
 // employeeInfo — сотрудник в снапшоте: всё, что нужно тултипу.
 type employeeInfo struct {
-	Name          string `json:"name"`
+	Name string `json:"name"`
+	// Роль сотрудника (ITGAME-197): developer, tester, support, designer, pm, lead, analyst
+	Role          string `json:"role"`
 	IncomePerTick int    `json:"incomePerTick"`
 	// Личная выработка с учётом активных эффектов (без сетевого множителя).
 	EffectiveIncomePerTick int          `json:"effectiveIncomePerTick"`
@@ -380,7 +382,7 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 			if e.Infected {
 				virusNeeded = cfg.VirusCleanClicks
 			}
-			employees[i] = employeeInfo{Name: e.Name, IncomePerTick: e.IncomePerTick,
+			employees[i] = employeeInfo{Name: e.Name, Role: e.Role, IncomePerTick: e.IncomePerTick,
 				EffectiveIncomePerTick: g.EffectiveIncomePerTick(o, i),
 				Connected:              net.CoreLinked[oi][i], UnpaidToday: e.UnpaidToday, Effects: effects,
 				NetMult: net.Mults[oi][i], ServerSlot: net.ServerSlot[oi][i],

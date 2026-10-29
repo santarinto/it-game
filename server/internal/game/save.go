@@ -40,7 +40,8 @@ var ErrBadSave = errors.New("bad_save")
 // (остаток на сегодня); решение владельца 21.10.
 // 5 — ITGAME-198: «просит уйти пораньше» — Employee.AwayFrom, OverworkedUntil, RestedDay
 // и Config.OverworkMult; решение владельца 24.10.
-const SaveFormat = 5
+// 6 — ITGAME-197: роли сотрудников — Employee.Role; решение владельца 29.10.
+const SaveFormat = 6
 
 // Save — сериализуемый слепок Game: конфиг плюс все поля состояния.
 // Поле в день отчёта (Phase=day_report) валидно: TickInDay при этом равен

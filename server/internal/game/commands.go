@@ -118,8 +118,10 @@ func (g *Game) Hire(office int) error {
 		name += " ★"
 		income = int(math.Round(float64(income) * g.cfg.StarMult))
 	}
+	role := rollRole(g.rng)
 	o.Employees = append(o.Employees, Employee{
 		Name:          name,
+		Role:          role,
 		IncomePerTick: income,
 		UnpaidToday:   g.hiredAfterLunch(),
 		Star:          star,

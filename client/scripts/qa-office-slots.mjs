@@ -51,7 +51,7 @@ const spriteManifest = JSON.parse(
   readFileSync(join(CLIENT_DIR, 'src', 'assets', 'sprites.json'), 'utf8'),
 )
 const WORKER_INCLUDES_DESK = spriteManifest.sprites.worker?.includesDesk === true
-const WORKER_KEY_RE = /^worker(_[1-3])?$/
+const WORKER_KEY_RE = /^worker(_[1-3]|_developer|_tester|_support|_designer|_pm|_lead|_analyst)?$/
 
 const BASE = process.env.QA_BASE || `http://127.0.0.1:${SELF_PORT}`
 
@@ -162,8 +162,12 @@ async function caseFullOffice(browser) {
     const employees = snap.state.offices[0].employees
     const levelOf = (id) => employees[Number(id.split('.').pop())]?.level ?? 0
     const mismatched = workers.filter((w) => {
-      const level = levelOf(w.id)
-      const expected = !WORKER_INCLUDES_DESK && level >= 1 && level <= 3 ? `worker_${level}` : 'worker'
+      const idx = Number(w.id.split('.').pop())
+      const emp = employees[idx]
+      const level = emp?.level ?? 0
+      const expected = !WORKER_INCLUDES_DESK
+        ? (emp?.role ? `worker_${emp.role}` : (level >= 1 && level <= 3 ? `worker_${level}` : 'worker'))
+        : 'worker'
       return w.key !== expected
     })
     check('full_office: текстура office.worker.i соответствует уровню сотрудника', mismatched.length === 0,
@@ -185,7 +189,7 @@ async function caseFullOffice(browser) {
       const badDesk = workers.filter((w) => {
         const deskHere = images.filter((img) => img !== w && !img.id
           && Math.abs(img.x - w.x) < 1 && Math.abs(img.y - w.y) < 1
-          && (img.key === 'desk_pc' || img.key === 'desk_pc_broken'))
+          && (/^desk_pc/.test(img.key)))
         return deskHere.length !== 1
       })
       check('full_office (includesDesk=false): ровно один desk_pc/_broken под office.worker.i', badDesk.length === 0,
@@ -1423,6 +1427,52 @@ async function caseLeaveRelease(browser) {
   }
 }
 
+// ── Кейс 7: роли сотрудников (ITGAME-197) ─────────────────────────
+// Найм сотрудника присваивает ему роль из 7 допустимых, спрайт рабочего места
+// получает worker_<role> и desk_pc_<role>, в тултипе пишется «Роль: <название>».
+async function caseRoles(browser) {
+  const page = await browser.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e)))
+  await page.setViewport({ width: 1920, height: 1080 })
+  try {
+    await loadScenario(page, 'fresh', 'roles')
+    const hireRes = await page.evaluate(() => window.itd.cmd('hire'))
+    check('roles: команда hire выполнена успешно', hireRes.ok, JSON.stringify(hireRes))
+    await delay(300)
+
+    const snap = await page.evaluate(() => window.itd.snapshot())
+    const emp = snap.state.offices[0].employees[0]
+    check('roles: сотрудник нанят', !!emp, emp ? emp.name : 'null')
+    const validRoles = ['developer', 'tester', 'support', 'designer', 'pm', 'lead', 'analyst']
+    check('roles: нанятому сотруднику присвоена валидная роль', validRoles.includes(emp?.role), emp?.role)
+
+    const images = await dumpImages(page, 'office')
+    const worker = images.find((n) => n.id === 'office.worker.0')
+    check('roles: office.worker.0 использует спрайт роли worker_<role>',
+      worker?.key === `worker_${emp.role}`, `got=${worker?.key}, want=worker_${emp.role}`)
+
+    const desk = images.find((n) => !n.id && Math.abs(n.x - worker.x) < 1 && Math.abs(n.y - worker.y) < 1 && String(n.key).startsWith('desk_pc'))
+    check('roles: стол слота использует спрайт роли desk_pc_<role>',
+      desk?.key === `desk_pc_${emp.role}`, `got=${desk?.key}, want=desk_pc_${emp.role}`)
+
+    await page.evaluate(() => window.itd.hover('office.worker.0'))
+    await delay(100)
+    const tipText = await page.evaluate(() => {
+      const scene = window.__itd.scene.getScene('office')
+      return scene?.tooltipText?.text ?? ''
+    })
+    check('roles: тултип содержит строку роли', tipText.includes('Роль:'), tipText)
+    const lint = await page.evaluate(() => ({ ov: window.itd.overlaps(), off: window.itd.offscreen() }))
+    check('roles: itd.overlaps() пуст', lint.ov.length === 0, `n=${lint.ov.length}`)
+    check('roles: нет pageerror', pageErrors.length === 0, pageErrors.join(', '))
+  } catch (e) {
+    check('roles: кейс выполнен без ошибок', false, e instanceof Error ? e.message : String(e))
+  } finally {
+    await page.close().catch(() => {})
+  }
+}
+
 // ── Главный прогон: свежий браузер на кейс (без утечек между сценариями) ────
 let stopServer = null
 if (!process.env.QA_BASE) {
@@ -1436,7 +1486,7 @@ if (!process.env.QA_BASE) {
 
 try {
   for (const runCase of [
-    caseFullOffice, caseLunch, caseBrokenPc, caseBrokenLunch, caseVirus, caseTooltipUnderModal, caseRaiseTooltip, caseLeaveRelease, caseDebugFramesUnderWindows, caseServerRoomGateway, caseServerRoomEmptyRacks, caseSparePcs, caseAmenityShelf,
+    caseFullOffice, caseLunch, caseBrokenPc, caseBrokenLunch, caseVirus, caseTooltipUnderModal, caseRaiseTooltip, caseLeaveRelease, caseDebugFramesUnderWindows, caseServerRoomGateway, caseServerRoomEmptyRacks, caseSparePcs, caseAmenityShelf, caseRoles,
   ]) {
     const browser = await puppeteer.launch({
       executablePath: chromePath(),
