@@ -1936,7 +1936,7 @@ prints a `note — ждали …` line when the title differs, without failing;
 `make sim ARGS="--diff normal --seed 1..50 --days 4 --policy greedy --events-text"`
 and confirm live.
 
-**sim** (`server/cmd/sim`) plays games with the real engine, e.g.
+**sim** (`server/cmd/sim`) plays games with the real engine (see [docs/design/auto-gaming.md](design/auto-gaming.md) for inventory, retro and headless tooling overview), e.g.
 `make sim ARGS="--diff hardcore --seed 1..50 --days 30 --policy all --out runs.csv"`.
 Policies: `greedy`, `idle`, `random` (`--policy all`), plus `handsoff` and
 `delegate` for the price of admins (see «Admins»), and `expand` (greedy that
@@ -2139,7 +2139,7 @@ difficulty must be added to the list in `ws/metrics.go` `init`.
 
 ### Load test
 
-ITGAME-193. `client/scripts/load-bots.mjs` plays parties over `/ws`. Each bot
+ITGAME-193. `client/scripts/load-bots.mjs` plays parties over `/ws` (see [docs/design/auto-gaming.md](design/auto-gaming.md) for headless bot architecture). Each bot
 has its own sid (`loadbot-<run>-<i>-<gen>`), difficulties rotate, and the
 speed is 3. Each connects to `/ws?...&client=bot` (ITGAME-240), so Prometheus
 counts it as `itgame_ws_connects_total{client="bot"}` and the party analytics
