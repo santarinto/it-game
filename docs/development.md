@@ -1936,7 +1936,7 @@ prints a `note — ждали …` line when the title differs, without failing;
 `make sim ARGS="--diff normal --seed 1..50 --days 4 --policy greedy --events-text"`
 and confirm live.
 
-**sim** (`server/cmd/sim`) plays games with the real engine (see [docs/design/auto-gaming.md](design/auto-gaming.md) for inventory, retro and headless tooling overview), e.g.
+**sim** (`server/cmd/sim`) plays games with the real engine (see [docs/design/auto-gaming.md](design/auto-gaming.md) for headless tooling retro, [docs/design/sim-runs-regression.md](design/sim-runs-regression.md) for PostgreSQL runs and auto-regression proposal), e.g.
 `make sim ARGS="--diff hardcore --seed 1..50 --days 30 --policy all --out runs.csv"`.
 Policies: `greedy`, `idle`, `random` (`--policy all`), plus `handsoff` and
 `delegate` for the price of admins (see «Admins»), and `expand` (greedy that
@@ -2289,6 +2289,16 @@ On the stand they run through the MCP server `itd-db` (read-only).
 Tests: `internal/partylog` against `TEST_DATABASE_URL`, the actor side in
 `internal/ws/partylog_test.go` with a fake sink, the wiring in
 `cmd/server/partylog_test.go`.
+
+### Sim runs and regression testing
+
+ITGAME-126, proposal in
+[docs/design/sim-runs-regression.md](design/sim-runs-regression.md). Mass
+simulations (`make sim`), QA fixtures (`fixtures/*.json`) and bot stress tests
+(`client/scripts/load-bots.mjs`) record runs in PostgreSQL (`sim_batches`,
+`sim_runs`) and compare statistical distributions (median money, bankruptcy
+rate, early deaths) against reference baselines to automatically flag game
+balance regressions.
 
 ## Local stand (`:15555`)
 
