@@ -134,7 +134,7 @@ func newMux(cfg game.Config, database *db.Conn, saves *store.Store, staticDir st
 	mux := http.NewServeMux()
 	// Журнал партии для реплея (ITGAME-46) — под тем же гейтом, что и
 	// /api/debug/*: на проде у игроков не пишется.
-	wsHandler := &ws.Handler{Config: cfg, TickInterval: time.Second, Saves: saves, ReadTimeout: readTimeout, Journal: debugRoutes}
+	wsHandler := &ws.Handler{Config: cfg, TickInterval: time.Second, Saves: saves, ReadTimeout: readTimeout, Journal: debugRoutes, DB: database}
 	// Живые партии для аналитики (ITGAME-239): нужны база и сейвы. База может
 	// подняться позже сервера — писатель спрашивает её на каждой записи.
 	if database != nil && saves != nil {

@@ -47,7 +47,7 @@ type Record struct {
 	Day     int       // текущий день партии
 	Money   int64     // текущий баланс
 
-	Build, Difficulty, Scenario, Seed, Client string
+	Build, Difficulty, Scenario, Seed, Client, Player string
 
 	Closed *Day    // KindDay
 	Choice *Choice // KindChoice
@@ -269,12 +269,12 @@ func (w *Writer) remember(pid string, id int64) {
 func insertParty(ctx context.Context, pool *pgxpool.Pool, r Record, partial bool) (int64, error) {
 	var id int64
 	err := pool.QueryRow(ctx, `INSERT INTO parties
-		(sid_hash, n, partial, build, difficulty, scenario, seed, client,
+		(sid_hash, n, partial, build, difficulty, scenario, seed, client, player,
 		 started_at, last_seen_at, expires_at, day, money)
 		VALUES ($1, (SELECT coalesce(max(n), 0) + 1 FROM parties WHERE sid_hash = $1),
-		        $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11)
+		        $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11, $12)
 		RETURNING id`,
-		r.SIDHash, partial, r.Build, r.Difficulty, r.Scenario, r.Seed, r.Client,
+		r.SIDHash, partial, r.Build, r.Difficulty, r.Scenario, r.Seed, r.Client, r.Player,
 		r.At, r.Expires, r.Day, r.Money).Scan(&id)
 	return id, err
 }

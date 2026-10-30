@@ -25,6 +25,7 @@ type partyTrack struct {
 	sink       PartySink
 	sidHash    string
 	client     string
+	player     string
 	ttl        time.Duration
 	pid        string    // токен партии в памяти; новый на старте и подъёме
 	scenario   string    // фикстура старта нынешней партии
@@ -35,8 +36,8 @@ type partyTrack struct {
 	savedMoney int64
 }
 
-func newPartyTrack(h *Handler, sid, client string, withSaves bool) *partyTrack {
-	pt := &partyTrack{client: client}
+func newPartyTrack(h *Handler, sid, client, player string, withSaves bool) *partyTrack {
+	pt := &partyTrack{client: client, player: player}
 	if h.Parties == nil || !withSaves {
 		return pt
 	}
@@ -66,7 +67,7 @@ func (pt *partyTrack) record(kind partylog.Kind, g *game.Game) partylog.Record {
 		Kind: kind, PID: pt.pid, SIDHash: pt.sidHash, At: at, Expires: at.Add(pt.ttl),
 		Day: g.Day, Money: int64(g.Money),
 		Build: BuildVersion(), Difficulty: difficultyLabel(g), Scenario: pt.scenario,
-		Seed: g.SeedString(), Client: pt.client,
+		Seed: g.SeedString(), Client: pt.client, Player: pt.player,
 	}
 }
 

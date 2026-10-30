@@ -1,5 +1,7 @@
 // Зеркало server/internal/ws/protocol.go — менять синхронно.
 
+import type { AchievementState, MetaStats } from './meta'
+
 export interface EffectInfo {
   // away / overworked / rested — «просит уйти пораньше» (ITGAME-198)
   token: 'thirst' | 'hunger' | 'coffee' | 'motivated' | 'offended' | 'virus' | 'away' | 'overworked' | 'rested'
@@ -333,10 +335,28 @@ export interface SaveSummaryMessage {
   version: string
   incompatible: boolean
   saveVersion: string
+  meta?: PlayerMetaPayload
+}
+
+export interface PlayerMetaPayload {
+  stats: MetaStats
+  achievements: Record<string, AchievementState>
+}
+
+export interface MetaMessage {
+  type: 'meta'
+  meta: PlayerMetaPayload
+}
+
+export interface AchievementUnlockedMessage {
+  type: 'achievement_unlocked'
+  id: string
+  unlockedAt: number
 }
 
 export type ServerMessage =
   | StateMessage | ErrorMessage | DayReportMessage | GameOverMessage | VictoryMessage | OfflineReportMessage
+  | MetaMessage | AchievementUnlockedMessage
 
 // Команды протокола (ITGAME-39): зеркало game.Command в
 // server/internal/game/commands.go (Cmd* consts) плюс set_speed/abandon/exit

@@ -1,7 +1,10 @@
 // Package ws — WebSocket-протокол и сессии игры.
 package ws
 
-import "itdirector/internal/game"
+import (
+	"itdirector/internal/db"
+	"itdirector/internal/game"
+)
 
 // effectInfo — активный эффект сотрудника для тултипа.
 type effectInfo struct {
@@ -32,6 +35,10 @@ type clientMessage struct {
 	Day       *int   `json:"day"`
 	TickInDay *int   `json:"tickInDay"`
 	Scenario  string `json:"scenario"`
+
+	// Мета-прогресс (ITGAME-132): seed_meta / sync_meta
+	Stats        *db.MetaStats                  `json:"stats,omitempty"`
+	Achievements map[string]db.AchievementState `json:"achievements,omitempty"`
 }
 
 // stateCause — почему разослан снапшот (ITGAME-45): тик, команда, отладка
@@ -521,4 +528,23 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 			Fridge: cfg.FridgePrice, CoffeeMachine: cfg.CoffeeMachinePrice, Repair: cfg.MasterCallPrice, PCLevels: pcLevels, PCReplace: g.PCReplacePrice(),
 			ServerLevels: serverLevels, CoreLevels: coreLevels, AntivirusTiers: avTiers},
 	}
+}
+
+// playerMetaPayload — слепок мета-статистики и ачивок игрока (ITGAME-132).
+type playerMetaPayload struct {
+	Stats        db.MetaStats                  `json:"stats"`
+	Achievements map[string]db.AchievementState `json:"achievements"`
+}
+
+// metaMessage — сообщение клиенту со слепком мета-статистики (ITGAME-132).
+type metaMessage struct {
+	Type string            `json:"type"` // "meta"
+	Meta playerMetaPayload `json:"meta"`
+}
+
+// achievementUnlockedMessage — уведомление об открытом достижении (ITGAME-132).
+type achievementUnlockedMessage struct {
+	Type       string `json:"type"` // "achievement_unlocked"
+	ID         string `json:"id"`
+	UnlockedAt int64  `json:"unlockedAt"` // epoch ms
 }

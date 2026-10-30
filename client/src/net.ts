@@ -1,6 +1,8 @@
 import { resetForNewGame } from './party'
 import { localStore, sessionStore } from './storage'
-import type { ClientKind, CommandType, DayReportMessage, DifficultyId, GameOverMessage, OfflineReportMessage, SaveSummaryMessage, ServerErrorCode, ServerMessage, StateMessage, VictoryMessage } from './protocol'
+import { applyServerMeta, loadAchievements, loadStats } from './meta'
+import type { AchievementState, MetaStats } from './meta'
+import type { AchievementUnlockedMessage, ClientKind, CommandType, DayReportMessage, DifficultyId, GameOverMessage, MetaMessage, OfflineReportMessage, SaveSummaryMessage, ServerErrorCode, ServerMessage, StateMessage, VictoryMessage } from './protocol'
 
 // Транспортные коды отказа (ITGAME-39): квитанция команды (sendWithReceipt)
 // падает ими, когда сервер вовсе не ответил — в отличие от ServerErrorCode,
@@ -78,6 +80,22 @@ export interface Listener {
   // Наблюдатель (телеметрия itd): видит разовые сообщения, но не показывает
   // их игроку — его получение не снимает сообщение с очереди (ITGAME-19).
   observer?: boolean
+  // Мета-прогресс и достижения (ITGAME-132)
+  onMeta?(m: MetaMessage): void
+  onAchievementUnlocked?(a: AchievementUnlockedMessage): void
+}
+
+const PLAYER_KEY = 'itd.player'
+
+// Стабильный идентификатор игрока в браузере (ITGAME-132)
+export function playerId(): string {
+  let id = localStore.get(PLAYER_KEY)
+  if (!id || !id.startsWith('p_')) {
+    const rawUuid = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36)
+    id = `p_${rawUuid}`
+    localStore.set(PLAYER_KEY, id)
+  }
+  return id
 }
 
 const SID_KEY = 'itd.sid'
@@ -319,7 +337,8 @@ export function peekSave(sid: string, timeoutMs = 1500): Promise<SaveSummaryMess
     const timer = setTimeout(() => finish(null), timeoutMs)
     try {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-      ws = new WebSocket(`${proto}://${location.host}/ws?peek=1&sid=${encodeURIComponent(sid)}`)
+      const sidParam = sid ? `&sid=${encodeURIComponent(sid)}` : ''
+      ws = new WebSocket(`${proto}://${location.host}/ws?peek=1&player=${encodeURIComponent(playerId())}${sidParam}`)
     } catch {
       finish(null)
       return
@@ -628,7 +647,7 @@ export class GameClient {
     if (scenario) extra.set('scenario', scenario)
     const qs = extra.toString()
     this.ws = new WebSocket(
-      `${proto}://${location.host}/ws?difficulty=${this.difficulty}&sid=${urlSid}&client=${this.kind}${qs ? `&${qs}` : ''}`,
+      `${proto}://${location.host}/ws?difficulty=${this.difficulty}&sid=${urlSid}&client=${this.kind}&player=${encodeURIComponent(playerId())}${qs ? `&${qs}` : ''}`,
     )
     // События сокета, который уже заменён (suspend/resume из bfcache), —
     // не наши: запоздалый close старого сокета запустил бы реконнект и
@@ -703,6 +722,21 @@ export class GameClient {
           liveTicks: left && droppedAt !== null ? Math.max(0, Math.round(((droppedAt - left.at) / 1000) * left.speed)) : null,
         }
         this.deliver(msg)
+      } else if (msg.type === 'meta') {
+        const isServerEmpty = !msg.meta || (msg.meta.stats.totalRuns === 0 && Object.keys(msg.meta.achievements || {}).length === 0)
+        const localAchs = loadAchievements()
+        const localStats = loadStats()
+        const hasLocalData = localStats.totalRuns > 0 || Object.keys(localAchs).length > 0
+        if (isServerEmpty && hasLocalData) {
+          try {
+            this.ws?.send(JSON.stringify({ type: 'seed_meta', stats: localStats, achievements: localAchs }))
+          } catch {}
+        } else if (msg.meta) {
+          applyServerMeta(msg.meta)
+        }
+        this.listeners.forEach((l) => l.onMeta?.(msg))
+      } else if (msg.type === 'achievement_unlocked') {
+        this.listeners.forEach((l) => l.onAchievementUnlocked?.(msg))
       } else {
         console.error('неизвестный тип сообщения от сервера', msg)
       }

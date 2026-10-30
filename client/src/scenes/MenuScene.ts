@@ -5,7 +5,7 @@ import { activeZoom, applyZoom, ZOOM_OPTIONS } from '../uiscale'
 import { FONT, HIRES_CAMERA } from '../render'
 import { markActive, markDim, tag } from '../debug/agentApi'
 import { fmtMoney } from '../format'
-import { getAchievementsSummary, loadStats } from '../meta'
+import { applyServerMeta, getAchievementsSummary, loadStats } from '../meta'
 import { attachIcon } from '../ui/iconText'
 import type { DifficultyId, SaveSummaryMessage } from '../protocol'
 import { emitUi } from '../uibus'
@@ -137,12 +137,15 @@ export class MenuScene extends Phaser.Scene {
     this.menuUI.push(this.bg)
     this.buildMain()
 
-    // Факты сейва (ITGAME-19): ключ сессии есть только у клиента, день и
-    // баланс — у сервера. Меню рисуется сразу, сводка дорисовывает блок.
+    // Факты сейва и мета-прогресс (ITGAME-19, ITGAME-132): ключ сессии есть только у клиента,
+    // день и баланс — у сервера. Сводка также доставляет актуальный meta-прогресс.
     if (this.hadSave) {
       const token = ++this.peekToken
       peekSave(sessionId()).then((s) => {
         if (token !== this.peekToken || this.started || !this.scene.isActive()) return
+        if (s?.meta) {
+          applyServerMeta(s.meta)
+        }
         this.summary = s
         this.buildMain()
       })

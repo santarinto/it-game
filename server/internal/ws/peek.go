@@ -27,9 +27,10 @@ type saveSummaryMessage struct {
 	Reason     string `json:"reason"`     // причина поражения: bankrupt | time_up | deadlock
 	// Version — сборка сервера ("" — без версии), для людей (ITGAME-140). Сейв другого формата
 	// (ITGAME-169) — Exists false, Incompatible true и SaveVersion писавшей его сборки ("" — сейв до ITGAME-140).
-	Version      string `json:"version"`
-	Incompatible bool   `json:"incompatible"`
-	SaveVersion  string `json:"saveVersion"`
+	Version      string             `json:"version"`
+	Incompatible bool               `json:"incompatible"`
+	SaveVersion  string             `json:"saveVersion"`
+	Meta         *playerMetaPayload `json:"meta,omitempty"`
 }
 
 // saveHead — то, что читается из сейва любого формата (ITGAME-169): sid, версия сборки и формат
@@ -93,10 +94,22 @@ func (h *Handler) summarize(sid string) saveSummaryMessage {
 
 // servePeek — одно сообщение save_summary и нормальное закрытие. Begin не
 // зовётся: живая вкладка этой партии не получает session_taken.
-func (h *Handler) servePeek(ctx context.Context, c *websocket.Conn, sid string) {
+func (h *Handler) servePeek(ctx context.Context, c *websocket.Conn, sid, player string) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	if err := wsjson.Write(ctx, c, h.summarize(sid)); err != nil {
+
+	msg := h.summarize(sid)
+
+	if player != "" {
+		if d := h.database(); d != nil {
+			pm, err := d.GetPlayerMeta(ctx, player)
+			if err == nil && pm != nil {
+				msg.Meta = &playerMetaPayload{Stats: pm.Stats, Achievements: pm.Achievements}
+			}
+		}
+	}
+
+	if err := wsjson.Write(ctx, c, msg); err != nil {
 		return
 	}
 	c.Close(websocket.StatusNormalClosure, "")

@@ -220,8 +220,20 @@ export function resetMeta(): void {
   try {
     localStore.remove(STATS_KEY)
     localStore.remove(ACHIEVEMENTS_KEY)
+    localStore.remove('itd.player')
   } catch (e) {
     console.error('Ошибка сброса мета-прогресса:', e)
+  }
+}
+
+// Применить мета-прогресс от сервера (ITGAME-132)
+export function applyServerMeta(payload: { stats?: MetaStats; achievements?: Record<string, AchievementState> }): void {
+  if (!payload) return
+  if (payload.stats) {
+    saveStats(payload.stats)
+  }
+  if (payload.achievements) {
+    saveAchievements(payload.achievements)
   }
 }
 

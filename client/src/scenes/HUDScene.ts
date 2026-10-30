@@ -20,10 +20,12 @@ import { LOG_LINES, diffEvents, newDayLine, takeDayLog, wrapHanging } from '../e
 import type { DayLogCursor } from '../eventlog'
 import { WORKDAY, dayShare, hourShare } from '../workday'
 import {
+  applyServerMeta,
   checkAchievements,
   getAchievementsSummary,
   recordGameOver,
   recordVictory,
+  unlockAchievement,
   updateOngoingStats,
 } from '../meta'
 import type { AchievementDef } from '../meta'
@@ -441,6 +443,16 @@ export class HUDScene extends Phaser.Scene {
       onVictory: (v) => this.showVictory(v),
       onOfflineReport: (r) => this.showOfflineReport(r),
       onReconnecting: (n) => this.showReconnecting(n),
+      onMeta: (m) => {
+        applyServerMeta(m.meta)
+      },
+      onAchievementUnlocked: (a) => {
+        const def = unlockAchievement(a.id)
+        if (def) {
+          playSfx(this, 'confirmation')
+          this.toast(`Достижение: «${def.title}»!`, 4000, { bg: '#2a6b3f', icon: def.icon })
+        }
+      },
     })
     // ITGAME-64: HUD живёт между партиями — сброс партии (itd.scenario(), «Продолжить» на
     // истёкшем сейве) чистит его оверлеи через party.ts.

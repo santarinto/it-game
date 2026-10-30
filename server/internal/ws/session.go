@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"itdirector/internal/db"
 	"itdirector/internal/game"
 	"itdirector/internal/metrics"
 	"itdirector/internal/store"
@@ -35,6 +36,8 @@ type Handler struct {
 	// Parties — записи партий для аналитики в PostgreSQL (ITGAME-239, partylog.go);
 	// nil — не пишем. Пишутся только партии с сейвами.
 	Parties PartySink
+	// DB — пул PostgreSQL для мета-прогресса и достижений (ITGAME-132); nil — без БД.
+	DB *db.Conn
 
 	// Реестр живых сессий (ITGAME-26/29): sid → актор с его каналами.
 	// Регистрирует сам актор, выписывается на выходе; агентские коннекты
@@ -50,6 +53,17 @@ type Handler struct {
 	afterLoad func(sid string)
 }
 
+func (h *Handler) database() *db.DB {
+	if h == nil || h.DB == nil {
+		return nil
+	}
+	d, err := h.DB.Get()
+	if err != nil {
+		return nil
+	}
+	return d
+}
+
 // session — живая сессия: актор плюс его каналы. Создаётся ДО запуска
 // актора (ITGAME-29): читатели (вкладка, агентские мосты) начинают слать
 // команды сразу, без гонки с регистрацией.
@@ -63,6 +77,10 @@ type session struct {
 	// даёт ему номер соединения в записи start/resume.
 	owner    *websocket.Conn
 	ownerSrc string
+	// player — стабильный идентификатор игрока (ITGAME-132); "" — без игрока.
+	player      string
+	unlockedMu  sync.RWMutex
+	unlockedAch map[string]bool
 }
 
 // connHub — широковещатель сессии: снапшоты и отчёты получают ВСЕ
@@ -170,6 +188,7 @@ type clientCommand struct {
 	From   *websocket.Conn // источник (ITGAME-29): для адресных ответов агенту
 	ID     int64           // id команды от клиента (ITGAME-45): re в ответе; 0 — без id
 	Src    string          // откуда пришла (ITGAME-91, журнал партии): srcTab | srcBridge
+	Raw    clientMessage   // исходное сообщение для команд мета-прогресса (seed_meta, sync_meta)
 }
 
 // Источник команды в журнале партии (ITGAME-91): id — счётчик страницы
@@ -248,7 +267,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Сводка сейва для меню (ITGAME-19): без актора и без захвата сессии.
 	if r.URL.Query().Get("peek") == "1" {
-		h.servePeek(r.Context(), c, r.URL.Query().Get("sid"))
+		h.servePeek(r.Context(), c, r.URL.Query().Get("sid"), r.URL.Query().Get("player"))
 		return
 	}
 
@@ -293,6 +312,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Seed:     r.URL.Query().Get("seed"),
 		Scenario: r.URL.Query().Get("scenario"),
 		Client:   string(parseClientKind(r.URL.Query().Get("client"))),
+		Player:   r.URL.Query().Get("player"),
 	}
 
 	// Политика занятости (ITGAME-29): игрок всегда запускает свой актор —
@@ -321,7 +341,7 @@ func readLoop(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn,
 		}
 		tab.hear()
 		select {
-		case commands <- clientCommand{Cmd: game.Command(msg.Type), Office: msg.Office, Slot: msg.Slot, Speed: msg.Speed, From: c, ID: msg.ID, Src: srcTab}:
+		case commands <- clientCommand{Cmd: game.Command(msg.Type), Office: msg.Office, Slot: msg.Slot, Speed: msg.Speed, From: c, ID: msg.ID, Src: srcTab, Raw: msg}:
 		case <-ctx.Done():
 			return
 		}
@@ -333,6 +353,7 @@ type sessionOpts struct {
 	Seed     string // ?seed=1234: сид новой партии; пусто — случайный
 	Scenario string // ?scenario=soft_lock: фиксура старта новой партии
 	Client   string // вид клиента для аналитики партий (ITGAME-239): desktop | mobile | bot | unknown | agent
+	Player   string // ?player=p_...: стабильный идентификатор игрока (ITGAME-132)
 }
 
 // persist — записать сейв сессии. false — сессию забрал другой актор.
@@ -420,7 +441,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 	// Метрики партии (ITGAME-189): старт, подъём из сейва, финал.
 	var pm partyMetrics
 	// Партия для аналитики (ITGAME-239): записи — после успешного сейва.
-	pt := newPartyTrack(h, sid, opts.Client, withSaves)
+	pt := newPartyTrack(h, sid, opts.Client, opts.Player, withSaves)
 	if reset {
 		pt.reset()
 	}
@@ -527,6 +548,84 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 		hub.write(ctx, dayReportMsg(lastReport))
 	}
 
+	// Мета-прогресс и достижения игрока (ITGAME-132)
+	sess.player = opts.Player
+	sess.unlockedAch = make(map[string]bool)
+	if sess.player != "" {
+		if d := h.database(); d != nil {
+			metaCtx, metaCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+			pm, err := d.GetPlayerMeta(metaCtx, sess.player)
+			metaCancel()
+			if err == nil && pm != nil {
+				for achID := range pm.Achievements {
+					sess.unlockedAch[achID] = true
+				}
+				hub.write(ctx, metaMessage{
+					Type: "meta",
+					Meta: playerMetaPayload{Stats: pm.Stats, Achievements: pm.Achievements},
+				})
+			}
+		}
+	}
+
+	checkAchievements := func() {
+		if sess.player == "" {
+			return
+		}
+		isVictory := g.Phase == game.PhaseWon
+		sess.unlockedMu.RLock()
+		newAchs := game.CheckAchievements(g, sess.unlockedAch, isVictory)
+		sess.unlockedMu.RUnlock()
+		if len(newAchs) == 0 {
+			return
+		}
+		nowMs := time.Now().UnixMilli()
+		var toSave []db.AchievementState
+		sess.unlockedMu.Lock()
+		for _, id := range newAchs {
+			sess.unlockedAch[id] = true
+			toSave = append(toSave, db.AchievementState{ID: id, UnlockedAt: nowMs})
+			hub.write(ctx, achievementUnlockedMessage{
+				Type:       "achievement_unlocked",
+				ID:         id,
+				UnlockedAt: nowMs,
+			})
+		}
+		sess.unlockedMu.Unlock()
+		if h.database() != nil {
+			go func(player string, achs []db.AchievementState, day int, money int64, diff string) {
+				dbCtx, dbCancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer dbCancel()
+				if d := h.database(); d != nil {
+					_, _ = d.UnlockPlayerAchievements(dbCtx, player, achs, day, money, diff)
+				}
+			}(sess.player, toSave, g.Day, int64(g.Money), string(g.Config().Difficulty))
+		}
+	}
+
+	recordFinish := func(outcome, reason string) {
+		if sess.player == "" || h.database() == nil {
+			return
+		}
+		go func(player, diff, out, re string, day int, balance int64) {
+			dbCtx, dbCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer dbCancel()
+			if d := h.database(); d != nil {
+				_, _ = d.RecordPlayerFinish(dbCtx, player, diff, out, re, day, balance)
+			}
+		}(sess.player, string(g.Config().Difficulty), outcome, reason, g.Day, int64(g.Money))
+	}
+
+	if sendOffline {
+		if offline.Victory {
+			recordFinish("victory", "")
+		} else if offline.GameOver {
+			recordFinish("lost", offline.Reason)
+		}
+	}
+
+	checkAchievements()
+
 	for {
 		select {
 		case <-kick:
@@ -579,6 +678,27 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 				setTempo(0)
 				resumeSpeed = min(max(cmd.Speed, 0), 3)
 				journal.add(fmt.Sprintf("д%d · выход в меню: пауза, «Продолжить» на %dx", g.Day, resumeSpeed))
+			} else if cmd.Raw.Type == "seed_meta" || cmd.Raw.Type == "sync_meta" {
+				if cmd.Raw.Stats != nil && sess.player != "" && h.database() != nil {
+					go func(player string, stats db.MetaStats, achs map[string]db.AchievementState) {
+						dbCtx, dbCancel := context.WithTimeout(context.Background(), 2*time.Second)
+						defer dbCancel()
+						if d := h.database(); d != nil {
+							seeded, err := d.SeedPlayerMetaIfMissing(dbCtx, player, stats, achs)
+							if err == nil && seeded != nil {
+								sess.unlockedMu.Lock()
+								for achID := range seeded.Achievements {
+									sess.unlockedAch[achID] = true
+								}
+								sess.unlockedMu.Unlock()
+								hub.write(ctx, metaMessage{
+									Type: "meta",
+									Meta: playerMetaPayload{Stats: seeded.Stats, Achievements: seeded.Achievements},
+								})
+							}
+						}
+					}(sess.player, *cmd.Raw.Stats, cmd.Raw.Achievements)
+				}
 			} else if err := g.Apply(cmd.Cmd, cmd.Office, cmd.Slot); err != nil {
 				rejected = &errorMessage{Type: "error", Code: err.Error()}
 			}
@@ -623,6 +743,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 			jn.command(cmd, nil)
 			// Успешный снапшот — всем соединениям сессии, отправителю — с re.
 			hub.writeReply(ctx, rv.stamp(snapshot(g, speed, false, scenario)), cmd.From, cmd.ID)
+			checkAchievements()
 		case <-tickC:
 			tickStart := time.Now()
 			wasRunning := g.Phase == game.PhaseRunning
@@ -638,6 +759,13 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 			// Снапшот уйдёт (ниже): финал, отчёт дня или идущий день. На паузе
 			// фазы тик — no-op без снапшота и без новой версии.
 			finished := wasRunning && (g.Phase == game.PhaseGameOver || g.Phase == game.PhaseWon)
+			if finished {
+				if g.Phase == game.PhaseWon {
+					recordFinish("victory", "")
+				} else if g.Phase == game.PhaseGameOver {
+					recordFinish("lost", g.LoseReason)
+				}
+			}
 			if finished || report != nil || g.Phase == game.PhaseRunning {
 				rv.bump(causeTick)
 			}
@@ -665,6 +793,7 @@ func (h *Handler) run(ctx context.Context, sess *session, cfg game.Config, sid s
 			// В журнал — после сейва: тик вытесненного актора, чей сейв не
 			// прошёл, никто не увидит, и реплею он не нужен (ITGAME-46).
 			jn.tick(finished || report != nil)
+			checkAchievements()
 			if wasRunning && g.Phase == game.PhaseWon {
 				journal.add(fmt.Sprintf("д%d · цель достигнута: победа", g.Day))
 				hub.write(ctx, rv.stamp(snapshot(g, speed, false, scenario)))
