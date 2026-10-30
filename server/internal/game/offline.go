@@ -199,7 +199,7 @@ func (g *Game) offlineTemplate() *Game {
 	tpl := &Game{
 		cfg: g.cfg, Money: g.Money, Offices: append([]Office(nil), g.Offices...),
 		CoreLevel: g.CoreLevel, Gateway: g.Gateway, Phase: PhaseRunning,
-		Day: g.Day + 1,
+		Day: g.Day + 1, DirectorCabinet: g.DirectorCabinet,
 		// Полный день платит за тариф, включённый сейчас (ITGAME-137).
 		AVTier: g.AVTier, AVTierBilled: g.AVTier,
 	}
@@ -259,7 +259,7 @@ func (g *Game) resetForNextDay() {
 	g.DayVirusLost = 0
 	g.DayAdminRepairs = 0
 	g.DayAdminCleaned = 0
-	g.ActionPoints = g.cfg.ActionPointsPerDay // утро и офлайн: очки снова полные (ITGAME-127)
+	g.ActionPoints = g.ActionPointsMax() // утро и офлайн: очки снова полные (ITGAME-127/205)
 	g.AVTierBilled = g.AVTier
 	g.DayEvents = nil
 	g.ActiveEvent = nil

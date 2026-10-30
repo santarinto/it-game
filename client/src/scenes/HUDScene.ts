@@ -31,7 +31,7 @@ import {
 import type { AchievementDef } from '../meta'
 
 // Комнаты партии — сцены за панелью навигации.
-type Room = 'office' | 'serverRoom' | 'adminDept' | 'tracker'
+type Room = 'office' | 'serverRoom' | 'adminDept' | 'director' | 'tracker'
 const CX = GAME_W / 2 // центр поля — якорь модалок и тостов
 const SPEED_BEFORE_REPORT_KEY = 'itd.speedBeforeReport'
 const REPORT_KEYS = [Phaser.Input.Keyboard.KeyCodes.ENTER, Phaser.Input.Keyboard.KeyCodes.SPACE]
@@ -77,6 +77,7 @@ const ERROR_TEXTS: Record<ServerErrorCode, string> = {
   pc_fresh: 'ПК новый — менять нечего',
   pc_max_level: 'Рабочее место уже максимального уровня',
   no_action_points: 'Очки действий кончились — мастер или админ; утром очки восполнятся',
+  director_cabinet_maxed: 'Кабинет директора уже улучшен до максимума',
 }
 
 // Правый край левого блока панели (ITGAME-16): правая колонка (цель/день/рынок)
@@ -715,6 +716,8 @@ export class HUDScene extends Phaser.Scene {
       { key: 'serverRoom', office: -1, label: 'СРВ' },
       // Отдел админов (ITGAME-145): закрыт и покупается, как офис.
       { key: 'adminDept', office: -1, label: 'АДМ' },
+      // Кабинет директора (ITGAME-205): комната руководителя и прокачка очков действий.
+      { key: 'director', office: -1, label: 'ДИР' },
       // Трекер задач (ITGAME-201): заглушка канбан-доски.
       { key: 'tracker', office: -1, label: 'ТРК' },
     ]
@@ -835,7 +838,8 @@ export class HUDScene extends Phaser.Scene {
     this.navItems.forEach((item, idx) => {
       const active = this.currentRoom === 'serverRoom' ? idx === 3
         : this.currentRoom === 'adminDept' ? idx === 4
-        : this.currentRoom === 'tracker' ? idx === 5
+        : this.currentRoom === 'director' ? idx === 5
+        : this.currentRoom === 'tracker' ? idx === 6
         : idx === nav.activeOffice
       item.bg.setStrokeStyle(2, active ? 0x41a6f6 : 0x3a3f5c)
       markActive(item.bg, active)
@@ -977,6 +981,15 @@ export class HUDScene extends Phaser.Scene {
         return
       }
       if (idx === 5) {
+        // director: ДИР (ITGAME-205)
+        const nextPrice = s.prices.directorCabinetNextPrice
+        const canUpgrade = nextPrice > 0 && s.money >= nextPrice
+        item.sub.setText(`ур. ${s.directorLevel}`)
+        item.bg.setFillStyle(canUpgrade ? 0x2a6b3f : 0x232640)
+        item.sub.setColor(canUpgrade ? '#f4f4f4' : '#5d7275')
+        return
+      }
+      if (idx === 6) {
         item.sub.setText('задачи')
         return
       }
@@ -1638,6 +1651,7 @@ export class HUDScene extends Phaser.Scene {
     this.scene.stop('office')
     this.scene.stop('serverRoom')
     this.scene.stop('adminDept')
+    this.scene.stop('director')
     this.scene.stop('tracker')
     this.scene.start('menu') // start глушит hud
   }

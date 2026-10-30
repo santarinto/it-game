@@ -107,7 +107,10 @@ type stateMessage struct {
 	VirusWaveAt       string           `json:"virusWaveAt"`     // «HH:MM», с которого видна следующая волна вируса; "" — заражённых нет (ITGAME-103)
 	Antivirus         antivirusInfo    `json:"antivirus"`       // подписка на антивирус (ITGAME-137)
 	ActionPoints      int              `json:"actionPoints"`    // очков действий директора осталось на сегодня (ITGAME-127)
-	ActionPointsMax   int              `json:"actionPointsMax"` // запас дня: столько утром
+	ActionPointsMax   int              `json:"actionPointsMax"` // запас дня: столько утром (ITGAME-127/205)
+	DirectorCabinet   int              `json:"directorCabinet"` // уровень апгрейда кабинета директора (ITGAME-205)
+	DirectorLevel     int              `json:"directorLevel"`   // общий уровень директора 1..10 (ITGAME-205)
+	DirectorExpBonus  int              `json:"directorExpBonus"` // бонус ОД от дней выживания (ITGAME-205)
 	ActiveEvent       *activeEventInfo `json:"activeEvent"`
 	// Итоги событий текущего дня «HH:MM текст» (ITGAME-163) — те же строки, что
 	// придут в dayReport.events, но вживую: лента HUD кладёт строку, когда событие
@@ -283,8 +286,17 @@ type prices struct {
 	PCLevels       []pcLevelPrice       `json:"pcLevels"`  // уровни ПК места (ITGAME-135)
 	PCReplace      int                  `json:"pcReplace"` // замена ПК: цена базового ПК без роста
 	ServerLevels   []serverLevelPrice   `json:"serverLevels"`
-	CoreLevels     []coreLevelPrice     `json:"coreLevels"`
-	AntivirusTiers []antivirusTierPrice `json:"antivirusTiers"` // тарифы подписки по возрастанию цены (ITGAME-137)
+	CoreLevels               []coreLevelPrice             `json:"coreLevels"`
+	AntivirusTiers           []antivirusTierPrice         `json:"antivirusTiers"` // тарифы подписки по возрастанию цены (ITGAME-137)
+	DirectorCabinetNextPrice int                          `json:"directorCabinetNextPrice"` // цена следующего апгрейда кабинета; 0 — замаксен (ITGAME-205)
+	DirectorCabinetLevels   []directorCabinetLevelPrice  `json:"directorCabinetLevels"`   // уровни улучшений кабинета (ITGAME-205)
+}
+
+// directorCabinetLevelPrice — ступень апгрейда кабинета директора в снапшоте цен (ITGAME-205).
+type directorCabinetLevelPrice struct {
+	Name  string `json:"name"`
+	Bonus int    `json:"bonus"`
+	Price int    `json:"price"`
 }
 
 // errorMessage — отказ команды; только отправителю. Re — id команды
@@ -505,6 +517,16 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 		}
 		active = &activeEventInfo{ID: info.ID, Title: info.Title, Text: info.Text, Options: options}
 	}
+	var directorLevels []directorCabinetLevelPrice
+	for _, lvl := range cfg.DirectorCabinetLevels {
+		directorLevels = append(directorLevels, directorCabinetLevelPrice{
+			Name: lvl.Name, Bonus: lvl.Bonus, Price: lvl.Price,
+		})
+	}
+	directorNextPrice := 0
+	if g.DirectorCabinet < len(cfg.DirectorCabinetLevels) {
+		directorNextPrice = cfg.DirectorCabinetLevels[g.DirectorCabinet].Price
+	}
 	return stateMessage{
 		Type: "state", Money: g.Money, Offices: offices,
 		Gateway: g.Gateway, AdminDept: g.AdminDept, Core: core, IncomePerTick: g.IncomePerTick(),
@@ -518,7 +540,8 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 		MarketToday: g.MarketToday, MarketTomorrow: g.MarketTomorrow,
 		CreditLimit: cfg.CreditLimit, CreditRatePct: int(cfg.CreditRate * 100), DebtLimit: g.DebtLimit(),
 		BankruptInDays: g.BankruptInDays(), VirusWaveAt: g.VirusWaveClock(), Antivirus: av,
-		ActionPoints: g.ActionPoints, ActionPointsMax: cfg.ActionPointsPerDay,
+		ActionPoints: g.ActionPoints, ActionPointsMax: g.ActionPointsMax(),
+		DirectorCabinet: g.DirectorCabinet, DirectorLevel: g.DirectorLevel(), DirectorExpBonus: g.DirectorExpBonus(),
 		ActiveEvent: active, Seed: g.SeedString(), Scenario: scenario,
 		// Копия, не nil: журнал партии растёт дальше, а снапшот уходит в сокет позже.
 		DayLog:    append(make([]string, 0, len(g.EventLog)), g.EventLog...),
@@ -526,7 +549,8 @@ func snapshot(g *game.Game, speed int, resumed bool, scenario string) stateMessa
 		Prices: prices{PC: cfg.PCPrice, Hire: cfg.HirePrice,
 			Boss: cfg.BossPrice, Admin: cfg.AdminPrice, AdminDept: cfg.AdminDeptPrice, Gateway: cfg.GatewayPrice, Cooler: cfg.CoolerPrice,
 			Fridge: cfg.FridgePrice, CoffeeMachine: cfg.CoffeeMachinePrice, Repair: cfg.MasterCallPrice, PCLevels: pcLevels, PCReplace: g.PCReplacePrice(),
-			ServerLevels: serverLevels, CoreLevels: coreLevels, AntivirusTiers: avTiers},
+			ServerLevels: serverLevels, CoreLevels: coreLevels, AntivirusTiers: avTiers,
+			DirectorCabinetNextPrice: directorNextPrice, DirectorCabinetLevels: directorLevels},
 	}
 }
 

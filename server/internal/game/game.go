@@ -98,9 +98,10 @@ type Game struct {
 	DayAdminRepairs   int // ПК, починенных админами за день (ITGAME-101)
 	DayAdminCleaned   int // мест, вычищенных админами за день
 
-	// Очки действий директора на сегодня (ITGAME-127): NextDay и офлайн-утро
-	// восполняют их до cfg.ActionPointsPerDay.
-	ActionPoints int
+	// Очки действий директора на сегодня (ITGAME-127/205): NextDay и офлайн-утро
+	// восполняют их до ActionPointsMax().
+	ActionPoints    int
+	DirectorCabinet int // уровень улучшений кабинета директора (0..len(cfg.DirectorCabinetLevels)) (ITGAME-205)
 
 	// Вирус (ITGAME-103). VirusWaveIn — тиков партии до волны: общий на
 	// компанию таймер, тикает и в обед, переходит через ночь; 0 — заражённых нет.
@@ -208,6 +209,55 @@ func (g *Game) SetRNGState(b []byte) error { return g.pcg.UnmarshalBinary(b) }
 
 // Config возвращает баланс, с которым создана игра (для снапшотов протокола).
 func (g *Game) Config() Config { return g.cfg }
+
+// DirectorExpBonus возвращает прибавку к очкам действий за накопленный опыт (дни выживания):
+// +1 ОД за каждые 5 дней, максимум +4 ОД (ITGAME-205).
+func (g *Game) DirectorExpBonus() int {
+	if g == nil {
+		return 0
+	}
+	bonus := (g.Day - 1) / 5
+	if bonus > 4 {
+		return 4
+	}
+	if bonus < 0 {
+		return 0
+	}
+	return bonus
+}
+
+// DirectorCabinetBonus возвращает суммарную прибавку к очкам действий от купленных апгрейдов кабинета (ITGAME-205).
+func (g *Game) DirectorCabinetBonus() int {
+	if g == nil {
+		return 0
+	}
+	total := 0
+	for i := 0; i < g.DirectorCabinet && i < len(g.cfg.DirectorCabinetLevels); i++ {
+		total += g.cfg.DirectorCabinetLevels[i].Bonus
+	}
+	return total
+}
+
+// ActionPointsMax возвращает дневной максимум очков действий с учётом опыта и апгрейдов кабинета (ITGAME-205).
+func (g *Game) ActionPointsMax() int {
+	if g == nil {
+		return 8
+	}
+	base := g.cfg.ActionPointsPerDay
+	if base <= 0 {
+		base = 8
+	}
+	return base + g.DirectorExpBonus() + g.DirectorCabinetBonus()
+}
+
+// DirectorLevel возвращает общий уровень директора: 1 (базовый) + опыт + уровень кабинета (ITGAME-205).
+func (g *Game) DirectorLevel() int {
+	if g == nil {
+		return 1
+	}
+	expLevel := (g.Day - 1) / 5
+	return 1 + expLevel + g.DirectorCabinet
+}
 
 // Clock — текущее игровое время «HH:MM»: WorkdayStart плюс 10 минут за тик.
 func (g *Game) Clock() string { return g.cfg.clockAt(g.TickInDay) }
@@ -540,7 +590,7 @@ func (g *Game) BankruptInDays() int {
 		// Утро: очки снова полные — чиним следующие пункты; доход дня
 		// пересчитываем, только когда шаблон изменился.
 		var fixed int
-		if queue, fixed = tpl.doomRepair(queue, g.cfg.ActionPointsPerDay); fixed > 0 || stale {
+		if queue, fixed = tpl.doomRepair(queue, g.ActionPointsMax()); fixed > 0 || stale {
 			dayExact, stale = tpl.exactIncome(0, dayTicks, nil), false
 		}
 		inc, carry = carryIncome(carry, dayExact)

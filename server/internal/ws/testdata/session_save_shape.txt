@@ -1,4 +1,4 @@
-format 7
+format 8
 events []string
 game game.Save
 lastReport *struct

@@ -2,7 +2,7 @@
 import type { ItdApi, MemberSpec, TypeSpec } from './agentApi'
 export const CONTRACT = {
   "schema": 1,
-  "hash": "afbc405b57ce",
+  "hash": "4252d51cb9e3",
   "methods": {
     "version": {
       "kind": "prop",
@@ -133,7 +133,7 @@ export const CONTRACT = {
       "params": [
         {
           "name": "type",
-          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'set_antivirus' | 'hire_admin' | 'fire_admin' | 'buy_admin_dept' | 'upgrade_pc' | 'replace_pc' | 'abandon' | 'exit'",
+          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'set_antivirus' | 'hire_admin' | 'fire_admin' | 'buy_admin_dept' | 'upgrade_pc' | 'replace_pc' | 'upgrade_director' | 'abandon' | 'exit'",
           "optional": false
         },
         {
@@ -2060,7 +2060,7 @@ export const CONTRACT = {
           "doc": ""
         },
         "code": {
-          "type": "'not_connected' | 'not_enough_money' | 'no_free_office_slot' | 'no_free_pc' | 'no_free_rack_slot' | 'router_maxed' | 'wrong_phase' | 'staff_limit' | 'office_locked' | 'boss_already' | 'offices_maxed' | 'gateway_already' | 'bad_office' | 'equipment_already' | 'bad_slot' | 'server_maxed' | 'core_maxed' | 'motivate_cooldown' | 'not_broken' | 'not_infected' | 'no_event' | 'bad_option' | 'need_cooler' | 'bad_tier' | 'antivirus_already' | 'admin_already' | 'no_admin' | 'admin_dept_already' | 'admin_dept_locked' | 'pc_dead' | 'pc_fresh' | 'pc_max_level' | 'no_action_points' | 'unknown_command' | 'bad_speed' | 'receipt_timeout' | 'disconnected'",
+          "type": "'not_connected' | 'not_enough_money' | 'no_free_office_slot' | 'no_free_pc' | 'no_free_rack_slot' | 'router_maxed' | 'wrong_phase' | 'staff_limit' | 'office_locked' | 'boss_already' | 'offices_maxed' | 'gateway_already' | 'bad_office' | 'equipment_already' | 'bad_slot' | 'server_maxed' | 'core_maxed' | 'motivate_cooldown' | 'not_broken' | 'not_infected' | 'no_event' | 'bad_option' | 'need_cooler' | 'bad_tier' | 'antivirus_already' | 'admin_already' | 'no_admin' | 'admin_dept_already' | 'admin_dept_locked' | 'pc_dead' | 'pc_fresh' | 'pc_max_level' | 'no_action_points' | 'director_cabinet_maxed' | 'unknown_command' | 'bad_speed' | 'receipt_timeout' | 'disconnected'",
           "optional": true,
           "doc": ""
         },
@@ -2110,6 +2110,7 @@ export const CONTRACT = {
         "set_antivirus",
         "set_speed",
         "upgrade_core",
+        "upgrade_director",
         "upgrade_pc",
         "upgrade_server",
         "virus_click"
@@ -3318,7 +3319,7 @@ export const CONTRACT = {
       "kind": "object",
       "fields": {
         "cmd": {
-          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'set_antivirus' | 'hire_admin' | 'fire_admin' | 'buy_admin_dept' | 'upgrade_pc' | 'replace_pc' | 'abandon' | 'exit'",
+          "type": "'buy_pc' | 'hire' | 'buy_router' | 'hire_boss' | 'buy_office' | 'buy_server' | 'buy_gateway' | 'next_day' | 'restart' | 'buy_cooler' | 'buy_fridge' | 'buy_coffee' | 'set_speed' | 'upgrade_server' | 'upgrade_core' | 'motivate' | 'repair_click' | 'call_master' | 'event_choice' | 'fire' | 'virus_click' | 'set_antivirus' | 'hire_admin' | 'fire_admin' | 'buy_admin_dept' | 'upgrade_pc' | 'replace_pc' | 'upgrade_director' | 'abandon' | 'exit'",
           "optional": false,
           "doc": ""
         },
@@ -3617,7 +3618,7 @@ export const CONTRACT = {
         "scene": {
           "type": "string",
           "optional": true,
-          "doc": "только эта сцена (hud, office, serverRoom, adminDept, tracker, menu)"
+          "doc": "только эта сцена (hud, office, serverRoom, adminDept, director, tracker, menu)"
         }
       }
     },
@@ -3635,6 +3636,7 @@ export const CONTRACT = {
         "bad_tier",
         "boss_already",
         "core_maxed",
+        "director_cabinet_maxed",
         "equipment_already",
         "gateway_already",
         "motivate_cooldown",
@@ -4410,7 +4412,22 @@ export const CONTRACT = {
         "actionPointsMax": {
           "type": "number",
           "optional": false,
-          "doc": "запас дня: столько утром"
+          "doc": "запас дня: столько утром (ITGAME-127/205)"
+        },
+        "directorCabinet": {
+          "type": "number",
+          "optional": false,
+          "doc": "уровень апгрейда кабинета директора (ITGAME-205)"
+        },
+        "directorLevel": {
+          "type": "number",
+          "optional": false,
+          "doc": "общий уровень директора 1..10 (ITGAME-205)"
+        },
+        "directorExpBonus": {
+          "type": "number",
+          "optional": false,
+          "doc": "бонус ОД от дней выживания (ITGAME-205)"
         },
         "activeEvent": {
           "type": "ActiveEventInfo | null",
@@ -4423,7 +4440,7 @@ export const CONTRACT = {
           "doc": ""
         },
         "prices": {
-          "type": "{ pc: number; hire: number; boss: number; admin: number; adminDept: number; gateway: number; cooler: number; fridge: number; coffeeMachine: number; repair: number; pcLevels: { name: string; mult: number; price: number; }[]; pcReplace: number; serverLevels: { mult: number; price: number; }[]; coreLevels: { capacity: number; price: number; mult: number; }[]; antivirusTiers: { name: string; seats: number; price: number; }[]; }",
+          "type": "{ pc: number; hire: number; boss: number; admin: number; adminDept: number; gateway: number; cooler: number; fridge: number; coffeeMachine: number; repair: number; pcLevels: { name: string; mult: number; price: number; }[]; pcReplace: number; serverLevels: { mult: number; price: number; }[]; coreLevels: { capacity: number; price: number; mult: number; }[]; antivirusTiers: { name: string; seats: number; price: number; }[]; directorCabinetNextPrice: number; directorCabinetLevels: { name: string; bonus: number; price: number; }[]; }",
           "optional": false,
           "doc": ""
         }

@@ -41,6 +41,7 @@ const (
 	ErrPCFresh          = Err("pc_fresh")           // replace_pc по новому ПК
 	ErrPCMaxLevel       = Err("pc_max_level")       // upgrade_pc на максимальном уровне
 	ErrNoActionPoints   = Err("no_action_points")   // начать ремонт или чистку места — очков действий нет (ITGAME-127)
+	ErrDirectorCabinetMaxed = Err("director_cabinet_maxed") // кабинет директора улучшен до максимума (ITGAME-205)
 )
 
 // office проверяет адресата офисной команды: индекс и открытость.
@@ -510,7 +511,7 @@ func (g *Game) NextDay() error {
 	g.DayVirusLost = 0
 	g.DayAdminRepairs = 0
 	g.DayAdminCleaned = 0
-	g.ActionPoints = g.cfg.ActionPointsPerDay // утро: очки снова полные (ITGAME-127)
+	g.ActionPoints = g.ActionPointsMax() // утро: очки снова полные с учётом опыта и апгрейдов (ITGAME-127/205)
 	g.AVTierBilled = g.AVTier
 	// Рынок: вчерашний «завтра» становится сегодня, роллится новый завтра —
 	// тренд всегда виден на день вперёд (Сложность 2.0).
@@ -592,7 +593,23 @@ const (
 	CmdBuyAdminDept  = Command("buy_admin_dept") // покупка отдела админов — комнаты, где они сидят
 	CmdUpgradePC     = Command("upgrade_pc")     // апгрейд ПК стола slot (ITGAME-135)
 	CmdReplacePC     = Command("replace_pc")     // замена ПК стола slot: мёртвого или изношенного
+	CmdUpgradeDirector = Command("upgrade_director") // апгрейд кабинета директора (ITGAME-205)
 )
+
+// UpgradeDirectorCabinet покупает следующий уровень улучшения кабинета директора (ITGAME-205).
+func (g *Game) UpgradeDirectorCabinet() error {
+	if g.DirectorCabinet >= len(g.cfg.DirectorCabinetLevels) {
+		return ErrDirectorCabinetMaxed
+	}
+	lvl := g.cfg.DirectorCabinetLevels[g.DirectorCabinet]
+	if g.Money < lvl.Price {
+		return ErrNotEnoughMoney
+	}
+	g.spend(CmdUpgradeDirector, lvl.Price)
+	g.DirectorCabinet++
+	g.ActionPoints += lvl.Bonus
+	return nil
+}
 
 // Apply выполняет команду игрока; офисные команды адресуются индексом office,
 // slot дополнительно адресует стойку сервера (upgrade_server) или стол (upgrade_pc, replace_pc).
@@ -656,6 +673,8 @@ func (g *Game) Apply(cmd Command, office, slot int) error {
 		return g.UpgradePC(office, slot)
 	case CmdReplacePC:
 		return g.ReplacePC(office, slot)
+	case CmdUpgradeDirector:
+		return g.UpgradeDirectorCabinet()
 	case CmdEventChoice:
 		// slot — индекс опции активного события (см. спеку итерации 10).
 		return g.ChooseEvent(slot)

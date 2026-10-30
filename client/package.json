@@ -38,6 +38,7 @@
     "qa:ask": "node scripts/qa-itgame152.mjs",
     "qa:bankrupt": "node scripts/qa-itgame176.mjs",
     "qa:tracker": "node scripts/qa-itgame201.mjs",
+    "qa:director": "node scripts/qa-itgame205.mjs",
     "check:sprites": "node scripts/check-sprites.mjs",
     "check:emoji": "node scripts/check-emoji.mjs",
     "gen:contract": "node scripts/gen-contract.mjs",

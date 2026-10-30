@@ -1,4 +1,4 @@
-format 7
+format 8
 actionPoints int
 activeEvent *struct
 activeEvent.AVTier int
@@ -44,6 +44,10 @@ config.CreditLimit int
 config.CreditRate float64
 config.DeadlineGoalShare float64
 config.Difficulty string
+config.DirectorCabinetLevels []struct
+config.DirectorCabinetLevels[].Bonus int
+config.DirectorCabinetLevels[].Name string
+config.DirectorCabinetLevels[].Price int
 config.EmployeeLevelBonus []int
 config.EmployeeLevelXP []int
 config.EmployeesPerServer int
@@ -133,6 +137,7 @@ dayVirusPCs int
 deadlineGoal int
 deadlineGot int
 deadlineOn bool
+directorCabinet int
 eventLog []string
 format int
 gateway bool

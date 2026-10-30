@@ -65,6 +65,9 @@ type Config struct {
 	// столько же, остаток не копится. Начать ремонт или чистку места — очко.
 	ActionPointsPerDay int
 
+	// Апгрейды кабинета директора (ITGAME-205): уровни улучшений, дающие прибавку к ОД.
+	DirectorCabinetLevels []DirectorCabinetLevel
+
 	// Unseen Forces (итерация 10): дневные события. Числа — GDD «События».
 	EventChancePct  int     // шанс события в дне, %
 	EventSecondPct  int     // шанс второго события в дне, %
@@ -136,6 +139,13 @@ type RouterTier struct {
 type PCLevel struct {
 	Name  string
 	Mult  float64
+	Price int
+}
+
+// DirectorCabinetLevel — ступень улучшения кабинета директора (ITGAME-205).
+type DirectorCabinetLevel struct {
+	Name  string
+	Bonus int
 	Price int
 }
 
@@ -226,6 +236,12 @@ func DefaultConfig() Config {
 		RepairClicksMax:         15,
 		MasterCallPrice:         150,
 		ActionPointsPerDay:      8,
+		DirectorCabinetLevels: []DirectorCabinetLevel{
+			{Name: "Эргономика и 2 монитора", Bonus: 1, Price: 1200},
+			{Name: "Кофемашина шефа", Bonus: 2, Price: 3500},
+			{Name: "Секретарь", Bonus: 2, Price: 8000},
+			{Name: "Ситуационный центр", Bonus: 3, Price: 18000},
+		},
 
 		EventChancePct:  65,
 		EventSecondPct:  20,

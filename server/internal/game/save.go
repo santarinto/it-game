@@ -42,7 +42,8 @@ var ErrBadSave = errors.New("bad_save")
 // и Config.OverworkMult; решение владельца 24.10.
 // 6 — ITGAME-197: роли сотрудников — Employee.Role; решение владельца 29.10.
 // 7 — ITGAME-144: смены админов — Office.AdminShifts; решение владельца 22.10.
-const SaveFormat = 7
+// 8 — ITGAME-205: прокачка директора — DirectorCabinet и Config.DirectorCabinetLevels; решение владельца 30.10.
+const SaveFormat = 8
 
 // Save — сериализуемый слепок Game: конфиг плюс все поля состояния.
 // Поле в день отчёта (Phase=day_report) валидно: TickInDay при этом равен
@@ -57,6 +58,7 @@ type Save struct {
 	CoreLevel         int        `json:"coreLevel"`
 	Gateway           bool       `json:"gateway"`
 	AdminDept         bool       `json:"adminDept"` // отдел админов куплен (ITGAME-101)
+	DirectorCabinet   int        `json:"directorCabinet"` // уровень апгрейда кабинета директора (ITGAME-205)
 	Phase             Phase      `json:"phase"`
 	Day               int        `json:"day"`
 	TickInDay         int        `json:"tickInDay"`
@@ -114,7 +116,7 @@ func (g *Game) Export() Save {
 	s := Save{
 		Format: SaveFormat, Config: cloneConfig(g.cfg), Seed: g.Seed, Money: g.Money, IncomeCarry: g.IncomeCarry,
 		Offices: cloneOffices(g.Offices), CoreLevel: g.CoreLevel,
-		Gateway: g.Gateway, AdminDept: g.AdminDept, Phase: g.Phase, Day: g.Day, TickInDay: g.TickInDay,
+		Gateway: g.Gateway, AdminDept: g.AdminDept, DirectorCabinet: g.DirectorCabinet, Phase: g.Phase, Day: g.Day, TickInDay: g.TickInDay,
 		DayIncome: g.DayIncome, DayEventMoney: g.DayEventMoney, PrevDayIncome: g.PrevDayIncome, PeakIncomePerTick: g.PeakIncomePerTick,
 		DayIncidents: g.DayIncidents, DayLostIncome: g.DayLostIncome,
 		VirusWaveIn: g.VirusWaveIn, DayVirusPCs: g.DayVirusPCs, DayVirusLost: g.DayVirusLost,
@@ -168,6 +170,7 @@ func cloneConfig(c Config) Config {
 	c.EmployeeLevelXP = slices.Clone(c.EmployeeLevelXP)
 	c.EmployeeLevelBonus = slices.Clone(c.EmployeeLevelBonus)
 	c.AntivirusTiers = slices.Clone(c.AntivirusTiers)
+	c.DirectorCabinetLevels = slices.Clone(c.DirectorCabinetLevels)
 	return c
 }
 
@@ -257,9 +260,25 @@ func Restore(s Save) (*Game, error) {
 	if !(s.IncomeCarry >= 0 && s.IncomeCarry < 1) {
 		return nil, fmt.Errorf("%w: incomeCarry=%v вне [0, 1)", ErrBadSave, s.IncomeCarry)
 	}
-	// Очки действий (ITGAME-127): от нуля до запаса дня — больше утро не даёт.
-	if s.ActionPoints < 0 || s.ActionPoints > s.Config.ActionPointsPerDay {
-		return nil, fmt.Errorf("%w: actionPoints=%d вне [0, %d]", ErrBadSave, s.ActionPoints, s.Config.ActionPointsPerDay)
+	// Кабинет директора (ITGAME-205): уровень в пределах [0, len(DirectorCabinetLevels)].
+	if s.DirectorCabinet < 0 || s.DirectorCabinet > len(s.Config.DirectorCabinetLevels) {
+		return nil, fmt.Errorf("%w: directorCabinet=%d вне [0, %d]", ErrBadSave, s.DirectorCabinet, len(s.Config.DirectorCabinetLevels))
+	}
+	// Очки действий (ITGAME-127/205): от нуля до запаса дня с учётом опыта и кабинета.
+	expBonus := (s.Day - 1) / 5
+	if expBonus > 4 {
+		expBonus = 4
+	}
+	if expBonus < 0 {
+		expBonus = 0
+	}
+	cabinetBonus := 0
+	for i := 0; i < s.DirectorCabinet && i < len(s.Config.DirectorCabinetLevels); i++ {
+		cabinetBonus += s.Config.DirectorCabinetLevels[i].Bonus
+	}
+	maxPoints := s.Config.ActionPointsPerDay + expBonus + cabinetBonus
+	if s.ActionPoints < 0 || s.ActionPoints > maxPoints {
+		return nil, fmt.Errorf("%w: actionPoints=%d вне [0, %d]", ErrBadSave, s.ActionPoints, maxPoints)
 	}
 	for oi := range s.Offices {
 		for ei := range s.Offices[oi].Employees {
@@ -312,7 +331,7 @@ func Restore(s Save) (*Game, error) {
 	}
 	g := &Game{
 		cfg: s.Config, Seed: s.Seed,
-		Money: s.Money, IncomeCarry: s.IncomeCarry, Offices: s.Offices, CoreLevel: s.CoreLevel, Gateway: s.Gateway, AdminDept: s.AdminDept,
+		Money: s.Money, IncomeCarry: s.IncomeCarry, Offices: s.Offices, CoreLevel: s.CoreLevel, Gateway: s.Gateway, AdminDept: s.AdminDept, DirectorCabinet: s.DirectorCabinet,
 		Phase: s.Phase, Day: s.Day, TickInDay: s.TickInDay,
 		DayIncome: s.DayIncome, DayEventMoney: s.DayEventMoney, PrevDayIncome: s.PrevDayIncome, PeakIncomePerTick: s.PeakIncomePerTick,
 		DayIncidents: s.DayIncidents, DayLostIncome: s.DayLostIncome,

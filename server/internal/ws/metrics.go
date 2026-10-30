@@ -18,6 +18,7 @@ var knownCommands = map[game.Command]bool{
 	game.CmdRepairClick: true, game.CmdCallMaster: true, game.CmdEventChoice: true, game.CmdFire: true,
 	game.CmdVirusClick: true, game.CmdSetAntivirus: true, game.CmdHireAdmin: true,
 	game.CmdFireAdmin: true, game.CmdBuyAdminDept: true, game.CmdUpgradePC: true, game.CmdReplacePC: true,
+	game.CmdUpgradeDirector: true,
 	cmdSetSpeed: true, cmdAbandon: true, cmdExit: true,
 }
 

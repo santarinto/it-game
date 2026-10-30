@@ -184,7 +184,10 @@ export interface StateMessage {
   virusWaveAt: string // «HH:MM», с которого видна следующая волна вируса; '' — заражённых нет (ITGAME-103)
   antivirus: AntivirusInfo // подписка на антивирус (ITGAME-137)
   actionPoints: number // очков действий директора осталось на сегодня (ITGAME-127)
-  actionPointsMax: number // запас дня: столько утром
+  actionPointsMax: number // запас дня: столько утром (ITGAME-127/205)
+  directorCabinet: number // уровень апгрейда кабинета директора (ITGAME-205)
+  directorLevel: number // общий уровень директора 1..10 (ITGAME-205)
+  directorExpBonus: number // бонус ОД от дней выживания (ITGAME-205)
   activeEvent: ActiveEventInfo | null // висящее событие Unseen Forces
   // Итоги событий текущего дня «HH:MM текст» (ITGAME-163): те же строки, что придут в
   // dayReport.events, но вживую — лента HUD кладёт строку, когда событие случилось.
@@ -205,6 +208,8 @@ export interface StateMessage {
     serverLevels: { mult: number; price: number }[]
     coreLevels: { capacity: number; price: number; mult: number }[]
     antivirusTiers: { name: string; seats: number; price: number }[] // по возрастанию цены; seats 0 — все места (ITGAME-137)
+    directorCabinetNextPrice: number // цена следующего апгрейда кабинета; 0 — замаксен (ITGAME-205)
+    directorCabinetLevels: { name: string; bonus: number; price: number }[] // уровни улучшений кабинета (ITGAME-205)
   }
 }
 
@@ -255,6 +260,7 @@ export const SERVER_ERROR_CODES = [
   'pc_fresh',
   'pc_max_level',
   'no_action_points',
+  'director_cabinet_maxed',
   'unknown_command',
   'bad_speed',
 ] as const
@@ -369,7 +375,7 @@ export const COMMAND_TYPES = [
   'upgrade_server', 'upgrade_core',
   'motivate', 'repair_click', 'call_master', 'event_choice', 'fire',
   'virus_click', 'set_antivirus', 'hire_admin', 'fire_admin', 'buy_admin_dept',
-  'upgrade_pc', 'replace_pc',
+  'upgrade_pc', 'replace_pc', 'upgrade_director',
   'abandon', 'exit',
 ] as const
 
