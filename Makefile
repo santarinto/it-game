@@ -1,4 +1,4 @@
-.PHONY: help push dev dev-server dev-client stand stand-init test typecheck smoke-ui build sim replay sprite-stub
+.PHONY: help push dev dev-server dev-client stand stand-init test typecheck smoke-ui build sim sim-check sim-baseline replay sprite-stub
 .DEFAULT_GOAL := help
 
 # .env (DATABASE_URL) подхватывается автоматически; файла может не быть.
@@ -43,6 +43,12 @@ build: ## клиент в client/dist, сервер в bin/itdirector
 
 sim: ## headless-прогоны баланса: make sim ARGS="--diff hard --seed 1..50 --days 30 --policy all"
 	cd server && go run ./cmd/sim $(ARGS)
+
+sim-check: ## проверка регрессий баланса: make sim-check ARGS="--diff normal --policy greedy --seed 1..100 --days 30"
+	cd server && go run ./cmd/sim -check $(ARGS)
+
+sim-baseline: ## фиксация эталонного прогона: make sim-baseline ARGS="--diff normal --policy all --seed 1..100 --days 30"
+	cd server && go run ./cmd/sim -baseline $(ARGS)
 
 replay: ## реплей журнала партии (ITGAME-46): make replay ARGS="party.jsonl" | ARGS="-url http://localhost:8080 -sid <sid>"
 	cd server && go build -o ../bin/itdirector-replay ./cmd/replay

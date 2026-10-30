@@ -24,18 +24,31 @@
 //	--answer-leave  release | keep | by-hour — sim отвечает на «Просит уйти
 //	                пораньше» (ITGAME-198); by-hour — отпускает с 15:00
 //	--policy expand greedy + покупка следующего офиса, когда все набраны
+//
+// Флаги ITGAME-126/ITGAME-244 (прогоны в БД, фикстуры и авторегрессия):
+//
+//	--db            сохранять батч и прогоны в PostgreSQL (требуется DATABASE_URL)
+//	--check         запуск проверки регрессий баланса против эталона (подразумевает --db)
+//	--baseline      пометить сохранённый батч как эталонный (is_baseline = true)
+//	--label         текстовая метка батча (например 'baseline-v1')
+//	--db-url        строка подключения к PostgreSQL (по умолчанию DATABASE_URL)
+//	--scenario      имя фикстуры (например 'admin_dept') для прогона сценария
 package main
 
 import (
+	"context"
 	"encoding/csv"
 	"flag"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
+	"itdirector/internal/db"
 	"itdirector/internal/game"
 )
 
@@ -69,7 +82,7 @@ func main() {
 	diff := flag.String("diff", "normal", "easy | normal | hard | hardcore")
 	seedRange := flag.String("seed", "1..20", "сиды: N, N..M, N..M шагом 1")
 	days := flag.Int("days", 30, "сколько дней на партию")
-	policyFlag := flag.String("policy", "all", "greedy | idle | random | all (эти три) | handsoff | delegate | expand")
+	policyFlag := flag.String("policy", "all", "greedy | idle | random | all (эти три) | handsoff | delegate | expand (или через запятую)")
 	out := flag.String("out", "", "путь CSV (пусто — stdout)")
 	eventsTextFlag := flag.Bool("events-text", false, "в колонке events — имена событий через \" | \" вместо их числа")
 	auditShare := flag.Float64("audit-share", -1, "доля дохода прошлого дня в штрафе аудита (перекрывает конфиг; −1 — из конфига)")
@@ -77,7 +90,21 @@ func main() {
 	eventStatsFlag := flag.Bool("event-stats", false, "строка статистики случайных событий в stderr на каждую политику")
 	answerRaiseFlag := flag.String("answer-raise", "", "accept | decline — sim отвечает на «Просит повышения» в тик появления (пусто — не отвечает)")
 	answerLeaveFlag := flag.String("answer-leave", "", "release | keep | by-hour — sim отвечает на «Просит уйти пораньше» в тик появления (пусто — не отвечает)")
+
+	// Флаги ITGAME-126
+	dbFlag := flag.Bool("db", false, "сохранять батч и прогоны в PostgreSQL (требуется DATABASE_URL)")
+	checkFlag := flag.Bool("check", false, "проверка регрессий баланса против эталона в БД (подразумевает --db)")
+	baselineFlag := flag.Bool("baseline", false, "пометить сохранённый батч как эталонный (is_baseline = true)")
+	labelFlag := flag.String("label", "", "метка батча (например 'baseline-v1')")
+	dbURLFlag := flag.String("db-url", "", "строка подключения к PostgreSQL (по умолчанию DATABASE_URL)")
+	scenarioFlag := flag.String("scenario", "", "имя фикстуры (например 'admin_dept') для прогона сценария")
+
 	flag.Parse()
+
+	if *checkFlag || *baselineFlag {
+		*dbFlag = true
+	}
+
 	if m := *answerLeaveFlag; m != "" && m != "release" && m != "keep" && m != "by-hour" {
 		fmt.Fprintf(os.Stderr, "sim: --answer-leave %q не понят (release | keep | by-hour)\n", m)
 		os.Exit(1)
@@ -95,11 +122,62 @@ func main() {
 		fmt.Fprintf(os.Stderr, "sim: %v\n", err)
 		os.Exit(1)
 	}
-	policies := map[string]policyFunc{"greedy": greedyPolicy, "idle": idlePolicy, "random": randomPolicy,
-		"handsoff": handsoffPolicy, "delegate": delegatePolicy, "expand": expandPolicy}
-	wanted := []string{*policyFlag}
+	policies := map[string]policyFunc{
+		"greedy":   greedyPolicy,
+		"idle":     idlePolicy,
+		"random":   randomPolicy,
+		"handsoff": handsoffPolicy,
+		"delegate": delegatePolicy,
+		"expand":   expandPolicy,
+	}
+
+	var wanted []string
 	if *policyFlag == "all" {
 		wanted = []string{"greedy", "idle", "random"}
+	} else {
+		for _, p := range strings.Split(*policyFlag, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				wanted = append(wanted, p)
+			}
+		}
+	}
+	for _, name := range wanted {
+		if _, ok := policies[name]; !ok {
+			fmt.Fprintf(os.Stderr, "sim: неизвестная политика %q (есть: greedy, idle, random, handsoff, delegate, expand, all)\n", name)
+			os.Exit(1)
+		}
+	}
+
+	if *scenarioFlag != "" && !game.FixtureExists(*scenarioFlag) {
+		fmt.Fprintf(os.Stderr, "sim: неизвестная фикстура сценария %q (есть: %s)\n", *scenarioFlag, strings.Join(game.FixtureNames(), ", "))
+		os.Exit(1)
+	}
+
+	var database *db.DB
+	if *dbFlag {
+		dsn := *dbURLFlag
+		if dsn == "" {
+			dsn = os.Getenv("DATABASE_URL")
+		}
+		if dsn == "" {
+			fmt.Fprintf(os.Stderr, "sim: для --db / --check нужен DATABASE_URL или -db-url\n")
+			os.Exit(1)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		var err error
+		database, err = db.Connect(ctx, dsn)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sim: ошибка подключения к БД: %v\n", err)
+			os.Exit(1)
+		}
+		defer database.Close()
+
+		if err := database.Migrate(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "sim: ошибка применения миграций БД: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	var w *csv.Writer
@@ -112,6 +190,8 @@ func main() {
 		}
 		w = csv.NewWriter(f)
 		closeOut = func() { w.Flush(); f.Close() }
+	} else if *checkFlag {
+		w = csv.NewWriter(io.Discard)
 	} else {
 		w = csv.NewWriter(os.Stdout)
 	}
@@ -125,14 +205,20 @@ func main() {
 	outcomes := map[string]int{}
 	var st auditStats
 	records := map[string][]dayRecord{}
+	var allSimRuns []db.SimRun
+
 	for _, name := range wanted {
 		policy := policies[name]
 		for _, seed := range seeds {
-			outcome := runOne(w, cfg, name, policy, seed, *days, &st, records)
+			outcome, runRec := runOne(w, cfg, *scenarioFlag, name, policy, seed, *days, &st, records)
 			outcomes[name+"/"+outcome]++
+			if database != nil {
+				allSimRuns = append(allSimRuns, runRec)
+			}
 		}
 	}
 	w.Flush()
+
 	fmt.Fprintf(os.Stderr, "sim: %s, сидов %d, дней %d — исходы: %s\n",
 		*diff, len(seeds)*len(wanted), *days, joinCounts(outcomes))
 	if *auditStatsFlag {
@@ -144,17 +230,84 @@ func main() {
 			fmt.Fprintln(os.Stderr, eventStatsLine(*diff, name, len(seeds), *days, records[name]))
 		}
 	}
+
+	if database != nil {
+		batchUUID := fmt.Sprintf("sim-%s-%s-%06d", *diff, time.Now().Format("20060102-150405"), rand.IntN(1000000))
+		gitCommit, gitBranch := gitMeta()
+		label := *labelFlag
+		if *baselineFlag && label == "" {
+			label = "baseline"
+		}
+		paramsMap := map[string]any{
+			"audit_share":  *auditShare,
+			"answer_raise": *answerRaiseFlag,
+			"answer_leave": *answerLeaveFlag,
+		}
+		batch := db.SimBatch{
+			BatchUUID:   batchUUID,
+			GitCommit:   gitCommit,
+			GitBranch:   gitBranch,
+			CreatedAt:   time.Now(),
+			Source:      "sim",
+			Difficulty:  *diff,
+			Scenario:    *scenarioFlag,
+			DaysLimit:   *days,
+			SeedsCount:  len(seeds),
+			Policies:    wanted,
+			Params:      paramsMap,
+			Label:       label,
+			IsBaseline:  *baselineFlag,
+		}
+		dbCtx, dbCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer dbCancel()
+
+		batchID, err := database.SaveSimBatch(dbCtx, batch, allSimRuns)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sim: ошибка сохранения в БД: %v\n", err)
+			os.Exit(1)
+		}
+		if *baselineFlag {
+			fmt.Fprintf(os.Stderr, "sim db: сохранён эталонный батч %d (%s, commit: %s)\n", batchID, batchUUID, gitCommit)
+		} else {
+			fmt.Fprintf(os.Stderr, "sim db: сохранён батч %d (%s, commit: %s)\n", batchID, batchUUID, gitCommit)
+		}
+
+		if *checkFlag {
+			hasRegression, err := checkRegressions(dbCtx, database, batchID, batch, wanted)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "sim: ошибка проверки регрессий: %v\n", err)
+				os.Exit(1)
+			}
+			if hasRegression {
+				os.Exit(1)
+			}
+		}
+	}
 }
 
 // runOne — одна партия: политика решает каждый час, дни закрываются
-// честными тиками ядра. Возвращает финал партии.
-func runOne(w *csv.Writer, cfg game.Config, name string, policy policyFunc, seed, days int, st *auditStats, records map[string][]dayRecord) string {
-	g := game.NewSeeded(cfg, uint64(seed))
+// честными тиками ядра. Возвращает финал партии и запись для БД.
+func runOne(w *csv.Writer, cfg game.Config, scenario, name string, policy policyFunc, seed, days int, st *auditStats, records map[string][]dayRecord) (string, db.SimRun) {
+	var g *game.Game
+	var err error
+	if scenario != "" {
+		g, err = game.NewFixture(cfg, scenario, strconv.Itoa(seed))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sim: ошибка загрузки фикстуры %q: %v\n", scenario, err)
+			os.Exit(1)
+		}
+	} else {
+		g = game.NewSeeded(cfg, uint64(seed))
+	}
 	rng := rand.New(rand.NewPCG(uint64(seed), 0xC0FFEE)) // свой поток — политика не расходует игровые роллы
 	outcome := "running"
 	plan := dayPlan(g)
 	var outbreaks int
 	var seen *game.DayEvent // последнее активное событие: смена указателя = новая активация
+	var totalEvents int
+	var auditFailed bool
+	var lastReport *game.DayReport
+
 	for g.Day <= days && outcome == "running" {
 		// игровой день по тикам; политика думает раз в час
 		for g.Phase == game.PhaseRunning {
@@ -173,11 +326,14 @@ func runOne(w *csv.Writer, cfg game.Config, name string, policy policyFunc, seed
 				answerLeave(g, leaveAnswer)
 			}
 			if report != nil {
+				lastReport = report
+				totalEvents += len(report.Events)
 				outcome = dayOutcome(g, report)
 				failed := slices.ContainsFunc(report.Events, func(e string) bool {
 					return strings.Contains(e, "аудит провален")
 				})
 				if failed {
+					auditFailed = true
 					st.failed++
 				}
 				if outcome == string(game.LoseBankrupt) {
@@ -213,7 +369,44 @@ func runOne(w *csv.Writer, cfg game.Config, name string, policy policyFunc, seed
 		outcome = "timeout" // дни кончились, партия жива
 		writeSummary(w, name, seed, g, outcome)
 	}
-	return outcome
+
+	daysSurvived := g.Day
+	finalMoney := int64(g.Money)
+	finalIncome := int64(g.DayIncome)
+	finalPayroll := int64(g.PayrollPerDay())
+	if lastReport != nil && (outcome == string(game.LoseBankrupt) || outcome == string(game.LoseTimeUp) || outcome == string(game.LoseDeadlock) || outcome == "timeout") {
+		daysSurvived = lastReport.Day
+		finalMoney = int64(lastReport.Balance)
+		finalIncome = int64(lastReport.Income)
+		finalPayroll = int64(lastReport.Payroll + lastReport.GatewayOpex + lastReport.Antivirus)
+	}
+
+	offices := 0
+	pcs := 0
+	for _, o := range g.Offices {
+		if o.Unlocked {
+			offices++
+			pcs += o.PCs
+		}
+	}
+
+	runRec := db.SimRun{
+		Policy:       name,
+		Seed:         int64(seed),
+		Scenario:     scenario,
+		Outcome:      outcome,
+		DaysSurvived: daysSurvived,
+		FinalMoney:   finalMoney,
+		FinalIncome:  finalIncome,
+		FinalPayroll: finalPayroll,
+		FinalStaff:   g.TotalEmployees(),
+		FinalOffices: offices,
+		FinalPCs:     pcs,
+		EventsCount:  totalEvents,
+		AuditFailed:  auditFailed,
+	}
+
+	return outcome, runRec
 }
 
 func dayOutcome(g *game.Game, r *game.DayReport) string {
