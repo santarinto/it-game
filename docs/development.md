@@ -2300,6 +2300,14 @@ simulations (`make sim`), QA fixtures (`fixtures/*.json`) and bot stress tests
 rate, early deaths) against reference baselines to automatically flag game
 balance regressions.
 
+### Meta progress and achievements
+
+ITGAME-132, proposal in
+[docs/design/meta-progress.md](design/meta-progress.md). Player achievements and
+run statistics move from browser `localStorage` to server-authoritative tracking
+in PostgreSQL (`player_meta`, `parties.player`) linked via persistent `player`
+ID, keeping full graceful fallback when the database is offline.
+
 ## Local stand (`:15555`)
 
 A permanent local copy of the game for the owner, browser agents and
